@@ -64,6 +64,94 @@ Claude Code sessions, Codex sessions, other agents and CI use **the same list, s
 
 **MCP is not implemented:** no MCP server exists in this repository, so the MCP column is the planned tool mapping, not shipped behaviour. The `octocove` CLI implements the named CLI commands and `helper status` (local only); webhook reactivation and the replay, retention and operations routes are available through the CLI and HTTP. Tool names in the table are suffixed to `octocove_`, e.g. `octocove_task_claim`. Human-only tools may be exposed by a human-authenticated MCP client; a Claude or Codex agent delegation always receives 403. Read tools accept the same query parameters as HTTP; write tools require `idempotencyKey`, passed unchanged as `Idempotency-Key`. CLI creates and retains one random key per logical action, including across network retries; `--idempotency-key` permits explicit recovery. Neither tool nor CLI silently changes SHAs, intent versions or approval bindings to make a request succeed.
 
+## Organizations and tenant selection
+
+### TODAY'S SHIPPED v1 behaviour
+
+v1 serves a **single implicit tenant**, whose literal id is `octocove`. Nothing
+multi-org is shipped: no org creation, org selector or organization discovery.
+The operation index and current OpenAPI paths describe this behavior. `GET /me`
+returns project memberships; it does not return `organizations` or membership
+`tenantId`. Project creation remains subject to the existing creator allow-list.
+The v1 event envelope has no `tenantId`; its ids belong to this legacy tenant.
+
+### ACCEPTED FUTURE CONTRACT
+
+[ADR 0027](adr/0027-organizations-tenant-identity-and-explicit-tenant-routing.md)
+is accepted as a contract; its runtime is not yet shipped. The following routes,
+fields and problems are **planned**, not additions to the shipped operation index.
+Their standalone OpenAPI components are marked `x-status: planned` and are not
+attached to current paths or responses.
+
+An **organization** is the ownership, record and recovery boundary. Every project
+belongs permanently to exactly one organization. All existing projects remain in
+`octocove`; new orgs have opaque ids `org_<lowercase UUIDv4>`. Display names can
+change; ids and project ownership cannot. Project slugs, repository namespaces,
+canonical targets (repository identity plus full target ref), and machine-assertion
+replay ownership remain globally unique across organizations.
+
+**Selection.** New organization-owned resource routes use
+`/v1/orgs/{orgId}/...`, with the tenant id as `orgId`, including `octocove` for
+explicit legacy selection. This single path selector makes each request and saved
+link unambiguous; there is no selector header or implicit current organization.
+Every resource reference in the path, query and body must match that tenant.
+Legacy unscoped resource routes and their unprefixed aliases resolve to `octocove`
+only: no search, redirect or fallback into another org. A mismatch is refused
+before any effect. Global sign-in, discovery and org creation need no existing
+tenant selector.
+
+**Discovery and authority.** There is one global sign-in. Planned human
+`GET /v1/me` adds `organizations: [{organization: {id, name, provisioningState},
+role: "member" | "admin"}]`, listing the caller's org memberships, including
+pending creations. An empty list is valid. Project `memberships` additionally carry
+`tenantId`; project membership is distinct from org membership. Org membership
+grants no project verbs. Org admin permits org metadata management and project
+creation/administration, without implicitly granting task, approval, landing or
+machine verbs. Existing explicit project permissions, delegations and machine
+grants still govern those actions. Delegated and machine clients receive tenant
+identity in their authorized project/attempt or grant context; the human discovery
+addition gives them no new access.
+
+**Creation.** Planned `POST /v1/orgs` takes `{name}` and an `Idempotency-Key` under
+a human session, with cookie Origin/CSRF checks where applicable. Any signed-in
+human may create an org and becomes its admin. Until per-user org creation limits,
+a global provisioning rate limit and a pending/queued state are all in place, the
+existing creator allow-list still gates creation. The response is an
+`Organization` `{id, name, provisioningState}`: 201 with `ready`, or 202 with
+`pending` and `Retry-After` seconds. `pending` covers queued or provisioning work;
+it reserves the id and creator's admin membership and transitions to `ready` under
+that same id. Refresh `GET /me` to learn readiness. A same-key, same-body creation
+retry recovers the accepted result before creation limits, without creating
+another org; it is not a readiness poll. Existing idempotency-conflict rules apply.
+
+**Planned problems.** These use the existing `application/problem+json` shape with
+`type`, `title`, `status`, `code`, `detail`, `requestId` and optional `details`.
+Each exact problem type is `urn:octocove:problem:<code>`:
+
+| HTTP | Code | Meaning and recovery |
+| --- | --- | --- |
+| 404 | `tenant-not-found` | Unknown or forbidden selected tenant; identical response to conceal existence. Refresh discovery or obtain access. |
+| 409 | `tenant-mismatch` | An otherwise visible resource does not belong to the explicit selector. Correct the selection or resource reference. |
+| 409 | `legacy-route-non-legacy-resource` | An otherwise visible non-legacy resource was named on an unscoped legacy route. Use its explicit org path. |
+| 409 | `org-creation-pending` | Resource access requires a ready org, but creation is pending. `details.organization` carries the org with `provisioningState: "pending"`. Wait, then refresh discovery. |
+| 429 | `org-creation-rate-limited` | A per-user creation limit or global provisioning rate limit refused admission; no org was created by this attempt. Wait, then retry with the same key. |
+
+Pending and rate-limited problems require `Retry-After`, a positive integer number
+of seconds. Successful 202 creation is not a problem response. Authentication and
+visibility checks precede routing diagnostics: invisible resources retain their
+existing 404 problem and expose no owning org. Clients never retry automatically
+in a different tenant.
+
+**Events and compatibility.** The v1 event service keeps running for **90 days
+after v2 ships**, independently of replay retention. Before a second organization
+is admitted, clients must support event `tenantId` and deduplicate by
+`(tenantId, id)` across live delivery, webhooks, replay and version overlap. Only
+the known legacy v1 service may supply the implicit `octocove` qualifier when an
+envelope lacks `tenantId`; the currently selected org is never a fallback. v2
+requires `tenantId` and preserves identity for the same recorded fact. Checkpoints
+and cursors remain tenant-scoped. Records, audit and recovery preserve permanent
+ownership; see the [record boundary](COLLABORATION_RECORD.md#21-organization-boundary-accepted-future-contract).
+
 ## Principals and authentication
 
 Human login needs only **a standard OIDC client registration at the configured provider**; any standards-conforming OIDC issuer works (authorization code with PKCE S256, discovery and JWKS; see [AUTH.md](AUTH.md)), and no particular vendor or hosted service is required. Issuer URL, client ID, exact redirect URIs and client secret are configuration, not imported code.

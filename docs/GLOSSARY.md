@@ -376,11 +376,10 @@ projects, applied when read. A notification never schedules or changes work. See
 [ADR 0025](adr/0025-in-app-notifications.md).
 
 ### Tenant / repository binding (`projects`, `repositories`, `target_refs`)
-Tenant is the organization isolation/routing boundary; a project groups its tasks,
-repositories and memberships inside one tenant. Octocove has no tenant table:
-a deployment serves one tenant, and every authorization check stops at the project.
-The credential authority receives the project as `projectId`, and audit/event read
-scopes carry no tenant; see
+**Today:** v1 serves one implicit tenant, `octocove`; no multi-organization behavior
+is shipped. A project groups its tasks, repositories and memberships, and authority
+is per project. The credential authority receives the project as `projectId`, and
+audit/event read scopes have no explicit tenant selector; see
 [ADR 0010](adr/0010-byo-canonical-provider.md#credentials).
 Repository binding associates a registered provider/namespace/repo identity and
 explicit target with that authority. It is not host-name matching, a client workspace
@@ -396,9 +395,40 @@ The request first writes a creation intent that reserves the Artifacts address
 `committed`, `address-taken`, `abandoned`, or `needs-operator` (then `resolved` by
 the operator). Octocove never deletes the Artifacts repository itself.
 Authenticated membership controls use. Metadata/head caches are mutable; task identities and source mappings
-are frozen. The per-organization database directory is a persistence design, not a
-new public tenant endpoint. Planned adapter bindings additionally pin topology,
+are frozen. The accepted future organization boundary is defined below, not a
+shipped tenant endpoint. Planned adapter bindings additionally pin topology,
 generation and policy version per attempt; they are not fields shipped in `Claim`.
+
+### Organization
+**Accepted future contract; runtime not yet shipped** ([ADR 0027](adr/0027-organizations-tenant-identity-and-explicit-tenant-routing.md)).
+The ownership, record and recovery boundary. A project belongs permanently to
+exactly one organization. One global sign-in can have memberships in several
+organizations; ordinary org membership grants no project verbs. Any signed-in
+human may create an organization and becomes its admin, but the existing creator
+allow-list remains until per-user creation limits, a global provisioning rate
+limit and pending/queued provisioning are all in place. Creation may be pending.
+Project slugs, repository namespaces, canonical targets and machine-assertion
+replay ownership remain globally unique across organizations.
+
+### Tenant id
+**Accepted future contract.** The opaque, immutable organization identifier:
+`org_<lowercase UUIDv4>` for new organizations, with `octocove` the sole legacy
+exception. Clients compare the whole string; it conveys no name, location or
+authority. The planned path selector is `/v1/orgs/{orgId}/...`, where `orgId` is
+this id. Event consumers deduplicate by tenant-qualified identity `(tenantId, id)`.
+
+### Org admin
+**Accepted future contract.** An organization role that permits managing org
+metadata and creating/administering its projects. It does not implicitly grant
+task, approval, landing or machine verbs. Those remain explicit per-project
+permissions or grants; selecting an organization is not authorization.
+
+### Legacy tenant
+The single implicit tenant in today's shipped v1, whose literal id is `octocove`.
+Under the accepted future contract all existing projects belong to it permanently.
+Legacy unscoped resource routes resolve only to this tenant, never another org.
+No multi-organization discovery or selection is shipped today; see
+[organizations and tenant selection](API.md#organizations-and-tenant-selection).
 
 ### Binding export and recovery evidence (offline operations)
 Deterministic logical allocation names are distinct from the exact physical

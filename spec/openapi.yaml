@@ -4218,6 +4218,20 @@ components:
       name: Octocove-Signature
       description: Outbound destination verifies HMAC-SHA256 and timestamp; not a public API credential.
   parameters:
+    TenantSelector:
+      x-status: planned
+      name: orgId
+      in: path
+      required: true
+      description: >-
+        Planned under ADR 0027; runtime not yet shipped. The sole tenant selector for new
+        organization-owned resource routes is /v1/orgs/{orgId}/... (no selector header or
+        implicit current organization). Every referenced resource must match this tenant.
+        Legacy unscoped resource routes resolve only to octocove and never fall back to
+        another org. Selection grants no authority. This parameter is not attached to a
+        shipped path.
+      schema:
+        $ref: '#/components/schemas/TenantId'
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -4351,6 +4365,202 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
   schemas:
+    TenantId:
+      x-status: planned
+      type: string
+      pattern: '^(octocove|org_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$'
+      description: >-
+        Planned under ADR 0027; runtime not yet shipped. Opaque immutable tenant id:
+        org_<lowercase UUIDv4> for a new organization, or the literal octocove for the
+        legacy tenant. All existing projects belong permanently to octocove. Clients
+        compare the whole string; it encodes no name, location or authority.
+    Organization:
+      x-status: planned
+      type: object
+      required: [id, name, provisioningState]
+      description: >-
+        Planned under ADR 0027; runtime not yet shipped. Ownership, record and recovery
+        boundary; each project belongs permanently to exactly one organization. Project
+        slugs, repository namespaces, canonical targets and machine-assertion replay
+        ownership stay globally unique across organizations. Planned POST /v1/orgs
+        returns this object with 201 when ready or 202 when pending. A pending result
+        reserves this id and the creator's admin membership; it requires Retry-After in
+        positive integer seconds. Refresh planned GET /me discovery for readiness.
+        Creation requires a signed-in human, who becomes admin, and an Idempotency-Key.
+        Until per-user creation limits, a global provisioning rate limit and pending/queued
+        provisioning are all in place, the existing creator allow-list still applies.
+        Same-key, same-body recovery returns the accepted result before creation limits.
+      properties:
+        id:
+          $ref: '#/components/schemas/TenantId'
+        name:
+          type: string
+          minLength: 1
+          description: Mutable display name; never a tenant selector.
+        provisioningState:
+          type: string
+          enum: [pending, ready]
+          description: Pending means accepted and queued or provisioning; it becomes ready under the same id.
+    OrganizationMembership:
+      x-status: planned
+      type: object
+      required: [organization, role]
+      description: >-
+        Planned human organization membership, distinct from project membership. Ordinary
+        membership grants no project verbs. Org admin authority covers org metadata and
+        creating/administering projects, without implicit task, approval, landing or
+        machine verbs; those require explicit per-project permissions or grants.
+      properties:
+        organization:
+          $ref: '#/components/schemas/Organization'
+        role:
+          type: string
+          enum: [member, admin]
+    OrganizationDiscovery:
+      x-status: planned
+      type: object
+      required: [organizations]
+      description: >-
+        Planned additive fragment for human GET /v1/me after one global sign-in, not
+        today's Me response. Lists the caller's org memberships including pending orgs
+        they created; an empty list is valid. Project memberships separately gain the
+        tenantId field described by TenantIdentity. Discovery grants no project verbs
+        or new organization access to delegated or machine clients.
+      properties:
+        organizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationMembership'
+    TenantIdentity:
+      x-status: planned
+      type: object
+      required: [tenantId]
+      description: >-
+        Planned identity fragment for project memberships, authorized project/attempt
+        or grant context, and v2 events; not attached to current responses. Event consumers
+        deduplicate by (tenantId, id) before a second organization is admitted, including
+        webhook delivery and replay. The v1 event service runs for 90 days after v2 ships.
+        Only a known legacy v1 event without tenantId may be qualified with octocove;
+        never infer it from the selected org. The same recorded fact retains identity
+        across event versions, replay and recovery; cursors/checkpoints stay tenant-scoped.
+      properties:
+        tenantId:
+          $ref: '#/components/schemas/TenantId'
+    TenantNotFoundProblem:
+      x-status: planned
+      description: >-
+        Planned application/problem+json for an unknown or forbidden selected tenant;
+        the same 404 conceals existence. Refresh discovery or obtain access. Never
+        fall back to another tenant. Authentication precedes tenant diagnostics.
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        properties:
+          type:
+            type: string
+            const: urn:octocove:problem:tenant-not-found
+          status:
+            type: integer
+            const: 404
+          code:
+            type: string
+            const: tenant-not-found
+    TenantMismatchProblem:
+      x-status: planned
+      description: >-
+        Planned application/problem+json when an otherwise visible resource in a path,
+        query or body belongs to a different tenant than the explicit selector. Refused
+        before any effect; correct the selector or reference, never retry automatically
+        in another tenant. Invisible resources retain the existing 404 resource problem;
+        no foreign tenant metadata is disclosed.
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        properties:
+          type:
+            type: string
+            const: urn:octocove:problem:tenant-mismatch
+          status:
+            type: integer
+            const: 409
+          code:
+            type: string
+            const: tenant-mismatch
+    LegacyRouteNonLegacyResourceProblem:
+      x-status: planned
+      description: >-
+        Planned application/problem+json when an otherwise visible non-legacy resource
+        is named on an unscoped legacy route or its unprefixed alias. No effect occurred;
+        use the resource's explicit organization path. Legacy routes resolve only to
+        octocove, never search or redirect into another org. Invisible resources retain
+        the existing 404 resource problem without disclosing their owning tenant.
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        properties:
+          type:
+            type: string
+            const: urn:octocove:problem:legacy-route-non-legacy-resource
+          status:
+            type: integer
+            const: 409
+          code:
+            type: string
+            const: legacy-route-non-legacy-resource
+    OrganizationCreationPendingProblem:
+      x-status: planned
+      description: >-
+        Planned application/problem+json for resource access while the selected org's
+        accepted creation is pending. Requires Retry-After as positive integer seconds;
+        wait and refresh GET /me discovery before retrying the resource operation.
+        Successful pending creation itself returns 202 with Organization, not a problem.
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        required: [details]
+        properties:
+          type:
+            type: string
+            const: urn:octocove:problem:org-creation-pending
+          status:
+            type: integer
+            const: 409
+          code:
+            type: string
+            const: org-creation-pending
+          details:
+            type: object
+            required: [organization]
+            properties:
+              organization:
+                allOf:
+                - $ref: '#/components/schemas/Organization'
+                - type: object
+                  properties:
+                    provisioningState:
+                      type: string
+                      const: pending
+    OrganizationCreationRateLimitedProblem:
+      x-status: planned
+      description: >-
+        Planned application/problem+json when a per-user org creation limit or the global
+        provisioning rate limit refuses admission. No organization was created by this
+        attempt. Requires Retry-After as positive integer seconds; wait, then retry with
+        the same idempotency key. Recovery of an already accepted creation precedes these
+        limits; a rate-limit response never replaces an accepted result.
+      allOf:
+      - $ref: '#/components/schemas/Problem'
+      - type: object
+        properties:
+          type:
+            type: string
+            const: urn:octocove:problem:org-creation-rate-limited
+          status:
+            type: integer
+            const: 429
+          code:
+            type: string
+            const: org-creation-rate-limited
     ApprovalGrantRequest:
       type: object
       additionalProperties: false

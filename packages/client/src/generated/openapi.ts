@@ -1648,6 +1648,84 @@ export interface webhooks {
 }
 export interface components {
     schemas: {
+        /** @description Planned under ADR 0027; runtime not yet shipped. Opaque immutable tenant id: org_<lowercase UUIDv4> for a new organization, or the literal octocove for the legacy tenant. All existing projects belong permanently to octocove. Clients compare the whole string; it encodes no name, location or authority. */
+        TenantId: string;
+        /** @description Planned under ADR 0027; runtime not yet shipped. Ownership, record and recovery boundary; each project belongs permanently to exactly one organization. Project slugs, repository namespaces, canonical targets and machine-assertion replay ownership stay globally unique across organizations. Planned POST /v1/orgs returns this object with 201 when ready or 202 when pending. A pending result reserves this id and the creator's admin membership; it requires Retry-After in positive integer seconds. Refresh planned GET /me discovery for readiness. Creation requires a signed-in human, who becomes admin, and an Idempotency-Key. Until per-user creation limits, a global provisioning rate limit and pending/queued provisioning are all in place, the existing creator allow-list still applies. Same-key, same-body recovery returns the accepted result before creation limits. */
+        Organization: {
+            id: components["schemas"]["TenantId"];
+            /** @description Mutable display name; never a tenant selector. */
+            name: string;
+            /**
+             * @description Pending means accepted and queued or provisioning; it becomes ready under the same id.
+             * @enum {string}
+             */
+            provisioningState: "pending" | "ready";
+        };
+        /** @description Planned human organization membership, distinct from project membership. Ordinary membership grants no project verbs. Org admin authority covers org metadata and creating/administering projects, without implicit task, approval, landing or machine verbs; those require explicit per-project permissions or grants. */
+        OrganizationMembership: {
+            organization: components["schemas"]["Organization"];
+            /** @enum {string} */
+            role: "member" | "admin";
+        };
+        /** @description Planned additive fragment for human GET /v1/me after one global sign-in, not today's Me response. Lists the caller's org memberships including pending orgs they created; an empty list is valid. Project memberships separately gain the tenantId field described by TenantIdentity. Discovery grants no project verbs or new organization access to delegated or machine clients. */
+        OrganizationDiscovery: {
+            organizations: components["schemas"]["OrganizationMembership"][];
+        };
+        /** @description Planned identity fragment for project memberships, authorized project/attempt or grant context, and v2 events; not attached to current responses. Event consumers deduplicate by (tenantId, id) before a second organization is admitted, including webhook delivery and replay. The v1 event service runs for 90 days after v2 ships. Only a known legacy v1 event without tenantId may be qualified with octocove; never infer it from the selected org. The same recorded fact retains identity across event versions, replay and recovery; cursors/checkpoints stay tenant-scoped. */
+        TenantIdentity: {
+            tenantId: components["schemas"]["TenantId"];
+        };
+        /** @description Planned application/problem+json for an unknown or forbidden selected tenant; the same 404 conceals existence. Refresh discovery or obtain access. Never fall back to another tenant. Authentication precedes tenant diagnostics. */
+        TenantNotFoundProblem: components["schemas"]["Problem"] & {
+            /** @constant */
+            type?: "urn:octocove:problem:tenant-not-found";
+            /** @constant */
+            status?: 404;
+            /** @constant */
+            code?: "tenant-not-found";
+        };
+        /** @description Planned application/problem+json when an otherwise visible resource in a path, query or body belongs to a different tenant than the explicit selector. Refused before any effect; correct the selector or reference, never retry automatically in another tenant. Invisible resources retain the existing 404 resource problem; no foreign tenant metadata is disclosed. */
+        TenantMismatchProblem: components["schemas"]["Problem"] & {
+            /** @constant */
+            type?: "urn:octocove:problem:tenant-mismatch";
+            /** @constant */
+            status?: 409;
+            /** @constant */
+            code?: "tenant-mismatch";
+        };
+        /** @description Planned application/problem+json when an otherwise visible non-legacy resource is named on an unscoped legacy route or its unprefixed alias. No effect occurred; use the resource's explicit organization path. Legacy routes resolve only to octocove, never search or redirect into another org. Invisible resources retain the existing 404 resource problem without disclosing their owning tenant. */
+        LegacyRouteNonLegacyResourceProblem: components["schemas"]["Problem"] & {
+            /** @constant */
+            type?: "urn:octocove:problem:legacy-route-non-legacy-resource";
+            /** @constant */
+            status?: 409;
+            /** @constant */
+            code?: "legacy-route-non-legacy-resource";
+        };
+        /** @description Planned application/problem+json for resource access while the selected org's accepted creation is pending. Requires Retry-After as positive integer seconds; wait and refresh GET /me discovery before retrying the resource operation. Successful pending creation itself returns 202 with Organization, not a problem. */
+        OrganizationCreationPendingProblem: components["schemas"]["Problem"] & {
+            /** @constant */
+            type?: "urn:octocove:problem:org-creation-pending";
+            /** @constant */
+            status?: 409;
+            /** @constant */
+            code?: "org-creation-pending";
+            details: {
+                organization: components["schemas"]["Organization"] & {
+                    /** @constant */
+                    provisioningState?: "pending";
+                };
+            };
+        };
+        /** @description Planned application/problem+json when a per-user org creation limit or the global provisioning rate limit refuses admission. No organization was created by this attempt. Requires Retry-After as positive integer seconds; wait, then retry with the same idempotency key. Recovery of an already accepted creation precedes these limits; a rate-limit response never replaces an accepted result. */
+        OrganizationCreationRateLimitedProblem: components["schemas"]["Problem"] & {
+            /** @constant */
+            type?: "urn:octocove:problem:org-creation-rate-limited";
+            /** @constant */
+            status?: 429;
+            /** @constant */
+            code?: "org-creation-rate-limited";
+        };
         ApprovalGrantRequest: {
             projectId: components["schemas"]["Id"];
             claimAttemptId: components["schemas"]["Id"];
@@ -2760,6 +2838,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Planned under ADR 0027; runtime not yet shipped. The sole tenant selector for new organization-owned resource routes is /v1/orgs/{orgId}/... (no selector header or implicit current organization). Every referenced resource must match this tenant. Legacy unscoped resource routes resolve only to octocove and never fall back to another org. Selection grants no authority. This parameter is not attached to a shipped path. */
+        TenantSelector: components["schemas"]["TenantId"];
         /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
         IdempotencyKey: string;
         /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */

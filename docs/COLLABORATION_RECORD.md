@@ -61,10 +61,57 @@ erDiagram
 
 | Table | Fields | Notes |
 | --- | --- | --- |
-| `projects` | `id`, `slug` (unique), `name`, `created_by`, `created_at` | The deployment's D1 database is the tenant boundary. `projects` groups tasks inside that database; each project is shown as the `[org]` segment in the review UI. Membership and authorization are owned by the auth module, keyed on (issuer, `sub`). |
+| `projects` | `id`, `slug` (unique), `name`, `created_by`, `created_at` | Today, projects group tasks within the single implicit tenant `octocove`; authority remains per project. The accepted future organization boundary is in §2.1. Project slugs remain globally unique. |
 | `repositories` | `id`, `project_id`, `provider` (`artifacts`), `provider_namespace`, `provider_repo_id`, `name`, `role` (`canonical` \| `task` \| `staging`), `created_at`, `deleted_at` | One row per Artifacts repository Octocove knows about: the canonical repo and, for `task-repo` lanes, each task repo. `(provider, namespace, provider_repo_id)` is unique. Rows are soft-deleted (`deleted_at`) so receipts keep resolving. |
 | `target_refs` | `(repository_id, ref_name)` PK, `known_head_sha`, `known_head_at`, `known_head_source` (`seed` \| `receipt` \| `ls-remote` \| `event`) | The ref a task lands onto. `known_head_*` is the last canonical head the control plane has evidence for. It is a **cache of observed truth, never authority**: the integrator's compare-and-swap push is the authority; this column exists so that base moves can be detected and so that approvals can be invalidated pre-fence (§7.3). |
 | `task_repo_mappings` | `id`, `task_id`, `claim_id`, `kind` (`task-repo` \| `lane-ref`), `repository_id`, `ref_name`, `created_at`, `retired_at` | Where an agent pushes for a task, durably. For `task-repo` it is the task repo's default branch (a per-task fork or a chain lane, [ADR 0003](adr/0003-chain-mode-repo-lanes.md)); for `lane-ref` a lane ref in canonical ([ADR 0010](adr/0010-byo-canonical-provider.md), [ADR 0002](adr/0002-own-clone-source-registration.md)). Events are routed to tasks **only** through this table, never through an active token grant. At most one live mapping per `(repository, ref)`; retired, never deleted. [ADR 0002](adr/0002-own-clone-source-registration.md) permits an existing canonical ref with an external writer; `external_ref_sources` retains immutable initial expected-SHA evidence without adding a lane entity or claimant Git grant. |
+
+---
+
+### 2.1 Organization boundary (accepted future contract)
+
+[ADR 0027](adr/0027-organizations-tenant-identity-and-explicit-tenant-routing.md)
+is **Accepted (contract); runtime not yet shipped**. Today's v1 has one implicit
+tenant and no multi-org behavior. This section defines the future boundary, not
+new shipped record fields or routes.
+
+An organization owns its collaboration record and is its recovery boundary. A
+project belongs permanently to exactly one organization. All existing projects
+remain in the legacy tenant `octocove`; new organizations use opaque
+`org_<lowercase UUIDv4>` tenant ids. Project records, repositories and target
+bindings, tasks, intent history, dependencies, claims, submissions, candidates,
+checks, approvals, fences, receipts, project grants and webhook evidence stay
+within that ownership. References cannot join records across organizations.
+Retirement, replay and recovery never transfer a project or its evidence.
+
+One global sign-in sits outside any organization's record. Organization membership
+grants no project verbs. Org admin authority covers org metadata and project
+creation/administration; task, approval, landing and machine actions still require
+explicit per-project permissions or grants. Project slugs, repository namespaces,
+canonical targets (repository identity plus full target ref), and machine-assertion
+replay ownership remain globally unique across organizations.
+
+**Audit.** Each organization-owned transition retains append-only evidence with
+that tenant identity and its project/task references where applicable. Org-level
+administrative evidence belongs to the org without inventing a project. Global
+sign-in, profile and session evidence is not copied into an arbitrary org's audit.
+Project/task visibility still limits audit reads; an org role does not implicitly
+grant access to every task log. No new audit vocabulary is shipped by this contract.
+Event identities are tenant-qualified `(tenantId, id)`; cursors and checkpoints
+are scoped to the same tenant. Sequences from separate orgs are never merged into
+one order. The v1 event service remains available for 90 days after v2 ships;
+clients must support tenant identity and qualified deduplication before a second
+organization is admitted.
+
+**Recovery.** Recover an organization's record with the same tenant id, permanent
+project ownership, record and audit ids, sequence continuation, exact receipt bytes,
+idempotency outcomes and outstanding effect evidence. Recovery must retain globally
+unique reservations and machine-assertion replay ownership; it cannot free a used
+assertion for another org or revive revoked authority. Global identity remains
+authoritative, and current project/grant authorization is checked before writes
+resume. Independent organizations' histories cannot be combined or reassigned.
+This is a logical record/recovery contract, with no physical routing or
+shard-mutation API. See [tenant selection and planned problems](API.md#organizations-and-tenant-selection).
 
 ---
 
