@@ -77,6 +77,9 @@ paths:
                     scope: {type: string, enum: [read, write]}
                     ttl: {type: integer, minimum: 60, description: "Requested seconds, clamped to the server grant."}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '201':
           description: Plaintext Git token (read for allocated claims outside the legacy boundary); never persist in logs or collaboration records.
           headers:
@@ -232,6 +235,9 @@ paths:
       - HumanSession: []
       - HumanCliSession: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '201':
           description: Draft task with intent version 1.
           headers:
@@ -1074,6 +1080,9 @@ paths:
       - HumanSession: []
       - HumanCliSession: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '201':
           description: New intent version.
           headers:
@@ -1159,6 +1168,9 @@ paths:
                 expectedStatus: {$ref: '#/components/schemas/TaskStatus'}
                 expectedIntentVersion: {type: integer, minimum: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1210,6 +1222,9 @@ paths:
                 expectedIntentVersion: {type: integer, minimum: 1}
                 upstreamTaskId: {type: string, minLength: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1262,6 +1277,9 @@ paths:
                 expectedIntentVersion: {type: integer, minimum: 1}
                 upstreamTaskId: {type: string, minLength: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1313,6 +1331,9 @@ paths:
                 expectedStatus: {$ref: '#/components/schemas/TaskStatus'}
                 expectedIntentVersion: {type: integer, minimum: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1363,6 +1384,9 @@ paths:
                 expectedIntentVersion: {type: integer, minimum: 1}
                 replacementTaskId: {type: string, minLength: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1415,6 +1439,9 @@ paths:
                 claimId: {type: string, minLength: 1}
                 expiresAt: {type: string, format: date-time}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '202':
           description: Committed governance result.
           headers:
@@ -1466,6 +1493,9 @@ paths:
                 expectedStatus: {$ref: '#/components/schemas/TaskStatus'}
                 expectedIntentVersion: {type: integer, minimum: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1516,6 +1546,9 @@ paths:
                 expectedStatus: {$ref: '#/components/schemas/TaskStatus'}
                 expectedIntentVersion: {type: integer, minimum: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1565,6 +1598,9 @@ paths:
                 expectedStatus: {$ref: '#/components/schemas/TaskStatus'}
                 expectedIntentVersion: {type: integer, minimum: 1}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Committed governance result.
           headers:
@@ -1596,6 +1632,9 @@ paths:
       - HumanSession: []
       - HumanCliSession: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Resulting task status.
           headers:
@@ -1684,6 +1723,9 @@ paths:
                 pushId: {type: string, pattern: '^[a-zA-Z0-9_-]{1,160}$'}
                 sourceSha: {type: string, pattern: '^[a-f0-9]{40}$'}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '202':
           description: Durably queued, including before attach.
           content:
@@ -1721,6 +1763,9 @@ paths:
               properties:
                 claimAttemptId: {$ref: '#/components/schemas/Id'}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '202':
           description: Recovery scheduled; poll lane status. An idempotent replay returns the same body.
           content:
@@ -1752,6 +1797,9 @@ paths:
           application/json:
             schema: {type: object, additionalProperties: false}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Already retired.
           content:
@@ -1799,6 +1847,8 @@ paths:
       - AgentDelegation: []
       - ClaimBootstrap: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
         '201':
           description: Claim granted and workspace ready.
           headers:
@@ -1876,6 +1926,9 @@ paths:
       - HumanSession: []
       - HumanCliSession: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '200':
           description: Ended claim.
           headers:
@@ -2003,6 +2056,8 @@ paths:
       - HumanCliSession: []
       - AgentDelegation: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
         '201':
           description: Immutable submission and context, including staged marker.
           headers:
@@ -2135,6 +2190,8 @@ paths:
       - HumanSession: []
       - HumanCliSession: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
         '201':
           description: Immutable human approval.
           headers:
@@ -2201,6 +2258,8 @@ paths:
       - HumanCliSession: []
       - AgentDelegation: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
         '202':
           description: Fenced authorization with durable integrator dispatch; not yet landed.
           headers:
@@ -2862,6 +2921,8 @@ paths:
       - HumanSession: []
       - HumanCliSession: []
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
         '201':
           description: Reserved authorization and secret bootstrap.
           headers:
@@ -3800,6 +3861,9 @@ paths:
             schema:
               $ref: "#/components/schemas/ApprovalGrantRequest"
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         "201":
           description: Approval with all proposed approval fields populated; kind comes from verified identity.
           content:
@@ -4075,6 +4139,9 @@ paths:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/SubmitGrantRequest'}}}
       responses:
+        '408': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '429': {$ref: '#/components/responses/Problem'}
         '201':
           description: Recorded submission, including its normal sequence and staging flag.
           content: {application/json: {schema: {type: object, required: [id,seq,staged], properties: {id: {$ref: '#/components/schemas/Id'}, seq: {type: integer}, staged: {type: boolean}}}}}

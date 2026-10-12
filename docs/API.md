@@ -639,6 +639,8 @@ CLI: `webhook deliveries ID [--status parked|cancelled] [--after ID] [--limit N]
 
 ## Errors and client recovery
 
+JSON command bodies on `POST /tasks`, every `POST /tasks/{id}/<action>` and `POST /candidates/{id}/<action>`, `POST /approvals/{id}/withdraw`, and `POST /broker/token` are limited to 1,048,576 bytes (1 MiB). A larger body gets 413 `request-body-too-large`; a `Content-Length` above the limit is refused before the body is read. Correct or reduce the body before trying again. The complete body must arrive within 10 seconds; otherwise the response is 408 `request-body-timeout`. When a task is already admitting another command body, the response may be 429 `request-body-busy`. Retry either transient refusal with the same `Idempotency-Key` and identical body, after a short backoff for `request-body-busy`. A client disconnecting mid-body gets 400, as before. `POST /broker/token` does not require an idempotency key and each successful call mints a fresh token. Binary `POST /broker/push/{taskId}` uploads are outside these JSON body limits.
+
 Thrown errors use `application/problem+json` with `type` (`urn:octocove:problem:<code>`), `title`, `status`, `code`, `detail`, `requestId` and optional structured `details`. No credential, token or cross-project data is included. Foreign or invisible resource IDs return 404. HTTP status and code, not prose, drive retries. Claim admission refusals instead return a persisted JSON command result with `code`, `claimAttemptId` and `claimResult`; the table includes those codes too. Every public control plane route answers errors in this full shape, including the unknown-ID 404s of the candidate actions and `GET /receipts/{id}`; the code is the server's own, verbatim. `details` is open: `stale-base` from land carries either no details or one of the two `StaleFenceDetails` variants in the OpenAPI (`{receiptId, pending: true, rereadRunId}` or `{receiptId, headSha}`, see landing above), and every other code's `details` is `ProblemDetails`, whose undeclared fields clients must tolerate. A client should select a typed view by `code` and check it at runtime.
 
 | HTTP status | Code | Client action |
@@ -680,6 +682,7 @@ Thrown errors use `application/problem+json` with `type` (`urn:octocove:problem:
 | 404 | `member-not-found` | Member removal: the principal is not a member of the project (or was removed meanwhile); refresh `GET /projects/{project}/members`. |
 | 404 | `not-found` | Check the ID and membership; missing and invisible resources are indistinguishable. |
 | 404 | `principal-not-found` | Adding a member: no one with that `issuer\|sub` has signed in to this deployment. Ask them to sign in once and send their `GET /me` `principal.id`. |
+| 408 | `request-body-timeout` | The complete JSON command body did not arrive within 10 seconds; retry the same body with the same Idempotency-Key. |
 | 409 | `already-claimed` | Inspect the active claim; do not bypass attempt ownership. |
 | 409 | `already-member` | Adding a member: they already are one; nothing changed. A lost answer to your own add replays under the original Idempotency-Key instead. |
 | 409 | `approval-active` | Withdraw the active approval before withdrawing the candidate. |
@@ -721,10 +724,12 @@ Thrown errors use `application/problem+json` with `type` (`urn:octocove:problem:
 | 409 | `use-task-reject` | Reject the task; candidate rejection is reserved for follow-up work on a landed task. |
 | 409 | `webhook-disabled` | Original creator must explicitly reactivate with current permission, then request a new replay. |
 | 410 | `login-expired` | Restart login explicitly. |
+| 413 | `request-body-too-large` | Reduce or correct the JSON body to at most 1,048,576 bytes; do not retry it as-is. |
 | 422 | `invalid-request` | Code view: correct the `ref` or `path` named in `details.parameter`. |
 | 422 | `invalid-slug` | Project creation: the slug is shaped like a UUID (8-4-4-4-12 hex digits, any case), which could shadow a project id route; choose another slug. |
 | 422 | `unknown-verb` | Adding a member: `details.verbs` lists the verbs Octocove does not know; send only known verbs (or omit `verbs` for the member set). |
 | 429 | `rate-limited` | Project creation: too many attempts by this principal; wait `Retry-After` seconds (`details.retryAfter`), then retry with the same key. |
+| 429 | `request-body-busy` | The task is admitting another command body; retry the same body with the same Idempotency-Key after a short backoff. |
 | 429 | `slow-down` | Honor Retry-After before polling again. |
 | 503 | `audit-unavailable` | Operator must provision AUDIT_CURSOR_SECRET. |
 | 503 | `broker-provider-invalid-response` | Investigate the provider response before bounded retry. |
