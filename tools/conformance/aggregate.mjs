@@ -4,17 +4,22 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { manifest, manifestSha256, percentile, resultPath } from './protocol.mjs';
+import { driverBlock, manifest, manifestSha256, percentile, resultPath, unsupportedByDesign } from './protocol.mjs';
 
 export function pairingVerdict(summary) {
   const amended = /^1\.(?:[4-9]|[1-9]\d+)\./.test(summary.harnessVersion ?? '');
   // Execution and concrete oracle failures dominate every kind of blocker.
   if ((['FAILED','TIMEOUT'].includes(summary.execution.status) && !(amended && summary.execution.status === 'TIMEOUT')) || summary.perCell.some(c =>
     c.verdict === 'FAIL' || c.executionFailure || c.counts.FAIL || c.errorCount || c.scenarios.some(s => s.failedAssertions?.length || s.counts.FAIL))) return 'FAIL';
-  if (summary.execution.status === 'BLOCKED' && summary.execution.reason === 'unsupported-local-pairing-never-simulated') return 'BLOCKED(unsupported)';
+  if (summary.execution.status === 'BLOCKED' && ['unsupported-local-pairing-never-simulated','unsupported-by-design-not-selected'].includes(summary.execution.reason)) return 'BLOCKED(unsupported)';
   if (amended && (summary.execution.status === 'INCOMPLETE' || summary.perCell.some(c => c.verdict === 'INCOMPLETE' || c.completedRepetitions < summary.repetitions))) return 'INCOMPLETE';
   if (!summary.perCell.length) return 'FAIL';
   if (summary.perCell.some(c => Object.values(gates(c,summary)).includes('FAIL'))) return 'FAIL';
+  // A pairing unsupported by design is never selected, and a cell qualifies only with its registered driver: the
+  // recorded digest is re-checked against the current registration, never trusted from the summary.
+  if (summary.perCell.some(c => unsupportedByDesign(c))) return 'BLOCKED(unsupported)';
+  const driver = summary.perCell.map(c => driverBlock(c,summary.driverPin)).find(Boolean);
+  if (driver) return `BLOCKED(${driver})`;
   if (summary.perCell.every(c => c.verdict === 'PASS' && c.counts.PASS === c.requiredResults)) return 'PASS';
   const reasons = summary.perCell.flatMap(c => c.scenarios.flatMap(s => s.reasons));
   if (reasons.some(r => /EAGAIN|fork.*(?:refused|unavailable)|process-pressure/i.test(r))) return 'BLOCKED(sandbox)';
@@ -48,10 +53,11 @@ export async function loadCell(file) {
     ...Array.from({length:Math.max(0,summary.segments.length-1)},(_,i) => path.replace(/\.json$/,`.segment-${i+2}.preregistration.json`))];
   for (const registration of registrations) {
     const pinned = JSON.parse(await readFile(registration,'utf8'));
-    for (const key of ['protocol','harnessVersion','manifestSha256','harnessSha256','commit','committedTree','shard','target','repetitions','thresholds','scenarios','cells'])
+    for (const key of ['protocol','harnessVersion','manifestSha256','harnessSha256','commit','committedTree','shard','target','repetitions','thresholds','scenarios','cells','driverPin'])
       assert.deepEqual(summary[key],pinned[key]);
   }
-  return {summary,status:pairingVerdict(summary),gates:gates(cell,summary)};
+  const status = pairingVerdict(summary);
+  return {summary,status,gates:gates(cell,summary),...(status.startsWith('BLOCKED(') ? {reason:status.slice(8,-1)} : {})};
 }
 
 // Assertion verdicts are retained compact evidence, not invented numeric
@@ -86,7 +92,7 @@ export function gates(cell, preregistration) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv.includes('--cell')) {
     const result = await loadCell(process.argv[process.argv.indexOf('--cell')+1]);
-    console.log(JSON.stringify({status:result.status,cell:result.summary.perCell[0].id,gates:result.gates}));
+    console.log(JSON.stringify({status:result.status,cell:result.summary.perCell[0].id,gates:result.gates,...(result.reason ? {reason:result.reason} : {})}));
     process.exitCode = result.status === 'PASS' ? 0 : 1;
   } else {
     // Rendering reports over kept evidence is an optional maintainer hook: the module that

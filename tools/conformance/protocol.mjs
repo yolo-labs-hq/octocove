@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,73 @@ export function resultPath(file, root = repoRoot) {
   const path = resolve(root, file);
   const inside = dir => { const rel = relative(dir, path); return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel); };
   return path.endsWith('.json') && resultDirs(root).some(inside) ? path : null;
+}
+// Each archetype's driver is pinned in drivers/registration.json (`pinnedDriver`): (a) an external adapter
+// repository and commit, checked out at the path its `pathEnv` variable names; (b) the CLI package version and the
+// sha256 of the bundled CLI file; (c) the sha256 of drivers/machine.mjs. A cell whose driver is unpinned, or whose
+// computed digest differs from the registration, is BLOCKED and never PASS.
+export const registration = JSON.parse(readFileSync(new URL('./drivers/registration.json', import.meta.url)));
+const sha256Hex = /^[a-f0-9]{64}$/, commitHex = /^[a-f0-9]{40}$/;
+const pinFields = { a: ['commit'], b: ['cliVersion', 'bundleSha256'], c: ['sha256'] };
+const fileSha256 = path => { try { return createHash('sha256').update(readFileSync(path)).digest('hex'); } catch { return null; } };
+// The registered pin, or the reason it is not a usable pin.
+function expectedPin(archetype, reg) {
+  const pin = reg?.[archetype]?.pinnedDriver;
+  if (!pinFields[archetype] || !pin) return { reason: `driver-unpinned:${archetype}:no-registered-driver` };
+  const valid = archetype === 'a' ? /^https:\/\/\S+$/.test(pin.repository ?? '') && commitHex.test(pin.commit ?? '') && /^[A-Z][A-Z0-9_]*$/.test(pin.pathEnv ?? '')
+    : archetype === 'b' ? /^\d+\.\d+\.\d+\S*$/.test(pin.cliVersion ?? '') && sha256Hex.test(pin.bundleSha256 ?? '')
+      : sha256Hex.test(pin.sha256 ?? '');
+  return valid ? { expected: Object.fromEntries(pinFields[archetype].map(key => [key, pin[key]])), pin }
+    : { reason: `driver-unpinned:${archetype}:${archetype === 'a' ? 'adapter-repository-or-commit-not-registered' : 'digest-not-registered'}`, pin };
+}
+// Compares a computed driver identity with the registration: { pinned, reason }.
+export function pinCheck(archetype, actual, reg = registration) {
+  const { expected, reason } = expectedPin(archetype, reg);
+  if (!expected) return { pinned: false, reason };
+  if (!actual || typeof actual !== 'object') return { pinned: false, reason: `driver-unpinned:${archetype}:no-computed-digest` };
+  if (actual.unavailable) return { pinned: false, reason: `driver-unpinned:${archetype}:${actual.unavailable}` };
+  const field = pinFields[archetype].find(key => actual[key] !== expected[key]);
+  return field ? { pinned: false, reason: `driver-digest-mismatch:${archetype}:${field}` } : { pinned: true, reason: null };
+}
+// Computes the driver identity this run uses. `cliBinary` is the bundled CLI file the host runs (archetype b).
+export function computeDriver(archetype, { env = process.env, cliBinary, root = repoRoot, reg = registration } = {}) {
+  const pin = reg?.[archetype]?.pinnedDriver ?? {};
+  if (archetype === 'a') {
+    const dir = pin.pathEnv && env[pin.pathEnv];
+    if (!dir) return { unavailable: `adapter-path-unset:${pin.pathEnv ?? 'no-path-variable'}` };
+    try {
+      const git = (...args) => execFileSync('git', ['-C', resolve(root, dir), ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const commit = git('rev-parse', 'HEAD');
+      return git('status', '--porcelain') ? { unavailable: 'adapter-checkout-modified', commit } : { commit };
+    } catch { return { unavailable: 'adapter-checkout-unreadable' }; }
+  }
+  if (archetype === 'b') {
+    const bundleSha256 = fileSha256(cliBinary ? resolve(root, cliBinary) : resolve(root, pin.bundle ?? 'packages/cli/dist/octocove.mjs'));
+    let cliVersion = null;
+    try { cliVersion = JSON.parse(readFileSync(resolve(root, pin.package ?? 'packages/cli/package.json'), 'utf8')).version ?? null; } catch {}
+    return bundleSha256 ? { cliVersion, bundleSha256 } : { unavailable: 'cli-bundle-missing', cliVersion };
+  }
+  if (archetype === 'c') {
+    const sha256 = fileSha256(resolve(root, pin.file ?? 'tools/conformance/drivers/machine.mjs'));
+    return sha256 ? { sha256 } : { unavailable: 'machine-driver-missing' };
+  }
+  return { unavailable: 'unknown-archetype' };
+}
+// The pin a run records: what the registration expects, what was computed, and the check.
+export function driverPin(archetype, options = {}) {
+  const reg = options.reg ?? registration, actual = computeDriver(archetype, { ...options, reg });
+  return { archetype, expected: expectedPin(archetype, reg).expected ?? null, actual, ...pinCheck(archetype, actual, reg) };
+}
+// A pairing the manifest marks unsupported by design is never selected for qualification.
+export const unsupportedByDesign = cell => manifest.unsupportedByDesign?.[`${cell?.provider}/${cell?.topology}`] ?? null;
+// Why a cell cannot qualify (BLOCKED), or null. The recorded `actual` is re-checked against the registration,
+// so a recorded `pinned: true` alone proves nothing.
+export function driverBlock(cell, pin, reg = registration) {
+  const design = unsupportedByDesign(cell);
+  if (design) return design.reason ?? 'unsupported-by-design';
+  if (!pin) return `driver-unpinned:${cell?.archetype}:pin-not-recorded`;
+  if (pin.archetype !== cell?.archetype) return `driver-unpinned:${cell?.archetype}:pin-for-other-archetype`;
+  return pinCheck(cell.archetype, pin.actual, reg).reason;
 }
 export function cells() {
   return manifest.matrix.archetypes.flatMap(archetype => manifest.matrix.providers.flatMap(provider =>

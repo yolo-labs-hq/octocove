@@ -1,4 +1,4 @@
-import { manifest, percentile } from './protocol.mjs';
+import { driverBlock, manifest, percentile } from './protocol.mjs';
 
 export function cellBudget(archetype, repetitions = manifest.repetitions) {
   const policy = manifest.budget;
@@ -56,7 +56,9 @@ export function resumeIndex(result, registration) {
   return n+1;
 }
 
-export function displayCell(completed, cell, required = manifest.repetitions) {
+// `pin` is the run's recorded driver pin (protocol.driverPin). A cell that would otherwise PASS is BLOCKED
+// when its pairing is unsupported by design, its driver is unpinned or the computed digest differs.
+export function displayCell(completed, cell, required = manifest.repetitions, pin = null) {
   const n = completed?.completedRepetitions ?? 0;
   // Missing repetitions remain explicit counts; the checkpoint contains only
   // completed ranges so resumed counts cannot double-count missing placeholders.
@@ -71,9 +73,12 @@ export function displayCell(completed, cell, required = manifest.repetitions) {
   const timingFailed = !missing && (base.remoteReceipts !== required || base.timings.sampleCount !== required
     || !Number.isFinite(base.timings.adapterOnlyP95Ms) || base.timings.adapterOnlyP95Ms > manifest.thresholds.adapterOnlyP95Ms);
   const failed = base.verdict === 'FAIL' || base.errorCount || counts.FAIL || timingFailed;
+  const verdict = failed ? 'FAIL'
+    : missing ? 'INCOMPLETE' : scenarios.some(s => s.verdict === 'INCOMPLETE' || s.counts['NOT RUN']) ? 'FAIL'
+      : scenarios.some(s => s.verdict === 'BLOCKED') ? 'BLOCKED' : 'PASS';
+  const blockedReason = verdict === 'PASS' ? driverBlock(cell,pin) : null;
   return {...base,scenarios,counts,requiredRepetitions:required,requiredResults:required*manifest.scenarios.length,
-    verdict:failed ? 'FAIL'
-      : missing ? 'INCOMPLETE' : scenarios.some(s => s.verdict === 'INCOMPLETE' || s.counts['NOT RUN']) ? 'FAIL'
-        : scenarios.some(s => s.verdict === 'BLOCKED') ? 'BLOCKED' : 'PASS',
+    verdict:blockedReason ? 'BLOCKED' : verdict,
+    ...(blockedReason ? {blockedReason,verdictDetail:`BLOCKED(${blockedReason})`} : {}),
     ...(missing && !failed ? {incomplete:{completed:n,required,reason:'deadline'},verdictDetail:`INCOMPLETE(${n}/${required} repetitions, deadline)`} : {})};
 }

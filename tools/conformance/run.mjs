@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, dirname, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { cells, manifest, manifestSha256, resultPath, sanitize, summarizeRows } from './protocol.mjs';
+import { cells, driverPin, manifest, manifestSha256, resultPath, sanitize, summarizeRows, unsupportedByDesign } from './protocol.mjs';
 import { cellBudget, mergeCell, resumeIndex, displayCell } from './cell.mjs';
 import { smokeVerdict, smokePolicy } from './smoke.mjs';
 
@@ -44,11 +44,13 @@ export function parseArgs(args) {
 const git = (...args) => execFileSync('git',args,{cwd:root,encoding:'utf8'}).trim();
 // A host module names the service under test: `vitestConfig` and `vitestBin` (absolute paths)
 // run its suite, which calls registerConformance from scenarios.ts, and `fingerprintFiles` lists
-// the host-side files that belong in the harness fingerprint.
+// the host-side files that belong in the harness fingerprint. An optional `cliBinary` (absolute path) names the
+// bundled CLI file its suite runs for archetype b; by default it is the registered packages/cli/dist/octocove.mjs.
 export async function loadHost(path) {
   if (!path) return null;
   const host = await import(pathToFileURL(resolve(path)).href);
-  if (typeof host.vitestConfig !== 'string' || typeof host.vitestBin !== 'string' || !Array.isArray(host.fingerprintFiles)) throw new Error('invalid-host');
+  if (typeof host.vitestConfig !== 'string' || typeof host.vitestBin !== 'string' || !Array.isArray(host.fingerprintFiles)
+    || (host.cliBinary !== undefined && typeof host.cliBinary !== 'string')) throw new Error('invalid-host');
   return host;
 }
 async function fingerprint(host) {
@@ -86,6 +88,8 @@ export async function run(options) {
     ciGate:!!options['ci-gate'], ...(options.smoke ? {qualifiesFullCell:false} : {}),
     ...(options['ci-gate'] ? {smokeScope:smokePolicy} : {}),
     scenarios:manifest.scenarios, machineApprovalAssertions:manifest.machineApprovalAssertions, thresholds:manifest.thresholds, registration:JSON.parse(await readFile(new URL('./drivers/registration.json',import.meta.url),'utf8')),
+    // The driver digest is computed here, in the parent, and every displayed cell verdict is checked against it.
+    driverPin:options.shard ? driverPin(options.archetype,{cliBinary:host?.cliBinary}) : null,
     startedAt:new Date().toISOString() };
   // Resume validates immutable provenance before touching any prior evidence.
   const previous = options.resume ? JSON.parse(await readFile(options.out,'utf8')) : null;
@@ -97,9 +101,12 @@ export async function run(options) {
   await artifact(options.resume ? options.out.replace(/\.json$/,`.segment-${segments.length+1}.preregistration.json`) : preregistrationPath,preregistration);
   let execution = {status:'NOT RUN',reason:'preregistration-only'}, perCell = summarizeRows([],selected,repetitions);
   if (options.shard) await artifact(options.out,{...preregistration,execution:{status:'INCOMPLETE',reason:'segment-running'},
-    perCell:[displayCell(completedCell,selected[0],repetitions)],completedCell,segments,resumed:!!previous});
-  const supported = manifest.localPairings.includes(options.pairing);
-  if (options.shard && !supported) execution = {status:'BLOCKED',reason:'unsupported-local-pairing-never-simulated'};
+    perCell:[displayCell(completedCell,selected[0],repetitions,preregistration.driverPin)],completedCell,segments,resumed:!!previous});
+  // A pairing unsupported by design is not selected: its full shard never executes. Smoke still runs it.
+  const notSelected = options.shard && !options.smoke && !!unsupportedByDesign(selected[0]);
+  const supported = manifest.localPairings.includes(options.pairing) && !notSelected;
+  if (notSelected) execution = {status:'BLOCKED',reason:'unsupported-by-design-not-selected'};
+  else if (options.shard && !supported) execution = {status:'BLOCKED',reason:'unsupported-local-pairing-never-simulated'};
   else if (options.shard && !host) execution = {status:'BLOCKED',reason:'no-conformance-host'};
   if (options.shard && supported && host && startRepetition <= repetitions) {
     const cell = selected[0], startedAt = new Date().toISOString(), started = performance.now();
@@ -152,7 +159,7 @@ export async function run(options) {
       startRepetition,lastCompletedRepetition:completedCell?.lastCompletedRepetition ?? startRepetition-1,
       deadlineSeconds:options.seconds,execution:attempt.status,cleanupConfirmed,
       fixtureTimings:current?.fixtureTimings ?? null});
-    perCell = [displayCell(completedCell,cell,repetitions)];
+    perCell = [displayCell(completedCell,cell,repetitions,preregistration.driverPin)];
     if (attempt.evidence || (attempt.status === 'FAILED')) perCell[0] = {...perCell[0],verdict:'FAIL',executionFailure:true};
     perCell[0].workerStderr=attempt.stderr;
     execution = {status:perCell[0].verdict === 'INCOMPLETE' ? 'INCOMPLETE' : attempt.status,targets:[attempt],wallMs:segments.at(-1).wallMs};

@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cells, manifest, serialCells, summarizeRows, keyOf, check } from './protocol.mjs';
+import { cells, manifest, serialCells, summarizeRows, keyOf, check, driverPin } from './protocol.mjs';
 import { cellBudget, displayCell, mergeCell, resumeIndex } from './cell.mjs';
 import { parseArgs } from './run.mjs';
 
-const cell = cells().find(c => c.id === 'a/artifacts/ref/main');
-function chunk(start,n) {
+const cell = cells().find(c => c.id === 'a/artifacts/ref/main'), defaultCell = cell;
+function chunk(start,n,cell = defaultCell) {
   const rows = manifest.scenarios.flatMap(s => Array.from({length:n},(_,i) => ({protocol:manifest.protocol,
     key:keyOf(cell,s,start+i),cell,scenario:s.id,repetition:start+i,completed:true,status:'BLOCKED',reason:s.reason ?? 'unqualified',
     evidence:{cleanup:{confirmed:true}},assertions:[]})));
@@ -71,20 +71,50 @@ test('resumed receipt samples retain a cell-local p95 and a failing assertion ca
   assert.equal(summarizeRows([row],[cell],1)[0].verdict,'FAIL');
 });
 
-test('PASS requires all twenty completed repetitions, all scenarios and the unchanged receipt/p95 gates', () => {
-  const passing = (start,n) => {
-    const c=chunk(start,n);
+const passing = (start,n,cell = defaultCell) => {
+    const c=chunk(start,n,cell);
     c.verdict='PASS';c.counts={PASS:n*manifest.scenarios.length,FAIL:0,INCOMPLETE:0,BLOCKED:0,'NOT RUN':0};
     c.scenarios=c.scenarios.map(s => ({...s,verdict:'PASS',counts:{PASS:n,FAIL:0,INCOMPLETE:0,BLOCKED:0,'NOT RUN':0},reasons:[]}));
     c.remoteReceipts=n;c.timings={rawSamples:Array(n).fill(1),sampleCount:n,adapterOnlyP95Ms:1};
     return c;
   };
-  const first=passing(1,19);
-  assert.equal(displayCell(first,cell).verdict,'INCOMPLETE');
-  const completed=mergeCell(first,passing(20,1));
-  assert.equal(displayCell(completed,cell).verdict,'PASS');
+test('PASS requires all twenty completed repetitions, all scenarios and the unchanged receipt/p95 gates', () => {
+  const machine = cells().find(c => c.id === 'c/artifacts/repo/main'), pin = driverPin('c');
+  const first=passing(1,19,machine);
+  assert.equal(displayCell(first,machine,20,pin).verdict,'INCOMPLETE');
+  const completed=mergeCell(first,passing(20,1,machine));
+  assert.equal(displayCell(completed,machine,20,pin).verdict,'PASS');
   for (const mutate of [c => c.remoteReceipts=19,c => c.timings.sampleCount=19,c => c.timings.adapterOnlyP95Ms=1001,
     c => c.scenarios[0].verdict='INCOMPLETE',c => c.scenarios[0].counts['NOT RUN']=1]) {
-    const invalid=structuredClone(completed);mutate(invalid);assert.equal(displayCell(invalid,cell).verdict,'FAIL');
+    const invalid=structuredClone(completed);mutate(invalid);assert.equal(displayCell(invalid,machine,20,pin).verdict,'FAIL');
   }
+});
+
+test('a complete cell without its registered driver is BLOCKED with a reason, never PASS', () => {
+  const machine = cells().find(c => c.id === 'c/artifacts/repo/main'), pin = driverPin('c');
+  const completed = mergeCell(passing(1,19,machine),passing(20,1,machine));
+  assert.equal(pin.pinned,true);
+  assert.equal(displayCell(completed,machine,20,pin).verdict,'PASS');
+  for (const [recorded,reason] of [
+    [null,'driver-unpinned:c:pin-not-recorded'],
+    [{...pin,actual:{sha256:'0'.repeat(64)}},'driver-digest-mismatch:c:sha256'],
+    [{...pin,actual:{sha256:'0'.repeat(64)},pinned:true,reason:null},'driver-digest-mismatch:c:sha256'],
+    [{...pin,actual:{unavailable:'machine-driver-missing'}},'driver-unpinned:c:machine-driver-missing'],
+    [{...pin,archetype:'b'},'driver-unpinned:c:pin-for-other-archetype']]) {
+    const shown = displayCell(completed,machine,20,recorded);
+    assert.equal(shown.verdict,'BLOCKED',reason);
+    assert.equal(shown.blockedReason,reason);
+    assert.equal(shown.verdictDetail,`BLOCKED(${reason})`);
+  }
+  // Archetype a has no registered external adapter: its pin is unusable even with the generic fixture.
+  const generic = cells().find(c => c.id === 'a/artifacts/repo/main');
+  const shown = displayCell(mergeCell(passing(1,19,generic),passing(20,1,generic)),generic,20,driverPin('a',{env:{}}));
+  assert.equal(shown.verdict,'BLOCKED');
+  assert.match(shown.blockedReason,/^driver-unpinned:a:adapter-repository-or-commit-not-registered$/);
+  // An artifacts/ref cell is unsupported by design whatever its driver; failures still dominate.
+  const unsupported = mergeCell(passing(1,19),passing(20,1));
+  assert.equal(displayCell(unsupported,cell,20,driverPin('a')).verdict,'BLOCKED');
+  assert.match(displayCell(unsupported,cell,20,driverPin('a')).blockedReason,/^unsupported-by-design/);
+  const failed = structuredClone(completed); failed.errorCount=1;
+  assert.equal(displayCell(failed,machine,20,null).verdict,'FAIL');
 });

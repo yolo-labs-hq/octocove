@@ -21,7 +21,7 @@ Use the repository's Node 22 runtime and install only the dependency slice:
 ```sh
 pnpm --filter @yolo-labs/octocove --filter @octocove/conformance install --frozen-lockfile
 pnpm --filter @octocove/conformance test
-node tools/conformance/run.mjs --host <host-module> --shard --archetype a --pairing artifacts/ref --target main --maxWorkers=1 --out .conformance/local/a-artifacts-ref-main.json
+node tools/conformance/run.mjs --host <host-module> --shard --archetype a --pairing artifacts/repo --target main --maxWorkers=1 --out .conformance/local/a-artifacts-repo-main.json
 ```
 
 The harness does not contain the service under test. `run.mjs --host <module>`
@@ -41,9 +41,9 @@ consume integration's budget. Default output names include archetype, pairing an
 target, so two invocations do not collide. Run each cell as a separate invocation.
 
 ```sh
-pnpm conformance:shard --archetype a --pairing artifacts/ref --target integration --maxWorkers=1 --out .conformance/local/a-artifacts-ref-integration.json
-pnpm conformance:shard --archetype a --pairing artifacts/ref --target integration --resume --maxWorkers=1 --out .conformance/local/a-artifacts-ref-integration.json
-node tools/conformance/aggregate.mjs --cell .conformance/local/a-artifacts-ref-integration.json
+pnpm conformance:shard --archetype a --pairing artifacts/repo --target integration --maxWorkers=1 --out .conformance/local/a-artifacts-repo-integration.json
+pnpm conformance:shard --archetype a --pairing artifacts/repo --target integration --resume --maxWorkers=1 --out .conformance/local/a-artifacts-repo-integration.json
+node tools/conformance/aggregate.mjs --cell .conformance/local/a-artifacts-repo-integration.json
 ```
 
 `--resume` requires the same output, cell, tested commit/tree, manifest and harness
@@ -91,7 +91,12 @@ vocabulary (`verdicts`) and the cells that are unsupported by design
 (`unsupportedByDesign`). Artifacts canonicals allocate repo lanes only
 ([ADR 0003](../../docs/adr/0003-chain-mode-repo-lanes.md)), so the six
 `artifacts/ref` target cells and own-clone/CI allocation on that pairing are
-**unsupported by design**. The harness still runs and reports them.
+**unsupported by design**. [manifest.json](manifest.json) marks the pairing
+`unsupportedByDesign` with `selected: false`: a full shard on it records
+`BLOCKED` (`unsupported-by-design-not-selected`) without starting a fixture, and
+`aggregate --cell` reports any `artifacts/ref` cell as `BLOCKED(unsupported)`, never
+PASS. Smoke (development and the required CI gate) still runs on it, since smoke
+never qualifies a cell.
 
 ## Repetition cost and timing fields
 
@@ -179,6 +184,34 @@ cleanup and event injection routes are not exposed on the CLI's HTTP server.
   Delegations still supply claim/read/landing rights, independently of grants.
   Live issuers, provider protection and runtime isolation remain unqualified.
   GitHub/repo and Forgejo/repo stay BLOCKED; no unsupported pairing is simulated.
+
+### Pinned drivers
+
+[drivers/registration.json](drivers/registration.json) records a `pinnedDriver` for
+each archetype. A cell qualifies only with that exact driver:
+
+* **a:** an external adapter repository URL and 40-hex commit. The adapter is
+  loaded from the checkout that the `pathEnv` variable (`OCTOCOVE_CONFORMANCE_ADAPTER`)
+  names; its `HEAD` must equal the commit and its working tree must be clean. No
+  adapter is registered yet (`repository` and `commit` are `null`), so every
+  archetype-a cell is BLOCKED (`driver-unpinned:a:...`). The generic fixture above
+  stays as the local driver and is labelled `qualification: unqualified`.
+* **b:** the CLI package version (`packages/cli/package.json`) and the sha256 of the
+  bundled CLI file (`packages/cli/dist/octocove.mjs`, built with
+  `pnpm --filter ./packages/cli build`). A host that runs another bundle exports its
+  absolute path as `cliBinary`; that file is the one digested.
+* **c:** the sha256 of [drivers/machine.mjs](drivers/machine.mjs).
+
+`run.mjs` computes the pin in the parent process before any fixture starts and
+records it as `driverPin` (`expected`, `actual`, `pinned`, `reason`) in the runtime
+preregistration and the result. A cell verdict that would be PASS becomes `BLOCKED`
+with `blockedReason` when the pin is missing, unregistered or unavailable
+(`driver-unpinned:<archetype>:<detail>`) or the computed value differs
+(`driver-digest-mismatch:<archetype>:<field>`). Failures still dominate. `aggregate
+--cell` re-checks the recorded `actual` against the current registration (a recorded
+`pinned: true` proves nothing), requires every segment preregistration to carry
+the same `driverPin`, and reports `BLOCKED(<reason>)`. Changing the CLI bundle or
+`machine.mjs` therefore needs a registration update in the same change.
 
 Provider doubles consist of local Artifacts-shaped management/fork/subscription
 responses, a BYO credential-authority binding, and registered HTTPS-to-local-bare
