@@ -3,20 +3,39 @@
   "a": {
     "kind": "generic-client-fixture",
     "entryPoint": "tools/conformance/provider/contract.mjs",
-    "externalAdapterQualified": false
+    "qualification": "unqualified",
+    "externalAdapterQualified": false,
+    "pinnedDriver": {
+      "kind": "external-adapter",
+      "repository": null,
+      "commit": null,
+      "pathEnv": "OCTOCOVE_CONFORMANCE_ADAPTER"
+    }
   },
   "b": {
     "kind": "actual-octocove-bin",
     "entryPoint": "packages/cli/src/bin.ts",
     "helper": "packages/helper/src/attempt-helper.mjs",
-    "transport": "declared-local-provider-double"
+    "transport": "declared-local-provider-double",
+    "pinnedDriver": {
+      "kind": "cli-bundle",
+      "package": "packages/cli/package.json",
+      "cliVersion": "0.1.0",
+      "bundle": "packages/cli/dist/octocove.mjs",
+      "bundleSha256": "bb4b6156550a11c55086df28f1a5c28d61bf850fcd0805cb8925518ec360d6fc"
+    }
   },
   "c": {
     "kind": "actual-headless-octocove-bin",
     "entryPoint": "tools/conformance/drivers/machine.mjs",
     "machineAuthorityQualified": false,
     "localSignedFakeIssuers": true,
-    "liveIssuerQualification": "BLOCKED"
+    "liveIssuerQualification": "BLOCKED",
+    "pinnedDriver": {
+      "kind": "machine-driver",
+      "file": "tools/conformance/drivers/machine.mjs",
+      "sha256": "9ee0d38c555751c40e4705510d934c415a38db444a18806ca752395bfacfd68c"
+    }
   },
   "events": {
     "entryPoint": "tools/conformance/events/oracles.mjs",

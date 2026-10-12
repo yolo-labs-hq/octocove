@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "protocol": "octocove-conformance/1",
   "harnessVersion": "1.5.0",
-  "manifestSha256": "a09cca8a2386c3381be2b4af8b5e81178218ce4befef62c0641cbeff19c368aa",
+  "manifestSha256": "2fbac1a7ab917a0e7e4a9e1d2e2ea4269da40eb615f2852976198ea60b030276",
   "reportOnly": true,
   "aggregateVerdict": null,
   "mode": "local",

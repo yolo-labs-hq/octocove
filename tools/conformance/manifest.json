@@ -44,6 +44,12 @@
     "github/ref",
     "forgejo/ref"
   ],
+  "unsupportedByDesign": {
+    "artifacts/ref": {
+      "selected": false,
+      "reason": "unsupported-by-design: Artifacts repository-scoped tokens cannot confine a claimant to one ref of a shared repository; the product allocates a task repository (artifacts/repo) instead"
+    }
+  },
   "localProviderDouble": "local Artifacts REST/fork/subscription and BYO credential-authority doubles + explicit HTTPS-to-local-bare translation; native filesystem Git does not enforce provider token isolation; CLI registered Git transport to native local bare paths",
   "thresholds": {
     "casWinners": 1,
