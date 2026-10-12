@@ -135,8 +135,8 @@ function rotatesAmbientCredential(client: OctocoveClient, operationId: CallableO
 /**
  * One logical operation inside a journey scope. Resends happen only (a) after a lost answer
  * (`network-error`, including a response whose body could not be read) for `network-only` operations
- * with a ledgered replay, at most MAX_JOURNEY_REPLAYS times, and (b) after `429` or
- * `operation-in-progress`, honouring Retry-After; both under the same key, body and credential, and
+ * with a ledgered replay, at most MAX_JOURNEY_REPLAYS times, and (b) after `429`,
+ * `request-body-timeout`, or `operation-in-progress`, honouring Retry-After; both under the same key, body and credential, and
  * only while the deadline leaves room. Anything else — including every recovery refusal
  * (`idempotency-result-expired`, `idempotency-conflict`, `unauthenticated`, `bootstrap-consumed`) and
  * every current authorization refusal — is thrown unchanged.
@@ -176,7 +176,7 @@ export async function send<K extends CallableOperationId>(
           + 'rotated session, so it is not renewed again: re-read the session state', { cause: error, attempts: error.attempts, responseStatus: error.responseStatus });
       }
       let wait: number | undefined;
-      if (keyed && !sendOptions.busyIsFinal && error instanceof ApiError && (error.status === 429 || error.code === 'operation-in-progress')) {
+      if (keyed && !sendOptions.busyIsFinal && error instanceof ApiError && (error.status === 429 || (error.status === 408 && error.code === 'request-body-timeout') || error.code === 'operation-in-progress')) {
         wait = (error.retryAfter ?? BUSY_DEFAULT_MS / 1000) * 1000;
       } else if (keyed && LEDGERED.has(retry.replay) && error instanceof TransportError && error.code === 'network-error' && replays < MAX_JOURNEY_REPLAYS) {
         replays++;
