@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "policy": "Exact file, pattern kind, match SHA-256 and full line SHA-256. No path wildcards or blanket token exemptions. Changes require review. Digests avoid copying raw ledger identities into the public scanner.",
+  "entries": [
+    {
+      "context_sha256": "ef571f3e85ad8a52055bb910a31d0e7b8e0f767dc4e07eccd123847363ccc478",
+      "file": "spec/openapi.yaml",
+      "kind": "secret_assignment",
+      "reason": "Schema or type declaration of a credential field; not a credential value.",
+      "value_sha256": "85764a96afe0038f2bfa3469bd9373ef9ac79f55b9c82df784d319973e928099"
+    },
+    {
+      "context_sha256": "8bdce91488e877aa2d3e541a1355482a62600fd7fc2e574ea7b6df3e91cf4f69",
+      "file": "docs/HELPER_BROKER_CONTRACT.md",
+      "kind": "secret_assignment",
+      "reason": "Documentation placeholder, environment-variable name or prose matched by the assignment detector; no credential value.",
+      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
+    },
+    {
+      "context_sha256": "74e36f9cf87ea24b126aec36f8db6b42e005e2fe7a058a7357eb285b334608ae",
+      "file": "docs/adr/0001-machine-approval-authority.md",
+      "kind": "secret_assignment",
+      "reason": "Documentation placeholder, environment-variable name or prose matched by the assignment detector; no credential value.",
+      "value_sha256": "f36ea915044b1a138439d21704fbcf33cb4a354151aae805c7a2b3e9fe908950"
+    },
+    {
+      "context_sha256": "aabde156e221e9ccad6f6b8ccc62ffb1abd99393c5b7be8e34dec57ff8b35193",
+      "file": "packages/helper/src/gateway-authority.mjs",
+      "kind": "secret_assignment",
+      "reason": "Credential plumbing: the header, field or variable takes its value from a runtime binding, argument or environment variable; no credential value is embedded.",
+      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
+    },
+    {
+      "context_sha256": "610988270ab5ac929dc86d60e0a42e8d02d60b7b06c8d06f595603a887fb4912",
+      "file": "packages/helper/src/proof-authority.mjs",
+      "kind": "secret_assignment",
+      "reason": "Credential plumbing: the header, field or variable takes its value from a runtime binding, argument or environment variable; no credential value is embedded.",
+      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
+    },
+    {
+      "context_sha256": "df87e78617028ccd96ad5f6317d189fedc1298d04d275268f93d01e47627f11b",
+      "file": "packages/helper/src/proof-authority.mjs",
+      "kind": "secret_assignment",
+      "reason": "Credential plumbing: the header, field or variable takes its value from a runtime binding, argument or environment variable; no credential value is embedded.",
+      "value_sha256": "d7bf06313395b67aa95f651e8c6c1a5a35e8cf3a0d8951ebbfe110fef4cd0e0b"
+    },
+    {
+      "context_sha256": "d100ed4b75ed05b767a34e7c2eb2582bd2c18ccb19e84188da71b3d02cd5d6c5",
+      "file": "packages/helper/src/git-config.mjs",
+      "kind": "secret_assignment",
+      "reason": "Trusted helper Git-config template interpolates the supplied lease; no credential value is embedded.",
+      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
+    },
+    {
+      "context_sha256": "29e5132183d37ed06c95d831b013077ecdf934dbaead3ab55504590c3d4c4ae3",
+      "file": "packages/shared/src/remote-identity.ts",
+      "kind": "secret_assignment",
+      "reason": "Schema or type declaration of a credential field; not a credential value.",
+      "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
+    },
+    {
+      "context_sha256": "ddc060630901dde9f03c71049ec7e4e65521a73b67ee1cf59efca2c1040930b0",
+      "file": "tools/conformance/events/README.md",
+      "kind": "secret_assignment",
+      "reason": "Documentation placeholder, environment-variable name or prose matched by the assignment detector; no credential value.",
+      "value_sha256": "9027dc1dc74d5cf91dd402f18a282fd909b3f93280b35113dcf4f50689970a4a"
+    },
+    {
+      "context_sha256": "6239eea8fce797979ada0112e10b2cbb37345231acd0b47ccb07afc715e656cd",
+      "file": "tools/conformance/events/events.test.mjs",
+      "kind": "account_literal",
+      "reason": "Synthetic account identifier in a local test fixture; no real account.",
+      "value_sha256": "e407f1ed41b4ad35baccea1b202da28448c708eea7ec2496d5ae83fe346f2684"
+    },
+    {
+      "context_sha256": "17bac08a8460308b57b69a98edd47893f4f4643dae820a5e86f74ca598bfbced",
+      "file": "tools/release-scan/classify.py",
+      "kind": "infra",
+      "reason": "Exact detector implementation literal; contains no operational configuration.",
+      "value_sha256": "227c23c69b0cc2820adc1921e37ef9ca64bdf0c1ec8ae300dfdf3df893c5081f"
+    },
+    {
+      "context_sha256": "9ff3edfb77da5393581ba5cff0fb0c196053d5a25fc1e6448e7203a6e888b982",
+      "file": "tools/release-scan/classify.py",
+      "kind": "infra",
+      "reason": "Exact detector implementation literal; contains no operational configuration.",
+      "value_sha256": "8912ed2aea0e32a29a125e6b11d7bba399679b8145d69627f6cb4a61a9da698c"
+    },
+    {
+      "context_sha256": "daf33b6dccd99f1dbf5447e9d0c91e1c45fbb1203073df5763229044c4c6facf",
+      "file": "tools/release-scan/classify.py",
+      "kind": "private_names",
+      "reason": "Exact detector implementation literal; contains no operational configuration.",
+      "value_sha256": "9049697da52b7e0efb06ef942d752352a8336c4cc657b095b882a63495d75d51"
+    },
+    {
+      "context_sha256": "9ff3edfb77da5393581ba5cff0fb0c196053d5a25fc1e6448e7203a6e888b982",
+      "file": "tools/release-scan/classify.py",
+      "kind": "private_repo",
+      "reason": "Exact detector implementation literal; contains no operational configuration.",
+      "value_sha256": "2e7cf24c3f0cc73c59fa0e91ea6473190f66e97bd9b4aa7fdb0fe69c3e399805"
+    },
+    {
+      "context_sha256": "fe0c78e9e95f94cf752d384c41cc0c51a3e2782f546e87f5bd894fc3454714f9",
+      "file": "tools/conformance/boundary.mjs",
+      "kind": "infra",
+      "reason": "Semantic boundary detector literals reject private adapter symbols and modules; these are patterns, not executable imports or persisted identities.",
+      "value_sha256": "fcb0cb0bae2b066fb2ce1e1124b66a8ef609f3803471863ad72653b64236d042"
+    },
+    {
+      "context_sha256": "fe0c78e9e95f94cf752d384c41cc0c51a3e2782f546e87f5bd894fc3454714f9",
+      "file": "tools/conformance/boundary.mjs",
+      "kind": "infra",
+      "reason": "Semantic boundary detector literals reject private adapter symbols and modules; these are patterns, not executable imports or persisted identities.",
+      "value_sha256": "097489154ef6ac362f6850b00d4b2d9ffb778eb70fd89726428c6a70c50ac030"
+    },
+    {
+      "context_sha256": "8e943bd2f707c06557d007bf8b6ec942cbe874dba3531f26f60ab9b578e0e0f0",
+      "file": "tools/conformance/drivers/api.mjs",
+      "kind": "secret_assignment",
+      "reason": "Local conformance driver interpolates the supplied session token into a request header; no credential value is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "ba51320095ec29fb626d2f14547c704c62caa99912869a651061b5200524c6eb",
+      "file": "tools/conformance/protocol.test.mjs",
+      "kind": "studio_contract",
+      "reason": "Exact synthetic negative controls for semantic boundary and secret sanitization, including deliberately invalid token strings; no live credentials or private imports.",
+      "value_sha256": "08cfc24afd4582d15782179a565f346f9b1d0ce2e1291f834ac72e8a63bf207d"
+    },
+    {
+      "context_sha256": "50b4f58a1c38dc58ac045f25d71b12b0ab2f44740c17b619e24403444d3dc29c",
+      "file": "tools/conformance/protocol.test.mjs",
+      "kind": "infra",
+      "reason": "Exact synthetic negative controls for semantic boundary and secret sanitization, including deliberately invalid token strings; no live credentials or private imports.",
+      "value_sha256": "fcb0cb0bae2b066fb2ce1e1124b66a8ef609f3803471863ad72653b64236d042"
+    },
+    {
+      "context_sha256": "2469a745afa5f39a13bd7a7235b48bc84c9269b908e4a3ac698614f8bf515609",
+      "file": "tools/conformance/protocol.test.mjs",
+      "kind": "studio_contract",
+      "reason": "Exact synthetic negative controls for semantic boundary and secret sanitization, including deliberately invalid token strings; no live credentials or private imports.",
+      "value_sha256": "08cfc24afd4582d15782179a565f346f9b1d0ce2e1291f834ac72e8a63bf207d"
+    },
+    {
+      "context_sha256": "5ee829bcef040ea347b2e5e0ed03a58c3e07222b69551336990eb4dc811ebb42",
+      "file": "tools/conformance/protocol.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Exact synthetic negative controls for semantic boundary and secret sanitization, including deliberately invalid token strings; no live credentials or private imports.",
+      "value_sha256": "9fe6da2d1335e596e62a646a1b287cd8a5ac24d5b7e45c0b7039a5e73c3a586c"
+    },
+    {
+      "context_sha256": "87f754c42ad030b70be8a6a1d259a64b4e3c9cba644877bd4a6ab87b32e529e9",
+      "file": "tools/conformance/scenarios.ts",
+      "kind": "secret_assignment",
+      "reason": "Local conformance scenario assigns the returned authorization object; no credential value is embedded.",
+      "value_sha256": "4947c2b15f1c1f4a758f169e40ab57fc7f4e802b12364beb6cb03efd9e49c22d"
+    },
+    {
+      "context_sha256": "4df8ee010f58103fb683882e627427f4d4b3ede27d8acbd88649b78a3188afc0",
+      "file": "tools/conformance/protocol.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Exact synthetic sanitizer input: proves stderrTail redacts an opaque placeholder password and accessToken; no credential value.",
+      "value_sha256": "5c7c2773887c7d33633387f58b321f93329ac855e43115831bcf5dc8a368ae88"
+    },
+    {
+      "context_sha256": "1fbc1038d47cc352795881fb2e4fc8ce6f47df21d1d4e258b9adf18efd919530",
+      "file": "docs/examples/github-machine-approve.yml",
+      "kind": "secret_assignment",
+      "reason": "Reference client Bearer header interpolates the runtime Actions OIDC request token from the environment; no credential value is embedded.",
+      "value_sha256": "42ece7bf57af845e895ed3193d86f1161de7d54f74bc6106461b48e2ded40e2f"
+    },
+    {
+      "context_sha256": "aced3926e0606ee2da5ffd98ebb85fd449667bd0077ed85db3dd57f0b66127ee",
+      "file": "docs/examples/workers-machine-approve.mjs",
+      "kind": "secret_assignment",
+      "reason": "Reference client Bearer header interpolates the runtime exchange or grant token argument; no credential value is embedded.",
+      "value_sha256": "c451b0f130bbbd282b6dc14833c1a8f0a73a31dc262800fd85fea32f616636b4"
+    },
+    {
+      "context_sha256": "205e7c0f5c75a8686ed527871addd2f59527c561c688632ebc4c513cf52140c8",
+      "file": "packages/client/src/generated/openapi.ts",
+      "kind": "secret_assignment",
+      "reason": "Generated openapi-typescript type for the OpenAPI Authorization schema (claim authorization record), not a credential value.",
+      "value_sha256": "14b57e32825ade14cf13ce7f4c2bc6c75a70088735c0c5fe95ffb4e680e8b043"
+    },
+    {
+      "context_sha256": "f2212e7e5354c0b6e73810171eb0a030aeacc460e2311106dba0a1fbe9db0aef",
+      "file": "packages/client/src/generated/openapi.ts",
+      "kind": "secret_assignment",
+      "reason": "Generated openapi-typescript type for the declared BYO Basic credential field; a type, not a credential value.",
+      "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
+    },
+    {
+      "context_sha256": "205e7c0f5c75a8686ed527871addd2f59527c561c688632ebc4c513cf52140c8",
+      "file": "packages/client/dist/generated/openapi.d.ts",
+      "kind": "secret_assignment",
+      "reason": "Generated openapi-typescript declaration (built from src/generated/openapi.ts) for the OpenAPI Authorization schema (claim authorization record), not a credential value; shipped in the npm tarball.",
+      "value_sha256": "14b57e32825ade14cf13ce7f4c2bc6c75a70088735c0c5fe95ffb4e680e8b043"
+    },
+    {
+      "context_sha256": "f2212e7e5354c0b6e73810171eb0a030aeacc460e2311106dba0a1fbe9db0aef",
+      "file": "packages/client/dist/generated/openapi.d.ts",
+      "kind": "secret_assignment",
+      "reason": "Generated openapi-typescript declaration (built from src/generated/openapi.ts) for the declared BYO Basic credential field; a type, not a credential value; shipped in the npm tarball.",
+      "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
+    }
+  ]
+}
