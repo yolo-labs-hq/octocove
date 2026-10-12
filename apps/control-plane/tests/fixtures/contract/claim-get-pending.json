@@ -1,0 +1,16 @@
+{
+  "path": "/claims/{id}",
+  "method": "get",
+  "status": 202,
+  "body": {
+    "id": "claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A",
+    "taskId": "task-Wgtl08-vXT2c5hIXqaYW5m2zg1O05lgWZg6w0nxEopo",
+    "intentVersion": 1,
+    "status": "active",
+    "expiresAt": "2026-10-11T07:33:00.805Z",
+    "dependencyResults": [],
+    "provisioningState": "pending",
+    "workspace": null,
+    "blockedReason": null
+  }
+}

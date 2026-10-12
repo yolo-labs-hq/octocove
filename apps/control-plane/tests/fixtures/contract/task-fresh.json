@@ -1,0 +1,41 @@
+{
+  "path": "/tasks/{id}",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "id": "task-R1CBA2KpPpupX5D72Ato7-gSO4rZ6-8EhVWyH6x_Xko",
+    "projectId": "other-project",
+    "key": "fx-bootstrap",
+    "status": "claimed",
+    "intentVersion": 1,
+    "intent": {
+      "title": "Ship the task",
+      "description": "A complete task contract",
+      "acceptanceCriteria": [
+        "All checks pass"
+      ]
+    },
+    "repositoryId": "canonical-other-project",
+    "targetRef": "refs/heads/main",
+    "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dependencies": [],
+    "acceptedReceiptId": null,
+    "liveAttempt": {
+      "claimId": "01M4MTMDADXHPGS9KQ2J0FSDPP",
+      "submissionId": null,
+      "candidateId": null,
+      "approvalId": null,
+      "fenceId": null
+    },
+    "claimedBy": {
+      "id": "agent-a",
+      "kind": "agent",
+      "delegatedBy": "https://identity.example|alice"
+    },
+    "intentEditedAt": "2026-10-11T06:33:02.799Z",
+    "updatedAt": "2026-10-11T06:33:03.087Z",
+    "candidate": null,
+    "needsReview": false,
+    "reviewReason": null
+  }
+}

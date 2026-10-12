@@ -1,0 +1,1305 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`approve --grant after exchange 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /candidates/CA1/approve-with-grant",
+  ],
+  "stderr": "",
+  "stdout": "{"id":"AP2","candidateId":"CA1","approvedBy":"principal","status":"active"}
+",
+}
+`;
+
+exports[`approve 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /candidates/CA1/approve",
+  ],
+  "stderr": "",
+  "stdout": "Approval:         AP1
+Candidate:        CA1
+Approved by:      u
+Status:           active
+boundTo:          {"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3}
+",
+}
+`;
+
+exports[`approve as agent --json 1`] = `
+{
+  "code": 77,
+  "requests": [],
+  "stderr": "{"error":{"code":"human-required","message":"approve requires a human credential; agent delegations and claim bootstraps can never approve"}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`approve as agent 1`] = `
+{
+  "code": 77,
+  "requests": [],
+  "stderr": "octocove: approve requires a human credential; agent delegations and claim bootstraps can never approve
+",
+  "stdout": "",
+}
+`;
+
+exports[`approve human-required 1`] = `
+{
+  "code": 77,
+  "requests": [
+    "POST /candidates/CA1/approve",
+  ],
+  "stderr": "octocove: human-required: HTTP 403
+",
+  "stdout": "",
+}
+`;
+
+exports[`approve mismatch 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "POST /candidates/CA1/approve",
+  ],
+  "stderr": "octocove: approval-mismatch: the candidate moved
+details: {"currentBoundTo":{"candidateSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`auth exchange and approve --grant 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /auth/approval-grants",
+  ],
+  "stderr": "",
+  "stdout": "{"id":"grant-1","expiresAt":"2030-01-01T00:00:00Z","scope":{"projectId":"P1","claimAttemptId":"C1","candidateId":"CA1","boundTo":{"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3},"checkRunIds":[]},"policyVersion":"policy","principalId":"principal","purpose":"approve"}
+",
+}
+`;
+
+exports[`auth renew 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /auth/session/renew",
+  ],
+  "stderr": "",
+  "stdout": "Credential renewed and saved privately.
+",
+}
+`;
+
+exports[`auth renew bootstrap 1`] = `
+{
+  "code": 78,
+  "requests": [],
+  "stderr": "octocove: a bootstrap cannot be renewed; claim first
+",
+  "stdout": "",
+}
+`;
+
+exports[`auth revoke 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /delegations/D1/revoke",
+  ],
+  "stderr": "",
+  "stdout": "Delegation D1 revoked.
+",
+}
+`;
+
+exports[`candidate show complete 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /submissions/S1/candidate",
+  ],
+  "stderr": "",
+  "stdout": "Candidate:        CA1
+State:            complete
+Outcome:          computed
+Status:           active
+Candidate SHA:    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Base SHA:         bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Check:            passed
+boundTo:          {"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3}
+",
+}
+`;
+
+exports[`candidate show pending 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /submissions/S1/candidate",
+  ],
+  "stderr": "",
+  "stdout": "State:            pending
+Job:              (staged behind a landing fence)
+",
+}
+`;
+
+exports[`candidate show superseded 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /submissions/S1/candidate",
+  ],
+  "stderr": "",
+  "stdout": "State:            superseded
+Superseded by:    S2
+",
+}
+`;
+
+exports[`candidate withdraw as agent 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /candidates/CA1/withdraw",
+  ],
+  "stderr": "",
+  "stdout": "id:               CA1
+status:           withdrawn
+",
+}
+`;
+
+exports[`events --follow 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /events?projectId=P1",
+    "GET /events?after=cursor-2&projectId=P1",
+  ],
+  "stderr": "",
+  "stdout": "{"id":"evt_1","type":"task.ready","schemaVersion":1,"projectId":"P1","taskId":"T1","occurredAt":"2026-10-05T00:00:00Z","data":{"id":"1"}}
+{"id":"evt_2","type":"task.ready","schemaVersion":1,"projectId":"P1","taskId":"T1","occurredAt":"2026-10-05T00:00:00Z","data":{"id":"2"}}
+",
+}
+`;
+
+exports[`events replay 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /events?after=c1&limit=2&projectId=P1&taskId=T1",
+  ],
+  "stderr": "",
+  "stdout": "t1  task.ready  T1  evt_1
+next: --after 9
+",
+}
+`;
+
+exports[`help 1`] = `
+{
+  "code": 0,
+  "requests": [],
+  "stderr": "",
+  "stdout": "octocove — Git hosting for humans and agents
+
+Usage: octocove [--json] <command> [options]
+
+Commands:
+  login [--wait SECONDS]                       (browser consent, protected session storage)
+  logout                                      (revoke session family and clear local credential)
+  whoami                                      (authenticated principal and project memberships)
+  project create SLUG --name TEXT             (allow-listed humans; you become its first member)
+  repo create PROJECT --name NAME [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
+  repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
+  repo list PROJECT                           (canonical repositories and target refs to create tasks against)
+  repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts remote)
+  auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]
+  auth approve --grant ID [--as ID]             (exact machine decision)
+  auth revoke --grant ID                       (human administrator)
+  auth renew                                  (rotate active session or delegation)
+  auth revoke [DELEGATION_ID]                  (revoke delegation; defaults to active one)
+  workspace prepare|open|refresh|retire --canonical URL [--cache DIR] [--worktree ID] [--base SHA]
+  helper status                               (secret-free configuration)
+  task list --project ID [--status S] [--cursor C] [--limit N]
+  task show ID
+  task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON
+  task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]
+  task publish ID
+  task release ID [--claim ID]
+  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID]
+  lane push [REF] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
+  lane status|retry|retire [--task ID] [--claim ID]
+  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]
+  task claim-status ID                          (ID is the claim ID)
+  task unpublish ID --expected-status ready --intent-version N
+  task dependency-add ID --upstream ID --expected-status S --intent-version N
+  task dependency-remove ID --upstream ID --expected-status S --intent-version N
+  task reject ID --expected-status S --intent-version N
+  task supersede ID --replacement ID --expected-status S --intent-version N
+  task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N
+  approval withdraw ID --expected-status S --intent-version N
+  candidate withdraw ID --expected-status S --intent-version N
+  candidate reject ID --expected-status landed --intent-version N
+  task authorize ID --agent ID --verbs a,b --expires-at TIME
+  submit [REF] [--task ID] [--source SHA] [--base SHA] [--intent-version N] [--claim ID] [--wait SECONDS]
+  candidate show --submission ID
+  approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
+  land ID --approval ID [--wait]
+  receipt show ID [--wait]
+  log ID [--after CURSOR] [--limit N]
+  events --follow --project ID [--task ID] [--from CURSOR] [--checkpoint FILE]
+  events replay --project ID [--task ID] [--after CURSOR] [--limit N]
+  webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin
+  webhook replay ID --after CURSOR [--through CURSOR]
+  webhook disable ID
+  webhook deliveries ID [--status parked|cancelled] [--after ID] [--limit N]
+  webhook redrive ID --delivery ID
+  webhook rotate-secret ID --overlap-seconds N --secret-stdin
+  webhook reactivate ID
+
+Global options:
+  --json                  print the API response as JSON
+  --idempotency-key KEY   reuse a key to recover a write (default: random per action)
+  --help
+
+Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
+API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.
+Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 75 still pending, 77 human credential required, 78 config.
+",
+}
+`;
+
+exports[`land --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /candidates/CA1/land",
+    "GET /receipts/F1",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "landing": {
+    "fenceId": "F1",
+    "receiptId": "F1",
+    "status": "pending",
+    "receiptUrl": "https://api.example.invalid/v1/receipts/F1"
+  },
+  "receipt": {
+    "id": "F1",
+    "receiptId": "F1",
+    "taskId": "T1",
+    "outcome": "landed",
+    "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "landedSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseShaBefore": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "baseShaAfter": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "ancestryVerified": true,
+    "fenceId": "F1"
+  }
+}
+",
+}
+`;
+
+exports[`land --wait 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /candidates/CA1/land",
+    "GET /receipts/F1",
+  ],
+  "stderr": "",
+  "stdout": "Receipt:          F1
+State:            final
+Outcome:          landed
+Task:             T1
+Candidate:        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Landed SHA:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Base before:      bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Base after:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Ancestry verified:true
+Fence:            F1
+",
+}
+`;
+
+exports[`land fenced 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "POST /candidates/CA1/land",
+  ],
+  "stderr": "octocove: fenced: another landing holds the fence
+",
+  "stdout": "",
+}
+`;
+
+exports[`land pending 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /candidates/CA1/land",
+    "GET /receipts/F1",
+  ],
+  "stderr": "",
+  "stdout": "Receipt:          F1
+State:            pending
+Fence:            F1
+Integrator run:   run1
+",
+}
+`;
+
+exports[`lane retire as agent 1`] = `
+{
+  "code": 77,
+  "requests": [],
+  "stderr": "octocove: lane retire requires a human credential
+",
+  "stdout": "",
+}
+`;
+
+exports[`lane retry 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/lane/retry",
+  ],
+  "stderr": "",
+  "stdout": "taskId:           T1
+status:           retrying
+",
+}
+`;
+
+exports[`lane status --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks/T1/lane",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "id": "<key>",
+  "type": "lane.status",
+  "schemaVersion": 1,
+  "projectId": null,
+  "taskId": "T1",
+  "occurredAt": "<now>",
+  "data": {
+    "taskId": "T1",
+    "chainId": "chain-1",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "pushes": []
+  }
+}
+",
+}
+`;
+
+exports[`log 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks/T1/log?after=5&limit=10",
+  ],
+  "stderr": "",
+  "stdout": "     6  2030-01-01T00:00:00Z  human:u1  claim.granted  {"claimId":"C1"}
+next: --after 6
+",
+}
+`;
+
+exports[`login 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /auth/login",
+    "POST /auth/cli/exchange",
+    "POST /auth/cli/exchange",
+    "POST /auth/cli/exchange",
+  ],
+  "stderr": "",
+  "stdout": "Open https://api.example.invalid/auth/cli/start?userCode=CONSENT and confirm code CONSENT.
+Logged in; credential saved privately.
+",
+}
+`;
+
+exports[`login denied 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "POST /auth/login",
+    "POST /auth/cli/exchange",
+  ],
+  "stderr": "octocove: access-denied: denied [redacted]
+details: {"deviceCode":"[redacted]"}
+",
+  "stdout": "Open https://api.example.invalid/auth/cli/start?userCode=CONSENT and confirm code CONSENT.
+",
+}
+`;
+
+exports[`login registration required --json 1`] = `
+{
+  "code": 78,
+  "requests": [
+    "POST /auth/login",
+  ],
+  "stderr": "{"error":{"code":"oidc-registration-required","message":"oidc-registration-required: HTTP 503","status":503,"details":{"clientId":"octocove"}}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`logout 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /auth/logout",
+  ],
+  "stderr": "",
+  "stdout": "Logged out; local credential cleared.
+",
+}
+`;
+
+exports[`receipt show --wait timeout with changing pending metadata --json 1`] = `
+{
+  "code": 75,
+  "requests": [
+    "GET /receipts/F1",
+  ],
+  "stderr": "{"error":{"code":"pending","message":"landing pending; poll with \`octocove receipt show F1 --wait\`"}}
+",
+  "stdout": "{
+  "receiptId": "F1",
+  "fenceId": "F1",
+  "integratorRunId": "latest-run",
+  "status": "pending"
+}
+",
+}
+`;
+
+exports[`receipt show --wait timeout with changing pending metadata 1`] = `
+{
+  "code": 75,
+  "requests": [
+    "GET /receipts/F1",
+  ],
+  "stderr": "octocove: landing pending; poll with \`octocove receipt show F1 --wait\`
+",
+  "stdout": "Receipt:          F1
+State:            pending
+Fence:            F1
+Integrator run:   latest-run
+",
+}
+`;
+
+exports[`receipt show final 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /receipts/F1",
+  ],
+  "stderr": "",
+  "stdout": "Receipt:          F1
+State:            final
+Outcome:          landed
+Task:             T1
+Candidate:        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Landed SHA:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Base before:      bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Base after:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Ancestry verified:true
+Fence:            F1
+",
+}
+`;
+
+exports[`receipt show pending --json 1`] = `
+{
+  "code": 75,
+  "requests": [
+    "GET /receipts/F1",
+  ],
+  "stderr": "{"error":{"code":"pending","message":"landing pending; poll with \`octocove receipt show F1 --wait\`"}}
+",
+  "stdout": "{
+  "receiptId": "F1",
+  "fenceId": "F1",
+  "integratorRunId": "run1",
+  "status": "pending"
+}
+",
+}
+`;
+
+exports[`receipt show pending 1`] = `
+{
+  "code": 75,
+  "requests": [
+    "GET /receipts/F1",
+  ],
+  "stderr": "octocove: landing pending; poll with \`octocove receipt show F1 --wait\`
+",
+  "stdout": "Receipt:          F1
+State:            pending
+Fence:            F1
+Integrator run:   run1
+",
+}
+`;
+
+exports[`submit --wait complete --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/submissions",
+    "GET /submissions/S1/candidate",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "submission": {
+    "id": "S1",
+    "taskId": "T1",
+    "seq": 1,
+    "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "intentVersion": 3,
+    "stagedBehindFenceId": null
+  },
+  "candidate": {
+    "state": "complete",
+    "candidate": {
+      "id": "CA1",
+      "outcome": "computed",
+      "status": "active",
+      "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "latestCheck": {
+        "result": "passed"
+      },
+      "conflictFiles": [],
+      "reviewBoundTo": {
+        "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "intentVersion": 3
+      }
+    }
+  }
+}
+",
+}
+`;
+
+exports[`submit --wait complete 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/submissions",
+    "GET /submissions/S1/candidate",
+  ],
+  "stderr": "",
+  "stdout": "{"state":"superseded","submissionId":"S1","replacementSubmissionId":"S2"}
+",
+}
+`;
+
+exports[`submit --wait pending --json 1`] = `
+{
+  "code": 75,
+  "requests": [
+    "POST /tasks/T1/submissions",
+    "GET /submissions/S1/candidate",
+  ],
+  "stderr": "{"error":{"code":"pending","message":"candidate computation is pending"}}
+",
+  "stdout": "{
+  "submission": {
+    "id": "S1",
+    "taskId": "T1",
+    "seq": 1,
+    "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "intentVersion": 3,
+    "stagedBehindFenceId": null
+  },
+  "candidate": {
+    "state": "pending",
+    "submissionId": "S1",
+    "jobId": "J1"
+  }
+}
+",
+}
+`;
+
+exports[`submit 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/submissions",
+  ],
+  "stderr": "",
+  "stdout": "Submission:       S1
+Task:             T1
+Sequence:         1
+Source:           aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Base:             bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Intent version:   3
+",
+}
+`;
+
+exports[`submit intent mismatch 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "POST /tasks/T1/submissions",
+  ],
+  "stderr": "octocove: intent-version-mismatch: intent moved to v3
+",
+  "stdout": "",
+}
+`;
+
+exports[`task authorize --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/authorizations",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "id": "A1",
+  "claimAttemptId": "CA",
+  "delegationId": "D",
+  "verbs": [
+    "tasks:claim",
+    "submissions:create"
+  ],
+  "bootstrapExpiresAt": "2030-01-01T00:05:00Z",
+  "bootstrapFile": "<root>/cfg/credentials/bootstrap-<uuid>.json"
+}
+",
+}
+`;
+
+exports[`task claim 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks/T1",
+    "POST /tasks/T1/claim",
+    "GET /claims/C1",
+  ],
+  "stderr": "",
+  "stdout": "Task T1 (intent v3)
+Title: Add CLI
+
+Build it
+
+Acceptance criteria:
+  - tests pass
+  - help lists verbs
+
+Upstream results:
+  T0  receipt R0  landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+Claim:            C1
+Provisioning:     ready
+Expires:          2030-01-01T00:00:00Z
+Remote:           octocove -> https://git.example.invalid/t1.git
+Ref:              refs/heads/task/t1
+",
+}
+`;
+
+exports[`task claim blocked --json 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+    "POST /tasks/T1/claim",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "claim": {
+    "id": "C1",
+    "taskId": "T1",
+    "intentVersion": 3,
+    "status": "active",
+    "expiresAt": "2030-01-01T00:00:00Z",
+    "dependencyResults": [
+      {
+        "upstreamTaskId": "T0",
+        "receiptId": "R0",
+        "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "provisioningState": "blocked",
+    "blockedReason": "adapter unconfigured",
+    "workspace": null
+  },
+  "error": {
+    "code": "provisioning-blocked",
+    "message": "provisioning-blocked: adapter unconfigured",
+    "status": 409
+  }
+}
+",
+}
+`;
+
+exports[`task claim blocked 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+    "POST /tasks/T1/claim",
+  ],
+  "stderr": "octocove: provisioning-blocked: adapter unconfigured
+",
+  "stdout": "Task T1 (intent v3)
+Title: Add CLI
+
+Build it
+
+Acceptance criteria:
+  - tests pass
+  - help lists verbs
+
+Upstream results:
+  T0  receipt R0  landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+Claim:            C1
+Provisioning:     blocked
+Blocked reason:   adapter unconfigured
+Expires:          2030-01-01T00:00:00Z
+",
+}
+`;
+
+exports[`task claim pending --json 1`] = `
+{
+  "code": 75,
+  "requests": [
+    "POST /tasks/T1/claim",
+    "GET /claims/C1",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "claim": {
+    "id": "C1",
+    "taskId": "T1",
+    "intentVersion": 3,
+    "status": "active",
+    "expiresAt": "2030-01-01T00:00:00Z",
+    "dependencyResults": [
+      {
+        "upstreamTaskId": "T0",
+        "receiptId": "R0",
+        "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "provisioningState": "pending",
+    "blockedReason": null,
+    "workspace": null
+  },
+  "error": {
+    "code": "pending",
+    "message": "provisioning still pending; poll with \`octocove task claim-status C1\`"
+  }
+}
+",
+}
+`;
+
+exports[`task claim refused 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+    "POST /tasks/T1/claim",
+  ],
+  "stderr": "octocove: dependency-unlanded: blocked
+details: {"claimResult":"refused-dependency-unlanded"}
+",
+  "stdout": "",
+}
+`;
+
+exports[`task claim-status 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /claims/C1",
+  ],
+  "stderr": "",
+  "stdout": "Claim:            C1
+Task:             T1
+Status:           active
+Provisioning:     ready
+Remote:           https://git.example.invalid/t1.git
+Ref:              refs/heads/task/t1
+",
+}
+`;
+
+exports[`task create 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks",
+  ],
+  "stderr": "",
+  "stdout": "Task:             T1
+Status:           draft
+",
+}
+`;
+
+exports[`task edit 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/intent",
+  ],
+  "stderr": "",
+  "stdout": "Task:             T1
+Intent version:   2
+Staged:           false
+",
+}
+`;
+
+exports[`task list --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks?projectId=P1",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "items": [
+    {
+      "id": "T1",
+      "projectId": "P1",
+      "key": "k",
+      "status": "ready",
+      "intentVersion": 3,
+      "intent": {
+        "title": "Add CLI",
+        "description": "Build it",
+        "acceptanceCriteria": [
+          "tests pass",
+          "help lists verbs"
+        ]
+      },
+      "targetRef": "refs/heads/main",
+      "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "dependencies": [
+        {
+          "upstreamTaskId": "T0",
+          "status": "landed",
+          "acceptedResult": {
+            "upstreamTaskId": "T0",
+            "receiptId": "R0",
+            "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      ],
+      "acceptedReceiptId": null,
+      "liveAttempt": {
+        "claimId": "C1"
+      }
+    }
+  ],
+  "nextCursor": null
+}
+",
+}
+`;
+
+exports[`task list 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks?limit=5&projectId=P1&status=ready",
+  ],
+  "stderr": "",
+  "stdout": "T1  ready       v3  k  Add CLI
+next: --cursor c2
+",
+}
+`;
+
+exports[`task publish 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/publish",
+  ],
+  "stderr": "",
+  "stdout": "Task:             T1
+Published:        true
+",
+}
+`;
+
+exports[`task publish as agent 1`] = `
+{
+  "code": 77,
+  "requests": [],
+  "stderr": "octocove: task publish requires a human credential
+",
+  "stdout": "",
+}
+`;
+
+exports[`task reject --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/reject",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "id": "T1",
+  "status": "rejected"
+}
+",
+}
+`;
+
+exports[`task release 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/release",
+  ],
+  "stderr": "",
+  "stdout": "Claim:            C1
+Status:           released
+",
+}
+`;
+
+exports[`task replace-claim 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/claim/replace",
+  ],
+  "stderr": "",
+  "stdout": "id:               T1
+claimId:          C2
+status:           claimed
+",
+}
+`;
+
+exports[`task show --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks/T1",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "id": "T1",
+  "projectId": "P1",
+  "key": "k",
+  "status": "ready",
+  "intentVersion": 3,
+  "intent": {
+    "title": "Add CLI",
+    "description": "Build it",
+    "acceptanceCriteria": [
+      "tests pass",
+      "help lists verbs"
+    ]
+  },
+  "targetRef": "refs/heads/main",
+  "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "dependencies": [
+    {
+      "upstreamTaskId": "T0",
+      "status": "landed",
+      "acceptedResult": {
+        "upstreamTaskId": "T0",
+        "receiptId": "R0",
+        "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    }
+  ],
+  "acceptedReceiptId": null,
+  "liveAttempt": {
+    "claimId": "C1"
+  }
+}
+",
+}
+`;
+
+exports[`task show 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks/T1",
+  ],
+  "stderr": "",
+  "stdout": "Task T1 (intent v3)
+Title: Add CLI
+
+Build it
+
+Acceptance criteria:
+  - tests pass
+  - help lists verbs
+
+Upstream results:
+  T0  receipt R0  landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+Status:           ready
+Target:           refs/heads/main
+Canonical head:   aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Live attempt:     {"claimId":"C1"}
+",
+}
+`;
+
+exports[`task show insecure API URL --json 1`] = `
+{
+  "code": 1,
+  "requests": [],
+  "stderr": "{"error":{"code":"insecure-api-url","message":"insecure-api-url: the API URL must use https:// (http:// only for loopback)","status":0}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show network error --json 1`] = `
+{
+  "code": 1,
+  "requests": [],
+  "stderr": "{"error":{"code":"network-error","message":"network-error: API request failed","status":0}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show network error 1`] = `
+{
+  "code": 1,
+  "requests": [],
+  "stderr": "octocove: network-error: API request failed
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show not found --json 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+  ],
+  "stderr": "{"error":{"code":"not-found","message":"not-found: no such task","status":404,"requestId":"rq1"}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show not found 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+  ],
+  "stderr": "octocove: not-found: no such task
+details: {"taskId":"T1"}
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show redacts the echoed credential 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+  ],
+  "stderr": "{"error":{"code":"unauthenticated","message":"unauthenticated: bad bearer [redacted]","status":401,"requestId":"rq2","details":{"accessToken":"[redacted]","note":"saw [redacted]"}}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show request id from header 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "GET /tasks/T1",
+  ],
+  "stderr": "octocove: temporarily-unavailable: HTTP 503
+",
+  "stdout": "",
+}
+`;
+
+exports[`task show without credentials 1`] = `
+{
+  "code": 78,
+  "requests": [],
+  "stderr": "octocove: no credential: run octocove login or import a protected --bootstrap-file
+",
+  "stdout": "",
+}
+`;
+
+exports[`unknown command --json 1`] = `
+{
+  "code": 2,
+  "requests": [],
+  "stderr": "{"error":{"code":"usage","message":"unknown command: bogus"}}
+",
+  "stdout": "",
+}
+`;
+
+exports[`unknown command 1`] = `
+{
+  "code": 2,
+  "requests": [],
+  "stderr": "octocove: unknown command: bogus
+Run \`octocove --help\` for usage.
+",
+  "stdout": "",
+}
+`;
+
+exports[`webhook create 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /webhooks",
+  ],
+  "stderr": "",
+  "stdout": "Webhook:          W1
+URL:              https://hooks.example/h
+Start cursor:     c0
+",
+}
+`;
+
+exports[`webhook create without stdin flag 1`] = `
+{
+  "code": 2,
+  "requests": [],
+  "stderr": "octocove: --secret-stdin is required; pipe the base64 signing secret on stdin
+Run \`octocove --help\` for usage.
+",
+  "stdout": "",
+}
+`;
+
+exports[`webhook deliveries --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /webhooks/W1/deliveries?after=D0&limit=5&status=cancelled",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "items": [
+    {
+      "id": "D1",
+      "status": "cancelled"
+    }
+  ],
+  "nextAfter": null
+}
+",
+}
+`;
+
+exports[`webhook disable 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /webhooks/W1/disable",
+  ],
+  "stderr": "",
+  "stdout": "Webhook:          W1
+Status:           disabled
+",
+}
+`;
+
+exports[`webhook reactivate --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /webhooks/W1/reactivate",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "id": "W1",
+  "status": "active"
+}
+",
+}
+`;
+
+exports[`webhook redrive 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /webhooks/W1/deliveries/D1/redrive",
+  ],
+  "stderr": "",
+  "stdout": "Replay job:       J2
+",
+}
+`;
+
+exports[`webhook replay 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /webhooks/W1/replays",
+  ],
+  "stderr": "",
+  "stdout": "Replay job:       J1
+",
+}
+`;
+
+exports[`webhook rotate-secret 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /webhooks/W1/rotate-secret",
+  ],
+  "stderr": "",
+  "stdout": "Signing key:      K1
+Overlap until:    1800000060
+",
+}
+`;

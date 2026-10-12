@@ -1,0 +1,5 @@
+dist/
+pack-out/
+# Copied from the repository root by prepack
+/LICENSE
+/NOTICE

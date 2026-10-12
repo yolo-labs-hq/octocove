@@ -1,0 +1,10 @@
+{
+  "path": "/submissions/{id}/candidate",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "state": "superseded",
+    "submissionId": "d0b7c32a-d03c-458c-a034-0431cbd2709c",
+    "replacementSubmissionId": "5f8c52ad-bdfd-4cdc-a406-c7563e5dfbad"
+  }
+}

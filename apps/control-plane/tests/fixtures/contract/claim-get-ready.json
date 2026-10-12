@@ -1,0 +1,29 @@
+{
+  "path": "/claims/{id}",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "id": "claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A",
+    "taskId": "task-Wgtl08-vXT2c5hIXqaYW5m2zg1O05lgWZg6w0nxEopo",
+    "intentVersion": 1,
+    "status": "active",
+    "expiresAt": "2026-10-11T07:33:00.805Z",
+    "dependencyResults": [],
+    "provisioningState": "ready",
+    "workspace": {
+      "mappingId": "108f08ac-614a-43d1-9012-c8185639f639",
+      "kind": "task-repo",
+      "remote": "https://account.artifacts.cloudflare.net/git/claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A.git",
+      "ref": "refs/heads/main",
+      "credentialSource": {
+        "kind": "artifacts-broker",
+        "helper": "octocove-helper-connect",
+        "grantId": "grant-claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A",
+        "identitySource": "octocove-session",
+        "scope": "write",
+        "brokerUrl": "https://control.example/v1/broker/token"
+      }
+    },
+    "blockedReason": null
+  }
+}

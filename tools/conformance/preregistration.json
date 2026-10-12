@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "protocol": "octocove-conformance/1",
+  "harnessVersion": "1.5.0",
+  "manifestSha256": "a09cca8a2386c3381be2b4af8b5e81178218ce4befef62c0641cbeff19c368aa",
+  "reportOnly": true,
+  "aggregateVerdict": null,
+  "mode": "local",
+  "shards": [
+    "a/artifacts/ref",
+    "a/artifacts/repo",
+    "a/github/ref",
+    "a/forgejo/ref",
+    "b/artifacts/ref",
+    "b/artifacts/repo",
+    "b/github/ref",
+    "b/forgejo/ref",
+    "c/artifacts/ref",
+    "c/artifacts/repo",
+    "c/github/ref",
+    "c/forgejo/ref"
+  ],
+  "matrix": {
+    "archetypes": [
+      "a",
+      "b",
+      "c"
+    ],
+    "providers": [
+      "artifacts",
+      "github",
+      "forgejo"
+    ],
+    "topologies": [
+      "ref",
+      "repo"
+    ],
+    "targets": [
+      "refs/heads/main",
+      "refs/heads/integration"
+    ]
+  },
+  "localPairings": [
+    "artifacts/ref",
+    "artifacts/repo",
+    "github/ref",
+    "forgejo/ref"
+  ],
+  "repetitions": 20,
+  "maxWorkers": 1,
+  "maxShardSeconds": 1500,
+  "smoke": {
+    "target": "refs/heads/main",
+    "repetitions": 1,
+    "maxSeconds": 300,
+    "qualifiesFullCell": false,
+    "shards": [
+      "a/artifacts/ref",
+      "b/artifacts/ref",
+      "c/artifacts/ref"
+    ]
+  },
+  "evidence": {
+    "maxJsonBytes": 262144,
+    "rawTimingCap": 20,
+    "runtimePreregistration": "<out-stem>.preregistration.json",
+    "stderrLastLines": 20,
+    "stderrMaxBytes": 2048
+  },
+  "events": {
+    "oracles": "tools/conformance/events/oracles.mjs",
+    "unregisteredDriverStatus": "BLOCKED"
+  },
+  "ci": {
+    "required": true,
+    "reportOnly": false,
+    "aggregate": "check",
+    "mode": "local",
+    "smoke": {
+      "archetype": "a",
+      "pairings": [
+        "artifacts/ref",
+        "artifacts/repo",
+        "github/ref",
+        "forgejo/ref"
+      ],
+      "target": "refs/heads/main",
+      "repetitions": 1,
+      "maxSeconds": 300,
+      "jobTimeoutMinutes": 10,
+      "qualifiesFullCell": false,
+      "scope": "registered executable smoke assertions; manifest-blocked and pairing-specific unsupported positives remain BLOCKED",
+      "unsupportedByPairing": {
+        "github/ref": {
+          "exact-preview-retention": "production custody verification and cleanup of allocated source not qualified; no fixture may insert custody evidence"
+        },
+        "forgejo/ref": {
+          "exact-preview-retention": "production custody verification and cleanup of allocated source not qualified; no fixture may insert custody evidence"
+        }
+      }
+    }
+  },
+  "cellSeconds": null,
+  "teardownSeconds": 60,
+  "machineApprovalAssertions": [
+    "machine-policy_bot-positive",
+    "machine-policy_bot-expired",
+    "machine-policy_bot-wrong-audience",
+    "machine-policy_bot-replayed",
+    "machine-policy_bot-revoked",
+    "machine-github_actions-positive",
+    "machine-github_actions-expired",
+    "machine-github_actions-wrong-audience",
+    "machine-github_actions-replayed",
+    "machine-github_actions-revoked",
+    "machine-workers_cron-positive",
+    "machine-workers_cron-expired",
+    "machine-workers_cron-wrong-audience",
+    "machine-workers_cron-replayed",
+    "machine-workers_cron-revoked",
+    "machine-signed_cli-positive",
+    "machine-signed_cli-expired",
+    "machine-signed_cli-wrong-audience",
+    "machine-signed_cli-replayed",
+    "machine-signed_cli-revoked",
+    "machine-self-approval",
+    "machine-ordinary-agent"
+  ],
+  "budget": {
+    "measuredRepetitionSeconds": {
+      "a": 48,
+      "b": 60,
+      "c": 52
+    },
+    "marginFraction": 0.15,
+    "bootSeconds": 20,
+    "teardownSeconds": 60,
+    "maxInvocationSeconds": 1500
+  },
+  "verdicts": {
+    "cellVocabulary": [
+      "PASS",
+      "FAIL",
+      "INCOMPLETE",
+      "BLOCKED",
+      "NOT RUN"
+    ],
+    "incomplete": "INCOMPLETE(n/20 repetitions, deadline); not-green; no qualification",
+    "rowVocabulary": [
+      "PASS",
+      "FAIL",
+      "INCOMPLETE",
+      "BLOCKED",
+      "NOT RUN"
+    ]
+  },
+  "unsupportedByDesign": {
+    "targetCells": [
+      "a/artifacts/ref/main",
+      "a/artifacts/ref/integration",
+      "b/artifacts/ref/main",
+      "b/artifacts/ref/integration",
+      "c/artifacts/ref/main",
+      "c/artifacts/ref/integration"
+    ],
+    "allocation": {
+      "artifacts/ref": "own-clone (b) and CI (c) clients are not allocated a ref lane on an Artifacts canonical; the product allocates a task repository (artifacts/repo, ADR 0003 chain mode) instead"
+    },
+    "reason": "Artifacts repository-scoped tokens cannot confine a claimant to one ref of a shared repository without a ref-policy gateway."
+  }
+}

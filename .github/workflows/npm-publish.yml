@@ -1,0 +1,125 @@
+# npm publish of @yolo-labs/octocove (tag cli-vX.Y.Z) and @yolo-labs/octocove-client
+# (tag client-vX.Y.Z), with npm provenance. Tag pushes only: never a
+# pull request, a branch push or a dispatch. The job refuses unless the tagged commit
+# is reachable from main, the package's version equals the tag, and the package no
+# longer carries "private": true (removing it is a reviewed change on main, never a
+# commit made here). It then builds, tests and packs, and publishes that exact tarball.
+# It runs only in yolo-labs-hq/octocove (tools/check-ci-policy.py, PUBLIC_GUARD):
+# npm provenance requires a public repository matching package.json `repository`,
+# so tags pushed to any other repository, including a fork, skip the job. Releases
+# are tagged from main.
+# Required repository setup (not enforceable from this file): an `npm` environment
+# whose deployment rules admit only the tags cli-v* and client-v* (a branch rule of
+# `main` would reject every tag run, which is why this is not `production`), with
+# required reviewers, holding the NPM_TOKEN secret. See docs/OPERATIONS.md,
+# "Releasing the CLI and client".
+# This workflow reads a publishing secret, so it is intentionally outside the
+# secret-free REQUIRED_WORKFLOWS set checked by tools/check-ci-policy.py.
+name: npm publish
+on:
+  push:
+    tags: ['cli-v*', 'client-v*']
+permissions:
+  contents: read
+# One publish per tag; a re-pushed tag waits rather than racing the first run.
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'yolo-labs-hq/octocove' && github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/cli-v') || startsWith(github.ref, 'refs/tags/client-v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: npm
+    permissions:
+      contents: read
+      id-token: write # npm provenance (Sigstore) only
+    env:
+      CI: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve the package and version from the tag
+        id: tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          case "$REF_NAME" in
+            cli-v*) dir=packages/cli; name=@yolo-labs/octocove; version="${REF_NAME#cli-v}" ;;
+            client-v*) dir=packages/client; name=@yolo-labs/octocove-client; version="${REF_NAME#client-v}" ;;
+            *) echo "unexpected tag $REF_NAME" >&2; exit 1 ;;
+          esac
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "tag $REF_NAME does not carry a semver version" >&2; exit 1
+          fi
+          # npm requires a dist-tag for prereleases; keep them off `latest`.
+          case "$version" in *-*) dist_tag=next ;; *) dist_tag=latest ;; esac
+          { echo "dir=$dir"; echo "name=$name"; echo "version=$version"; echo "dist_tag=$dist_tag"; } >> "$GITHUB_OUTPUT"
+      - name: The tagged commit is reachable from main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "$GITHUB_SHA is not on main; tag a commit that main contains" >&2; exit 1
+          fi
+      - name: Manifest name and version match the tag; the package is no longer private
+        env:
+          DIR: ${{ steps.tag.outputs.dir }}
+          NAME: ${{ steps.tag.outputs.name }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          node -e '
+            const pkg = JSON.parse(require("fs").readFileSync(process.env.DIR + "/package.json", "utf8"));
+            const fail = (m) => { console.error(m); process.exit(1); };
+            if (pkg.name !== process.env.NAME) fail(`package.json name ${pkg.name} is not ${process.env.NAME}`);
+            if (pkg.version !== process.env.VERSION) fail(`package.json version ${pkg.version} does not match the tag (${process.env.VERSION})`);
+            if (pkg.private === true) fail(`${pkg.name} is still "private": true; land the reviewed change that removes it before tagging`);
+          '
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+      - name: Install the CLI and client dependency slice
+        run: timeout --kill-after=10 180 pnpm --filter ./packages/cli --filter ./packages/client install --frozen-lockfile < /dev/null
+      - name: Build
+        env:
+          DIR: ${{ steps.tag.outputs.dir }}
+        run: |
+          if [ "$DIR" = packages/client ]; then
+            timeout 120 pnpm --filter ./packages/client check:generated < /dev/null
+            timeout 60 pnpm --filter ./packages/client check:policy < /dev/null
+          fi
+          pnpm --filter "./$DIR" build < /dev/null
+      - name: Test
+        env:
+          DIR: ${{ steps.tag.outputs.dir }}
+        run: pnpm --filter "./$DIR" test < /dev/null
+      - name: Pack
+        id: pack
+        env:
+          DIR: ${{ steps.tag.outputs.dir }}
+        run: |
+          out="$RUNNER_TEMP/pack"
+          rm -rf "$out" && mkdir "$out"
+          (cd "$DIR" && timeout 120 pnpm pack --pack-destination "$out" < /dev/null)
+          set -- "$out"/*.tgz
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then echo "expected exactly one tarball" >&2; exit 1; fi
+          echo "tarball=$1" >> "$GITHUB_OUTPUT"
+      - name: Smoke the packed CLI binary
+        if: steps.tag.outputs.dir == 'packages/cli'
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: |
+          smoke="$RUNNER_TEMP/smoke"
+          rm -rf "$smoke" && mkdir "$smoke"
+          tar -xzf "$TARBALL" -C "$smoke"
+          node "$smoke/package/dist/octocove.mjs" --help > /dev/null
+      - name: Publish the packed tarball with provenance
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+          DIST_TAG: ${{ steps.tag.outputs.dist_tag }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish "$TARBALL" --provenance --access public --tag "$DIST_TAG"

@@ -1,0 +1,49 @@
+# Reference snippet: install a pinned octocove CLI before this step.
+# Administrator trust/policy registration: machine-clients.md.
+# APPROVAL_SCOPE comes from the authenticated exact candidate record.
+name: Exact machine approval
+on:
+  workflow_run:
+    workflows: ["Required checks"]
+    types: [completed]
+jobs:
+  approve:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment: integration
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Approve after required checks are green
+        # Green checks trigger evaluation; the server still verifies its record.
+        env:
+          OCTOCOVE_API_URL: ${{ vars.OCTOCOVE_API_URL }}
+          OCTOCOVE_CONFIG_DIR: ${{ runner.temp }}/octocove-machine
+          EXPECTED_PRINCIPAL: ${{ vars.OCTOCOVE_APPROVER_PRINCIPAL }}
+          PROOF_AUDIENCE: ${{ vars.OCTOCOVE_APPROVAL_AUDIENCE }}
+          APPROVAL_SCOPE: ${{ vars.OCTOCOVE_APPROVAL_SCOPE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          trap 'rm -rf "$OCTOCOVE_CONFIG_DIR"' EXIT
+          # No token goes into shell argv or job outputs. The OIDC response
+          # travels directly into exchange stdin, with no browser session.
+          grant=$(
+            node --input-type=module <<'JS' |
+          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set('audience', process.env.PROOF_AUDIENCE);
+          const r = await fetch(url, {
+            headers: {Authorization: 'Bearer ' + process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN},
+            signal: AbortSignal.timeout(30000), redirect: 'error'
+          });
+          if (!r.ok) throw new Error('OIDC request refused');
+          const value = await r.json();
+          process.stdout.write(value.value);
+          JS
+            octocove auth exchange --as "$EXPECTED_PRINCIPAL"               --scope "$APPROVAL_SCOPE" --token-stdin |
+            jq -er .id
+          )
+          octocove auth approve --as "$EXPECTED_PRINCIPAL" --grant "$grant"
+          # A separately authorized coordinator lands and verifies the receipt.
