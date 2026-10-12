@@ -2453,6 +2453,16 @@ paths:
         schema:
           $ref: '#/components/schemas/Id'
         description: Optional for humans; implicit bound task for agents, another task is forbidden.
+      - name: wait
+        in: query
+        description: Long-poll, in whole seconds (default 0, no wait). The answer comes as soon as the page has
+          an item; otherwise an empty page with the unchanged position after wait seconds. Authorization is
+          checked on every request and nothing is held across the wait. Any other value is 400 invalid-request.
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 25
+          default: 0
   /webhooks/{id}/deliveries:
     get:
       operationId: webhookDeliveriesInspect

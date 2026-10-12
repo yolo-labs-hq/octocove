@@ -33,6 +33,10 @@ export interface FollowOptions {
   /** Stops the follower; the iterator then ends without an error. */
   readonly signal?: AbortSignal;
   readonly limit?: number;
+  /** Long-poll each page request for up to this many whole seconds (0–25; sent as `wait`). The server
+   * then answers when an event arrives, so an empty page is followed by the next request at once
+   * (unless Retry-After says otherwise), and the page deadline covers the wait. Omitted or 0: short polls. */
+  readonly waitSeconds?: number;
   /** Idle poll interval after an empty page when no Retry-After is sent (default 1 s). Pacing only:
    * it never shortens the wait after a refusal or a lost answer (see `errorBackoffMs`). */
   readonly pollMs?: number;
@@ -75,6 +79,9 @@ function invalid(detail: string, status: number, requestId: string | undefined):
 export async function* follow(client: OctocoveClient, options: FollowOptions): AsyncGenerator<FollowItem, void, undefined> {
   const { filter, signal } = options;
   if (!filter || typeof filter.projectId !== 'string' || !filter.projectId) throw new TypeError('events.follow needs filter.projectId');
+  const wait = options.waitSeconds ?? 0;
+  if (!Number.isInteger(wait) || wait < 0 || wait > 25) throw new TypeError('events.follow waitSeconds must be a whole number from 0 to 25');
+  const requestTimeoutMs = Math.max(options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS, (wait + 5) * 1000);
   const scope = new CallScope([signal], [], options.sleep);
   let cursor = options.cursor;
   let failures = 0;
@@ -83,9 +90,9 @@ export async function* follow(client: OctocoveClient, options: FollowOptions): A
       let response;
       try {
         response = await client.call('eventsReplay', {
-          query: { projectId: filter.projectId, taskId: filter.taskId, since: filter.since, after: cursor, limit: options.limit },
+          query: { projectId: filter.projectId, taskId: filter.taskId, since: filter.since, after: cursor, limit: options.limit, ...(wait ? { wait } : {}) },
           signal,
-          deadline: Date.now() + (options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS),
+          deadline: Date.now() + requestTimeoutMs,
           ...(options.credential ? { credential: options.credential } : {}),
         });
       } catch (error) {
@@ -124,7 +131,8 @@ export async function* follow(client: OctocoveClient, options: FollowOptions): A
       if (scope.ended) return;
       cursor = nextCursor;
       yield { type: 'position', cursor };
-      if (!items.length) await scope.sleep(pollDelay(response.retryAfter, options.pollMs, IDLE_POLL_MS)).catch(() => {});
+      // A long-polled empty page already waited on the server: ask again at once unless Retry-After says otherwise.
+      if (!items.length && (!wait || response.retryAfter !== undefined)) await scope.sleep(pollDelay(response.retryAfter, options.pollMs, IDLE_POLL_MS)).catch(() => {});
     }
   } finally {
     scope.dispose();
