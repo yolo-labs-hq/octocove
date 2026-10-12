@@ -11,7 +11,7 @@ routes in `auth-routes.ts`). `renewSession` authenticated through `human()`, whi
 (`authenticate`), so after 30 idle minutes nothing could be renewed, whatever the family ceiling was. Closing the laptop for lunch, or restarting the browser, meant a new OIDC
 login. Users should stay signed in like on GitHub: idle window 14 days, absolute cap 30 days.
 
-Only **humans** (the web app, and the `oc` CLI's session bearer) need this. The **Studio adapter**, **own-clone CLI
+Only **humans** (the web app, and the `octocove` CLI's session bearer) need this. The **Studio adapter**, **own-clone CLI
 agents** and **CI + policy-bot approvers** act through delegations and machine grants, whose lifetimes this
 decision deliberately leaves unchanged.
 

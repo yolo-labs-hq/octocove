@@ -124,7 +124,7 @@ export function createApp(authorizeAudit?: AuthorizeAudit) {
         method: "POST", headers: c.req.raw.headers, body: JSON.stringify(input),
       }));
     });
-    // ADR-0005 repo-lane write custody: a protected runtime's helper delivers one signed push to the
+    // ADR 0005 "Repo-lane write delivery": a protected runtime's helper delivers one signed push to the
     // claim's own task repository. The raw body goes to the task DO unread; nothing here grants
     // authority. The DO checks the claim and runtime proof before reading it (TaskCoordinator.push).
     app.post(`${prefix}/broker/push/:taskId`, async (c) => {

@@ -12,7 +12,7 @@ const dirs: string[] = [];
 afterEach(async () => { vi.unstubAllEnvs(); vi.restoreAllMocks(); for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }); });
 async function temp() { const dir = await mkdtemp(join(tmpdir(), 'oc-helper-')); dirs.push(dir); return dir; }
 const secret = 'agent-secret-do-not-leak';
-const origin = 'https://account.artifacts.cloudflare.net';
+const origin = 'https://artifacts.example';
 const remote = `${origin}/ns/repo.git`;
 const source = { kind: 'artifacts-broker', brokerUrl: 'https://api.example/v1/broker/token', scope: 'write' };
 
@@ -98,7 +98,7 @@ it.each([false, true])('rejects a secret-bearing remote before passing it to git
         return 'https://owned.example/repo.git';
       }
       return '';
-    }, fetch: async () => Response.json({ claim: { id: 'c', intentVersion: 1, provisioningState: 'ready', workspace: { remote: `https://user:${secret}@account.artifacts.cloudflare.net/ns/r` } } }, { status: 201 }),
+    }, fetch: async () => Response.json({ claim: { id: 'c', intentVersion: 1, provisioningState: 'ready', workspace: { remote: `https://user:${secret}@artifacts.example/ns/r` } } }, { status: 201 }),
     stdout: (s) => { output += s; }, stderr: (s) => { output += s; }, stdin: async () => '' });
   expect(code).toBe(EXIT.config); expect(JSON.stringify(argv) + output).not.toContain(secret);
   expect(argv).toEqual([]);

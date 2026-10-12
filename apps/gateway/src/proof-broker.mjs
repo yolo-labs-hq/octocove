@@ -1,4 +1,4 @@
-// Proof-issuing broker ledger (ADR 0005 "Push-time proof").
+// Proof-issuing broker ledger (ADR 0005 "Gateway channel proof (push-time)").
 // Trusted service core; persistence, live authority and the upstream writer are injected.
 // Channels, nonces and fences are broker operational bookkeeping, not record states.
 //

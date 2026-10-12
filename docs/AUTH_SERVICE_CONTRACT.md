@@ -44,7 +44,7 @@ Fetch the configured issuer's OIDC discovery location, require returned `issuer`
 }
 ```
 
-This models the fields Octocove consumes, not an exhaustive list or proof the live provider advertises each one. Subject type and optional metadata must reflect the actual provider; `public` above is a mock value. S256 is **fail-closed**: discovery must list `S256` in `code_challenge_methods_supported`, otherwise Octocove refuses the issuer with 503 `oidc-registration-required` (`apps/control-plane/src/auth.ts:76-81`); an omitted extension is not assumed to mean support. No device authorization, refresh grant, dynamic client registration or provider logout endpoint is assumed. Discovery metadata definitions come from [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html).
+This models the fields Octocove consumes, not an exhaustive list or proof the live provider advertises each one. Subject type and optional metadata must reflect the actual provider; `public` above is a mock value. S256 is **fail-closed**: discovery must list `S256` in `code_challenge_methods_supported`, otherwise Octocove refuses the issuer with 503 `oidc-registration-required` ([`apps/control-plane/src/auth.ts:184-189`](../apps/control-plane/src/auth.ts#L184-L189 "if (d.issuer !== e.OIDC_ISSUER || !d.code_challenge_methods_supported?.includes('S256') ||")); an omitted extension is not assumed to mean support. No device authorization, refresh grant, dynamic client registration or provider logout endpoint is assumed. Discovery metadata definitions come from [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html).
 
 ## Authorization and token endpoint
 

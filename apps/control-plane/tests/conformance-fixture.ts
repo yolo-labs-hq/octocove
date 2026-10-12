@@ -68,7 +68,7 @@ export async function localEnvironment(signal?: AbortSignal) {
           const fork = join(existing.directory,'..',`${data.name}.git`);
           // Respect the provisioner's default-branch-only request. Client publication creates a non-default source ref.
           git(directory,'clone','--bare','--single-branch',existing.directory,fork);
-          const remote = `https://conformance-local.artifacts.cloudflare.net/local/${data.name}.git`, id = `local-${data.name}`;
+          const remote = `https://conformance-local.artifacts.example/local/${data.name}.git`, id = `local-${data.name}`;
           artifactRepos.set(data.name,{id,remote,directory:fork}); remotes.set(remote,fork); await persistRemotes();
           return providerEnvelope({id,remote});
         }
@@ -240,7 +240,7 @@ export async function localEnvironment(signal?: AbortSignal) {
           ...['refs/heads/main','refs/heads/integration'].map(ref => db.prepare('INSERT INTO target_refs VALUES(?,?,?,?,?)').bind(id,ref,base,now,'seed')),
         ]);
         repositories.set(id,canonical);
-        const remote = provider === 'artifacts' ? `https://conformance-local.artifacts.cloudflare.net/local/${id}.git` : `https://provider.invalid/local/${id}.git`;
+        const remote = provider === 'artifacts' ? `https://conformance-local.artifacts.example/local/${id}.git` : `https://provider.invalid/local/${id}.git`;
         remotes.set(remote,canonical); await persistRemotes();
         git(work,'remote','set-url','origin',remote);
         git(work,'push',canonical,'review-ref:refs/heads/review-ref');

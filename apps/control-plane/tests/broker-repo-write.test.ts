@@ -1,4 +1,4 @@
-// ADR-0005 repo-lane write custody: POST /broker/push delivers a protected
+// ADR 0005 "Repo-lane write delivery": POST /broker/push delivers a protected
 // runtime's helper push to the claim's own task repository. Negative cases first-class: another
 // task repo, the canonical, another ref, external-ref claims, revoked/expired/replayed proofs and
 // a client without the runtime key are all refused before provider I/O, and no provider write
@@ -132,7 +132,7 @@ const request = (c: Claim, body: Buffer, proof?: string | null, credential = c.d
 const audit = (claimId: string) => life.rows('SELECT lane,scope,decision,code FROM broker_admission_audit WHERE claim_id=? ORDER BY rowid', claimId);
 const providerCalls = () => vi.mocked(provider.createToken).mock.calls.length;
 
-describe('ADR-0005 repo-lane write custody on POST /broker/push', () => {
+describe('ADR 0005 "Repo-lane write delivery" on POST /broker/push', () => {
   it('delivers a real helper push to the claim task repository server-side; no write token leaves the service', async () => {
     const c = await claim('repo-write-e2e');
     const dir = await mkdtemp(join(tmpdir(), 'oc-repo-write-'));

@@ -601,9 +601,6 @@ export class TaskCoordinator {
     }
   }
 }
-/** Private capability for auth, event ingestion and verified integrator adapters.
- * Never forwarded from public HTTP; signatures bind task, command, key and payload.
- */
 function problem(error: unknown, requestId: string) {
   const e =
     error instanceof AuthError
@@ -651,6 +648,9 @@ async function internalSignature(env: LifecycleEnv, id: string, body: string) {
     .map((x) => x.toString(16).padStart(2, "0"))
     .join("");
 }
+/** Private capability for auth, event ingestion and verified integrator adapters.
+ * Never forwarded from public HTTP; signatures bind task, command, key and payload.
+ */
 export async function invokeTaskCommand(
   env: LifecycleEnv,
   id: string,

@@ -65,7 +65,7 @@ Sources (short names used below):
 - **Destination namespace:** **not stated.** Neither form has a target-namespace field, and no page says a fork may land
   in another namespace. Read literally, a fork lands in the source's namespace, and Octocove relies on nothing else:
   the provisioner forks task repositories `oc-<claimId>` within the canonical's namespace
-  ([provisioner.ts](../apps/control-plane/src/provisioner.ts#L98)) and takes the fork's location from the returned
+  ([provisioner.ts](../apps/control-plane/src/provisioner.ts#L98 "const name")) and takes the fork's location from the returned
   `remote`, not from the request.
 - **Repository names:** the documentation gives no separate pattern for repository names. Artifacts refuses a name
   outside `^[a-zA-Z0-9][a-zA-Z0-9._-]*$` with error 10101, so a fork name cannot carry a namespace prefix such as

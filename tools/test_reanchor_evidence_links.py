@@ -44,6 +44,11 @@ class ReanchorTests(unittest.TestCase):
         self.assertEqual(text, 'See [x](../src/foo.ts#L4 "alpha").\n')
         self.assertIn("decision.md:1: ../src/foo.ts#L2 -> ../src/foo.ts#L4", out)
 
+    def test_shown_line_numbers_follow_the_anchor(self):
+        code, text, _ = self.run_tool('[`foo.ts:2`](../src/foo.ts#L2 "alpha") [`:1–2`](../src/foo.ts#L1-L2 "alpha")\n')
+        self.assertEqual(code, 0)
+        self.assertEqual(text, '[`foo.ts:4`](../src/foo.ts#L4 "alpha") [`:4–5`](../src/foo.ts#L4-L5 "alpha")\n')
+
     def test_range_length_is_preserved(self):
         code, text, _ = self.run_tool('[x](../src/foo.ts#L1-L2 "alpha")\n')
         self.assertEqual(code, 0)
