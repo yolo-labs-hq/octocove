@@ -93,7 +93,7 @@ authority remains an explicitly external writer, not an isolated gateway caller.
 The credential bypass qualification must be run against the actual
 adapter/runtime; prompt instructions and URL-scoped headers alone do not meet it.
 
-## Push-time proof (ADR 0005; wire contract v1)
+## Gateway channel proof (push-time; ADR 0005, wire contract v1)
 
 This HMAC proof is the **gateway channel proof** in the
 [glossary](../../docs/GLOSSARY.md#gateway-channel-proof). It is not the control

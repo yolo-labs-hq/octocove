@@ -217,7 +217,7 @@ for (const cell of selectedCells.filter((c:any) => manifest.localPairings.includ
         const candidateView = cli ? (await cli.command(['candidate','show','--submission',submission.id])).body : must(await driver.call(`/v1/submissions/${submission.id}/candidate`),200);
         const candidate = candidateView.candidate;
         if (!candidate?.candidateSha) throw new Error('computed-candidate-missing');
-        const descriptor = {repositoryId:repository.repoId,remote:cell.provider === 'artifacts' ? `https://conformance-local.artifacts.cloudflare.net/local/${repository.repoId}.git` : claim.workspace.remote,ref:candidate.candidateRef,sha:candidate.candidateSha};
+        const descriptor = {repositoryId:repository.repoId,remote:cell.provider === 'artifacts' ? `https://conformance-local.artifacts.example/local/${repository.repoId}.git` : claim.workspace.remote,ref:candidate.candidateRef,sha:candidate.candidateSha};
         git(repository.work,'fetch',sourceRemote,`${claim.workspace.ref}:refs/conformance/source-preview`);
         git(repository.work,'fetch',repository.canonical,`${candidate.candidateRef}:refs/conformance/candidate-preview`);
         const sourcePreview = git(repository.work,'rev-parse','refs/conformance/source-preview'), candidatePreview = git(repository.work,'rev-parse','refs/conformance/candidate-preview');

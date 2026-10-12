@@ -41,7 +41,7 @@ const base = "a".repeat(40), source = "b".repeat(40), sha = "c".repeat(40);
 const key = (text: string) => text.padEnd(20, "-");
 const intent = { title: "Ship the task", description: "A complete task contract", acceptanceCriteria: ["All checks pass"] };
 const adapter: TaskRepoProvisioner = {
-  async provision(c) { return { taskRepo: { id: c.id, name: `oc-${c.id}`, namespace: c.namespace }, remote: `https://account.artifacts.cloudflare.net/git/${c.id}.git`, targetRef: c.targetRef }; },
+  async provision(c) { return { taskRepo: { id: c.id, name: `oc-${c.id}`, namespace: c.namespace }, remote: `https://artifacts.example/git/${c.id}.git`, targetRef: c.targetRef }; },
   async subscribe(r) { return `subscription-${r.id}`; },
   async release() {},
 };

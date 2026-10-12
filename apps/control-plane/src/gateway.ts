@@ -86,7 +86,7 @@ export const routeRules: RouteRule[] = [
   { method: "POST", path: "/projects/:project/approval-trust-bindings/:id/activate", access: "human", noKey: true, recentSignIn: true },
   { method: "POST", path: "/internal/integrator/*", access: "self", noKey: true },
   { method: "POST", path: "/broker/token", access: "self", noKey: true },
-  // ADR-0005 repo-lane write custody: runtime-signed, single-use push proof instead of an idempotency key.
+  // ADR 0005 "Repo-lane write delivery": runtime-signed, single-use push proof instead of an idempotency key.
   { method: "POST", path: "/broker/push/:taskId", access: "self", noKey: true },
   { method: "DELETE", path: "/broker/token/:id", access: "self" },
   // Identity read: any human session, agent delegation or machine grant may ask who it is; no verb narrows it.

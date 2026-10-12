@@ -2413,7 +2413,7 @@ export interface components {
             scopes: string[];
             requiredCapabilities: string[];
         };
-        /** @description `stale-base` details from land when a landed receipt contradicts the approval's base (docs/API.md, landing). Pending: the evidence is ambiguous, nothing was written and the approval stays active; retry the same key after the named head re-read. Committed: the approval was invalidated by the receipt's base move to `headSha`. */
+        /** @description `stale-base` details from land when a landed receipt contradicts the approval's base (docs/API.md, "Record verbs and async results", the landing paragraph). Pending: the evidence is ambiguous, nothing was written and the approval stays active; retry the same key after the named head re-read. Committed: the approval was invalidated by the receipt's base move to `headSha`. */
         StaleFenceDetails: {
             receiptId: components["schemas"]["Id"];
             /** @constant */
@@ -5291,7 +5291,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Single-use grant; all relationship, policy and identity checks in ADR apply. */
+            /** @description Single-use grant; all relationship, policy and identity checks in ADR 0001 (machine exact-approval authority) apply. */
             201: {
                 headers: {
                     "Cache-Control": components["headers"]["NoStore"];

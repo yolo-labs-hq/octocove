@@ -9,7 +9,7 @@ including the actions that hand out lasting authority: approving and landing, bi
 removing members, authorizing agents, creating webhooks and projects, and ending other sign-ins. ADR 0019 named the
 offset: a GitHub-style "sudo mode", where those actions need a recent identity-provider authentication.
 
-Only **humans** (the web app and the `oc` CLI's session bearer) are affected. The **Studio adapter**, **own-clone CLI
+Only **humans** (the web app and the `octocove` CLI's session bearer) are affected. The **Studio adapter**, **own-clone CLI
 agents** and **CI + policy-bot approvers** act through agent delegations and machine grants, which already carry
 narrow verbs, eight-hour authorization ceilings and 15-minute tokens. They are deliberately unaffected.
 
@@ -37,9 +37,10 @@ noun, no new write route, no new state of a public noun.
 - **One guard.** `requireRecentSignIn(principal, request, env)` in `auth.ts` is the only check. It returns at once
   for any principal that is not a human session (agent delegations, workload and policy-bot machine principals).
   The gateway calls it for every route rule marked `recentSignIn`, right after authenticating, so it runs before
-  the handler, its idempotency replay and its membership check. Three handlers authenticate their own callers and
-  call the same function: the webhook writes (through the ADR-0009 event authority, after it resolved a human
-  session) and `revokeFamily` (only when the target is not the caller's own sign-in).
+  the handler, its idempotency replay and its membership check. Four handlers authenticate their own callers and
+  call the same function: the three webhook writes, create, reactivate and secret rotation (through the ADR-0009
+  event authority, after it resolved a human session), and `revokeFamily` (only when the target is not the
+  caller's own sign-in).
 - **Re-authentication.** `POST /v1/auth/login?reauth=1[&return_path=]` with `{mode: "browser"}` is a browser login
   that refreshes the caller's own sign-in instead of creating one. Besides the binding cookie and allowed `Origin`
   every browser login needs, it needs the session cookie of a sign-in that can still be renewed (unrevoked token,

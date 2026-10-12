@@ -20,7 +20,7 @@ provisions the socket (`OCTOCOVE_HELPER_SOCK`). Without that setting, allocated 
 refuse with exit 78 before credential import or claim creation; the CLI never falls
 back to the password exchange below. The gateway channel proof is
 implemented in the gateway and in the helper's `proofAuthority` (wire contract in
-[`apps/gateway/README.md`](../apps/gateway/README.md#push-time-proof-adr-0005-wire-contract-v1),
+[`apps/gateway/README.md`](../apps/gateway/README.md#gateway-channel-proof-push-time-adr-0005-wire-contract-v1),
 locally qualified) but is not enabled in claim provisioning, and runtime isolation is not
 qualified in any client runtime.
 
@@ -76,7 +76,7 @@ Explicit revoke uses DELETE `/v1/broker/token/{id}` (unprefixed alias supported)
 authenticated as the owning principal, returning 204, including completed retries.
 Refreshing never requests revocation.
 
-**Release and expiry leave issued tokens valid until expiry.** Ending a claim by release or expiry revokes the claim's broker *grant*, so no new token can be minted (`apps/control-plane/migrations/0005_broker.sql:30-36`; `broker.ts:70` rejects a revoked grant with `broker-grant-denied`), but a token already issued stays valid at the provider until its own bounded `expiresAt`. Only revocation, supersession, completion, a terminal task status, a released landing fence, or an explicit owner `DELETE /v1/broker/token/{id}` mark outstanding tokens `revoke_pending` for provider revocation (`0005_broker.sql:31-60`, `broker.ts:171`). Token lifetime is therefore the bound on residual access after a release; keep `ttl` short.
+**Release and expiry leave issued tokens valid until expiry.** Ending a claim by release or expiry revokes the claim's broker *grant*, so no new token can be minted ([`apps/control-plane/migrations/0005_broker.sql:30-36`](../apps/control-plane/migrations/0005_broker.sql#L30-L36 "-- Release/expiry stops minting; its existing bounded tokens may expire naturally."); [`broker.ts:126`](../apps/control-plane/src/broker.ts#L126 "if (!g || g.revoked_at || !Number.isFinite(Date.parse(g.expires_at)) || Date.parse(g.expires_at) <= Date.now()) throw new AuthError('broker-grant-denied', 403);") rejects a revoked grant with `broker-grant-denied`), but a token already issued stays valid at the provider until its own bounded `expiresAt`. Only revocation, supersession, completion, a terminal task status, a released landing fence, or an explicit owner `DELETE /v1/broker/token/{id}` mark outstanding tokens `revoke_pending` for provider revocation ([`0005_broker.sql:31-60`](../apps/control-plane/migrations/0005_broker.sql#L31-L60 "CREATE TRIGGER broker_attempt_ended"), [`broker.ts:454`](../apps/control-plane/src/broker.ts#L454 "await this.stmt('UPDATE broker_tokens SET revoke_pending=1 WHERE id=?', id).run();")). Token lifetime is therefore the bound on residual access after a release; keep `ttl` short.
 
 ## Errors
 
@@ -90,8 +90,8 @@ extract credentials from prose. Broker and authentication vocabulary:
 | 401 | `unauthenticated`, `credential-expired`, `credential-revoked` | Obtain a valid identity through the identity owner. |
 | 403 | `broker-grant-denied`, `broker-grant-expiring`, `forbidden` | Stop; do not widen scope or guess other repositories. |
 | 404 | `broker-token-not-found` | Explicit revoke target missing or not owned. |
-| 409 | `operation-in-progress` | Another request with the same scope is still executing (`lifecycle.ts:171`); retry after `Retry-After`. |
-| 503 | `broker-unavailable`, `broker-provider-unavailable`, `broker-provider-invalid-response`, `temporarily-unavailable` | Bounded retry with timeouts; no token is returned. `temporarily-unavailable` is the generic fallback for an unclassified server failure (`index.ts:49`). |
+| 409 | `operation-in-progress` | Another request with the same scope is still executing ([`lifecycle.ts:286`](../apps/control-plane/src/lifecycle.ts#L286 "\"operation-in-progress\"")); retry after `Retry-After`. |
+| 503 | `broker-unavailable`, `broker-provider-unavailable`, `broker-provider-invalid-response`, `temporarily-unavailable` | Bounded retry with timeouts; no token is returned. `temporarily-unavailable` is the generic fallback for an unclassified server failure ([`index.ts:68`](../apps/control-plane/src/index.ts#L68 "\"temporarily-unavailable\"")). |
 
 The helper uses delegation bearer authentication; legacy human cookie callers
 also undergo exact Origin/CSRF checks. Multiple credentials are rejected.

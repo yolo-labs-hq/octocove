@@ -14,7 +14,7 @@
       "workspace": {
         "mappingId": "2c822fe4-9dea-4fcd-b7a3-44aada2d7a9c",
         "kind": "task-repo",
-        "remote": "https://account.artifacts.cloudflare.net/git/claim-0w8ffe6xTom8-lAg9Vt2MbyMZzt9Yw5FlXub3aO0pf8.git",
+        "remote": "https://artifacts.example/git/claim-0w8ffe6xTom8-lAg9Vt2MbyMZzt9Yw5FlXub3aO0pf8.git",
         "ref": "refs/heads/main",
         "credentialSource": {
           "kind": "artifacts-broker",

@@ -185,8 +185,9 @@ repository, receipt/fence IDs and audit evidence, matching
   `broker.test.ts` and `events.test.ts` individually with `--maxWorkers=1 --minWorkers=1`.
 - `docker build -t octocove-integrator:local apps/integrator`
 
-Octocove's checked-in product and record contracts are authoritative. The credential
-helper is a separate public repository.
+Octocove's checked-in product and record contracts are authoritative. The git credential
+helper (`git-credential-artifacts`) is not part of this repository; the authenticated attempt
+helper is `packages/helper` in this repository.
 
 ## Source verification and tree-only refusal
 

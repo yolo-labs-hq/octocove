@@ -68,10 +68,10 @@ components:
     ApprovalGrantCredential:
       type: object
       additionalProperties: false
-      required: [id, token, expiresAt, scope, policyVersion]
+      required: [id, expiresAt, scope, policyVersion]
       properties:
         id: {$ref: '#/components/schemas/Id'}
-        token: {type: string, description: Returned once or by bounded identical retry; never log.}
+        token: {type: string, description: Returned once, on the exchange that issued the grant; absent from an identical retry. Never log.}
         expiresAt: {type: string, format: date-time}
         scope: {$ref: '#/components/schemas/ApprovalGrantRequest'}
         policyVersion: {type: string, description: Immutable versioned policy record ID.}
