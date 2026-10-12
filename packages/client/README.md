@@ -168,8 +168,9 @@ adopt it into a `CredentialSlot` and keep login transaction state.
 - **Replay.** A journey sends each logical operation under one Idempotency-Key, one body and the
   credential it sent first (a per-request token is pinned). It resends only after a lost answer (no
   response, or a response whose body could not be read) for `network-only` operations whose replay is
-  `stored-result`, `guarded-result` or `bounded-recovery` — at most twice — and after `429` /
-  `operation-in-progress`, honouring Retry-After, while the deadline leaves room. Everything else is
+  `stored-result`, `guarded-result` or `bounded-recovery` — at most twice — after `429` /
+  `operation-in-progress`, honouring Retry-After, and after `408 request-body-timeout` (the body did
+  not arrive in time), while the deadline leaves room. `413 request-body-too-large` is never retried. Everything else is
   surfaced as the `ApiError` it is: `409 idempotency-result-expired`, `idempotency-conflict`,
   `401 unauthenticated`, `401 bootstrap-consumed`, a guarded grant refused after revocation, or a
   current authorization refusal (`claim-inactive`, `membership-revoked`, …). A journey never answers
