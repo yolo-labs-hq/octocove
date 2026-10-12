@@ -56,7 +56,7 @@ export const transportCases: Case[] = [
   }),
   test('never operations are never resent: not after a network failure, not after a 5xx', async () => {
     const first = scriptedFetch(offline(), json(200, {}));
-    const networkError = await rejects(() => client(first.fetch).call('authCliConfirm', { body: { userCode: 'ABCD-EFGH', decision: 'approve' } }), TransportError);
+    const networkError = await rejects(() => client(first.fetch).call('authCliConfirm', { body: { userCode: 'ABCD-EFGH', decision: 'allow' } }), TransportError);
     equal(networkError.code, 'network-error');
     equal(first.calls.length, 1);
 
