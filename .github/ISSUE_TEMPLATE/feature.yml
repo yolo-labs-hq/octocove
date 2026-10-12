@@ -1,0 +1,35 @@
+name: "Feature request"
+description: "Propose a change within the substrate scope."
+title: "[feature] "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use [private reporting](https://github.com/yolo-labs-hq/octocove/security/advisories/new), not this public form. Remove secrets, personal data, absolute operator paths and private identifiers."
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem and archetypes"
+      description: "Who needs this: Studio adapter, own-clone CLI agent, or CI/policy-bot? Describe the concrete problem."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Proposal and scope"
+      description: "Describe behavior, alternatives, and what this does not do. Check the glossary scope fence."
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: "Glossary and ADR impact"
+      description: "Say glossary unchanged, or link/propose an ADR for any new noun, state or public write route. Describe synchronized glossary/API/OpenAPI/record changes."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: "Acceptance evidence"
+      description: "Propose bounded single-file checks; distinguish local from live qualification. Do not claim unrun evidence."
+    validations:
+      required: false

@@ -1,0 +1,35 @@
+name: "Bug report"
+description: "Report a reproducible defect."
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "For vulnerabilities, use [private reporting](https://github.com/yolo-labs-hq/octocove/security/advisories/new), not this public form. Remove secrets, personal data, absolute operator paths and private identifiers."
+  - type: textarea
+    id: environment
+    attributes:
+      label: "Version and environment"
+      description: "Commit/release, component, Node/pnpm versions, OS; label local fixtures versus live provider."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Reproduction"
+      description: "Minimal steps using disposable resources and sanitized inputs."
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: "Expected and actual behavior"
+      description: "Include relevant glossary invariant and honest failure output."
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: "Bounded checks and evidence"
+      description: "Name single-file, single-worker tests actually run and their outcomes; include evidence date/revision/scope, or state none run."
+    validations:
+      required: true

@@ -1,0 +1,17 @@
+{
+  "name": "@octocove/shared",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "timeout 300 tsc -p tsconfig.json",
+    "test": "CI=1 timeout 300 vitest run --passWithNoTests < /dev/null"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

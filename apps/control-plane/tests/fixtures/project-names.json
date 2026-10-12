@@ -1,0 +1,32 @@
+{
+  "_comment": "Emoji ZWJ sequences in project names. Read by apps/control-plane/tests/project-create.test.ts (validator + POST /v1/projects) and by a web client's validator tests, so both rules stay equivalent. Escapes keep every invisible code point reviewable. A skin-tone modifier before a ZWJ needs a pictographic base before it.",
+  "accept": [
+    { "label": "woman technologist (ZWJ)", "name": "Platform 👩‍💻" },
+    { "label": "family of four (three ZWJ)", "name": "Family 👨‍👩‍👧‍👦" },
+    { "label": "rainbow flag (U+FE0F before ZWJ)", "name": "Pride 🏳️‍🌈" },
+    { "label": "pirate flag (ZWJ then U+FE0F)", "name": "Crew 🏴‍☠️" },
+    { "label": "skin-tone modifier then ZWJ", "name": "Dev 🧑🏽‍💻" },
+    { "label": "regional-indicator flags", "name": "Offices 🇺🇸 🇯🇵" },
+    { "label": "skin-tone modifier", "name": "Hello 👋🏽" },
+    { "label": "keycap sequences", "name": "Step 1️⃣ #️⃣" }
+  ],
+  "reject": [
+    { "label": "lone ZWJ", "name": "‍" },
+    { "label": "ZWJ between letters", "name": "z‍j" },
+    { "label": "ZWJ after an emoji, before a letter", "name": "👩‍x" },
+    { "label": "ZWJ after a letter, before an emoji", "name": "x‍💻" },
+    { "label": "trailing ZWJ after an emoji", "name": "Platform 👩‍" },
+    { "label": "doubled ZWJ between emoji", "name": "👩‍‍💻" },
+    { "label": "zero-width space", "name": "zero​width" },
+    { "label": "zero-width space between emoji", "name": "👩​💻" },
+    { "label": "zero-width non-joiner", "name": "a‌b" },
+    { "label": "right-to-left override", "name": "abc‮exe.txt" },
+    { "label": "next line (C1)", "name": "nel\u0085" },
+    { "label": "tag characters (subdivision flag)", "name": "England 🏴󠁧󠁢󠁥󠁮󠁧󠁿" },
+    { "label": "standalone skin-tone modifier then ZWJ (no pictographic base)", "name": "\ud83c\udffd\u200d\ud83d\udcbb" },
+    { "label": "letter, skin-tone modifier, ZWJ, emoji", "name": "x\ud83c\udffd\u200d\ud83d\udcbb" },
+    { "label": "space, skin-tone modifier, ZWJ, emoji", "name": "Dev \ud83c\udffd\u200d\ud83d\udcbb" },
+    { "label": "skin-tone modifier, U+FE0F, ZWJ, emoji (no base)", "name": "x\ud83c\udffd\ufe0f\u200d\ud83d\udcbb" },
+    { "label": "two skin-tone modifiers after the base, then ZWJ", "name": "\ud83e\uddd1\ud83c\udffd\ud83c\udffd\u200d\ud83d\udcbb" }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@octocove/control-plane",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "timeout 300 tsc -p tsconfig.json",
+    "test": "env -u VITEST_MAX_FORKS -u VITEST_MIN_FORKS -u VITEST_MAX_THREADS -u VITEST_MIN_THREADS CI=1 CI_NATIVE_PARTITIONED=1 python3 ../../tools/run-bounded.py 600 node node_modules/vitest/vitest.mjs run",
+    "db:migrate:local": "CI=1 timeout 120 wrangler d1 migrations apply octocove --local < /dev/null",
+    "db:reset:local": "rm -rf .wrangler/state/v3/d1 && pnpm db:migrate:local"
+  },
+  "dependencies": {
+    "@octocove/shared": "workspace:*",
+    "hono": "4.13.13",
+    "jose": "6.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260702.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "esbuild": "0.28.1",
+    "miniflare": "4.20260702.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "wrangler": "4.147.0",
+    "yaml": "2.8.1"
+  }
+}

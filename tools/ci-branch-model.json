@@ -1,0 +1,8 @@
+{
+  "why": "Branch model of the required workflows; tools/check-ci-policy.py derives every canonical trigger and job gate from it. This is the default: pushes to main and every pull request run every job.",
+  "push": [
+    "main"
+  ],
+  "automation_prefix": null,
+  "integration_prefix": null
+}

@@ -1,0 +1,26 @@
+{
+  "protocol": "octocove-conformance/1",
+  "a": {
+    "kind": "generic-client-fixture",
+    "entryPoint": "tools/conformance/provider/contract.mjs",
+    "externalAdapterQualified": false
+  },
+  "b": {
+    "kind": "actual-octocove-bin",
+    "entryPoint": "packages/cli/src/bin.ts",
+    "helper": "packages/helper/src/attempt-helper.mjs",
+    "transport": "declared-local-provider-double"
+  },
+  "c": {
+    "kind": "actual-headless-octocove-bin",
+    "entryPoint": "tools/conformance/drivers/machine.mjs",
+    "machineAuthorityQualified": false,
+    "localSignedFakeIssuers": true,
+    "liveIssuerQualification": "BLOCKED"
+  },
+  "events": {
+    "entryPoint": "tools/conformance/events/oracles.mjs",
+    "driver": null,
+    "status": "BLOCKED"
+  }
+}
