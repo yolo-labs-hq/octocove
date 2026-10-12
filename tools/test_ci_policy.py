@@ -58,7 +58,8 @@ def fixture_job(name, job, gate, canon):
 def fixture_jobs(name, canon):
     if name == "ci.yml":
         return (fixture_job(name, "npm-pack", "needed", canon) + fixture_job(name, "spec-lint", "needed", canon)
-                + fixture_job(name, "check", "check", canon).replace("    steps:", "    needs: [npm-pack, spec-lint]\n    steps:", 1)
+                + fixture_job(name, "licenses", "needed", canon)
+                + fixture_job(name, "check", "check", canon).replace("    steps:", "    needs: [npm-pack, spec-lint, licenses]\n    steps:", 1)
                 + fixture_job(name, "report", "full", canon))
     return "".join(fixture_job(name, job, "full", canon) for job in sorted(policy.SCOPED_JOBS[name]))
 
@@ -612,6 +613,9 @@ class PolicyTests(unittest.TestCase):
             ("ci.yml", "npm-pack", "tools/conformance/run.mjs", False),
             ("ci.yml", "spec-lint", "spec/openapi.yaml", True),
             ("ci.yml", "spec-lint", "docs/API.md", False),
+            ("ci.yml", "licenses", "packages/cli/package.json", True),
+            ("ci.yml", "licenses", "THIRD_PARTY_NOTICES.md", True),
+            ("ci.yml", "licenses", "packages/cli/src/cli.ts", False),
         ]
         for name, job, path, expected in cases:
             with self.subTest(job=job, path=path):

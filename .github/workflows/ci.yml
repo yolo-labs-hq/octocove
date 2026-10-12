@@ -186,7 +186,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    needs: [check-shards, client, npm-pack, events-conformance-local, workflow-policy, repo-hygiene, spec-lint]
+    needs: [check-shards, client, npm-pack, events-conformance-local, workflow-policy, repo-hygiene, spec-lint, licenses]
     steps:
       - name: Require every check dependency to pass
         if: ${{ always() }}
@@ -196,12 +196,14 @@ jobs:
           POLICY_RESULT: ${{ needs.workflow-policy.result }}
           EVENTS_RESULT: ${{ needs.events-conformance-local.result }}
           SPEC_LINT_RESULT: ${{ needs.spec-lint.result }}
+          LICENSES_RESULT: ${{ needs.licenses.result }}
           CLIENT_RESULT: ${{ needs.client.result }}
           NPM_PACK_RESULT: ${{ needs.npm-pack.result }}
         run: |
           test "$SHARD_RESULT" = success
           test "$EVENTS_RESULT" = success
           test "$SPEC_LINT_RESULT" = success
+          test "$LICENSES_RESULT" = success
           test "$CLIENT_RESULT" = success
           test "$NPM_PACK_RESULT" = success
           test "$POLICY_RESULT" = success
@@ -222,3 +224,22 @@ jobs:
           node-version-file: .nvmrc
       - run: npx --yes @redocly/cli@2.58.1 lint spec/openapi.yaml < /dev/null
         if: steps.scope.outputs.run == 'true'
+  licenses:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 2 # the PR merge commit and both parents
+      - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
+        id: scope
+        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'pnpm-lock.yaml' '**/package.json' 'pnpm-workspace.yaml' 'third-party-licenses.json' 'THIRD_PARTY_NOTICES.md' 'tools/release-scan/licenses.py' 'tools/release-scan/test_licenses.py' 'tools/release-scan/license-metadata.json' 'tools/release-scan/requirements-licenses.txt'
+      - name: Install the pinned YAML parser
+        if: steps.scope.outputs.run == 'true'
+        run: python3 -m pip install -r tools/release-scan/requirements-licenses.txt
+      - name: Third-party licence inventory and notices are current (offline)
+        if: steps.scope.outputs.run == 'true'
+        run: python3 -B tools/release-scan/licenses.py --check
+      - name: Licence inventory tests
+        if: steps.scope.outputs.run == 'true'
+        run: python3 -B tools/release-scan/test_licenses.py

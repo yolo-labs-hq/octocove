@@ -74,7 +74,7 @@ default branch.
 
 | Workflow | Required check | Coverage |
 | --- | --- | --- |
-| `ci.yml` | `check` | Aggregates `check-shards` (typecheck and tests of the packages), `client`, `npm-pack`, `events conformance (local oracles)`, `spec-lint`, `workflow-policy` and `repo-hygiene`; fails on any failed, skipped or cancelled dependency. |
+| `ci.yml` | `check` | Aggregates `check-shards` (typecheck and tests of the packages), `client`, `npm-pack`, `events conformance (local oracles)`, `spec-lint`, `licenses`, `workflow-policy` and `repo-hygiene`; fails on any failed, skipped or cancelled dependency. |
 
 The jobs behind `check`:
 
@@ -87,6 +87,7 @@ The jobs behind `check`:
 | `client` | The client's generated-code and retry-policy drift checks, its unit tests on Node 22 and inside a workerd isolate, and a smoke import of its `npm pack` tarball. |
 | `npm-pack` | Builds `@yolo-labs/octocove` and the client, `pnpm pack`s both and runs the tarball gate (`tools/release-scan/pack_scan.py`); it publishes nothing ([Releasing the CLI and client](docs/RELEASING.md#releasing-the-cli-and-client)). |
 | `spec-lint` | Redocly lint of `spec/openapi.yaml`. |
+| `licenses` | `tools/release-scan/licenses.py --check`: `third-party-licenses.json` and `THIRD_PARTY_NOTICES.md` match the lockfile and the reviewed `license-metadata.json`, offline. After a dependency change, run `licenses.py --refresh`, review the new metadata, then regenerate with `licenses.py`. |
 
 ### CI event and cancellation policy
 
@@ -98,7 +99,7 @@ The jobs behind `check`:
 
 Required workflows run on `pull_request` without branch or path filters and on pushes only to `main`. A branch gets exactly one `ci` run per commit, through its PR; pushing to a branch without a PR runs nothing. Each required workflow uses its own name plus `${{ github.ref }}` as its concurrency group with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`. A force-push or new commit on a PR cancels the older PR run. On `main`, every push lets the running push run finish, so the branch always reaches a completed run. Some intermediate heads can still go without a run of their own: GitHub keeps only one pending run per group.
 
-Skips are in-job area scopes (reported as success); never workflow-level path filters, because a filtered required workflow never reports and blocks the PR. Area-scoped jobs: `ci`'s `npm-pack` and `spec-lint`. Each checks out the PR merge commit at depth 2 and runs `tools/ci-scope.py` with its input globs; with no matching changed path the later steps are skipped. Any doubt runs the job, and pushes always run it. `check` itself is always `if: always()` so it always reports; its requirement step runs under `always()` too, so a cancelled run cannot skip it into a green check, and it fails on any result other than `success`. The trigger blocks and any job gates are canonical text derived from the branch model in `tools/check-ci-policy.py`: by default, pushes to `main` and every pull request, with no job gates. A repository that adds integration branches declares them in one model file beside the policy instead of editing each workflow.
+Skips are in-job area scopes (reported as success); never workflow-level path filters, because a filtered required workflow never reports and blocks the PR. Area-scoped jobs: `ci`'s `npm-pack`, `spec-lint` and `licenses`. Each checks out the PR merge commit at depth 2 and runs `tools/ci-scope.py` with its input globs; with no matching changed path the later steps are skipped. Any doubt runs the job, and pushes always run it. `check` itself is always `if: always()` so it always reports; its requirement step runs under `always()` too, so a cancelled run cannot skip it into a green check, and it fails on any result other than `success`. The trigger blocks and any job gates are canonical text derived from the branch model in `tools/check-ci-policy.py`: by default, pushes to `main` and every pull request, with no job gates. A repository that adds integration branches declares them in one model file beside the policy instead of editing each workflow.
 
 What a contributor should expect on a PR: one `ci` run per pushed head, with the earlier run cancelled.
 
