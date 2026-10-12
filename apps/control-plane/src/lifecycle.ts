@@ -1522,7 +1522,8 @@ export class TaskLifecycle {
     if (ts.length) await appendTransitions(this.db, ts);
   }
   /** Trusted record entry point. AUTH supplies a verified opaque grant ID, never
-   * an actor/kind from a request. Public routes stay disabled until that gate exists. */
+   * an actor/kind from a request: `POST /candidates/{id}/approve-with-grant` (machine-routes.ts,
+   * also mounted through the gateway) verifies the bearer grant before forwarding here. */
   async approveWithGrant(id: string, grantId: string, key: string, input: {
     projectId: string; claimAttemptId: string; candidateId: string;
     boundTo: { candidateSha: string; baseSha: string; intentVersion: number };

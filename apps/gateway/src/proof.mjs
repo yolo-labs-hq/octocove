@@ -1,4 +1,4 @@
-// Gateway channel proof, wire contract v1 (ADR 0005 "Push-time proof"). Not the control
+// Gateway channel proof, wire contract v1 (ADR 0005 "Gateway channel proof (push-time)"). Not the control
 // plane's runtime push proof; the wire version and header keep their v1 spelling.
 //
 // The broker issues a single-use nonce plus an HMAC-SHA256 over a versioned, unambiguous

@@ -15,7 +15,7 @@ export interface BrokerEnv extends AuthEnv {
   /** ADR-0005 migration boundary: comma-separated project IDs whose non-chain allocated
    * claims may still export a raw provider write token. Unset refuses; chain never exports. */
   LEGACY_BROKER_WRITE_PROJECTS?: string;
-  /** ADR-0005 repo-lane write custody: `{"keys":[ES256 public JWK + kid + octocove_projects]}` of the
+  /** ADR 0005 "Repo-lane write delivery": `{"keys":[ES256 public JWK + kid + octocove_projects]}` of the
    * protected runtimes (helper hosts) the operator registered. Private halves never reach the agent. */
   HELPER_RUNTIME_PUBLIC_JWKS?: string;
 }
@@ -236,7 +236,7 @@ export class TokenBroker {
         c.repo !== g.id || c.ref !== mapping.ref_name) return refuse('proof-mismatch');
     return { auth, claim, g, project, principal, refuse, mapping, remote, proof };
   }
-  /** ADR-0005 repo-lane write custody. Delivers one helper push to the caller's own
+  /** ADR 0005 "Repo-lane write delivery". Delivers one helper push to the caller's own
    * allocated task repository. Requires both the live claim authority (claimant delegation or owning
    * human) and a proof signed by a protected runtime registered for the project over this exact
    * push. The proof's nonce is consumed durably before provider I/O; the provider write token is

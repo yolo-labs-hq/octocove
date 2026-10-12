@@ -9,7 +9,7 @@
 
 const OPERATIONS = new Set(['read', 'write']);
 // `ref`: a ref lane in a shared repository (the default). `repo`: an allocated task
-// repository, single-writer by construction (ADR 0005, repo-lane write custody).
+// repository, single-writer by construction (ADR 0005 "Repo-lane write delivery").
 const LANES = new Set(['ref', 'repo']);
 
 // A ref-lane write grant owns exactly one `refs/heads/lane/<lane>` ref. A repo-lane write

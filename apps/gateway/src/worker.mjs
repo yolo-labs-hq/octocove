@@ -63,7 +63,7 @@ async function readBounded(stream) {
 // broker binding in the Worker). Admission carries a single-use writer ticket, never a provider
 // credential or remote; the writer holding the credential redeems it server side.
 //
-// `proof` (ADR 0005 push-time proof) = { keyring, audience, channel(request), issue(input),
+// `proof` (ADR 0005 "Gateway channel proof (push-time)") = { keyring, audience, channel(request), issue(input),
 // complete(input) }. When present every request needs an authenticated channel, the
 // push-proof route is enabled, and each receive-pack POST needs a valid single-use proof
 // over the exact bytes; there is no lease-only fallback. The exported Worker always passes

@@ -1,6 +1,7 @@
 /**
- * The three transports, chosen by the caller and never inferred. A transport only decides
- * which credential headers a request carries; the client owns retries, deadlines and errors.
+ * The four transports (bearer, browser cookie, forwarded session, unauthenticated), chosen by
+ * the caller and never inferred. A transport only decides which credential headers a request
+ * carries; the client owns retries, deadlines and errors.
  */
 
 export const SESSION_COOKIE = '__Host-octocove_session';

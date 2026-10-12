@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - name: Evidence links resolve (docs line and heading anchors)
+      - name: Evidence links resolve (line and heading anchors in docs and published Markdown; titled code anchors)
         run: python3 -B tools/check-evidence-links.py
       - name: Test evidence link check rejection cases
         run: python3 -B tools/test_check_evidence_links.py

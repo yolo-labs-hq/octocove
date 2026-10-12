@@ -211,7 +211,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.listTasks
+      x-authoritative-handler: task-list.listTasks
       parameters:
       - $ref: '#/components/parameters/ProjectId'
       - $ref: '#/components/parameters/Limit'
@@ -1002,7 +1002,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.getTask
+      x-authoritative-handler: lifecycle.show
       parameters:
       - name: id
         in: path
@@ -1785,7 +1785,7 @@ paths:
         '503':
           $ref: '#/components/responses/Problem'
       x-external-source: Registers canonical lane-ref with external writer; allocation and claimant broker credentials are omitted.
-      x-authoritative-handler: lifecycle.claimTask
+      x-authoritative-handler: lifecycle.claim
       parameters:
       - name: id
         in: path
@@ -1926,7 +1926,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.getClaim
+      x-authoritative-handler: lifecycle.claimStatus
       parameters:
       - name: id
         in: path
@@ -1975,7 +1975,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.createSubmission
+      x-authoritative-handler: lifecycle.submit
       parameters:
       - name: id
         in: path
@@ -2060,7 +2060,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.getSubmissionCandidate
+      x-authoritative-handler: lifecycle.candidateStatus
       parameters:
       - name: id
         in: path
@@ -2107,7 +2107,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.approveCandidate
+      x-authoritative-handler: lifecycle.approve
       parameters:
       - name: id
         in: path
@@ -2175,7 +2175,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.acquireLandingFence
+      x-authoritative-handler: lifecycle.land
       parameters:
       - name: id
         in: path
@@ -2248,7 +2248,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: lifecycle.getReceipt
+      x-authoritative-handler: receipt.receiptProjection
       parameters:
       - name: id
         in: path
@@ -2294,7 +2294,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: audit.listTaskLog
+      x-authoritative-handler: audit.listAudit
       parameters:
       - name: id
         in: path
@@ -2405,7 +2405,7 @@ paths:
       operationId: webhookDeliveriesInspect
       summary: Inspect parked or cancelled delivery evidence
       description: Original creator (human session, or ADR-0009 machine assertion) with current webhooks:create permission only. Audited read; no secret, URL or arbitrary errors. Also available under /v1.
-      x-authoritative-handler: audit.inspectWebhookDeliveries
+      x-authoritative-handler: webhooks.inspectWebhookDeliveries
       tags: [Events]
       security:
       - EventIdentityProof: []
@@ -2457,7 +2457,7 @@ paths:
       operationId: webhookDeliveryRedrive
       summary: Explicitly replay one terminal delivery after reactivation
       description: Original creator (human session, or ADR-0009 machine assertion) with current webhooks:replay only. Parked/cancelled evidence stays immutable; creates a fresh single-event lineage. Disabled hooks require explicit reactivation. Idempotent, audited, also available under /v1.
-      x-authoritative-handler: audit.redriveWebhookDelivery
+      x-authoritative-handler: webhooks.redriveWebhookDelivery
       tags: [Events]
       security:
       - EventIdentityProof: []
@@ -2506,7 +2506,7 @@ paths:
       x-recent-sign-in: true
       summary: Rotate the receiver signing secret with explicit overlap
       description: Original creator (human session, or ADR-0009 machine assertion) with current webhooks:create only. Each attempt carries one HMAC and Octocove-Signing-Key-Id. New attempts/retries use the new key; prepared old-key requests may send only before overlap expiry. Receiver selects the named key only. Further rotation during overlap is 409. Encryption rewrap remains separate. Also available under /v1.
-      x-authoritative-handler: audit.rotateWebhookSecret
+      x-authoritative-handler: webhooks.rotateWebhookSecret
       tags: [Events]
       security:
       - EventIdentityProof: []
@@ -2594,7 +2594,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: audit.createWebhook
+      x-authoritative-handler: webhooks.createWebhook
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CsrfToken'
@@ -2671,7 +2671,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: audit.enqueueWebhookReplay
+      x-authoritative-handler: webhooks.enqueueWebhookReplay
       parameters:
       - name: id
         in: path
@@ -2733,7 +2733,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: audit.reactivateWebhook
+      x-authoritative-handler: webhooks.reactivateWebhook
       parameters:
       - name: id
         in: path
@@ -2776,7 +2776,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: audit.disableWebhook
+      x-authoritative-handler: webhooks.disableWebhook
       parameters:
       - name: id
         in: path
@@ -2824,7 +2824,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: auth.authorizeClaim
+      x-authoritative-handler: auth.preauthorize
       parameters:
       - name: id
         in: path
@@ -3219,7 +3219,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: auth.confirmCliLogin
+      x-authoritative-handler: auth.confirmCli
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CsrfToken'
@@ -3277,7 +3277,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-      x-authoritative-handler: auth.exchangeCliLogin
+      x-authoritative-handler: auth.exchangeCli
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CsrfToken'
@@ -3545,7 +3545,7 @@ paths:
               $ref: "#/components/schemas/ApprovalGrantRequest"
       responses:
         "201":
-          description: Single-use grant; all relationship, policy and identity checks in ADR apply.
+          description: Single-use grant; all relationship, policy and identity checks in ADR 0001 (machine exact-approval authority) apply.
           headers:
             Cache-Control:
               $ref: "#/components/headers/NoStore"
@@ -3944,7 +3944,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Verified issuer JWT or registered-key assertion
-      description: Exchange only; ADR issuer/audience/expiry/replay checks mandatory.
+      description: Exchange only; ADR 0001 (machine exact-approval authority) issuer/audience/expiry/replay checks mandatory.
     ApprovalGrant:
       type: http
       scheme: bearer
@@ -6408,7 +6408,7 @@ components:
         to provider registration.
     StaleFenceDetails:
       description: '`stale-base` details from land when a landed receipt contradicts the approval''s base
-        (docs/API.md, landing). Pending: the evidence is ambiguous, nothing was written and the approval
+        (docs/API.md, "Record verbs and async results", the landing paragraph). Pending: the evidence is ambiguous, nothing was written and the approval
         stays active; retry the same key after the named head re-read. Committed: the approval was
         invalidated by the receipt''s base move to `headSha`.'
       oneOf:

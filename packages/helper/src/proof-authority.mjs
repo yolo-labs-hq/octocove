@@ -1,5 +1,5 @@
-// proofAuthority — AttemptHelper authority for a proof-mode gateway (ADR 0005 "Push-time
-// proof"). It holds the attempt's protected channel identity (an mTLS
+// proofAuthority — AttemptHelper authority for a proof-mode gateway (ADR 0005 "Gateway
+// channel proof (push-time)"). It holds the attempt's protected channel identity (an mTLS
 // client key provisioned by the trusted runtime) and the lease thunk; neither reaches the lane.
 //
 // For each accepted pre-receive update it builds the exact receive-pack request itself (one
