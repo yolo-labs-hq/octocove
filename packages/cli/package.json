@@ -31,7 +31,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "esbuild src/bin.ts --bundle --platform=node --target=node20 --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/octocove.mjs",
+    "build": "esbuild src/bin.ts --bundle --platform=node --target=node20 --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/octocove.mjs --metafile=build-meta/octocove.mjs.json",
     "prepack": "cp ../../LICENSE ../../NOTICE .",
     "typecheck": "timeout 300 tsc -p tsconfig.json",
     "test": "CI=1 timeout 300 vitest run --maxWorkers=1 < /dev/null"
