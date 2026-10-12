@@ -5,7 +5,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --test --test-concurrency=1 protocol.test.mjs smoke.test.mjs aggregate.test.mjs cell.test.mjs < /dev/null"
+    "test": "node --test --test-concurrency=1 protocol.test.mjs smoke.test.mjs aggregate.test.mjs cell.test.mjs journey.test.mjs < /dev/null"
   },
   "devDependencies": {
     "jose": "6.1.0",

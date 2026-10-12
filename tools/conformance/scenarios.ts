@@ -6,6 +6,7 @@ import { apiDriver } from './drivers/api.mjs';
 import { machineDriver } from './drivers/machine.mjs';
 import { cliDriver } from './drivers/cli.mjs';
 import { genericDriver } from './drivers/generic.mjs';
+import { cliJourney } from './journey.mjs';
 /** The host supplies the service under test: `localEnvironment` boots it, `runKey` derives idempotency keys and `git` is the fallback Git runner. */
 export function registerConformance({ it, expect, beforeAll, afterAll, SignJWT, decodeJwt, localEnvironment, runKey, git: localGit }: any) {
 const controller = new AbortController();
@@ -113,7 +114,7 @@ for (const cell of selectedCells.filter((c:any) => manifest.localPairings.includ
           agentId:tag,verbs,expiresAt:new Date(Date.now()+3600000).toISOString() },runKey(`authorize-${tag}`)),201);
         const claimKey = runKey(`claim-${tag}`);
         const external = cell.topology === 'ref' && (cell.archetype === 'b' || cell.provider === 'artifacts');
-        let claim: any, identity: any, ownClone: any, helperSocket: string | undefined;
+        let claim: any, identity: any, ownClone: any, laneJourney: any, helperSocket: string | undefined;
         if (cell.archetype === 'b') {
           helperSocket = await env.helperSocket(tag,repository.repoId);
           cli = await cliDriver({ binary:env.binary,work:repository.work,apiUrl:env.apiUrl,gitTransport:env.cliGit,root:repository.dir,
@@ -132,6 +133,7 @@ for (const cell of selectedCells.filter((c:any) => manifest.localPairings.includ
           const registration = await env.db.prepare('SELECT * FROM external_ref_sources WHERE mapping_id=?').bind(claim.workspace.mappingId).first();
           ownClone = {originalOriginPreserved,worktreePreserved,nonHeadRef,sourceRefRegisteredByClient:Boolean(registration),
             noAllocatedRepository:claim.workspace.kind !== 'task-repo',writer:claim.workspace.writer};
+          if (!external) laneJourney = {externalRegistration:Boolean(registration),helper:{socket:Boolean(helperSocket),bound:false}};
         } else {
           const bootstrap = apiDriver(env.transport,{token:authorization.bootstrapToken},cell.archetype);
           movePhase('claim-attempt');
@@ -146,7 +148,7 @@ for (const cell of selectedCells.filter((c:any) => manifest.localPairings.includ
           sourceRepoId:sourceMapping.repository_id,sourceRemote:claim.workspace.remote,sourceRef:claim.workspace.ref,
           canonicalRepoId:repository.repoId,canonicalRemote:beforeClaim.origin,targetRef:cell.target,policyVersion:'local-human-only-v1'}}) : apiDriver(env.transport,identity,cell.archetype);
         const sourceRemote = env.sourceRemote(claim.workspace.remote);
-        if (cli && !external) await env.bindCliHelper(helperSocket!,claim.id);
+        if (cli && !external) { await env.bindCliHelper(helperSocket!,claim.id); laneJourney.helper.bound = true; }
         // Safety scenarios below submit metadata for an already-published source.
         // The main b submission still runs submit REF through the real CLI checks.
         git(repository.work,'push',sourceRemote,`review-ref:${claim.workspace.ref}`);
@@ -204,9 +206,31 @@ for (const cell of selectedCells.filter((c:any) => manifest.localPairings.includ
         let submission: any;
         if (cell.archetype === 'c') machine = await machineDriver({env,repository,operator,claim,task,sourceRepositoryId:sourceMapping.repository_id,target:cell.target,identity,tag,signal:controller.signal});
         if (cli) {
+          const laneSha = () => git(repository.dir,'ls-remote',sourceRemote,claim.workspace.ref).split(/\s+/)[0];
+          // The safety scenarios above needed the selected commit on the allocated lane ref.
+          // Restore the lane to its provisioned base so this journey proves that the CLI
+          // submit itself published the selected commit through the bound helper.
+          if (!external) {
+            git(repository.work,'push','--force',sourceRemote,`${repository.base}:${claim.workspace.ref}`);
+            laneJourney.source = {expected:repository.source,base:repository.base,beforeSubmit:laneSha()};
+          }
           const r = await cli.command(['submit','review-ref','--task',task,'--claim',claim.id,'--base',repository.base,'--intent-version','1','--idempotency-key',runKey(`submit-${tag}`)]);
           ownClone.nonHeadRefExit = r.exit;
-          if (!external) observations.journey = {status:'BLOCKED',reason:'allocated task repository does not qualify own-clone source registration'};
+          if (!external) {
+            const mapping: any = await env.db.prepare('SELECT claim_id,ref_name,retired_at FROM task_repo_mappings WHERE id=?').bind(claim.workspace.mappingId).first();
+            const persisted: any = r.body?.id ? await env.db.prepare('SELECT source_sha FROM submissions WHERE id=?').bind(r.body.id).first() : null;
+            // A missing checkout binding is a failed journey check, not an execution failure.
+            const config = (...args: string[]) => { try { return git(repository.work,...args); } catch { return undefined; } };
+            const remote = config('config','octocove.remote');
+            Object.assign(laneJourney.source,{submitExit:r.exit,afterSubmit:laneSha(),submittedSha:r.body?.sourceSha,persistedSha:persisted?.source_sha,
+              canonicalAfterSubmit:git(repository.dir,'ls-remote',repository.canonical,cell.target).split(/\s+/)[0]});
+            laneJourney.claim = {id:claim.id,workspaceKind:claim.workspace.kind,mappingId:claim.workspace.mappingId,ref:claim.workspace.ref,writer:claim.workspace.writer};
+            laneJourney.mapping = {claimId:mapping?.claim_id,ref:mapping?.ref_name,retired:mapping ? mapping.retired_at !== null : null};
+            laneJourney.checkoutConfig = {claimId:config('config','octocove.claimId'),mappingId:config('config','octocove.mappingId'),
+              ref:config('config','octocove.ref'),remote};
+            Object.assign(laneJourney.helper,{fetchUrl:remote && config('remote','get-url',remote),
+              pushUrls:remote ? config('remote','get-url','--push','--all',remote)?.split('\n') : undefined});
+          }
           if (r.exit !== 0) throw new Error('cli-submit-metadata-failed'); submission = r.body;
         } else if (machine) submission = await machine.submit(repository.source,repository.base);
         else submission = must(await driver.call(`/v1/tasks/${task}/submissions`,'POST',{sourceSha:repository.source,baseSha:repository.base,intentVersion:1},runKey(`submit-${tag}`)),201);
@@ -533,8 +557,17 @@ for (const cell of selectedCells.filter((c:any) => manifest.localPairings.includ
         add('stale-source-base-intent','target-cas-no-stale-landing',['raced','conflict'].includes(staleReceipt.outcome) && staleReceipt.landedSha === null &&
           git(repository.dir,'ls-remote',repository.canonical,'refs/heads/main').split(/\s+/)[0] === repository.raceAdvanceSha);
         evidence.staleLanding = {receipt:staleReceipt,externalTarget:repository.raceAdvanceSha,fault:'after-real-land-token-before-native-CAS-push'};
-        if (cli) add('journey','complete-authorized-journey',external && ownClone.originalOriginPreserved && ownClone.worktreePreserved && ownClone.nonHeadRef &&
-          ownClone.sourceRefRegisteredByClient && ownClone.noAllocatedRepository && ownClone.noProvisioning && ownClone.originPreservedThroughLand && ownClone.worktreePreservedThroughLand && ownClone.writer === 'external' && ownClone.nonHeadRefExit === 0 && exactRemote && exactTuple,ownClone);
+        if (cli && external) add('journey','complete-authorized-journey',cliJourney(cell.topology,{...ownClone,external,exactRemote,exactTuple}).ok,ownClone);
+        else if (cli) {
+          laneJourney.checkout = {originalOriginPreserved:ownClone.originalOriginPreserved,worktreePreserved:ownClone.worktreePreserved,nonHeadRef:ownClone.nonHeadRef,
+            originPreservedThroughLand:ownClone.originPreservedThroughLand,worktreePreservedThroughLand:ownClone.worktreePreservedThroughLand,
+            reviewRef:git(repository.work,'rev-parse','review-ref')};
+          laneJourney.approval = {id:approved.id,taskId:approved.taskId,candidateId:approved.candidateId,boundTo:approved.boundTo,
+            fenceApprovalId:fence.approval_id,fenceCandidateId:fence.candidate_id};
+          laneJourney.expected = {taskId:task,candidateId:candidate.id,tuple};
+          const journey = cliJourney(cell.topology,{...laneJourney,external,exactRemote,exactTuple});
+          add('journey','complete-authorized-journey',journey.ok,{topology:journey.topology,failed:journey.failed,source:laneJourney.source,helper:laneJourney.helper});
+        }
         evidence = { ...evidence,receipt,remoteVerification:{fetchedSha:fetched,parentSha:parent,receiptObject:object,verified:exactRemote},
           timings:{reconciliationMs:recoveryMs,nativeMs:recovered.nativeMs,...(cli?.timings() ?? driver.timings())},
           audit:(must(await operator.call(`/v1/tasks/${task}/log`),200).items ?? []).map((r:any) => ({id:r.id,type:r.type,actorType:r.actorType,actorId:r.actorId,refs:r.refs})) };
