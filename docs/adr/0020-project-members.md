@@ -7,7 +7,7 @@ The web app's first run tells a new user to "send your id to a project admin", b
 it: there is no member listing, and a membership other than a project creator's own is an operator database edit.
 Only humans need these routes. A person is added by their **principal id** (`issuer|sub`, what `GET /me` and
 `octocove whoami` print), never by email: an email match never grants access ([AUTH.md](../AUTH.md#humans-and-cli)).
-**Studio adapter**, **own-clone CLI agents** and **CI + policy-bot approvers** keep acting through the delegations
+The **workspace adapter**, **own-clone CLI agents** and **CI + policy-bot approvers** keep acting through the delegations
 and machine grants of members; they never administer membership and are refused by these routes.
 
 ## Decision
@@ -38,11 +38,11 @@ to remove). Two would be 409 `principal-ambiguous`: the route never guesses betw
 
 **Default verbs (the member set).** Omitting `verbs` grants `audit:read`, `candidates:read`, `claims:read`,
 `events:read`, `receipts:read`, `submissions:create`, `tasks:authorize`, `tasks:claim`, `tasks:create`,
-`tasks:edit`, `tasks:list`, `tasks:publish` and `tasks:read` (`memberDefaultVerbs`, `members.ts`): a member can author
+`tasks:edit`, `tasks:list`, `tasks:publish` and `tasks:read`: a member can author
 and publish tasks, claim and submit, and run an agent on a task. It leaves out `project:admin`, approval and landing
 (`candidates:approve`, `candidates:land`) and webhook administration (`webhooks:create`, `webhooks:replay`,
 `webhooks:disable`), which change what lands or what leaves the project; an admin grants them by naming them.
-`verbs`, when given, is a non-empty list of verbs auth.ts classifies (delegable, human-only or authoring); any other
+`verbs`, when given, is a non-empty list of verbs the service classifies (delegable, human-only or authoring); any other
 string is 422, never silently stored. `allow_delegated_land` keeps its column default, 0: this route cannot turn on
 delegated land.
 
@@ -59,15 +59,14 @@ claim still active under one of those delegations is ended through the task coor
 (the coordinator is a Durable Object): a failure is logged and the removal still answers 204, and the claim cannot
 act (its delegation is revoked) and ends when it expires or a human replaces it.
 
-**Webhooks.** Deleting the row fires migration 0013/0014's `webhook_membership_deleted` trigger unchanged: the
+**Webhooks.** Deleting the row fires the existing `webhook_membership_deleted` trigger unchanged: the
 webhooks the removed principal created in the project are disabled with reason `membership-revoked` and their
 pending deliveries cancelled, each audited as `webhook.disabled` by `webhook_suspension_audit`.
 
 **Audit.** `member.added` (refs `principalId`, `verbs`) and `member.removed` (refs `principalId` and the verbs the
 membership held) join the closed audit vocabulary, written in the same batch with the human caller as actor.
-Migration 0047 widens the `audit_log` type CHECK by the table rebuild 0042 and 0045 used, and adds a nullable
-`auth_memberships.added_at`, backfilled from `projects.created_at` for a creator's own membership. Other memberships
-recorded before 0047 answer `addedAt: null`: their time was never stored.
+Memberships gain a nullable `added_at`; a creator's own membership takes the project's creation time. A membership
+whose time was never stored answers `addedAt: null`.
 
 ## Does not do
 
@@ -85,4 +84,4 @@ leaving delegations to fail their next membership check (they would, but their r
 re-add would silently revive them, and their claims would stay open); allowing a project to lose its last admin
 (only an operator database edit could recover it); deriving `addedAt` from the audit log (a scan of the project's
 whole log on every list). See [docs/API.md](../API.md#project-members-get-and-post-projectsprojectmembers),
-[docs/AUTH.md](../AUTH.md) and `apps/control-plane/openapi.yaml`.
+[docs/AUTH.md](../AUTH.md) and `spec/openapi.yaml`.

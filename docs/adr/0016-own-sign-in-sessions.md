@@ -6,7 +6,7 @@ Status: proposed
 A human signed in on several devices (a browser, a CLI on a laptop, another browser) cannot see those sign-ins
 or end one they no longer hold: `POST /auth/logout` only ends the session making the call, and revoking a
 family by any other means is an operator database edit. The web app's settings page needs both. Only humans
-need this. **Studio adapter**, **own-clone CLI agents** and **CI + policy-bot approvers** act through
+need this. The **workspace adapter**, **own-clone CLI agents** and **CI + policy-bot approvers** act through
 delegations and machine grants, which already have their own revocation (`POST /delegations/{id}/revoke`,
 grant revocation routes) and are refused by these routes.
 
@@ -23,15 +23,15 @@ never one of its rotating `auth_sessions` rows. Renewal stays inside the same en
   `recoveryAuth`: the handler authenticates like logout (cookie Origin and CSRF checked; delegations 403
   `human-required`; machine grant bearers 401), requires `Idempotency-Key`, and in one D1 batch marks the family
   revoked behind the `auth_cas` changes guard, revokes every one of its session rows and its authorizations
-  (bootstraps and the delegations issued through them), appends one `auth_family_revocations` row (migration
-  0043) and the `auth_recovery` row. Revoking the current family is logout, including the expired session and
+  (bootstraps and the delegations issued through them), appends one `auth_family_revocations` row
+  and the `auth_recovery` row. Revoking the current family is logout, including the expired session and
   CSRF cookies. The same session and key replay the original 204 for two minutes, even once that session was
   revoked by the request; the same key with another id is 409 `idempotency-conflict`; an already-revoked own
   family answers 204 from state. Another principal's family and an unknown id take the same lookup and the same
   404 `not-found`.
 - **The id is not the family id.** `auth_families.id` is a 32-byte random value generated like a token. It is
   not accepted as a bearer, cookie or CSRF input today, but it keys recovery scopes and is never returned, so the
-  API exposes `sessionId(familyId)`, a SHA-256 of a domain-separated label plus the family id (`auth.ts`). It is
+  API exposes `sessionId(familyId)`, a SHA-256 of a domain-separated label plus the family id. It is
   one-way and needs no new secret or rotation; the server maps it back only by recomputing it over the caller's
   own unexpired families.
 - **Audit.** Logout and login's predecessor revocation write no audit row today, and `audit_log` is the
@@ -53,8 +53,8 @@ never one of its rotating `auth_sessions` rows. Renewal stays inside the same en
 
 ## Consequences and alternatives
 
-Two operation ids (74 in the client policy table). Migration 0043 only adds a table. Alternatives rejected:
+Two operation ids (74 in the client policy table). Storage gains only one table. Alternatives rejected:
 exposing the raw family id (a credential-shaped value in URLs and logs for no gain); an HMAC under
 `AUTH_RECOVERY_KEY` (reuses an AES key for a second purpose and changes every id on rotation); a new
 `audit_log` type (a table rebuild for a row that has no project and must not reach project audit readers,
-events or webhooks). See [docs/AUTH.md](../AUTH.md), [docs/API.md](../API.md) and `apps/control-plane/openapi.yaml`.
+events or webhooks). See [docs/AUTH.md](../AUTH.md), [docs/API.md](../API.md) and `spec/openapi.yaml`.

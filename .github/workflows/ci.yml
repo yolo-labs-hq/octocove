@@ -9,7 +9,7 @@ concurrency:
 permissions:
   contents: read
 # Triggers and job gates are canonical text derived from the branch model in
-# tools/check-ci-policy.py, which pins them (ADR 0012); the default model has no
+# tools/check-ci-policy.py, which pins them; the default model has no
 # job gates and every pull request runs every job. `check` keeps `if: always()`;
 # its requirement step carries the model's step gate, which is `always()` alone
 # by default. Gate exemptions never apply to a fork PR's head.
@@ -59,74 +59,35 @@ jobs:
   check-shards:
     name: check (${{ matrix.suite }})
     runs-on: ubuntu-latest
-    # About 2x the slowest measured shard job (387s; see CONTRIBUTING.md).
-    # CI_JOB_BUDGET_SECONDS below must equal this, in seconds.
     timeout-minutes: 13
     strategy:
       fail-fast: false
       matrix:
-        suite: [other-packages, control-plane-1, control-plane-2, control-plane-3, control-plane-4]
+        suite: [packages]
     env:
       CI: "1"
-      CI_JOB_BUDGET_SECONDS: "780"
     steps:
-      - name: Start job budget clock
-        run: echo "CI_JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - name: Install dependencies inside setup budget
-        env:
-          SUITE: ${{ matrix.suite }}
-        run: |
-          if [ "$SUITE" = other-packages ]; then
-            timeout --kill-after=10 180 pnpm install --frozen-lockfile < /dev/null
-          else
-            timeout --kill-after=10 180 pnpm --filter @octocove/control-plane... install --frozen-lockfile < /dev/null
-          fi
-      - name: Record invariants in sync with test list
-        if: matrix.suite == 'other-packages'
-        run: pnpm check:invariants
+      - name: Install dependencies
+        run: timeout --kill-after=10 180 pnpm install --frozen-lockfile < /dev/null
       - name: Typecheck
-        if: matrix.suite == 'other-packages'
-        run: |
-          (while true; do echo "typecheck heartbeat $(date -u +%T)"; sleep 30; done) &
-          hb=$!
-          timeout 600 pnpm -r typecheck < /dev/null; rc=$?
-          kill $hb; exit $rc
-      - name: Test other packages
-        if: matrix.suite == 'other-packages'
+        run: timeout 600 pnpm -r typecheck < /dev/null
+      - name: Test the packages and the conformance harness
         # Each package keeps its own budget; no timeout around the workspace.
         # packages/client runs in its own client job (Node + workerd).
-        run: pnpm -r --filter '!@octocove/control-plane' --filter '!./packages/client' test < /dev/null
+        run: pnpm -r --filter '!./packages/client' test < /dev/null
       - name: Upload local workspace cache measurements
-        if: always() && matrix.suite == 'other-packages'
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: local-workspace-cache-measurements
           path: packages/cli/test-results/workspace-cache/*.json
           if-no-files-found: ignore
-      - name: Test control-plane shard
-        if: matrix.suite != 'other-packages'
-        env:
-          SUITE: ${{ matrix.suite }}
-        # DurationShardSequencer balances measured file times across four shards
-        # (test-durations.json: mean measured module times from ci-timings.json).
-        # Tests are capped at 600s; the supervisor trims that cap so 80s of the
-        # 780s job clock remain for cleanup and artifact upload if setup runs long.
-        # Module timings include hooks; explicit fixture setup/dispose is also recorded.
-        run: pnpm --filter @octocove/control-plane test --shard="${SUITE##*-}/4" --maxWorkers=2 --reporter=default --reporter=verbose --reporter=./ci-timing-reporter.ts < /dev/null
-      - name: Upload shard timings even on failure
-        if: always() && matrix.suite != 'other-packages'
-        timeout-minutes: 1
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: timings-${{ matrix.suite }}
-          path: test-results/ci-timings.json
-          if-no-files-found: warn
   # The client package alone (no workspace build). Unit cases under Node 22 and inside a
   # workerd isolate, generation/routing/retry-policy drift checks, and the npm pack tarball that
   # consumers pin by commit SHA (no registry publish).
@@ -158,7 +119,7 @@ jobs:
       - name: Unit tests inside a workerd isolate
         run: pnpm --filter ./packages/client test:workerd < /dev/null
       - name: Conformance Git adapter stops at the journey's signal and deadline (scripted git, no runtime)
-        run: timeout 120 node --test --test-concurrency=1 tools/demo/library-driver.test.mjs < /dev/null
+        run: timeout 120 node --test --test-concurrency=1 tools/conformance/drivers/library-git.test.mjs < /dev/null
       - name: Build and smoke-import the npm pack tarball
         env:
           # The checked-out reviewed head; the tarball and the artifact both carry it.
@@ -187,7 +148,7 @@ jobs:
           fetch-depth: 2 # the PR merge commit and both parents
       - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
         id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'packages/cli/**' 'packages/client/**' 'packages/shared/**' 'LICENSE' 'NOTICE' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
+        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'spec/**' 'packages/cli/**' 'packages/client/**' 'packages/shared/**' 'LICENSE' 'NOTICE' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         if: steps.scope.outputs.run == 'true'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -204,7 +165,7 @@ jobs:
           timeout 120 pnpm --filter ./packages/cli build < /dev/null
           pnpm --filter ./packages/client build < /dev/null
   # Preserve the required status name, including failure/cancellation of a shard.
-  # `if: always()` is pinned (conformance smoke test, check-ci-policy.py): check
+  # `if: always()` is pinned (check-ci-policy.py): check
   # always reports. Where the branch model gates every need off a PR, the step
   # gate skips the requirement step too and check reports success; everywhere
   # else that step runs (always(), so a cancelled run cannot skip it into a green
@@ -213,7 +174,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    needs: [check-shards, client, npm-pack, events-conformance-local, workflow-policy, repo-hygiene, conformance]
+    needs: [check-shards, client, npm-pack, events-conformance-local, workflow-policy, repo-hygiene, spec-lint]
     steps:
       - name: Require every check dependency to pass
         if: ${{ always() }}
@@ -222,45 +183,18 @@ jobs:
           HYGIENE_RESULT: ${{ needs.repo-hygiene.result }}
           POLICY_RESULT: ${{ needs.workflow-policy.result }}
           EVENTS_RESULT: ${{ needs.events-conformance-local.result }}
-          CONFORMANCE_RESULT: ${{ needs.conformance.result }}
+          SPEC_LINT_RESULT: ${{ needs.spec-lint.result }}
           CLIENT_RESULT: ${{ needs.client.result }}
           NPM_PACK_RESULT: ${{ needs.npm-pack.result }}
         run: |
           test "$SHARD_RESULT" = success
           test "$EVENTS_RESULT" = success
-          test "$CONFORMANCE_RESULT" = success
+          test "$SPEC_LINT_RESULT" = success
           test "$CLIENT_RESULT" = success
           test "$NPM_PACK_RESULT" = success
           test "$POLICY_RESULT" = success
           test "$HYGIENE_RESULT" = success
-  migrations:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      CI: "1"
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 2 # the PR merge commit and both parents
-      - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
-        id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'apps/control-plane/migrations/**' 'apps/control-plane/wrangler.jsonc' 'apps/control-plane/package.json' 'tools/check-migration-prefixes.mjs' 'apps/*/package.json' 'packages/*/package.json' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-        if: steps.scope.outputs.run == 'true'
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.scope.outputs.run == 'true'
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: timeout 300 pnpm install --frozen-lockfile < /dev/null
-        if: steps.scope.outputs.run == 'true'
-      - name: Reject duplicate migration prefixes
-        if: steps.scope.outputs.run == 'true'
-        run: node tools/check-migration-prefixes.mjs
-      - name: Apply every migration to a fresh local D1
-        if: steps.scope.outputs.run == 'true'
-        run: pnpm db:reset:local < /dev/null
-  openapi-lint:
+  spec-lint:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -269,57 +203,10 @@ jobs:
           fetch-depth: 2 # the PR merge commit and both parents
       - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
         id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'apps/control-plane/openapi.yaml' '.nvmrc'
+        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'spec/openapi.yaml' '.nvmrc'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.scope.outputs.run == 'true'
         with:
           node-version-file: .nvmrc
-      - run: npx --yes @redocly/cli@2.58.1 lint apps/control-plane/openapi.yaml < /dev/null
+      - run: npx --yes @redocly/cli@2.58.1 lint spec/openapi.yaml < /dev/null
         if: steps.scope.outputs.run == 'true'
-
-  # Required through check on every push and pull request. Every push runs it; a
-  # PR whose diff misses its inputs skips the steps in-job and reports success.
-  # One local smoke cell per pairing; full qualification matrix stays out of CI.
-  conformance:
-    name: conformance smoke (a / ${{ matrix.pairing }})
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      max-parallel: 4
-      matrix:
-        pairing: [artifacts/ref, artifacts/repo, github/ref, forgejo/ref]
-    env:
-      CI: '1'
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 2 # the PR merge commit and both parents
-      - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
-        id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'tools/conformance/**' 'apps/control-plane/**' 'apps/integrator/**' 'packages/**' 'apps/*/package.json' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-        if: steps.scope.outputs.run == 'true'
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.scope.outputs.run == 'true'
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - name: Install harness dependency slice
-        if: steps.scope.outputs.run == 'true'
-        run: timeout 180 pnpm --filter @octocove/control-plane... --filter @yolo-labs/octocove install --frozen-lockfile < /dev/null
-      - name: Validate conformance protocol
-        if: steps.scope.outputs.run == 'true'
-        run: node --test --test-concurrency=1 tools/conformance/protocol.test.mjs tools/conformance/smoke.test.mjs tools/conformance/aggregate.test.mjs
-      - name: Require one local smoke cell (one worker, five minute deadline)
-        if: steps.scope.outputs.run == 'true'
-        env:
-          PAIRING: ${{ matrix.pairing }}
-        run: pnpm conformance:shard --mode local --archetype a --pairing "$PAIRING" --smoke --ci-gate --timeout-seconds 300 --maxWorkers=1 --out .conformance/local/summary.json < /dev/null
-      - name: Upload summary and preregistration even on failure
-        if: always() && steps.scope.outputs.run == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: conformance-smoke-${{ strategy.job-index }}-${{ github.sha }}
-          path: .conformance/local/*.json
-          if-no-files-found: error

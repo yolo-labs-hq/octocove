@@ -4,7 +4,7 @@ Status: accepted
 ## Need and archetypes
 Archetype (b), Claude Code/Codex in an existing laptop clone, must claim and submit
 an already-owned branch without an Octocove fork or remote replacement. Archetype
-(c) can register already-published work through the same API. Studio (a) can opt
+(c) can register already-published work through the same API. The workspace adapter (a) can opt
 in, but does not require this mode. Allocated task repos and allocated BYO refs
 remain supported; neither represents ownership of an existing source branch.
 
@@ -51,8 +51,8 @@ BYO); a separate external source repository would require its own trusted
 binding/credential admission and is refused here.
 
 ## Consequences and alternatives
-Migration `0018_external_ref_sources.sql` retains append-only mapping evidence and
-backs cross-task live-ref exclusion. Existing claim inputs, allocated task-repo
+The record retains append-only mapping evidence for external refs and
+enforces cross-task live-ref exclusion. Existing claim inputs, allocated task-repo
 provisioning and broker flows remain compatible. The CLI defaults allocated
 claims to a named `octocove` remote (or an unused name if occupied); external claims preserve the selected remote
 (default `origin`) and leave worktree/index/HEAD unchanged. `submit <ref>` resolves
@@ -69,5 +69,5 @@ Tests exercise authenticated CLI/record/broker/native Git against local bare
 repos: the complete journey and each refusal. Local provider/token fixtures do
 not exercise live Artifacts, GitHub or Forgejo. See
 [lane](../GLOSSARY.md#lane-task_repo_mappings-claimworkspace),
-[API](../API.md), [OpenAPI](../../apps/control-plane/openapi.yaml) and
+[API](../API.md), [OpenAPI](../../spec/openapi.yaml) and
 [record](../COLLABORATION_RECORD.md) §§3–6.

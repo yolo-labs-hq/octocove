@@ -1,13 +1,12 @@
 # 0011: Receipt ref export
-Status: accepted (records the decision implemented by migration `0017_receipt_export.sql`)
+Status: accepted
 
 ## Need and archetypes
-A landing receipt (`landing_receipts`) is immutable evidence held in the
-collaboration record. Readers of the canonical repository, and recovery after
-record loss ([ADR 0007](0007-binding-and-recovery.md)), need the same evidence next
-to the Git history it describes, without making Git the authority. Every archetype
-(hosted multi-lane runtime, laptop CLI, CI) reads receipts the same way; none
-writes them.
+A landing receipt is immutable evidence held in the collaboration record. Readers
+of the canonical repository, and recovery after record loss, need the same evidence
+next to the Git history it describes, without making Git the authority. Every
+archetype (hosted multi-lane runtime, laptop CLI, CI) reads receipts the same way;
+none writes them.
 
 ## Decision
 
@@ -19,49 +18,27 @@ receipt's own repository (the task's canonical, on Artifacts or a BYO provider p
 it never joins branch history. No other writer, lane mapping or target ref may use
 the `refs/octocove/receipts/` prefix.
 
-### Export record (`receipt_export_outbox`) and states
-Inserting a receipt row atomically inserts one outbox row by trigger, for every
-outcome (`landed`, `raced`, `conflict`, `error`). If the outbox insert fails, the
-whole receipt transaction rolls back. The row's identity (`receipt_id`, `task_id`,
-`repository_id`, `run_id = receipt-export-<receiptId>`, `ref_name`) is immutable.
+Every receipt is exported, whatever its outcome (`landed`, `raced`, `conflict`,
+`error`): recording a receipt and owing its export are one atomic step. Export
+ends in one of two final states: **exported** (the remote ref was observed pointing
+at exactly this receipt's blob) or **export-conflict** (the ref already exists and
+points at different bytes). Neither changes the receipt, the task result or any
+authority, and export-conflict is unrelated to the receipt outcome `conflict`.
 
-| State | Meaning |
-|---|---|
-| `pending` | Export owed. Initial state. The recovery sweep keeps re-dispatching it. |
-| `exported` | The remote ref was observed pointing at exactly this receipt's blob. Final. |
-| `export-conflict` | The remote ref exists and points at different bytes. Final. |
-
-`exported` and `export-conflict` are final: a trigger refuses any later
-status change. Neither state changes the receipt, the task result or any authority.
-`export-conflict` is the same outcome that `binding_projection_outbox` calls
-`conflicted`; the names are per table. It is not the landing receipt outcome
-`conflict`.
-
-### Signed content
-On first export the control plane builds the content once and persists it:
+### Content
+The blob is the JSON envelope
 `{"algorithm":"HMAC-SHA256","payload":…,"signature":…}` plus a trailing newline.
 `payload` is the JSON text `{version: 1, authority: "octocove-d1", receipt,
-approval}`, where `approval` is derived from audit rows. `signature` is hex
-HMAC-SHA256 over `receipt-export:` + `payload`, keyed by the control plane's
-integrator run key. `object_sha` is the Git blob ID of those bytes. Content and
-`object_sha` are write-once; retries, concurrent deliveries and key rotation reuse
-the stored bytes.
+approval}`, where `approval` is derived from the record's audit rows. `signature` is
+hex HMAC-SHA256 over `receipt-export:` + `payload`, keyed by a service-held key.
+The content is built once and is write-once: retries, concurrent deliveries and key
+rotation reuse the same bytes, so the ref's blob ID never changes.
 
 ### Who writes
-Only the trusted integrator, running a `receipt-export` job bound to the outbox
-`run_id`, writes the ref:
-1. It re-hashes the stored content and refuses if the blob ID differs.
-2. It obtains a single-purpose `receipt-export` write grant (TTL up to 900 s,
-   recorded in `receipt_export_tokens`). The broker mints it only for a `pending`
-   row with signed content on an undeleted repository, for exactly that ref.
-3. It reads the remote ref. If absent, it pushes with an expected-absent lease, so
-   a concurrent creation is never overwritten.
-4. It reports `exported` if the remote ref equals the blob ID, otherwise
-   `export-conflict`.
-
-The completion is HMAC-signed and must match the outbox's repository, ref,
-receipt and blob ID. The control plane then records the final state once and drains
-token revocation for the run. Clients, agents, lane helpers and gateways never
+Only the trusted integrator writes the ref, with a single-purpose, short-lived
+grant that covers exactly that ref. It refuses if the stored content does not hash
+to the expected blob ID, and pushes with an expected-absent lease, so a concurrent
+creation is never overwritten. Clients, agents, lane helpers and gateways never
 receive this grant. A conflict is never overwritten or retried into a second
 receipt; resolving it is an operator action outside this ADR.
 
@@ -71,15 +48,15 @@ receipt; resolving it is an operator action outside this ADR.
   authorized `GET /receipts/{id}` read: IDs, target, candidate, base before/after,
   outcome and landed SHA must match. For a `landed` receipt, check that the landed
   SHA is reachable from the target ref.
-- The signature is a symmetric HMAC. Only a holder of the signing key (the control
-  plane and the protected recovery verifier, ADR 0007 D2) can check it. A
-  third-party reader therefore treats the blob as an integrity-checked copy, not
-  as independently verifiable proof. The legacy envelope has no key ID.
+- The signature is a symmetric HMAC. Only a holder of the signing key (the service
+  and its protected recovery verifier) can check it. A third-party reader therefore
+  treats the blob as an integrity-checked copy, not as independently verifiable
+  proof. The envelope has no key ID.
 - The record stays authoritative. A missing, deleted or conflicting ref never
   changes a receipt, satisfies a dependency or grants anything.
 
 ## Does not do
-- Replace `landing_receipts` or make the Git ref an authority.
+- Replace the receipt in the record or make the Git ref an authority.
 - Add a public route, public field or client write path. Export state is visible
   only to trusted operators.
 - Enforce ref protection on the provider. A signature detects alteration; it does
@@ -89,7 +66,7 @@ receipt; resolving it is an operator action outside this ADR.
   `receipt.export_conflict` event types. They are catalogued but have no v1
   emitter, as noted in [ADR 0004](0004-event-vocabulary.md).
 - Offer public-key signatures or key IDs. A key-ID format needs a versioned
-  migration with legacy verification (ADR 0007).
+  envelope that still verifies existing receipts.
 
 ## Consequences and alternatives
 - Anyone who can read the canonical can read exported receipt content, including
@@ -98,3 +75,4 @@ receipt; resolving it is an operator action outside this ADR.
   append point with a single-writer race and no per-receipt identity.
 - Alternative rejected: overwriting on conflict. That would let the newer writer
   erase evidence and break the "never a second receipt" rule.
+- See the glossary entry [Receipt ref](../GLOSSARY.md#receipt-ref-receipt_export_outbox-refsoctocovereceiptsreceiptid).

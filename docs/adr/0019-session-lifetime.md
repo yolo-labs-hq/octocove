@@ -4,14 +4,13 @@ Status: accepted
 ## Need and archetypes
 
 Without this decision a human has to sign in again with the identity provider every eight hours, and after any
-30 idle minutes. Before it, a sign-in (`auth_families`) got `absolute_expiry = now + 28800` (the family insert in
-`apps/control-plane/src/auth.ts`), each session token expired at `min(now + 1800, absolute_expiry)` (`newSession`),
-and the session and CSRF cookies carried `Max-Age=1800` (`sessionCookie` and `csrfCookie`, as set by the session
-routes in `auth-routes.ts`). `renewSession` authenticated through `human()`, which refuses an expired token
-(`authenticate`), so after 30 idle minutes nothing could be renewed, whatever the family ceiling was. Closing the laptop for lunch, or restarting the browser, meant a new OIDC
+30 idle minutes. Without it, a sign-in (`auth_families`) gets `absolute_expiry = now + 28800`, each session token
+expires at `min(now + 1800, absolute_expiry)`, and the session and CSRF cookies carry `Max-Age=1800`. Renewal
+(`sessionRenew`) refuses an expired token like every other route, so after 30 idle minutes nothing can be renewed,
+whatever the family ceiling is. Closing the laptop for lunch, or restarting the browser, meant a new OIDC
 login. Users should stay signed in like on GitHub: idle window 14 days, absolute cap 30 days.
 
-Only **humans** (the web app, and the `octocove` CLI's session bearer) need this. The **Studio adapter**, **own-clone CLI
+Only **humans** (the web app, and the `octocove` CLI's session bearer) need this. The **workspace adapter**, **own-clone CLI
 agents** and **CI + policy-bot approvers** act through delegations and machine grants, whose lifetimes this
 decision deliberately leaves unchanged.
 
@@ -20,8 +19,7 @@ decision deliberately leaves unchanged.
 No new noun, no new route and no new state of a public noun: the login family and its rotating session tokens
 stay as they are, with two new deadlines on the family and a rule for renewal.
 
-- **Three lifetimes**, named constants in `auth.ts` (`SESSION_TOKEN_SECONDS`, `SESSION_IDLE_SECONDS`,
-  `SESSION_ABSOLUTE_SECONDS`, read through `sessionLifetime`):
+- **Three lifetimes**:
   - a **session token** authenticates requests for **30 minutes**, unchanged;
   - a sign-in's **idle expiry** is `now + 14 days` at sign-in, and every successful renewal (or CLI exchange)
     sets it to `min(now + 14 days, absolute expiry)`;
@@ -51,11 +49,11 @@ stay as they are, with two new deadlines on the family and a rule for renewal.
   `absoluteExpiresAt`. `GET /v1/me/sessions` adds `idleExpiresAt` to each sign-in, so Settings → Sessions can say
   when an unused sign-in ends. The list includes a sign-in whose only token is past its 30 minutes but still
   renewable, and excludes revoked, absolutely expired and idle-expired ones.
-- **Storage (migration 0046).** `auth_family_idle(family_id, idle_expiry)` and
+- **Storage.** `auth_family_idle(family_id, idle_expiry)` and
   `auth_session_rotations(hash, rotated_at)` are side tables, so `auth_families` and `auth_sessions` keep their
-  columns. A family without an idle row reads as its absolute expiry. The migration backfills every existing family
-  with `idle_expiry = absolute_expiry`: a live eight-hour sign-in keeps exactly its current deadline and is never
-  extended; only sign-ins created after deployment get 30 days. A family written by a Worker still on the previous
+  columns. A family without an idle row reads as its absolute expiry, `idle_expiry = absolute_expiry`: an eight-hour
+  sign-in created under the earlier lifetimes keeps exactly its deadline and is never extended; only new sign-ins get
+  30 days. A family written by a Worker still on the previous
   version during the deploy reads the same way.
 
 ## Threat model trade-off
@@ -127,8 +125,8 @@ A delegation never inherits the longer life. `preauthorize` still refuses a `ttl
 (`AUTHORIZATION_MAX_SECONDS`), and the authorization ceiling is also capped by the sign-in's current idle and
 absolute expiries. `issueDelegation` and `renewDelegation` still issue tokens of at most 15 minutes
 (`DELEGATION_TOKEN_SECONDS`). A delegation and an unconsumed bootstrap are refused once the family is revoked or past
-its idle or absolute expiry. The record-side checks that read only `revoked` and `absolute_expiry` (claim and broker
-authority in `lifecycle.ts`, `chain-lanes.ts` and the 0036/0037 triggers) need no change: an authorization's ceiling
+its idle or absolute expiry. The record-side checks that read only `revoked` and `absolute_expiry` (claim, chain-push
+and broker admission) need no change: an authorization's ceiling
 never exceeds the idle expiry it was created under, and renewals and CLI exchanges only move that expiry later. The
 one exception is an operator shortening `AUTH_SESSION_IDLE_SECONDS`: the next renewal can then set an idle expiry
 before an existing ceiling. From then on the auth checks refuse that authorization's delegation tokens and bootstrap,
@@ -144,10 +142,10 @@ and those record-side checks keep honouring the ceiling until it passes (at most
 
 ## Consequences and alternatives
 
-`Session` gains a required `idleExpiresAt`, `MeSession` an `idleExpiresAt`; the client is regenerated. Migration 0046
-adds two tables and one column with a default. Alternatives rejected: a longer token lifetime (a stolen token would
+`Session` gains a required `idleExpiresAt`, `MeSession` an `idleExpiresAt`; the client is regenerated. Storage
+gains two tables and one column with a default. Alternatives rejected: a longer token lifetime (a stolen token would
 work on every route for the whole window, with no rotation to detect reuse); new columns on `auth_families` and
-`auth_sessions` (positional inserts written against the 0003 shape, in fixtures and by a Worker mid-deploy, would
+`auth_sessions` (positional inserts written against the existing shape, in fixtures and by a Worker mid-deploy, would
 fail); refusing an expired token on renewal and relying on a long-lived cookie alone (nothing could renew after 30
 idle minutes); reuse detection on every route (overlapping requests during a rotation would sign users out).
-See [docs/AUTH.md](../AUTH.md), [docs/API.md](../API.md) and `apps/control-plane/openapi.yaml`.
+See [docs/AUTH.md](../AUTH.md), [docs/API.md](../API.md) and `spec/openapi.yaml`.

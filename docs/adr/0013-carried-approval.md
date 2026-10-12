@@ -8,8 +8,8 @@ the exact `(candidateSha, baseSha, intentVersion)` triple. When the canonical
 target's head moves to anything other than `bound_base_sha`, the approval is
 invalidated with reason `base-move`, the candidate becomes `stale`, a recompute is
 scheduled, and a human approves the recomputed candidate again
-([record §7.3](../COLLABORATION_RECORD.md#73-exactly-which-transitions-clear-an-unfenced-approval),
-INV-33; the record's §12.1 cut line calls this step "re-approval: the exact new
+([record §7.3](../COLLABORATION_RECORD.md#73-exactly-which-transitions-clear-an-unfenced-approval):
+a known-head change away from the bound base invalidates the approval; the record's §12.1 cut line calls this step "re-approval: the exact new
 candidate"). The same happens after a landing race (`landing-raced`).
 
 This is correct, and it is what the exact triple is for: nothing lands without
@@ -35,7 +35,8 @@ approval under a documented equivalence predicate that the record evaluates
 from immutable evidence, bound to a policy version the human was shown, and
 each derived approval is a new row with full provenance. The record already
 holds most of what that needs: the approved candidate's persisted objects
-(INV-28), recompute lineage (`recomputed_from_candidate_id`, INV-22), both
+(reachable from its candidate ref before the candidate row exists), recompute lineage
+(`recomputed_from_candidate_id`, set on every recompute row), both
 bases, the same submission, and the new candidate's check runs.
 
 Archetypes:
@@ -63,7 +64,8 @@ is a full approval row:
 - `approved_by` copied from the chain root; `approver_kind = 'human'`;
   `approval_grant_id IS NULL`; `approved_at` = derivation time;
 - the new exact triple `(candidate_sha', base_sha', intentVersion)` in `bound_*`,
-  so INV-29 and INV-31 to INV-37 apply unchanged;
+  so the ordinary approval rules (immutable fields, at most one live approval per
+  candidate, the record's invalidation and status-transition rules) apply unchanged;
 - immutable lineage: `carried_from_approval_id` (the chain's latest approval,
   now invalidated; §3.1), `carry_root_approval_id` (the human's recorded
   decision), `carry_depth` (`INTEGER NOT NULL DEFAULT 0`; a root or ordinary
@@ -79,8 +81,8 @@ detects the move, the candidate becomes `stale`, the task returns to
 `submitted`, and a recompute is scheduled. The carried approval is derived
 later, from an **invalidated** predecessor, in the batch that makes the new
 candidate approvable (§3.0). It is therefore a third way an approval row comes
-to exist, next to the legacy human route and the grant route; INV-30 and the record's §15
-handler registry are amended for it (§6). It is not a row in the record's §7.3
+to exist, next to the legacy human route and the grant route; the rule for when an approval may be
+recorded and the record's §15 handler registry are amended for it (§6). It is not a row in the record's §7.3
 invalidation table, which describes how approvals stop being valid.
 
 `approval.reactivated` stays reserved for its existing case: the same approval
@@ -134,7 +136,7 @@ not "carry".
   delegated on-behalf-of identity, else `409 self-approval`. The rule applies
   to approvals that record carry consent and to the grant path
   ([ADR 0001](0001-machine-approval-authority.md)); the ordinary approve route
-  (`lifecycle.ts`, `approve`) does not apply it;
+  (`candidateApprove`) does not apply it;
 - the record stores an immutable **consent snapshot** on the approval:
   `{carryPolicyId, carryPolicyVersion, maxCarries, allowWithoutChecks,
   deadlineAt}` with `deadlineAt = min(approved_at + maxAgeSeconds,
@@ -187,7 +189,7 @@ rejects an otherwise valid candidate or check receipt.
    candidate with `outcome = 'computed'`, built from the task's latest
    submission; the task is in `candidate`; no fence is held; the candidate has never
    received any approval, in any status, and no carried approval was ever
-   derived for it (INV-31 is per candidate; this is stricter). Evaluation causes are: `candidate.check_recorded` when that
+   derived for it (stricter than the rule of at most one live approval per candidate). Evaluation causes are: `candidate.check_recorded` when that
    run is the latest required run, and `candidate.computed` for a recompute
    that carries an anchor (§3.1). A derivation happens only on a cause whose
    evaluation passes every item below.
@@ -247,7 +249,7 @@ rejects an otherwise valid candidate or check receipt.
    chain qualifies. Follow-up attempts on a `landed` task (record §8.5) are excluded
    in v1.
 2. **Clean compute on the current head.** `base_sha'` equals
-   `target_refs.known_head_sha` at derivation (INV-24). A compute result that
+   `target_refs.known_head_sha` at derivation, as for any computed candidate. A compute result that
    arrives after yet another base move is retained as `stale` today and is not
    approvable, so it is not evaluated; its successor will be.
 3. **Forward base.** The anchor's `base_sha` is a strict ancestor of `base_sha'`.
@@ -257,7 +259,7 @@ rejects an otherwise valid candidate or check receipt.
    SHA inequality and the binding; it cannot verify ancestry from tree deltas,
    so this item rests on the integrator's authenticated assertion (§4), unlike
    items 4 and 5, which lifecycle compares itself. This is an endpoint property. It does not prove the
-   target was never reset and restored in between; INV-64 already declines to
+   target was never reset and restored in between; reconciliation already declines to
    promise detection of unobserved transient resets, and this ADR does not add
    that promise.
 4. **Identical change.** The canonical tree delta of the change is equal on both
@@ -290,7 +292,7 @@ rejects an otherwise valid candidate or check receipt.
    `candidates:approve` at derivation, checked in the same batch
    (`auth_memberships`). A carry creates no standing authority: removing
    someone's approve right stops approvals being derived in their name, while
-   their already-recorded exact approvals keep INV-36 validity as today.
+   their already-recorded exact approvals keep their validity as today.
 8. **Bounds.** `carry_depth + 1 ≤ min(ceiling.maxCarries, policy.maxCarries)`;
    `now ≤ min(ceiling.deadlineAt, root.approved_at + policy.maxAgeSeconds)`;
    the carry policy is live at derivation; the derivation records the policy
@@ -306,7 +308,7 @@ rejects an otherwise valid candidate or check receipt.
    Idempotency is **C** keyed by `(candidate_id, cause_id)`: a replay of the same
    cause records nothing; a new cause (a later passing rerun) records a new
    evaluation. A refusal is not terminal for the candidate; a derived approval
-   is, through INV-31 and a partial unique index on
+   is, through the one-live-approval-per-candidate rule and a partial unique index on
    `approvals(candidate_id) WHERE carry_root_approval_id IS NOT NULL`. An
    evaluation row is written through `appendTransitions` as an ancillary
    mutation of the originating transition, and that transition's audit row
@@ -323,7 +325,7 @@ anchorCandidateSha, baseShaAfter, baseStrictDescendant, changeDeltaBefore,
 changeDeltaAfter, baseMovePaths, patchIdBefore?, patchIdAfter?}`. When it cannot
 (no anchor in the payload, or a non-`computed` outcome with no candidate tree)
 it reports `carryEvidence: {schema: 1, status: "unavailable", reason}` or
-nothing. Lifecycle binds a complete object to the control-plane side of the
+nothing. Lifecycle binds a complete object to the control plane's side of the
 truth before storing it: the run ID and candidate ID of the receipt, the anchor
 exactly as its **own outbox job payload** named it (never as the receipt body
 names it), and `baseShaAfter` equal to the resulting candidate's `base_sha`. It
@@ -336,15 +338,14 @@ because the head is item 2's business at derivation.
 **Prerequisites.** Carry depends on two behaviours that must hold, not be
 assumed:
 
-- Every recompute, including ordinary `base-move` recompute jobs (`lifecycle.ts`,
-  the reconcile path; ADR 0012 requires the same), sets
+- Every recompute, including ordinary `base-move` recompute jobs (the
+  reconcile path), sets
   `recomputedFromCandidateId`. Lineage on every recompute, and the anchor
   resolution above, are required. The record's §7.1 definition of
   `recompute_reason` must agree with the implementation's use of
   `fence-released`.
 - Lifecycle derives `check_identity` rather than storing the integrator's
-  reported value. It computes the same function the integrator uses (`checkIdentity`
-  in `apps/integrator/src/git.mjs`): the lowercase hexadecimal SHA-256 of the
+  reported value. It computes the same function the integrator uses: the lowercase hexadecimal SHA-256 of the
   UTF-8 encoding of `JSON.stringify(check_policy) + (candidate_sha ?? '') +
   base_sha`, where the candidate SHA is null for `conflict`, `stale-base`,
   `stale-head` and `error` outcomes, and refuse any candidate receipt, computed
@@ -401,13 +402,13 @@ not a feature.
 
   | Type | Scope | Emitter and actor | Cause and retry identity | Refs |
   | --- | --- | --- | --- | --- |
-  | `carry_policy.registered` | project (`taskId` null) | database trigger `AFTER INSERT ON carry_policies`, actor `system` / `record-authority`, as the `approval_policy_registered_audit` trigger in migration `0027` | **D** `["trigger", "carry_policy", <policyId>, "registered", <version>]`, inheriting the admin command's **C** cause | `{policyId, version, repositoryId, targetRef, maxCarries, maxAgeSeconds, allowWithoutChecks, expiresAt, registeredBy}` from the row |
+  | `carry_policy.registered` | project (`taskId` null) | database trigger `AFTER INSERT ON carry_policies`, actor `system` / `record-authority`, as the `approval_policy_registered_audit` trigger | **D** `["trigger", "carry_policy", <policyId>, "registered", <version>]`, inheriting the admin command's **C** cause | `{policyId, version, repositoryId, targetRef, maxCarries, maxAgeSeconds, allowWithoutChecks, expiresAt, registeredBy}` from the row |
   | `carry_policy.revoked` | project | database trigger `AFTER UPDATE OF revoked_at`, same actor; `revoked_by` is a write-once column the disable handler sets in the same statement as `revoked_at`, so the trigger reads an authenticated identity | **D** `["trigger", "carry_policy", <policyId>, "revoked", <version>]` | `{policyId, version, revokedBy}` |
   | `approval.carry_revoked` | task | `revokeCarry` through `appendTransitions`, actor `human` = the revoker, in the batch that invalidates descendants; their own `approval.invalidated` rows follow in the same batch | **C** with command name `revoke-carry`; internal transition key `revoke-carry:<rootApprovalId>`, the public Idempotency-Key only in the request ledger | `{rootApprovalId, revokedBy, invalidatedApprovalIds[]}` |
 
   Ordering is by audit id as for every other type. They join the closed audit
   enum, the OpenAPI event-type enum and the v1 event catalog in one
-  change. The v1 webhook filter (`TYPE_FILTER` in `webhooks.ts`) delivers every
+  change. The v1 webhook filter delivers every
   non-telemetry type to a subscription with an empty type list, so **wildcard v1
   subscribers receive the new types** as soon as any project registers a carry
   policy; subscriptions that filter by type are unaffected. That is the cost of
@@ -432,7 +433,8 @@ not a feature.
 - Record §7.2: consent snapshot, `carry_consent_revoked_at`, lineage columns, the
   three recording paths; `carry_evaluations` as a new subsection after it, written through
   `appendTransitions` with its audit representation.
-- INV-30: add "or the record derives a carried approval under the §3 predicate".
+- Approval recording: an approval is recorded through the legacy human route, the grant route, or when the
+  record derives a carried approval under the §3 predicate.
 - Record §8.4: an unchanged-base error release does not reactivate a carried approval
   whose root consent is revoked; it invalidates it with reason `withdrawn`.
 - Record §15: `deriveCarriedApproval` (idempotency **C**, keyed by
@@ -488,9 +490,9 @@ root and depth appear in `landing.fenced` and in the receipt and its signed
 export. Carry bounds are the policy's `maxCarries` and `maxAgeSeconds`; there is
 no default for either.
 
-Proposed invariants:
+Proposed carry invariants (carry rules 1–5):
 
-- **INV-67** A carried approval is derived only in the batch that makes a
+- **Carry rule 1.** A carried approval is derived only in the batch that makes a
   recompute candidate approvable, only through an anchor whose approval is
   `invalidated` with reason `base-move` or `landing-raced` on a candidate of the
   same submission, only under a chain root whose consent is recorded and
@@ -498,13 +500,13 @@ Proposed invariants:
   a live carry policy for the exact target intersected with that consent, and
   only when every item of §3 holds against stored evidence re-evaluated by
   lifecycle.
-- **INV-68** `carry_consent`, `carried_from_approval_id`,
+- **Carry rule 2.** `carry_consent`, `carried_from_approval_id`,
   `carry_root_approval_id`, `carry_depth`, `carry_policy_version`,
   `carry_evaluation_id` and the copied `approved_by` are immutable (trigger);
   `carry_consent_revoked_at` is write-once; a carried row has depth equal to its
   anchor approval's depth plus one and all references present; a root or
   ordinary row has depth 0 and null references.
-- **INV-69** Never carried: approvals with `approval_grant_id`; anchors whose
+- **Carry rule 3.** Never carried: approvals with `approval_grant_id`; anchors whose
   approval was invalidated for any reason other than `base-move` or
   `landing-raced`; candidates of a different submission, a non-`computed`
   outcome, a base that is not a strict descendant of the anchor's, or a
@@ -514,10 +516,10 @@ Proposed invariants:
   At an unchanged-base infrastructure-error release, a fenced carried approval
   whose root consent is revoked is invalidated, never reactivated; landed,
   raced and conflict resolutions are unchanged.
-- **INV-70** A `landing.fenced` row for a carried approval carries root, depth,
+- **Carry rule 4.** A `landing.fenced` row for a carried approval carries root, depth,
   root decision time, policy version and evaluation ref, and the derived
   receipt and its signed export expose them without consulting mutable rows.
-- **INV-71** `carry_evaluations` is append-only and unique per
+- **Carry rule 5.** `carry_evaluations` is append-only and unique per
   `(candidate_id, cause_id)`; at most one carried approval exists per candidate;
   a refused evaluation never blocks a later evaluation on a new cause; the
   chain is linear: at derivation the anchor's approval is the chain's latest

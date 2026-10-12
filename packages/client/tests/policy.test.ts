@@ -8,7 +8,7 @@ import { BUILD, CLIENT_VERSION, routing } from '../src/index.js';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const policyText = read('../retry-policy.json');
-const spec = parse(read('../../../apps/control-plane/openapi.yaml'));
+const spec = parse(read('../../../spec/openapi.yaml'));
 const readme = read('../README.md');
 const run = (text: string) => check({ policyText: text, spec, readme }) as string[];
 const edit = (mutate: (p: Record<string, any>) => void) => {
@@ -45,19 +45,19 @@ describe('retry-policy.json validator', () => {
     expect(run(edit((p) => { p.webhookDisable.autoRetry = 'network-only'; }))).toContainEqual(expect.stringContaining('webhookDisable: retry-policy.json'));
     expect(run(edit((p) => { p.taskClaim.variants.bootstrap.replay = 'stored-result'; }))).toContainEqual(expect.stringContaining('taskClaim/bootstrap'));
   });
-  it('parses all 82 ids plus the taskClaim variants from the README table', () => {
+  it('parses all 87 ids plus the taskClaim variants from the README table', () => {
     const table = readmeTable(readme) as Map<string, unknown>;
-    expect(table.size).toBe(83);
+    expect(table.size).toBe(88);
     expect(table.get('taskClaim/bootstrap')).toEqual({ autoRetry: 'network-only', replay: 'bounded-recovery' });
     expect(table.get('collaborationEventDelivery')).toEqual({ callable: false, reason: 'excluded' });
   });
 });
 
 describe('generated routing and build record', () => {
-  it('joins exactly the policy into the routing table: 82 operations, 81 path operations', () => {
+  it('joins exactly the policy into the routing table: 87 operations, 86 path operations', () => {
     const policy = JSON.parse(policyText);
-    expect(Object.keys(routing)).toHaveLength(82);
-    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(81);
+    expect(Object.keys(routing)).toHaveLength(87);
+    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(86);
     for (const [id, route] of Object.entries(routing)) expect(route.policy).toEqual(policy[id]);
   });
   it('records the same OpenAPI version and generator revisions in package.json and at runtime', () => {

@@ -1,11 +1,11 @@
 # Substrate glossary and scope fence
 
 Octocove is a standalone GitHub alternative for the AI era, backed by Cloudflare
-Artifacts. Studio is one client/adapter, not the product boundary or an authority.
+Artifacts. A workspace adapter is one client, not the product boundary or an authority.
 This is the authoritative vocabulary and scope fence; it does not add API behavior.
 
-Read with the [public OpenAPI](../apps/control-plane/openapi.yaml), [API guide](API.md),
-[record invariants](COLLABORATION_RECORD.md), and [ordered migrations](../apps/control-plane/migrations/).
+Read with the [public OpenAPI](../spec/openapi.yaml), [API guide](API.md),
+and the [collaboration record](COLLABORATION_RECORD.md) (its states, transitions and their meanings).
 Use existing wire/table names. Where sources disagree, record a defect, not a synonym.
 IDs are opaque; a SHA identifies Git content, not a record or permission.
 **Today** means checked-in implementation, not a deployment claim. **Planned** terms
@@ -15,7 +15,7 @@ below are design vocabulary, not shipped routes, states, or authority.
 
 “Human” and “agent” mean authenticated principals with the relevant project permission;
 agent verbs additionally require explicit delegation and task/attempt confinement.
-“System” means trusted control-plane handlers; “integrator” means a registered,
+“System” means trusted control plane handlers; “integrator” means a registered,
 run-bound native-Git worker. Clients never write record tables directly.
 Immutable means no update/delete of the evidence; a separate validity/status field
 may change only through permitted transitions. Append-only means new evidence is added.
@@ -70,7 +70,7 @@ entity transitions; failed verification emits no admission fact. Blocked
 provisioning is audited as claim readiness metadata. REST existence, broker token
 minting and platform hints supply no readiness or submission proof. Acceleration
 subscription failure leaves verified readiness intact; the independent remote-ref
-sweep (`0024_remote_sweep.sql`) reconciles bound refs without subscriptions. Existing v1 milestone refs stand in for ADR 0004's future names. Submission fetch verification and
+sweep reconciles bound refs without subscriptions. Existing v1 milestone refs stand in for ADR 0004's future names. Submission fetch verification and
 preview/landing reads use broker canonical read grants, never the client's own
 remote credentials. External refs/repositories are not deleted on release.
 
@@ -287,7 +287,7 @@ helper** is implemented (`packages/helper`): it mediates git transport over a
 per-attempt Unix socket confined to the attempt's isolated process domain, binds
 the immutable grant above, resolves the exact registered ref itself, and keeps all
 reusable gateway lease/credential material out of lane visibility (lane fds carry git bytes
-only). The gateway lease core binds the same identity (`apps/gateway/src/broker.mjs`).
+only). The gateway lease core binds the same identity.
 The gateway channel proof binds each write
 to the live attempt's authenticated channel, exact ref update and body, consumed once
 and serialized with revoke; channels, nonces and fences are broker bookkeeping, not
@@ -304,7 +304,7 @@ identities/processes (runtime responsibility, outside this repo); server write
 credentials never reach agent hosts. Each archetype's required runtime setup is
 specified in the [credential-boundary runbook](runbooks/credential-boundary.md),
 and the ADR's five checks apply per archetype to the ref, repo and chain lane
-paths. The Octocove-side software controls pass locally, but **no archetype (the Studio
+paths. The Octocove-side software controls pass locally, but **no archetype (the workspace
 adapter, laptop, CI) qualifies runtime isolation**: a shared-UID sandbox offers
 no qualifying isolated domain. Helper-provisioned lanes carry no bearer in config,
 which does not by itself qualify the boundary. No new record noun/state is introduced; the only new write route is the amended ADR's broker push; full
@@ -364,15 +364,26 @@ and, as recorded defects, duplicate `refs.action: "disable"`/`"submit-revoke"` r
 must read these discriminators; the [v1 discriminator table](adr/0004-event-vocabulary.md#v1-discriminators-and-milestone-names)
 is authoritative, and typed v2 keeps the catalog names as discriminated unions.
 
+### Notification (`notifications`, `notification_preferences`)
+A per-recipient projection of one committed audit entry: *this event matters to this
+principal*, plus that principal's read time. It adds no fact and is not an audit entry,
+message or task; the event and its record stay authoritative. The system projector
+alone creates rows, from the audit cursor, for seven v1 kinds and current human project
+members only, never for the event's own actor. Identity and the projected event are
+immutable; only `read_at` changes, it is personal state, and it is not audited. Rows
+expire after 90 days. **Notification preferences** are a recipient's muted kinds and
+projects, applied when read. A notification never schedules or changes work. See
+[ADR 0025](adr/0025-in-app-notifications.md).
+
 ### Tenant / repository binding (`projects`, `repositories`, `target_refs`)
 Tenant is the organization isolation/routing boundary; a project groups its tasks,
 repositories and memberships inside one tenant. Octocove has no tenant table:
 a deployment serves one tenant, and every authorization check stops at the project.
 The credential authority receives the project as `projectId`, and audit/event read
 scopes carry no tenant; see
-[ADR 0010](adr/0010-byo-canonical-provider.md#credential-authority-contract).
+[ADR 0010](adr/0010-byo-canonical-provider.md#credentials).
 Repository binding associates a registered provider/namespace/repo identity and
-explicit target with that authority. It is not host-name matching, a Studio workspace
+explicit target with that authority. It is not host-name matching, a client workspace
 ID, or an agent-supplied URL. Trusted setup registers repositories and targets; a
 project is created by an allow-listed human through `POST /projects`, who becomes its
 first member ([ADR 0014](adr/0014-self-serve-project-create.md)). A project admin
@@ -390,15 +401,13 @@ new public tenant endpoint. Planned adapter bindings additionally pin topology,
 generation and policy version per attempt; they are not fields shipped in `Claim`.
 
 ### Binding export and recovery evidence (offline operations)
-[ADR 0007](adr/0007-binding-and-recovery.md) distinguishes deterministic logical
-allocation names from the exact physical binding tuple. A signed binding export
+Deterministic logical allocation names are distinct from the exact physical
+binding tuple. A signed binding export
 preserves existing record/provider identities and generation; it is a protected
 metadata projection, never an approval or a replacement collaboration record.
 Names only aid discovery. Non-landed state and the record-before-export window
 require an independently retained consistent backup plus complete transaction
-journal. Local export/discovery tooling exists; full restore is
-unqualified. No public state, event type or route is added. [ADR 0007](adr/0007-binding-and-recovery.md)
-states RPO/RTO as targets; no production RPO or RTO is claimed.
+journal. No public state, event type or route is added.
 
 ### Integration branch vs trunk (`targetRef`)
 An integration branch collects reviewed changes before promotion; trunk is the
@@ -427,7 +436,7 @@ canonical providers use ref lanes).
 | Exact-SHA snapshot | Source materialization preserving the chosen canonical commit identity and necessary ancestry; not just a copy of its tree. | Planned driver strategy; pin immutable SHA, verify fetch and merge-base behavior. A new base needs a new snapshot identity. |
 | Tree-only seed + graft | Seed a small unrelated-history repo from an anchor's tree, then reconstruct submitted work parented to that anchor and integrate against current canonical base; not copying a stale tree over current work. | Verified refusal (`unrelated-history`); no tree-only size class is supported. Declared seed evidence is rejected before credentials/admission; undeclared disconnected history requires read-only Git verification before admission, never write credentials or push. Graft correctness alone does not enable this topology. |
 | Anchor | Exact canonical commit from which a tree-only seed was derived; not the moving current base. | Planned driver pins it; integrator verifies it. Immutable per seed; advancing canonical does not change the anchor. |
-| Archetype | A client usage pattern: **Studio adapter**, **own-clone CLI agent**, or **CI + policy-bot approver**; not a record entity or permission. | Clients own UI, checkout and automation choices. No persisted archetype state. All use the same record; the policy-bot authority is defined by accepted ADR 0001; verified exchanges are implemented and not qualified against live providers. |
+| Archetype | A client usage pattern: **workspace adapter**, **own-clone CLI agent**, or **CI + policy-bot approver**; not a record entity or permission. | Clients own UI, checkout and automation choices. No persisted archetype state. All use the same record; the policy-bot authority is defined by accepted ADR 0001; verified exchanges are implemented and not qualified against live providers. |
 | Approver identity | The stable registered principal behind exact approval: `human`, `policy_bot` or `workload` under accepted ADR 0001. Signed CLI/OIDC is identity transport, never a role. | Legacy human sessions remain supported. Grant-derived decisions retain immutable kind, principal, exact tuple/check runs, policy and evidence; canonical submitter and on-behalf-of identity cannot approve their own work. Verified public grant routes are implemented; raw JWTs/signatures and ordinary agent delegations cannot approve. |
 | Repository provider binding (`repository_provider_bindings`) | Write-once trusted record of a BYO canonical's HTTPS API/clone base, owner, repo and opaque `credential_ref`; not a token or a client-supplied URL. | Trusted operator setup inserts it; no public route, update or delete. Rotation happens inside the credential authority behind the same reference ([ADR 0010](adr/0010-byo-canonical-provider.md)). |
 | Provider (`artifacts \| github \| forgejo`) / BYO | Provider identifies Git storage; BYO means bring your own registered canonical repository/provider while Octocove owns collaboration/landing authority. It is not a second PR merge authority or arbitrary-URL access. | Trusted operators configure bindings. Migration `0016_byo_canonical.sql` admits GitHub/Forgejo canonicals only, decided in [ADR 0010](adr/0010-byo-canonical-provider.md); task and staging repos stay on Artifacts. Current resolver requires a configured external credential authority, which receives the project ID as `projectId` (see Tenant above). Not qualified against live providers. Config changes must preserve historical identities, not retarget active tasks. |
@@ -471,8 +480,8 @@ It is a D1 compare-and-swap window, not a credential, token or broker grant, and
 authorizes nothing outside the chain driver. Losing it stops stale attach work.
 
 ### Gateway lease (credential)
-An opaque `ocg_` bearer the gateway broker derives from a live broker grant
-(`apps/gateway/src/broker.mjs`). Only its SHA-256 hash and an immutable grant
+An opaque `ocg_` bearer the gateway broker derives from a live broker grant.
+Only its SHA-256 hash and an immutable grant
 snapshot are stored; TTL is 60–900 s, capped by the grant. It authenticates gateway
 requests but cannot write without a [gateway channel proof](#gateway-channel-proof).
 It is not the grant: revoking or renewing it never edits grant evidence.
@@ -503,7 +512,7 @@ outcome `conflict`.
 ### Protected runtime
 A trusted process outside the agent's process domain that starts the attempt helper
 and holds its [runtime key](#runtime-key): the sandbox launcher on a developer
-machine, a protected job step or runner identity in CI, or the orchestrator in the Studio adapter
+machine, a protected job step or runner identity in CI, or the orchestrator in the workspace adapter
 ([ADR 0005](adr/0005-credential-boundary.md#repo-lane-write-delivery)).
 It is client runtime responsibility, not a record noun. "Protected runtime
 required" (`protected-runtime-required`) is the broker's refusal to export write tokens.
@@ -560,7 +569,7 @@ is not an agent workspace or compute environment.
 Octocove-owned refs outside `refs/heads/`, never landing targets and never in a
 claimant grant:
 - `refs/octocove/receipts/<receiptId>`: signed [receipt refs](#receipt-ref-receipt_export_outbox-refsoctocovereceiptsreceiptid) on the receipt's repository.
-- `refs/octocove/bindings/v1/…`: signed binding exports ([ADR 0007](adr/0007-binding-and-recovery.md)).
+- `refs/octocove/bindings/v1/…`: signed [binding exports](#binding-export-and-recovery-evidence-offline-operations).
 - `refs/octocove/staging/<id>`: temporary refs in the client clone that the CLI uses to bundle a chain push for the helper.
 - `refs/octocove/worktrees/*`, `refs/octocove/inputs/*`, `refs/octocove/canonical`:
   local refs in a client's own clone for `octocove workspace` worktrees; client
@@ -588,17 +597,17 @@ Source custody uses `refs/sources/<submissionId>`, outside this namespace.
   `packages/cli` is a client, not a scheduler. Lifecycle recovery/outboxes schedule
   record operations, not agents.
 - PR-number semantics. Provider PRs may be adapter projections; record IDs stay opaque.
-- Provisioning compute. `apps/control-plane/src/integrator-runner.ts` dispatches to an
-  external runner; it does not make compute provisioning a collaboration primitive.
-  `provisioner.ts` allocates Git repositories, which is in scope.
-- CI execution. Existing `apps/integrator/src/checks.mjs` and runner check dispatch
-  are execution-adapter code colocated with the integrator; recording/enforcing check
+- Provisioning compute. The integrator runner dispatches to an external runner; it
+  does not make compute provisioning a collaboration primitive. Allocating Git
+  repositories is in scope.
+- CI execution. The integrator's check execution and runner check dispatch are
+  execution-adapter code colocated with the integrator; recording/enforcing check
   evidence is in scope, building a CI service is not.
 - Code review tooling. Review UIs are clients of content/approval APIs, not substrate concepts.
 
 ## Known inconsistencies
 
-- The integrator does not hard-code `main`: migration `0015_integrator_targets.sql`
+- The integrator does not hard-code `main`: the schema
   and the integrator support explicit configured integration refs. Artifacts-only
   registration of task and staging repositories is a real limit.
 - Live policy-bot and BYO qualification, seed/graft and versioned adapter bindings
@@ -624,16 +633,15 @@ This includes promoting a planned term into the public record/API. Reuse existin
 names first. PRs without the required ADR are rejected in review; this documentation
 rule does not claim automated enforcement. Update this glossary, OpenAPI/API and
 record definitions together when the decision is accepted. An ADR must state which
-archetypes need the change and what it does **not** do; Studio convenience alone is
+archetypes need the change and what it does **not** do; workspace-adapter convenience alone is
 not evidence of a substrate requirement. Copy this template (choose the next number):
 
 ```markdown
 # NNNN: <decision>
 Status: proposed | accepted | superseded
-Date: YYYY-MM-DD
 
 ## Need and archetypes
-Concrete problem; Studio adapter / own-clone CLI agent / CI + policy-bot approver:
+Concrete problem; workspace adapter / own-clone CLI agent / CI + policy-bot approver:
 which need it, which do not, and why existing nouns/routes are insufficient.
 
 ## Decision

@@ -1,7 +1,0 @@
-{
-  "name": "octocove-ref-gateway",
-  "main": "src/worker.mjs",
-  "compatibility_date": "2026-07-02",
-  // Private broker Worker mounting src/broker-service.mjs; see README "Broker binding".
-  "services": [{ "binding": "BROKER", "service": "octocove-git-broker" }]
-}

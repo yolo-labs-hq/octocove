@@ -11,14 +11,6 @@
   "scripts": {
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "db:migrate:local": "pnpm --filter @octocove/control-plane db:migrate:local",
-    "db:reset:local": "pnpm --filter @octocove/control-plane db:reset:local",
-    "check:invariants": "node tools/check-record-invariants.mjs",
-    "demo:up": "node tools/demo/runtime.mjs up",
-    "demo:down": "node tools/demo/runtime.mjs down",
-    "demo:login": "node tools/demo/login.mjs",
-    "demo:smoke": "node tools/demo/smoke.mjs",
-    "demo:walkthrough": "node tools/demo/walkthrough.mjs",
     "conformance": "node tools/conformance/run.mjs",
     "conformance:shard": "node tools/conformance/run.mjs --shard"
   }

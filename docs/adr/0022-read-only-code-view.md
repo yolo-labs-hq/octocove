@@ -7,15 +7,16 @@ A new project should open on its file tree, the way a Git host's repository page
 side does hold the deployment's Artifacts read credentials, and today uses them only to read candidate diffs. Provider
 credentials never reach the browser. The control plane owns and enforces project membership and repository
 eligibility, so member content reads belong there. The control plane already reads the canonical repository with its own Artifacts credentials: verification
-(`remote-resolver.ts` `prove`), the `ls-remote` sweep and the broker. This decision extends that read to project members.
+(`repositoryVerify`), the `ls-remote` sweep and the broker. This decision extends that read to project members.
 
 The need is the **project member's** (a human in the web app). Agents with `tasks:read` may use the same read, but
-none of the three client archetypes (Studio adapter, own-clone CLI agents, CI + policy-bot approvers) depends on
+none of the three client archetypes (workspace adapter, own-clone CLI agents, CI + policy-bot approvers) depends on
 it: they clone through the broker.
 
 Octocove is the repository host for its projects. That is the product intent, so serving their content is in
-scope. ADRs [0003](0003-chain-mode-repo-lanes.md), [0015](0015-canonical-repository-registration.md),
-[0017](0017-artifacts-namespace-per-project.md) and [0018](0018-octocove-created-repositories.md) decide who has
+scope. ADRs [0003](0003-chain-mode-repo-lanes.md), [0015](0015-canonical-repository-registration.md)
+and [0018](0018-octocove-created-repositories.md), with the rule that each project's repositories live in its own
+Artifacts namespace, decide who has
 authority over a repository and what identifies it. None of them decides who may read its content.
 
 ## Decision
@@ -29,7 +30,7 @@ admitted.
 ([REST API, "Repo content"](https://developers.cloudflare.com/artifacts/api/rest-api/)): `log?ref=` to resolve a
 branch, `commit/:hash` for its root tree, `tree/:hash` (immediate children) to walk the path, and `blob/:hash` for
 a file's bytes. They are called server-side with the control plane's account token and the request discipline of
-`remote-resolver.ts`: `redirect: 'manual'`, a timeout, and named refusals that never echo a provider body or URL.
+verification: `redirect: 'manual'`, a timeout, and named refusals that never echo a provider body or URL.
 `file` and `raw` are not used. Every read of one request is pinned to the one commit it resolved first, so the
 answer's `commitSha` always matches its content. Nothing is cloned into the Worker.
 
@@ -53,7 +54,7 @@ raw passthrough and no HTML or SVG content type. A file that is not UTF-8, or ha
 The reference documents the routes and the v4 envelope, but not the JSON shapes of `log`, `commit` and `tree`, nor
 whether `log` accepts a full `refs/heads/` name. The readers take the git field names, check every object id is
 hex, and answer `broker-provider-unavailable` for anything else. A wrong guess fails closed; the shapes are not
-verified against live Artifacts (noted in `code-view.ts`). An unresolved target ref is read as an empty repository, since
+verified against live Artifacts. An unresolved target ref is read as an empty repository, since
 `log` answers an empty list for a ref it cannot resolve.
 
 Alternatives rejected: passing `raw` through (a sniffed content type on the API origin); reading `file?ref=`

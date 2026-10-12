@@ -1,21 +1,12 @@
 node_modules/
-.wrangler/
-.dev.vars
 dist/
 *.log
 __pycache__/
 *.pyc
 
-
 packages/cli/test-results/
 
-# Disposable local control-plane runtime
-.demo/
-
 .conformance/
-
-# Control-plane CI timing artifacts
-/test-results/
 
 # npm package staging: prepack copies the root LICENSE/NOTICE; smoke-pack writes pack-out/
 packages/*/LICENSE

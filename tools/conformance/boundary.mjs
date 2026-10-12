@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const ts = createRequire(new URL('../../apps/control-plane/package.json', import.meta.url))('typescript');
+const ts = createRequire(new URL('./package.json', import.meta.url))('typescript');
 // Detect executable dependencies, symbols and persisted payload keys, not prose
 // mentions or generic visual Card components. See the semantic review in README.
 // The built-in detector rejects generic work-item payload keys. Additional forbidden symbols
@@ -46,6 +46,6 @@ export function boundary(root) {
       else if (/\.(?:[cm]?js|tsx?|mts|cts)$/.test(entry.name)) findings.push(...inspectSource(readFileSync(file,'utf8'),relative(root,file)));
     }
   }
-  for (const dir of ['apps','packages']) walk(join(root,dir));
+  for (const dir of ['apps','packages']) if (existsSync(join(root,dir))) walk(join(root,dir));
   return {status:findings.length?'FAIL':'PASS',findings,semanticReview:'tools/conformance/README.md#boundary-review'};
 }

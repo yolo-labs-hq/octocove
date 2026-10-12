@@ -1,44 +1,47 @@
 # Public scope
 
-This repository holds Octocove's control plane, gateway, integrator and backup
-apps, the CLI, client library, helper and shared packages, tools, tests and
-documentation, under the Apache-2.0 [LICENSE](../LICENSE).
+This repository is the client side of Octocove, under the Apache-2.0
+[LICENSE](../LICENSE). It contains:
 
-Some components are maintained separately and are not part of this repository:
+- the packages: the `octocove` CLI ([`packages/cli`](../packages/cli/README.md)),
+  the typed client library ([`packages/client`](../packages/client/README.md)),
+  the local credential helper ([`packages/helper`](../packages/helper/README.md))
+  and the code they share ([`packages/shared`](../packages/shared/README.md));
+- the API contract under `spec/`: [`spec/openapi.yaml`](../spec/openapi.yaml)
+  and the contract fixtures under `spec/fixtures/contract/`, which the client is
+  generated from and tested against;
+- the client conformance harness ([`tools/conformance`](../tools/conformance/README.md))
+  and its event oracles;
+- the documentation: glossary, collaboration record, API and contract
+  documents, ADRs (context, decision and consequences), runbooks, examples and
+  package or tool READMEs. Normative text that code or checks read lives in
+  reference documents, such as the [generic client contract](reference/CLIENT_CONTRACT.md)
+  and the retry table in the [client library guide](../packages/client/README.md).
 
-- the hosted review UI and the marketing sites, with their build and deployment
-  workflows and their deployment runbooks;
-- the hosted control-plane deployment workflow and its helper scripts.
-  [OPERATIONS.md](OPERATIONS.md) describes what a deployment does, so you can
-  write your own;
-- the release tooling: the privacy and licence scanners and the npm tarball
-  gate. The licence inventory it generates
-  ([THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and
-  `third-party-licenses.json`) is included;
-- the live qualification probes that test Octocove against a real Cloudflare
-  account (the provider contract, gateway and topology probes, the live demo
-  recipe, the client-runtime credential qualifier and the binding recovery
-  tooling), their guides (including the binding recovery runbook) and the tests
-  of their own code. The local walkthrough ([DEMO.md](DEMO.md)), the conformance
-  harness and the library demo driver are included, and nothing here imports
-  from the probes;
-- review and qualification evidence (probe runs, conformance cells and reports).
-  Documents state the facts they need as current reference, and tests that
-  check committed evidence skip when it is absent. Tests and runners that record
-  evidence write it under the gitignored `.evidence/` directory, or under the
-  directory `OCTOCOVE_EVIDENCE_DIR` names (relative to the repository root).
+The hosted service implements the contract. It is reached only through the
+surfaces described in [how the client talks to the service](README.md#how-the-client-talks-to-the-service):
+the HTTP API, events and webhooks, the helper/broker contract and Git transport.
+Nothing in this repository depends on the service's code. A review UI is one
+client among several: build one against the record API (`spec/openapi.yaml`)
+and the client library (`packages/client`). Where documentation describes the
+browser topology (for example [AUTH.md](AUTH.md#browser-origins-same-origin-web-proxy)),
+it is the contract any same-origin web front end follows, not a description of
+code in this repository.
 
-Documentation here is reference material: architecture, ADRs (context, decision
-and consequences), API and contract documents, self-hosting runbooks and package
-or tool READMEs. Normative text that code or checks read lives in reference
-documents, such as the [generic client contract](reference/CLIENT_CONTRACT.md)
-and the retry table in the [client library guide](../packages/client/README.md).
+Tests and runners that record evidence write it under the gitignored
+`.evidence/` directory, or under the directory `OCTOCOVE_EVIDENCE_DIR` names
+(relative to the repository root). Tests that check committed evidence skip when
+it is absent. Code reaches optional maintainer-only hooks through a location set
+in its environment, never through a path in source.
 
-Nothing here depends on the separately maintained parts. A review UI is one
-client among several: build one against the record API
-(`apps/control-plane/openapi.yaml`) and the client library (`packages/client`).
-Where documentation describes the browser topology (for example
-[AUTH.md](AUTH.md#browser-origins-same-origin-web-proxy)), it is the contract any
-same-origin web front end follows, not a description of code in this repository.
-Code reaches optional maintainer-only hooks through a location set in its
-environment, never through a path in source.
+## Changing the contract
+
+The contract is `spec/openapi.yaml` together with [API.md](API.md),
+[COLLABORATION_RECORD.md](COLLABORATION_RECORD.md) and the
+[glossary](GLOSSARY.md). A new substrate noun, a new state of an existing noun or
+a new public API write route needs an ADR in `docs/adr/NNNN-<slug>.md` in the
+same pull request, following the
+[change rule and ADR template](GLOSSARY.md#change-rule-new-noun-state-or-write-route-needs-an-adr).
+Other contract changes (a new field, a new error code, a clarified behaviour)
+update the spec and the documents above together and regenerate the client.
+Once a contract change is accepted, the hosted service implements it.

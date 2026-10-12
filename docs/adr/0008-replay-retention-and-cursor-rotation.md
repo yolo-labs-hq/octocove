@@ -1,7 +1,15 @@
 # ADR 0008: Replay retention and cursor verification-key rotation
 
-Status: accepted. Operational backup and restore are decided by
-[ADR 0007](0007-binding-and-recovery.md).
+Status: accepted.
+
+## Need
+
+Event consumers (an own-clone CLI following `/events`, a CI cursor reader, a
+webhook replay) keep a checkpoint and resume from it later, sometimes after weeks.
+They need to know how far back a checkpoint stays usable, and what happens to a
+cursor when the service rotates the key that signs it. Without a stated horizon a
+consumer cannot size its own retention; without a stated rotation rule a key
+change could silently restart, skip or substitute history.
 
 ## Decision
 
@@ -10,72 +18,54 @@ Audit remains append-only indefinitely: deletion, TTL and retention pruning
 are prohibited. The minimum is a capacity/support commitment, not authorization to
 remove older rows. No new public state, route or event is introduced.
 
-Opaque replay/log/audit cursors support version 2 with a signed `kid` (key ID).
-Keep the binding and exclusive decimal position unchanged. Select the current
-key through `AUDIT_CURSOR_KEY_ID`; `AUDIT_CURSOR_KEYRING` is a JSON object mapping
-IDs to `{secret, verifyUntil?}`. `verifyUntil` is UTC epoch milliseconds, required
-for every predecessor and forbidden for the active key. New cursors use only the
-active key. Predecessors verify strictly before their deadline. IDs must be unique,
-stable and never reused for different material. Malformed/partial configuration
-fails closed with the existing 503 `audit-unavailable` response.
+Opaque replay/log/audit cursors (version 2) carry a signed key ID. Their binding
+and exclusive decimal position are unchanged. New cursors are signed only with the
+active key; a predecessor key keeps verifying for **at least 90 days after its last
+issuance**, including rollout overlap. This is a key verification window, not a
+row TTL or per-cursor age limit. Version 1 cursors, which carry no key ID,
+keep verifying under the same window.
 
-For ordinary rotation, stage the new key on every reader before changing the
-active ID; keep the predecessor available for **at least 90 days after its last
-issuance** (include rollout overlap). This is a key verification window, not a
-row TTL or per-cursor age limit. Unknown keys, invalid MACs and retired keys return
-400 `invalid-cursor`, without scanning or returning a substitute page. No 410 is
-introduced. Consumers retain their last durable event/decimal position and can
-explicitly resume with that raw position, or restart and deduplicate.
-
-Deployments using only `AUDIT_CURSOR_SECRET` issue v2 with key ID `legacy` and
-continue to verify previously issued v1 cursors.
-For migration put that exact secret under key ID `legacy` with a verification
-deadline at least 90 days after the last issuance with that secret. Version 1 has no wire key ID
-and verifies only against `legacy`; version 2 signs its key ID as part of the body.
-Never fall back to another key on unknown IDs or MAC failure. Once a ring is
-configured, rolling back to secret-only readers will reject v2 keys other than `legacy`;
-roll back with the ring retained. Emergency compromise revocation can shorten the window, with an
-incident record and explicit invalid-cursor recovery instructions.
+An unknown key, an invalid MAC or a retired key returns 400 `invalid-cursor`,
+without scanning or returning a substitute page; the service never falls back to
+another key. No 410 is introduced. A consumer keeps its last durable event/decimal
+position and can explicitly resume with that raw position (`after=evt_<n>` or the
+decimal id) under current authorization, or restart and deduplicate. An emergency
+key revocation after a compromise can shorten the window; consumers then see
+`invalid-cursor` and resume the same way. Misconfigured signing fails closed with
+503 `audit-unavailable`.
 
 ## Identity and recovery
 
-Preserve the complete audit table, integer IDs, `sqlite_sequence` high-watermark,
-project/task IDs, idempotency keys, tenant/database identity and immutable receipt
-bytes. Restore must not regenerate or renumber them, or merge independent tenant
-sequences. A deployment has one tenant (`octocove`) and one authoritative
-D1 sequence; row IDs are unique across its projects. Public event IDs remain
-`evt_<decimal>` as specified by ADR 0004. A multi-tenant consumer must deduplicate
-by `(tenantId, eventId)`, rather than event ID alone. Independent tenant databases
-must remain separate; multi-tenant storage/wire changes require their own ADR.
-Signed cursors additionally bind the tenant and authenticated principal and cannot
-be transferred between tenant scopes, even with identical project IDs and keys.
+Event identity survives restore: audit row IDs, project/task IDs, idempotency keys
+and receipt bytes are never regenerated or reassigned, and independent tenants'
+sequences are never merged. Public event IDs are `evt_<decimal>` as specified by
+[ADR 0004](0004-event-vocabulary.md) and are unique within a deployment. A consumer
+that reads from several deployments must deduplicate by `(tenantId, eventId)`, not
+event ID alone. Signed cursors also bind the tenant and the authenticated principal
+and cannot be transferred between tenant scopes, even with identical project IDs.
 
-[ADR 0007](0007-binding-and-recovery.md) decides checkpoint and journal
-recovery. The SQLite backup fixture in
-`apps/control-plane/tests/audit.test.ts` shows only replay identity/allocator
-preservation at a committed local boundary; it is not a complete DO, Git, journal
-or production restore.
+Receipt verification is independent of cursor keys: trusted receipt-key history is
+retained as long as receipts exist, so a verifier can match an old receipt to the
+key that signed it. Old receipts are never rewritten or re-signed on rotation.
 
-Retain trusted receipt-key history as long as receipts exist, independently of
-cursor verification deadlines. Existing receipt envelopes have no wire key ID:
-archive protected HMAC history as `{keyId,status:"trusted",secret}` entries, so
-that a verifier can report the matching key ID and check immutable blob and record
-identity. Never rewrite or re-sign old
-receipts on rotation. Signed binding exports already carry their Ed25519 key IDs;
-archive the trusted verification history too. Key IDs/history must survive restore
-in the protected recovery boundary; keys do not belong in public backups or logs.
+The published capacity and operations commitments are in
+[API.md](../API.md) ("Replay retention and operations").
 
-## Capacity, backups and any future expiration
+## Alternatives and any future expiration
 
-The concrete capacity/backup plan is published in [API.md](../API.md) ("Replay retention and operations").
-The plan declares storage and alert budgets and recovery objectives; it does not
-claim deployed monitoring, zero RPO or a production restore. ADR 0007 covers
-complete backup/journal capture, incident watermark reporting and RPO/RTO.
+- **Row TTL or pruning.** Rejected: it would turn every stale checkpoint into a
+  silent gap. Any future removal of history requires a new ADR and contract and
+  glossary changes first: an explicit per-scope retention floor, an authenticated
+  snapshot with an exact recovery position, and an explicit expired response for a
+  checkpoint below the floor (with snapshot recovery instructions).
+- **Silently advancing a stale checkpoint**, returning an apparently empty page for
+  removed history, or treating key retirement as evidence that rows expired.
+  Rejected: consumers could not tell a gap from an empty stream.
+- **Unsigned or single-key cursors.** Rejected: a single key cannot be rotated
+  without invalidating every outstanding checkpoint at once.
 
-Any future removal of history requires a new ADR and contract/glossary changes
-before code rollout: expose an explicit per-scope retention floor and authenticated
-snapshot with an exact recovery position; reject a checkpoint below that floor
-with an explicit expired response (including snapshot recovery instructions).
-Never advance a stale checkpoint to the floor silently, return an apparently empty
-page for removed history, or use key retirement as evidence that rows expired.
-The API has no such pruning or expired-response path.
+## Consequences
+
+Consumers can rely on a 90-day checkpoint and on `invalid-cursor` as the one
+signal to resume from a raw position. The API has no pruning or expired-response
+path.

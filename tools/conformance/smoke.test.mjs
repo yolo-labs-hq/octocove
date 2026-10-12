@@ -88,17 +88,3 @@ test('artifacts/repo source custody executes and cannot be reported BLOCKED', ()
     reasons:['production custody verification and cleanup of allocated source not qualified; no fixture may insert custody evidence']});
   assert.equal(smokeVerdict(r).status,'FAIL');
 });
-test('conformance is required by check with fail-closed failure/cancellation handling', () => {
-  const workflow = readFileSync(new URL('../../.github/workflows/ci.yml',import.meta.url),'utf8');
-  const aggregate = workflow.match(/^  check:\n([\s\S]*?)(?=^  [\w-]+:)/m)[1];
-  assert.match(aggregate,/needs: \[.*conformance.*\]/);
-  assert.match(aggregate,/if: always\(\)/);
-  assert.match(aggregate,/CONFORMANCE_RESULT: \$\{\{ needs\.conformance\.result \}\}/);
-  assert.match(aggregate,/test "\$CONFORMANCE_RESULT" = success/);
-  const job = workflow.match(/^  conformance:\n([\s\S]*)/m)[1];
-  assert.doesNotMatch(job,/continue-on-error/);
-  assert.match(job,/timeout-minutes: 10/);
-  assert.match(job,/pairing: \[artifacts\/ref, artifacts\/repo, github\/ref, forgejo\/ref\]/);
-  assert.doesNotMatch(job,/archetype: \[a, b, c\]/);
-  assert.match(job,/--mode local --archetype a .*--smoke --ci-gate --timeout-seconds 300/);
-});

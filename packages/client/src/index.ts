@@ -62,7 +62,7 @@ export type {
 export { MAX_JOURNEY_REPLAYS } from './journey-core.js';
 export type { CommandOptions, JourneyOptions, WaitOptions, WaitStop } from './journey-core.js';
 export { authJourneys, cliVerifier, credentialSlot, CLI_PENDING } from './auth.js';
-export type { AuthJourneys, BrowserLoginStart, Me, MeDelegation, MeDelegationsPage, MeSession, CliLoginAttempt, CliLoginTransaction, CliSessionResult, CredentialSlot, IssuedSession } from './auth.js';
+export type { AuthJourneys, BrowserLoginStart, Me, MeDelegation, MeDelegationsPage, MeNotification, MeNotificationsPage, MeSession, NotificationPreferences, Profile, ProfileUpdate, CliLoginAttempt, CliLoginTransaction, CliSessionResult, CredentialSlot, IssuedSession } from './auth.js';
 export { follow, EVENT_SCHEMA_VERSION } from './events.js';
 export type { EventEnvelope, EventFilter, FollowItem, FollowOptions } from './events.js';
 export { routing } from './generated/routing.js';
