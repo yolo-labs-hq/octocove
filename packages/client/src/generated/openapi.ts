@@ -1089,7 +1089,7 @@ export interface paths {
         };
         /**
          * Complete the provider redirect
-         * @description Server override places callback at origin /auth/callback, outside /v1. Single-use browser-bound state, nonce and code transaction. Validate ID token then issue own session; never accept issuer tokens as API authorization. Browser redirects to allowlisted UI/CLI confirmation. No Idempotency-Key on this OAuth GET; transaction consumption is its idempotency guard.
+         * @description Server override places callback at origin /auth/callback, outside /v1. Single-use browser-bound state, nonce and code transaction. Validate ID token then issue own session; never accept issuer tokens as API authorization. Browser redirects to an allowlisted UI path or, for CLI mode, to /auth/cli?userCode=<code> with only the visible user code in the URL. No Idempotency-Key on this OAuth GET; transaction consumption is its idempotency guard.
          */
         get: operations["authCallback"];
         put?: never;
@@ -5239,28 +5239,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description CLI login consent handoff after validated OIDC identity; still requires explicit human confirmation and verifier redemption. Same-origin JSON carrying only the user code and CSRF token, never the session token. */
-            200: {
-                headers: {
-                    "Cache-Control": components["headers"]["NoStore"];
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        userCode: string;
-                        csrfToken: string;
-                        confirmEndpoint: string;
-                        /** @constant */
-                        requiresExplicitConsent: true;
-                    };
-                };
-            };
-            /** @description Validated login; rotated session or CLI confirmation page. No token in redirect URL. */
+            /** @description Validated login; rotated session or CLI confirmation page. Only the visible user code appears in the CLI redirect URL. */
             303: {
                 headers: {
-                    /** @description Allowlisted local UI path. */
+                    /** @description Allowlisted local UI path, including /auth/cli?userCode=<code> for CLI mode. */
                     Location?: string;
-                    /** @description Secure HttpOnly SameSite=Lax rotated Octocove session. */
+                    /** @description Secure HttpOnly SameSite=Lax rotated Octocove session and readable Secure CSRF cookie. */
                     "Set-Cookie"?: string;
                     "Cache-Control": components["headers"]["NoStore"];
                     [name: string]: unknown;
@@ -5319,7 +5303,7 @@ export interface operations {
                 "application/json": {
                     userCode: string;
                     /** @enum {string} */
-                    decision: "approve" | "deny";
+                    decision: "allow" | "deny";
                 };
             };
         };
