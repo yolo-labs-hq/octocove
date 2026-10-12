@@ -9,7 +9,7 @@ including the actions that hand out lasting authority: approving and landing, bi
 removing members, authorizing agents, creating webhooks and projects, and ending other sign-ins. ADR 0019 named the
 offset: a GitHub-style "sudo mode", where those actions need a recent identity-provider authentication.
 
-Only **humans** (the web app and the `octocove` CLI's session bearer) are affected. The **Studio adapter**, **own-clone CLI
+Only **humans** (the web app and the `octocove` CLI's session bearer) are affected. The **workspace adapter**, **own-clone CLI
 agents** and **CI + policy-bot approvers** act through agent delegations and machine grants, which already carry
 narrow verbs, eight-hour authorization ceilings and 15-minute tokens. They are deliberately unaffected.
 
@@ -21,11 +21,11 @@ noun, no new write route, no new state of a public noun.
 - **Rule.** A human session may perform a sensitive action only if its family's `authenticated_at` (the family's
   latest OIDC authentication) is within `REAUTH_WINDOW_SECONDS`, default 3600 (1 hour). The Worker variable
   `AUTH_REAUTH_WINDOW_SECONDS` may set it from 300 (5 minutes) to 28800 (8 hours); any other value is ignored for the
-  default (`reauthWindow` in `apps/control-plane/src/auth.ts`).
+  default.
 - **Freshness is the issuer's word, on every login.** `authenticated_at` is never the callback's time: an ordinary
   login may complete silently on an old issuer SSO session, so its arrival proves nothing about when the human last
   authenticated. Every login, ordinary or re-authentication, stores the verified ID token's `auth_time`, clamped to
-  the token's `iat` when it claims a later time (`verifiedAuthTime` in `auth.ts`). An ordinary login whose ID token
+  the token's `iat` when it claims a later time. An ordinary login whose ID token
   carries no `auth_time` stores 0 (the epoch): the sign-in works, but is not recent, so its first sensitive action is
   refused and the re-authentication below (`max_age=0`, which makes `auth_time` mandatory) supplies the proof. The
   family's creation time is recorded separately (`auth_family_created`, below).
@@ -34,7 +34,7 @@ noun, no new write route, no new state of a public noun.
   parameters: `/v1/auth/login?reauth=1&return_path=<path>`, where `<path>` is the page the request came from (the
   path and query of an allowed-origin `Referer`), else `/`. It is a path on the API, never another origin. Nothing is
   written and the session is not revoked.
-- **One guard.** `requireRecentSignIn(principal, request, env)` in `auth.ts` is the only check. It returns at once
+- **One guard.** One recent-sign-in check is the only check. It returns at once
   for any principal that is not a human session (agent delegations, workload and policy-bot machine principals).
   The gateway calls it for every route rule marked `recentSignIn`, right after authenticating, so it runs before
   the handler, its idempotency replay and its membership check. Four handlers authenticate their own callers and
@@ -64,11 +64,11 @@ noun, no new write route, no new state of a public noun.
   holds without the replace-and-revoke a normal login does. The absolute expiry does not move: it stays the cap from
   the first sign-in. Other session tokens of the family (CLI exchanges confirmed from this browser) and the
   delegations issued through it are untouched, and share the refreshed time.
-- **Storage (migration 0048).** `auth_families.authenticated_at` means the latest OIDC authentication as the
+- **Storage.** `auth_families.authenticated_at` means the latest OIDC authentication as the
   issuer stated it. Every login writes the family's creation time into the side table
   `auth_family_created(family_id, created_at)` in the batch that creates the family, and a re-authentication keeps
-  it, so `GET /me/sessions` reports `createdAt` as when the sign-in was created. A family created before migration 0048
-  has no row until its first re-authentication copies its `authenticated_at` (then still its creation time) there. `auth_transactions` gains the nullable `reauth_family_id`. As in 0046, `auth_families` keeps its
+  it, so `GET /me/sessions` reports `createdAt` as when the sign-in was created. A family without a row
+  gets one at its first re-authentication, which copies its `authenticated_at` (then still its creation time) there. `auth_transactions` gains the nullable `reauth_family_id`. As with the idle expiry ([ADR 0019](0019-session-lifetime.md)), `auth_families` keeps its
   columns, so positional inserts and a Worker on the previous version are unaffected.
 
 ## Sensitive routes
@@ -137,4 +137,4 @@ issuer would refresh the window silently); a new family per re-authentication th
 family is feasible and keeps CLI sessions and delegations of that sign-in alive; a new family would end them);
 copying the check into each handler (one guard keeps the list in `routeRules`); refusing at membership level instead
 of per session (a fresh sign-in would not help). See [docs/AUTH.md](../AUTH.md#recent-sign-in-sudo-mode),
-[docs/API.md](../API.md) and `apps/control-plane/openapi.yaml`.
+[docs/API.md](../API.md) and `spec/openapi.yaml`.

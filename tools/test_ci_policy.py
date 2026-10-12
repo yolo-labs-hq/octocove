@@ -57,11 +57,9 @@ def fixture_job(name, job, gate, canon):
 
 def fixture_jobs(name, canon):
     if name == "ci.yml":
-        return (fixture_job(name, "conformance", "needed", canon) + fixture_job(name, "npm-pack", "needed", canon)
-                + fixture_job(name, "check", "check", canon).replace("    steps:", "    needs: [conformance, npm-pack]\n    steps:", 1)
-                + fixture_job(name, "migrations", "full", canon) + fixture_job(name, "openapi-lint", "full", canon))
-    if name == "demo.yml":
-        return fixture_job(name, "demo", "walkthrough", canon) + fixture_job(name, "demo-library", "walkthrough", canon)
+        return (fixture_job(name, "npm-pack", "needed", canon) + fixture_job(name, "spec-lint", "needed", canon)
+                + fixture_job(name, "check", "check", canon).replace("    steps:", "    needs: [npm-pack, spec-lint]\n    steps:", 1)
+                + fixture_job(name, "report", "full", canon))
     return "".join(fixture_job(name, job, "full", canon) for job in sorted(policy.SCOPED_JOBS[name]))
 
 
@@ -173,7 +171,6 @@ class PolicyTests(unittest.TestCase):
     def check_model(self, root, model, canon, other):
         workflows = root / ".github/workflows"
         workflows.mkdir(parents=True)
-        guard = "    if: " + canon["gates"]["walkthrough"] + "\n"
         cancel = "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n"
         sources = {}
         for name in policy.REQUIRED_WORKFLOWS:
@@ -201,8 +198,6 @@ class PolicyTests(unittest.TestCase):
                 # An ungated job (default model) or a second condition (gated model) on the first job.
                 re.sub(r"^(  [\w-]+:\n)", r"\1    if: false\n", valid, count=1, flags=re.MULTILINE),
             ]
-            if name == "demo.yml":
-                invalid_sources.append(valid.replace(guard, ""))
             for gate in canon["gates"].values():
                 if gate and gate in valid and gate != canon["gates"]["check"]:
                     invalid_sources += [
@@ -266,11 +261,11 @@ class PolicyTests(unittest.TestCase):
                 self.assertNotIn("head_ref", default)
                 self.assertIn("    branches: [main]\n", default)
         # A source that is not canonical for its model is refused, never half-rewritten.
-        source = (ROOT / ".github/workflows/integrator.yml").read_text()
+        source = (ROOT / ".github/workflows/ci.yml").read_text()
         with self.assertRaises(ValueError):
-            policy.retarget("integrator.yml", source.replace("concurrency:\n", "disabled:\n"), policy.MODEL, SAMPLE)
+            policy.retarget("ci.yml", source.replace("concurrency:\n", "disabled:\n"), policy.MODEL, SAMPLE)
         with self.assertRaises(ValueError):
-            policy.retarget("integrator.yml", source, SAMPLE if policy.MODEL != SAMPLE else policy.DEFAULT_MODEL, SAMPLE)
+            policy.retarget("ci.yml", source, SAMPLE if policy.MODEL != SAMPLE else policy.DEFAULT_MODEL, SAMPLE)
 
     def test_retarget_workflows_rewrites_the_tree_in_place(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -286,7 +281,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_check_aggregate_rejects_unsuccessful_repo_hygiene(self):
         source = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
-        aggregate = source.split("  check:\n", 1)[1].split("  migrations:\n", 1)[0]
+        aggregate = source.split("  check:\n", 1)[1].split("  spec-lint:\n", 1)[0]
         self.assertIn("    if: " + policy.GATES["check"] + "\n", aggregate)
         self.assertRegex(aggregate, r"needs: \[.*repo-hygiene.*\]")
         self.assertIn("${{ needs.repo-hygiene.result }}", aggregate)
@@ -319,7 +314,7 @@ class PolicyTests(unittest.TestCase):
                     self.assertEqual(completed.returncode == 0, result == "success")
 
     def test_check_reports_on_every_event(self):
-        # The conformance smoke test pins `if: always()` on check; so does this policy.
+        # This policy pins `if: always()` on check.
         source = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
         for label, model in {"repository": policy.MODEL, **MODELS}.items():
             canon = policy.canonical(model)
@@ -368,8 +363,8 @@ class PolicyTests(unittest.TestCase):
 
     def test_fork_heads_never_get_the_automation_or_integration_exemption(self):
         # Identical branch names, upstream head vs fork head. The fork row runs everything,
-        # so a fork `staging/*` into main cannot skip integrator, walkthrough, licenses,
-        # migrations or OpenAPI while `check` passes.
+        # so a fork `staging/*` into main cannot skip the spec lint, the tarball gate or
+        # any other job while `check` passes.
         canon = policy.canonical(SAMPLE)
         gated = (canon["gates"]["needed"], canon["check_step_gate"], canon["gates"]["full"], canon["gates"]["walkthrough"])
         fork = "someone/octocove"
@@ -391,12 +386,12 @@ class PolicyTests(unittest.TestCase):
                             self.assertEqual(condition.count("startsWith(github.head_ref"), condition.count(policy.UPSTREAM_HEAD))
 
     def test_gate_without_the_upstream_term_fails_policy(self):
-        source = policy.retarget("integrator.yml", (ROOT / ".github/workflows/integrator.yml").read_text(), policy.MODEL, SAMPLE)
-        weakened = source.replace(policy.UPSTREAM_HEAD + " || !startsWith(github.head_ref, 'staging/')", "!startsWith(github.head_ref, 'staging/')", 1)
+        source = policy.retarget("ci.yml", (ROOT / ".github/workflows/ci.yml").read_text(), policy.MODEL, SAMPLE)
+        weakened = source.replace(policy.UPSTREAM_HEAD + " || !startsWith(github.head_ref, 'bot/')", "!startsWith(github.head_ref, 'bot/')", 1)
         self.assertNotEqual(weakened, source)
-        self.assertTrue(policy.job_violations("integrator.yml", weakened, SAMPLE))
+        self.assertTrue(policy.job_violations("ci.yml", weakened, SAMPLE))
         widened = source.replace("full_name != github.repository", "full_name == github.repository", 1)
-        self.assertTrue(policy.job_violations("integrator.yml", widened, SAMPLE))
+        self.assertTrue(policy.job_violations("ci.yml", widened, SAMPLE))
 
     def test_repository_jobs_carry_their_gates(self):
         root = Path(__file__).resolve().parents[1]
@@ -606,28 +601,17 @@ class PolicyTests(unittest.TestCase):
             return shlex.split(line.split("python3 tools/ci-scope.py ", 1)[1])
 
         cases = [
-            ("ci.yml", "conformance", "tools/conformance/protocol.mjs", True),
-            ("ci.yml", "conformance", "docs/API.md", False),
-            # Every frozen-lockfile install checks each workspace manifest.
-            ("ci.yml", "conformance", "apps/example/package.json", True),
-            ("ci.yml", "migrations", "apps/example/package.json", True),
-            ("ci.yml", "migrations", "packages/cli/package.json", True),
-            ("ci.yml", "migrations", "apps/control-plane/src/index.ts", False),
             # The CLI bundles client and shared sources.
             ("ci.yml", "npm-pack", "packages/cli/src/cli.ts", True),
             ("ci.yml", "npm-pack", "packages/client/README.md", True),
             ("ci.yml", "npm-pack", "packages/shared/src/merge.mjs", True),
             ("ci.yml", "npm-pack", "NOTICE", True),
+            # Every frozen-lockfile install checks each workspace manifest.
+            ("ci.yml", "npm-pack", "pnpm-lock.yaml", True),
             ("ci.yml", "npm-pack", "packages/helper/src/index.ts", False),
-            ("ci.yml", "npm-pack", "apps/control-plane/src/index.ts", False),
-            ("ci.yml", "openapi-lint", "apps/control-plane/openapi.yaml", True),
-            ("ci.yml", "openapi-lint", "docs/API.md", False),
-            ("demo.yml", "demo", "apps/example/package.json", True),
-            ("demo.yml", "demo-library", "apps/example/package.json", True),
-            ("demo.yml", "demo", "apps/example/app/page.tsx", False),
-            # shared-parity.test.mjs imports packages/shared.
-            ("integrator.yml", "native-git", "packages/shared/src/tree-seed.mjs", True),
-            ("integrator.yml", "native-git", "packages/cli/src/cli.ts", False),
+            ("ci.yml", "npm-pack", "tools/conformance/run.mjs", False),
+            ("ci.yml", "spec-lint", "spec/openapi.yaml", True),
+            ("ci.yml", "spec-lint", "docs/API.md", False),
         ]
         for name, job, path, expected in cases:
             with self.subTest(job=job, path=path):
@@ -720,8 +704,8 @@ class PolicyTests(unittest.TestCase):
                 self.assertIsNone(scope.parse_names(raw))
                 self.assertEqual(scope.decide("pull_request", scope.parse_names(raw), globs)[0], True)
 
-    def test_required_set_covers_demo(self):
-        self.assertIn("demo.yml", policy.REQUIRED_WORKFLOWS)
+    def test_required_set_is_the_ci_workflow(self):
+        self.assertEqual(policy.REQUIRED_WORKFLOWS, ("ci.yml",))
 
     def test_missing_required_workflows_fail(self):
         with tempfile.TemporaryDirectory() as directory:

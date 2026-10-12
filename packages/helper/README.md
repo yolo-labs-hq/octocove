@@ -102,15 +102,14 @@ exact task/attempt/base, commit identity and ancestry, then awaits durable custo
 Ordinary read grants still refuse `git-receive-pack`; staging grants no upstream
 write authority. Unknown peers and helpers without a chain binding refuse staging.
 
-For a helper running on the trusted pod, wire the existing native staging adapter:
+The runtime supplies `stage`, which hands the verified objects to the service's
+protected chain-push custody on durable storage:
 
 ```js
-import { stageChainPush } from '../../apps/integrator/src/chain-lanes.mjs';
-
 const chain = {
   taskId: registeredTaskId,
   baseSha: pinnedBaseSha,
-  stage: input => stageChainPush(durableSpoolRoot, {
+  stage: input => stageToCustody({
     ...input,
     claimId: grant.attempt,
   }),

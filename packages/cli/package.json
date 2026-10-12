@@ -3,7 +3,7 @@
   "private": true,
   "license": "Apache-2.0",
   "version": "0.1.0",
-  "description": "The octocove command-line client for the Octocove control-plane API: login, projects, repositories, tasks, claims and candidates.",
+  "description": "The octocove command-line client for the Octocove API: login, projects, repositories, tasks, claims and candidates.",
   "type": "module",
   "repository": {
     "type": "git",

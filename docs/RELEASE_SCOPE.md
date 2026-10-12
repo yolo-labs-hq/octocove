@@ -15,12 +15,11 @@ record the declared licences of the locked packages.
 
 Before redistributing an image, executable or bundle, a distributor must:
 
-- Pin base image **digests**, platform/architecture and build inputs. Both
-  `apps/integrator/Dockerfile` and `apps/backup/Dockerfile` use the mutable
-  `node:20.20.2-bookworm-slim` tag; inherited OS/Node packages are outside the npm
-  inventory.
+- Pin base image **digests**, platform/architecture and build inputs. A mutable
+  tag such as `node:20-bookworm-slim` is not a pin; inherited OS/Node packages are
+  outside the npm inventory.
 - Inventory exact apt package versions, transitive dependencies and license /
-  copyright files, including `git`, `ca-certificates`, and backup's `tar`. Record
+  copyright files, including `git` and `ca-certificates`. Record
   the apt repository snapshot used to build. Git is **GPLv2**; review its actual
   packaged components and satisfy corresponding-source and notice requirements
   when redistributing it. Include the inherited image's packages as well.

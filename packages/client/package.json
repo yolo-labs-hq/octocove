@@ -3,7 +3,7 @@
   "private": true,
   "license": "Apache-2.0",
   "version": "0.1.0",
-  "description": "Typed client for the Octocove control-plane API: transports, generated operations and routing, retry policy, errors.",
+  "description": "Typed client for the Octocove API: transports, generated operations and routing, retry policy, errors.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/yolo-labs-hq/octocove.git",

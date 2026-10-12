@@ -5,7 +5,7 @@ Status: accepted
 
 Client archetype (c), CI + policy-bot approver, must approve without human UI.
 Archetype (b), own-clone CLI, also needs verifiable signed identity exchange;
-its existing human-session approval remains supported. Archetype (a), Studio
+its existing human-session approval remains supported. Archetype (a), workspace
 adapter, needs no special authority and may use the same generic interfaces.
 Passing checks, agent delegation and provider votes cannot create approvals.
 This accepted ADR and its [OpenAPI delta](0001-machine-approval-authority.openapi.yaml)
@@ -99,7 +99,7 @@ otherwise invalidate it. No change to the landing fence or CAS protocol.
 This section records the separate submit path anticipated above. It adds no
 approval or landing permission. Own-clone signed human CLI and CI
 bot/workload clients need authenticated submission without reusing an approval
-credential. Studio may use the same interfaces; its ordinary delegated submission
+credential. A workspace adapter may use the same interfaces; its ordinary delegated submission
 path remains supported.
 
 | Public write route (also under `/v1`) | Authority and effect |
@@ -143,10 +143,8 @@ Submit grants cannot approve, claim, write Git or land; `ocg_` approval grants
 cannot submit. A principal may hold both kinds, but canonical submitter and
 on-behalf-of provenance still forbids approving its own candidate. Reusing an
 approval token would erase this separation. The existing record and scope fence
-remain intact. Implementation references: [migration 0020](../../apps/control-plane/migrations/0020_machine_trust.sql),
-[machine routes](../../apps/control-plane/src/machine-routes.ts),
-[lifecycle](../../apps/control-plane/src/lifecycle.ts), [API guide](../API.md)
-and [Submission glossary](../GLOSSARY.md#submission-submissions-submission_contexts-submission).
+remain intact. References: the [API guide](../API.md)
+and the [Submission glossary](../GLOSSARY.md#submission-submissions-submission_contexts-submission).
 
 ### Trust administration routes and the trust binding
 
@@ -232,10 +230,8 @@ workload principal can never equal a live agent's actor ID, and the principal's
 `registered_by` joins the self-approval and self-submission comparisons. The
 [Registration is not consent](#registration-is-not-consent) section gives the activation routes and write-once fields.
 
-Implementation references: [migration 0020](../../apps/control-plane/migrations/0020_machine_trust.sql),
-[machine routes](../../apps/control-plane/src/machine-routes.ts),
-[machine auth](../../apps/control-plane/src/machine-auth.ts), the
-[API guide](../API.md#machine-trust-administration), the [machine trust runbook](../runbooks/machine-trust.md)
+References: the
+[API guide](../API.md#machine-trust-administration)
 and the glossary entries for [approval principal](../GLOSSARY.md#approval-principal-approval_principals),
 [approval policy](../GLOSSARY.md#approval-policy-approval_policies) and
 [trust binding](../GLOSSARY.md#trust-binding-approval_trust_bindings).
@@ -289,7 +285,7 @@ authority rules above are unchanged.
 
 ### Record and API delta
 
-The companion YAML is a merge delta against the [public OpenAPI schema](../../apps/control-plane/openapi.yaml),
+The companion YAML is a merge delta against the [public OpenAPI schema](../../spec/openapi.yaml),
 into which it is merged. Existing human approval route, bodies and semantics stay
 unchanged. New response fields are optional on legacy records; new grant-derived
 records must supply them. No new approval status; retain `active`, `fenced`,
@@ -314,7 +310,7 @@ record IDs/content digests, not mutable URLs; verify evidence ownership and cust
 
 ## Does not do
 
-No blanket auto-merge authority, Studio-specific concepts, provider branch-protection
+No blanket auto-merge authority, workspace-adapter-specific concepts, provider branch-protection
 bypass, new CI scheduler, arbitrary issuer trust, or change to the landing fence.
 No machine opt-in by default; no granting authority from provider-native approvals.
 The [glossary scope fence](../GLOSSARY.md#scope-fence) remains intact.
@@ -328,8 +324,8 @@ provider-native approvals as authority (projection only, wrong record boundary),
 and per-repo static tokens (long-lived bearer secrets without attempt confinement).
 The glossary Approver identity, Approval, Delegation and Receipt entries, the API
 guide/OpenAPI and [record §7.2–7.3, §8–10 and §16](../COLLABORATION_RECORD.md#72-approvals)
-must stay synchronized with this ADR. INV-30/36 differ only for grant-derived
-approvals; legacy human behavior is preserved.
+must stay synchronized with this ADR. The rules for when an approval may be recorded and what
+invalidates it differ only for grant-derived approvals; legacy human behavior is preserved.
 
 Each identity variant needs its own tests:
 

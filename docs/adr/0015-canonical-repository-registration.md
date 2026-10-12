@@ -6,9 +6,9 @@ Status: proposed
 After [ADR 0014](0014-self-serve-project-create.md) a signed-in operator can create a
 project, but cannot do anything in it: `POST /tasks` needs a `repositoryId` and a
 `targetRef` that name a canonical `repositories` row and its `target_refs` row
-(`lifecycle.ts`, `create`), and the only writers of those tables are the task-repository
-provisioning paths (role `task`) and the demo seed. The first task in a production
-project would need hand-inserted rows. The **Studio adapter**, **own-clone CLI agents**
+(`taskCreate`), and the only writers of those tables are the task-repository
+provisioning paths (role `task`) and a seed. The first task in a production
+project would need hand-inserted rows. The **workspace adapter**, **own-clone CLI agents**
 and **CI + policy-bot approvers** all work against a canonical repository a human
 registered; none of them registers one. The need is a project admin's: register the
 canonical repository and the branch tasks land onto, then create the first task.
@@ -28,8 +28,7 @@ knownHeadSha?}`:
   surrogate or separator character, no surrounding whitespace) **and** the Artifacts
   segment shape. It is not a free display name: `repositories.name` is the
   Artifacts repository name the provisioner forks task repositories from and the token
-  provider scopes tokens to (`provisioner.ts`, `artifacts-token-provider.ts`,
-  `remote-resolver.ts`), so a display name there would break the first claim.
+  provider scopes tokens to, so a display name there would break the first claim.
 - `targetRef` passes `validExternalRef` (a branch under `refs/heads/`, outside the
   reserved `refs/heads/oc/`) and defaults to `refs/heads/main`.
 - `knownHeadSha`, optional, is a lowercase 40- or 64-hex SHA.
@@ -41,7 +40,7 @@ role `canonical`), inserted only if the project has no canonical repository yet;
 with `known_head_source` `seed` and `known_head_at` the registration time, or all NULL);
 the `target_ref.registered` audit row; and the ledger row in the per-principal
 admin-operation ledger `machine_admin_operations` that `projectCreate` uses. The
-`canonical_generations` trigger adds the ref's generation row. No migration.
+`canonical_generations` trigger adds the ref's generation row.
 
 Answers: 201 `{id, projectId, provider, namespace, repoId, name, role, targetRef,
 knownHeadSha}`; a replay with the same key and body returns the committed 201 **before
@@ -63,15 +62,14 @@ verification row.
 `repositoryVerify`, `project:admin`, human only) is that trusted writer. It reads the
 registered namespace and name from the deployment's Artifacts account and, when the
 repository is there, sets `verified_at`/`verified_by` once and audits
-`repository.verified` (migration 0042 adds the type) in one batch behind the same
+`repository.verified` in one batch behind the same
 `auth_cas` guard. See [API.md](../API.md) for what it records and its refusals. The
 head is left to the remote sweep's `ls-remote` read, which needs the verified binding.
 
 Existence in the deployment's Artifacts account plus address uniqueness does not by
 itself prove the project owns the remote, since any `project:admin` can register an
-address no project holds yet. Ownership comes from per-project namespaces
-([ADR 0017](0017-artifacts-namespace-per-project.md)): every project owns one Artifacts
-namespace, `oc-<projectId>` (`projects.artifacts_namespace`, migration 0044), and its
+address no project holds yet. Ownership comes from per-project namespaces:
+every project owns one Artifacts namespace, `oc-<projectId>` (`projects.artifacts_namespace`), and its
 repositories must live there. Registration defaults an omitted `namespace` to it and
 refuses any other with 409 `repository-namespace-mismatch` before writing. Verification
 proves **that the repository exists in this project's own namespace** in the
@@ -106,7 +104,7 @@ the binding is verified.
   no staging repositories, no second target ref, and no rename, unregistration or
   head update through the API.
 - No new noun, state or audit type: `repository.registered` and `target_ref.registered`
-  were already in the closed vocabulary (`audit.ts`). Their refs are the identity fields
+  were already in the closed vocabulary. Their refs are the identity fields
   above; the payloadVersion 1 shapes in [ADR 0004](0004-event-vocabulary.md) D4
   (`binding`, `checkPolicyId`) are not claimed by this route.
 - No change to `POST /tasks`, `GET /me` or project creation.
@@ -120,5 +118,4 @@ OpenAPI `repositoryCreate`/`repositoriesList` (`RepositoryCreate`, `Repository`,
 `RepositoryList`), client `repositories.create()` (`network-only`, `stored-result`) and
 `repositories.list()`, CLI `octocove repo add` and `octocove repo list`, and the web
 "Add repository" form on a taskless project page through the same-origin
-`/api/projects/{id}/repositories` proxy. See [API.md](../API.md#register-a-canonical-repository-post-projectsprojectrepositories)
-and [OPERATIONS.md](../OPERATIONS.md#first-project--first-repository--first-task).
+`/api/projects/{id}/repositories` proxy. See [API.md](../API.md#register-a-canonical-repository-post-projectsprojectrepositories).

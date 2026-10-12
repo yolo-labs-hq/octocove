@@ -492,6 +492,66 @@ export const authCases: Case[] = [
     ok(calls.every((x) => !x.headers['idempotency-key']), 'a read carries no Idempotency-Key');
   }),
 
+  // ---- own notifications (ADR 0025) ----
+  test('auth.notifications.list reads GET /v1/me/notifications with unread, limit and cursor, with no Idempotency-Key; limit 0 is the badge', async () => {
+    const item = { id: 'ntf_7', kind: 'landed', projectId: 'p', projectSlug: 'p', projectName: 'P', taskId: 't', taskTitle: 'Fix',
+      eventId: 'evt_42', createdAt: '2026-10-10T00:00:00.000Z', readAt: null };
+    const first = { items: [item], nextCursor: 'cursor-1', unreadCount: 3 }, badge = { items: [], nextCursor: null, unreadCount: 3 };
+    const { fetch, calls } = scriptedFetch(json(200, first), json(200, badge), problem(403, 'human-required'));
+    const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: bearer({ token: 'notify-fixture-0123456789' }) }));
+    equal(await oc.auth.notifications.list({ deadline: soon(), unread: true, limit: 1, cursor: 'cursor-0' }), first);
+    equal(await oc.auth.notifications.list({ deadline: soon(), limit: 0 }), badge);
+    equal((await rejects(() => oc.auth.notifications.list({ deadline: soon() }), ApiError)).code, 'human-required');
+    equal(calls.map((x) => `${x.method} ${x.url}`), [
+      `GET ${BASE}/v1/me/notifications?cursor=cursor-0&limit=1&unread=true`, `GET ${BASE}/v1/me/notifications?limit=0`, `GET ${BASE}/v1/me/notifications`,
+    ]);
+    ok(calls.every((x) => !x.headers['idempotency-key']), 'a read carries no Idempotency-Key');
+  }),
+  test('auth.notifications.markRead POSTs {ids} or {upTo} with a key, resending a lost answer under the same key', async () => {
+    const { fetch, calls } = scriptedFetch(new TypeError('fetch failed'), new Response(null, { status: 204 }), new Response(null, { status: 204 }));
+    const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: bearer({ token: 'notify-fixture-0123456789' }) }));
+    equal(await oc.auth.notifications.markRead({ ids: ['ntf_1', 'ntf_2'] }, { deadline: soon() }), undefined);
+    equal(await oc.auth.notifications.markRead({ upTo: 'ntf_9' }, { deadline: soon(), idempotencyKey: 'mark-read-key-0123456789' }), undefined);
+    equal(calls.map((x) => `${x.method} ${x.url} ${x.body}`), [
+      `POST ${BASE}/v1/me/notifications/read {"ids":["ntf_1","ntf_2"]}`, `POST ${BASE}/v1/me/notifications/read {"ids":["ntf_1","ntf_2"]}`,
+      `POST ${BASE}/v1/me/notifications/read {"upTo":"ntf_9"}`,
+    ]);
+    ok(!!keys(calls)[0] && keys(calls)[0] === keys(calls)[1], 'the resend reuses the key');
+    equal(keys(calls)[2], 'mark-read-key-0123456789');
+  }),
+  test('auth.notifications.preferences: GET reads them; PUT replaces them with a key, and a cookie session sends Origin and CSRF', async () => {
+    const stored = { mutedKinds: ['landed' as const], mutedProjects: ['p'] };
+    const { fetch, calls } = scriptedFetch(json(200, { mutedKinds: [], mutedProjects: [] }), json(200, stored),
+      problem(400, 'invalid-request', { details: { mutedKinds: ['everything'] } }));
+    const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: browserCookie({ origin: BASE, csrfToken: () => 'csrf-fixture' }) }));
+    equal(await oc.auth.notifications.preferences.get({ deadline: soon() }), { mutedKinds: [], mutedProjects: [] });
+    equal(await oc.auth.notifications.preferences.put(stored, { deadline: soon() }), stored);
+    const refused = await rejects(() => oc.auth.notifications.preferences.put({ mutedKinds: ['everything' as never], mutedProjects: [] }, { deadline: soon() }), ApiError);
+    equal(refused.code, 'invalid-request');
+    equal(calls.map((x) => `${x.method} ${x.url}`), [
+      `GET ${BASE}/v1/me/notification-preferences`, `PUT ${BASE}/v1/me/notification-preferences`, `PUT ${BASE}/v1/me/notification-preferences`,
+    ]);
+    equal(calls[1]!.body, JSON.stringify(stored));
+    ok(!calls[0]!.headers['idempotency-key'] && !calls[0]!.headers['x-csrf-token'], 'a read carries no key and no CSRF token');
+    ok(!!keys(calls)[1] && keys(calls)[1] !== keys(calls)[2], 'each PUT has its own key');
+    equal([calls[1]!.headers.origin, calls[1]!.headers['x-csrf-token']], [BASE, 'csrf-fixture']);
+  }),
+
+  // ---- own profile ----
+  test('auth.profile.update PATCHes /v1/me/profile with the patch and a key, replays a lost answer with the same key, and surfaces invalid-profile', async () => {
+    const answer = { profile: { name: 'Ada', pronouns: null, bio: null, timezone: 'Europe/London' } };
+    const { fetch, calls } = scriptedFetch(new TypeError('fetch failed'), json(200, answer), problem(400, 'invalid-profile', { details: { field: 'timezone' } }));
+    const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: browserCookie({ origin: BASE, csrfToken: () => 'csrf-profile-fixture' }) }));
+    equal(await oc.auth.profile.update({ name: 'Ada', pronouns: null, timezone: 'Europe/London' }, { deadline: soon() }), answer.profile);
+    const error = await rejects(() => oc.auth.profile.update({ timezone: 'Mars/Olympus' }, { deadline: soon() }), ApiError);
+    equal([error.status, error.code, error.details], [400, 'invalid-profile', { field: 'timezone' }]);
+    equal(calls.map((x) => `${x.method} ${x.url}`), [`PATCH ${BASE}/v1/me/profile`, `PATCH ${BASE}/v1/me/profile`, `PATCH ${BASE}/v1/me/profile`]);
+    equal(JSON.parse(calls[0]!.body!), { name: 'Ada', pronouns: null, timezone: 'Europe/London' });
+    ok(keys(calls)[0] !== undefined && keys(calls)[0] === keys(calls)[1], 'the replay after a lost answer reuses the key');
+    ok(keys(calls)[2] !== keys(calls)[0], 'a new edit is a new key');
+    ok(calls.every((x) => x.headers['x-csrf-token'] === 'csrf-profile-fixture'), 'a cookie PATCH carries the CSRF token');
+  }),
+
   // ---- who am I ----
   test('auth.me: a human session gets its principal and memberships from GET /v1/me; nothing in the answer is secret', async () => {
     const TOKEN = 'me-session-fixture-0123456789';

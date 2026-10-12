@@ -18,8 +18,7 @@ A principal id is a **project-member identity, not a secret**.
    may see the principal ids of that project's members, and of the agents acting in it under a delegation
    authorized in it, together with the humans who delegated them.
 2. **Never across projects.** No read in one project names a principal reachable only through another project.
-3. **Which ids a task read names.** `claimedBy` is computed in the projection's one statement
-   (`TaskLifecycle.projectTasks`, `apps/control-plane/src/lifecycle.ts`, `PROJECT_MEMBER`):
+3. **Which ids a task read names.** `claimedBy` is computed in the task projection's one statement:
    - a human claimant (`id`) only while it holds an `auth_memberships` row in the task's project;
    - an agent claimant (`id`) only when its claim's delegation (`auth_authorizations`) was authorized in the
      task's project for that agent;
@@ -50,5 +49,3 @@ not make that history visible to them, so `/audit` and `/tasks/{id}/log` keep `a
 
 - Clients show `claimedBy: null` beside a non-null `liveAttempt.claimId` as "claimed" without a claimant;
   the OpenAPI `Task.claimedBy` description and docs/API.md say so.
-- Test: `apps/control-plane/tests/http-projections.test.ts`, "ADR 0021: a tasks:list-only member sees this
-  project's principal ids, and none reachable only through another project".

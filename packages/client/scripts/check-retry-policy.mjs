@@ -11,7 +11,7 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 export const AUTO_RETRY = ['never', 'network-only'];
 export const REPLAY = ['stored-result', 'guarded-result', 'bounded-recovery', 'metadata-without-token', 'state', 'none', null];
 export const REASONS = ['navigation', 'excluded'];
-export const EXPECTED_IDS = 82;
+export const EXPECTED_IDS = 87;
 
 const same = (keys, expected) => keys.length === expected.length && expected.every((key) => keys.includes(key));
 
@@ -139,7 +139,7 @@ export function check({ policyText, spec, readme }) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const errors = check({
     policyText: readFileSync(here('../retry-policy.json'), 'utf8'),
-    spec: parse(readFileSync(here('../../../apps/control-plane/openapi.yaml'), 'utf8')),
+    spec: parse(readFileSync(here('../../../spec/openapi.yaml'), 'utf8')),
     readme: readFileSync(here('../README.md'), 'utf8'),
   });
   if (errors.length) {

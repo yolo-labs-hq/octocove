@@ -19,13 +19,20 @@ An uncommitted run is visibly dirty; the harness digest identifies edited files.
 Use the repository's Node 22 runtime and install only the dependency slice:
 
 ```sh
-pnpm --filter @octocove/control-plane... --filter @yolo-labs/octocove install --frozen-lockfile
-node --test --test-concurrency=1 tools/conformance/cell.test.mjs
-node --test --test-concurrency=1 tools/conformance/protocol.test.mjs
-node --test --test-concurrency=1 tools/conformance/smoke.test.mjs
-node --test --test-concurrency=1 tools/conformance/aggregate.test.mjs
-pnpm conformance:shard --archetype a --pairing artifacts/ref --target main --maxWorkers=1 --out .conformance/local/a-artifacts-ref-main.json
+pnpm --filter @yolo-labs/octocove --filter @octocove/conformance install --frozen-lockfile
+pnpm --filter @octocove/conformance test
+node tools/conformance/run.mjs --host <host-module> --shard --archetype a --pairing artifacts/ref --target main --maxWorkers=1 --out .conformance/local/a-artifacts-ref-main.json
 ```
+
+The harness does not contain the service under test. `run.mjs --host <module>`
+names a **conformance host**: a module exporting `vitestConfig` and `vitestBin`
+(absolute paths to the Vitest config and binary that run the host's suite) and
+`fingerprintFiles` (host files added to the harness digest). The host's suite
+calls `registerConformance` from [scenarios.ts](scenarios.ts) with the test API
+plus `localEnvironment` (boots the service and its doubles), `runKey` (derives
+idempotency keys) and `git` (the fallback Git runner). Without a host, a shard is
+recorded as `BLOCKED` (`no-conformance-host`); preregistration and the unit tests
+need none. A service implementation supplies its own host.
 
 Each shard invocation runs **one target cell**, with `--target main` (the
 compatibility default) or `--target integration`. The target owns its process
@@ -253,7 +260,7 @@ only. `aggregate.test.mjs` likewise imports the hook's tests from the module
 ## Boundary review
 
 The semantic [boundary.mjs](boundary.mjs) scanner is tested against
-executable imports, types and payload keys under apps/packages.
+executable imports, types and payload keys under `apps/` and `packages/` (whichever exist).
 The scanner rejects generic work-item payload keys; additional forbidden symbols
 and module specifiers can be supplied in a rules file named by
 `OCTOCOVE_PRIVATE_PATTERNS`.

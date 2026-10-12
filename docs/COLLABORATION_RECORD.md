@@ -1,16 +1,12 @@
 # The collaboration record
 
-[ADR 0007](adr/0007-binding-and-recovery.md) adds offline binding export/recovery
-operations only: no public route, event type or record-state change. Full
-backup+journal restore is specified but not qualified.
-
 **Status:** Implemented and tested on Miniflare and local D1. The integrator runner and Cloudflare Containers are provisional. This document defines the record that the control plane implements and must not be weakened; §15 lists the authoritative handlers.
 
 **Design goals.** This is a hosting-native, agent-independent collaboration record: versioned intent and accepted dependency results carried through immutable submission → tested integration candidate → exact approval → reconciled landing receipt, stored by the host and queryable by humans and any agent client. The record keeps **intent edit history**, a **stored human approval**, an **append-only audit log**, and a landing receipt that is **not mutated after creation**. Approval validity binds to an immutable submission record + `(candidate SHA, base SHA)` + intent version, never to a `(repo, ref, after)` tuple, and `before != recorded head` is a reconciliation trigger, not a verdict. The landing race boundary is the **landing fence** (§8).
 
-**Storage and topology.** D1 holds the record, with D1 batches as the transaction unit; one SQLite-backed `TaskCoordinator` Durable Object per task coordinates it (per-target landing serialization is the D1 `canonical_one_held_fence` index, §8.2); Artifacts (or a registered BYO provider) holds git. The landing protocol (fence → dispatch → staged changes → reconcile by fetched-object ancestry → receipt → release → apply staged) is specified in §8; this document is authoritative for the record's shape and invariants, and [ARCHITECTURE.md](ARCHITECTURE.md) describes placement. Artifacts canonicals use chain-mode repo lanes ([ADR 0003](adr/0003-chain-mode-repo-lanes.md)) and BYO canonical providers use ref lanes ([ADR 0010](adr/0010-byo-canonical-provider.md)); `task_repo_mappings.kind` carries either.
+**Storage and topology.** D1 holds the record, with D1 batches as the transaction unit; one SQLite-backed `TaskCoordinator` Durable Object per task coordinates it (per-target landing serialization is the D1 `canonical_one_held_fence` index, §8.2); Artifacts (or a registered BYO provider) holds git. The landing protocol (fence → dispatch → staged changes → reconcile by fetched-object ancestry → receipt → release → apply staged) is specified in §8; this document is authoritative for the record's shape and invariants, and [How the client talks to the service](README.md#how-the-client-talks-to-the-service) describes placement. Artifacts canonicals use chain-mode repo lanes ([ADR 0003](adr/0003-chain-mode-repo-lanes.md)) and BYO canonical providers use ref lanes ([ADR 0010](adr/0010-byo-canonical-provider.md)); `task_repo_mappings.kind` carries either.
 
-**Schema:** `apps/control-plane/migrations/0001_record.sql` (Cloudflare D1 / SQLite). **Invariants** are numbered `INV-nn` here and each has a test name in `tests/record-invariants.todo.md`; `pnpm check:invariants` fails if the two drift.
+**Schema.** The record lives in Cloudflare D1 (SQLite). Table and column names below are the schema's own; triggers, `CHECK` constraints and partial unique indexes enforce the rules this document states, and offline binding export and recovery operations add no route, event type or record-state change.
 
 ---
 
@@ -31,7 +27,7 @@ Ground rules that apply to every record below:
 1. **Immutable records never change.** Intent versions, submissions, submission contexts, candidate check runs, landing receipts and audit rows have no mutable columns at all. Claims, candidates, approvals and fences have immutable *fields* plus a small set of *status* columns; D1 triggers reject any `UPDATE` touching an immutable column and any `DELETE`. "Invalidating an approval" means changing `approvals.status`, never editing `boundTo`.
 2. **Status changes are enumerated.** Each status-bearing table has a `*_status_transitions` table seeded in the migration; a trigger refuses any transition not listed. The tables in this document are the same lists.
 3. **Task status ≠ attempt status.** `tasks.status` describes the lifecycle of the task's *accepted result*. Claims, candidates and approvals carry their own status. A candidate can be superseded while the task stays `submitted`; a claim can be superseded while the task stays `claimed`; a landed task can carry a live follow-up candidate (§8.5).
-4. **Every transition writes exactly one audit row in the same D1 batch** (`db.batch([...])` is transactional on D1). Neither the transition nor the audit row exists without the other. **One enforced exception:** trigger `submission_pairs_observation` ([`0006_events.sql:10`](../apps/control-plane/migrations/0006_events.sql#L10 "CREATE TRIGGER submission_pairs_observation")) pairs an unsubmitted push observation with a newly inserted submission by updating `push_observations` (`flag='matched'`) and inserting its own `observation.flagged` audit row inside the submission-insert batch. That second transition is produced by the database, not by `appendTransitions`, so a submit that pairs an observation writes two audit rows (`submission.created` plus `observation.flagged`) in one batch; the row is still atomic with the state change it describes.
+4. **Every transition writes exactly one audit row in the same D1 batch** (`db.batch([...])` is transactional on D1). Neither the transition nor the audit row exists without the other. **One enforced exception:** the database trigger `submission_pairs_observation` pairs an unsubmitted push observation with a newly inserted submission by updating `push_observations` (`flag='matched'`) and inserting its own `observation.flagged` audit row inside the submission-insert batch. That second transition is produced by the database, not by the transition writer (§16.1), so a submit that pairs an observation writes two audit rows (`submission.created` plus `observation.flagged`) in one batch; the row is still atomic with the state change it describes.
 5. **Ids are explicit.** Every record has its own id (`candidates.id`, `approvals.id`, `landing_fences.id`, …). Clients refer to records by id, never by SHA alone; SHAs are evidence, ids are identity.
 6. **Time and ids.** Timestamps are ISO-8601 UTC text. Ids are opaque identifiers (ULIDs, UUIDs and prefixed hashes all occur); clients must not parse them or sort by them. Ordering questions inside a task are answered by `submissions.seq` and `intents.version`, never by wall-clock or event arrival.
 
@@ -70,9 +66,6 @@ erDiagram
 | `target_refs` | `(repository_id, ref_name)` PK, `known_head_sha`, `known_head_at`, `known_head_source` (`seed` \| `receipt` \| `ls-remote` \| `event`) | The ref a task lands onto. `known_head_*` is the last canonical head the control plane has evidence for. It is a **cache of observed truth, never authority**: the integrator's compare-and-swap push is the authority; this column exists so that base moves can be detected and so that approvals can be invalidated pre-fence (§7.3). |
 | `task_repo_mappings` | `id`, `task_id`, `claim_id`, `kind` (`task-repo` \| `lane-ref`), `repository_id`, `ref_name`, `created_at`, `retired_at` | Where an agent pushes for a task, durably. For `task-repo` it is the task repo's default branch (a per-task fork or a chain lane, [ADR 0003](adr/0003-chain-mode-repo-lanes.md)); for `lane-ref` a lane ref in canonical ([ADR 0010](adr/0010-byo-canonical-provider.md), [ADR 0002](adr/0002-own-clone-source-registration.md)). Events are routed to tasks **only** through this table, never through an active token grant. At most one live mapping per `(repository, ref)`; retired, never deleted. [ADR 0002](adr/0002-own-clone-source-registration.md) permits an existing canonical ref with an external writer; `external_ref_sources` retains immutable initial expected-SHA evidence without adding a lane entity or claimant Git grant. |
 
-- **INV-01** A task's identity columns (`project_id`, `repository_id`, `target_ref`, `key`, `created_by`, `created_at`) never change after creation.
-- **INV-16** A live `(repository_id, ref_name)` maps to at most one task; mappings are retired (write-once `retired_at`), never deleted; the events consumer routes an observation to a task only via a live mapping.
-
 ---
 
 ## 3. Intent
@@ -92,8 +85,6 @@ Intent is the contract an agent works against: *the agent's context is the contr
 
 `tasks.current_intent_version` is the version clients see and the version approvals bind to. `intentVersion` in the API is this number.
 
-- **INV-02** `tasks.current_intent_version = MAX(intents.version)` for the task at all times, and versions are contiguous from 1 (no gaps, no reuse). The column never decreases (trigger).
-- **INV-03** Intent rows are never updated or deleted (triggers); an edit is `INSERT` of version `n+1` plus `UPDATE tasks SET current_intent_version = n+1` in one batch.
 - **Effect of an edit** (§7.3): an unfenced active approval on the task is invalidated with reason `intent-edit`; the live candidate stays live (its objects did not change; the human must re-approve against the new version). While a fence is held the edit is staged and has no effect on the fenced approval. Edits on a task in a terminal status are refused (`409 task-closed`); supersede the task instead.
 
 ---
@@ -102,7 +93,7 @@ Intent is the contract an agent works against: *the agent's context is the contr
 
 | Column | Definition |
 | --- | --- |
-| `id`, `project_id`, `repository_id`, `target_ref`, `key` | Identity (INV-01). `key` is the human-facing handle, unique per project. |
+| `id`, `project_id`, `repository_id`, `target_ref`, `key` | Identity: never changes after creation. `key` is the human-facing handle, unique per project. |
 | `status` | Task status; see state machine below. |
 | `status_changed_at` | |
 | `current_intent_version` | §3. |
@@ -171,15 +162,7 @@ The forward path is: `draft → ready → claimed → submitted → candidate �
 
 ### 4.2 Admission rule
 
-A dependent is admissible only when **every** upstream in `dependsOn` is `landed` **with an accepted result** (`accepted_receipt_id` set, which by INV-08 means a receipt with outcome `landed`). A rejected, superseded, or merely approved upstream does not count. The view `v_task_admission` computes this; `v_task_dependency_state` lists each edge with the upstream's receipt id and landed SHA, which is what gets copied onto the claim (§5).
-
-- **INV-04** No task depends on itself (CHECK) and the dependency graph is acyclic (application check at `dependency_added`; a cycle is refused `409 dependency-cycle`).
-- **INV-05** A dependency edge can be removed only while the dependent task is `draft` or `ready` (trigger).
-- **INV-06** `tasks.status` changes only along `task_status_transitions` (trigger).
-- **INV-07** `draft → ready` happens only when `published_at` is set and `v_task_admission.admissible = 1`; the system re-evaluates every dependent on each `landed` receipt (`dependents.reevaluated`).
-- **INV-08** `accepted_receipt_id` is write-once (trigger, [`0001_record.sql:142`](../apps/control-plane/migrations/0001_record.sql#L142 "BEFORE UPDATE OF accepted_receipt_id ON tasks")), references a `landing_receipts` row with `outcome = 'landed'` **for the same task** (insert/update triggers `tasks_accepted_receipt_insert`/`_update`, [`0009_record_integrity.sql:53-60`](../apps/control-plane/migrations/0009_record_integrity.sql#L53-L60 "CREATE TRIGGER tasks_accepted_receipt_insert"); enforced at the schema layer by `0009_record_integrity.sql`, not by a foreign key), and is set iff `status = 'landed'` (CHECK, [`0001_record.sql:86`](../apps/control-plane/migrations/0001_record.sql#L86 "CHECK ((status = 'landed') = (accepted_receipt_id IS NOT NULL))")).
-- **INV-09** `landed`, `rejected`, `superseded` are terminal (no outgoing transitions); `closed_at` is set iff terminal (CHECK).
-- **INV-10** Task status is independent of attempt status: superseding a claim leaves the task `claimed`; superseding a candidate leaves the task `submitted`; a `landed` task may carry a live follow-up candidate (§8.5) without changing status.
+A dependent is admissible only when **every** upstream in `dependsOn` is `landed` **with an accepted result** (`accepted_receipt_id` set, which always names a receipt with outcome `landed` for the same task). A rejected, superseded, or merely approved upstream does not count. The view `v_task_admission` computes this; `v_task_dependency_state` lists each edge with the upstream's receipt id and landed SHA, which is what gets copied onto the claim (§5). A task cannot depend on itself and the dependency graph stays acyclic: an edge that would close a cycle is refused `409 dependency-cycle`. Dependency edges can be added or removed only while the dependent task is `draft` or `ready`.
 
 ---
 
@@ -204,12 +187,6 @@ Every attempt to claim is persisted, granted or refused. The granted claim is th
 `claim_dependency_results (claim_id, upstream_task_id, receipt_id, landed_sha)`: one immutable row per `dependsOn` edge, copied from `v_task_dependency_state` inside the claim transaction.
 
 **Who may claim.** Status `ready` with no active claim; or status `claimed`/`submitted`/`candidate`/`approved` with no active claim (take-over after a release), in which case the new claim's `status_reason` is `takeover` and existing submissions remain part of the record. A claim on `draft` is `refused-not-ready`; on `landing` or a terminal status `refused-task-closed`. A second concurrent claimant gets `refused-already-claimed` (the task's `TaskCoordinator` Durable Object serializes claims; the partial unique index is the backstop, and a zero-row conditional update is treated as a refusal, never as success).
-
-- **INV-11** Every claim attempt is persisted with actor, time, delegation id and result, whether granted or refused; refused attempts have no status.
-- **INV-12** At most one `active` granted claim per task (partial unique index).
-- **INV-13** Granting a claim re-checks admission atomically with the grant and records one `claim_dependency_results` row per upstream edge carrying that upstream's `accepted_receipt_id`; if any edge is unsatisfied the result is `refused-dependency-unlanded` and no results rows are written.
-- **INV-14** Claim immutable fields never change (trigger); status changes only along `claim_status_transitions`, where `active` is the only non-terminal status.
-- **INV-15** An agent claim always has `authorized_by` (a human) and, when granted, a `delegation_id` (CHECK).
 
 ---
 
@@ -241,13 +218,7 @@ The frozen copy of what the submitter was working against: `intent_version`, `in
 
 ### 6.3 `push_observations`
 
-One row per provider event (`pushed`, `forked`, `deleted`) or control-plane `ls-remote`, deduplicated on `event_id` (the event's transport identity, or a documented transport-derived identity). Routed to a task via a live mapping. Classification (`flag`) is the only mutable part: `matched` to a submission, `unsubmitted-push` (lane moved, nobody submitted), `unknown-repo`, `reconcile` (`before != known head`, triggers an ls-remote), `canonical` (an observation on a target ref, which updates `target_refs.known_head_*`).
-
-- **INV-17** Observations are deduplicated on `event_id`, are never attributed to an actor, and never create a submission; an observation on a task mapping without a matching submission is flagged `unsubmitted-push`.
-- **INV-18** Submissions are immutable (triggers); a new push is a new row with `seq = MAX(seq) + 1` for the task, so `(task_id, seq)` is gapless and unique.
-- **INV-19** A submission's `intent_version` equals the task's `current_intent_version` at creation and its `claim_id` is the task's active claim.
-- **INV-20** Every submission has exactly one `submission_contexts` row written in the same batch; its `dependency_results` equal the claim's `claim_dependency_results` and its `acceptance_criteria` equal the intent row's text at that version.
-- **INV-21** A→B→A: two submissions with the same `source_sha` are two records with distinct `seq`; nothing is collapsed on `(repo, ref, after)`.
+One row per provider event (`pushed`, `forked`, `deleted`) or control plane `ls-remote`, deduplicated on `event_id` (the event's transport identity, or a documented transport-derived identity). Routed to a task via a live mapping. Classification (`flag`) is the only mutable part: `matched` to a submission, `unsubmitted-push` (lane moved, nobody submitted), `unknown-repo`, `reconcile` (`before != known head`, triggers an ls-remote), `canonical` (an observation on a target ref, which updates `target_refs.known_head_*`).
 
 ---
 
@@ -273,14 +244,6 @@ One row per integrator **compute run**. `outcome = 'computed'` is a candidate pr
 
 `candidate_checks` is append-only: `id`, `candidate_id`, `check_identity`, `run_id` (unique), `result` (`passed` \| `failed` \| `error` \| `skipped`), `evidence` (JSON: log locations, exit codes, summaries), `started_at`, `finished_at`, `recorded_at`. A rerun is a new row. "The candidate's check result" means the most recently recorded run for that candidate.
 
-- **INV-22** Candidate immutable fields never change (trigger); a recompute is a new candidate row with `recomputed_from_candidate_id` and `recompute_reason` set together (CHECK).
-- **INV-23** At most one live (`active` or `fenced`) candidate per task (partial unique index).
-- **INV-24** A `computed` candidate's `base_sha` equals `target_refs.known_head_sha` for the task's target at compute time; if canonical has moved the integrator reports `stale-base` instead and the control plane schedules a recompute on the new head.
-- **INV-25** Check runs are append-only rows; a rerun never modifies the candidate row; `check_identity` is derived from `(check_policy, candidate_sha, base_sha)`.
-- **INV-26** Non-`computed` outcomes are born with `status = 'failed'`, carry `conflict_files` iff `conflict` (CHECKs), and leave the task in `submitted`.
-- **INV-27** When a submission with `seq > n` is created unfenced, the live candidate computed from the submission with `seq = n` becomes `superseded` (with `status_ref` = the new submission id) in the same batch.
-- **INV-28** A candidate's objects are reachable from `candidate_ref` before the candidate row is inserted, so every approval refers to persisted, immutable git objects, not to a lane ref that may move.
-
 ### 7.2 `approvals`
 
 An authorized principal's statement that **this exact candidate, on this exact base, satisfies this exact intent version**. Legacy human sessions retain their existing behavior. Grant-derived approvals follow accepted [ADR 0001](adr/0001-machine-approval-authority.md), with immutable approver kind/identity, grant ID, versioned policy ID, evidence references, check-run IDs and authority expiry. The three bound values are copied into the approval row; they are not looked up through the candidate at validation time.
@@ -296,7 +259,7 @@ An authorized principal's statement that **this exact candidate, on this exact b
 | `status_changed_at` | |
 | `invalidation_reason`, `invalidation_ref` | Set iff `invalidated` (CHECK): `submission` (ref = submission id), `base-move` (ref = receipt or observation id), `intent-edit` (ref = version), `withdrawn`, `task-closed`, `landing-raced` / `landing-conflict` (ref = receipt id). |
 
-**Recording an approval** (`POST /candidates/:id/approve`) succeeds only if, atomically: the candidate is the task's live `active` candidate with `outcome = 'computed'`; the request's `boundTo` equals exactly `(candidate.candidate_sha, candidate.base_sha, tasks.current_intent_version)`; the candidate's latest check run is `passed` (or `check_policy.kind = 'none'`); the task is in `candidate` (or `landed`, for a follow-up attempt, §8.5); no fence is held; the caller is a human with approve rights. Any mismatch is `409 approval-mismatch` with the current triple in the body so the UI can re-render. Multi-approver policies are out of scope for this record; one live approval per candidate (INV-31).
+**Recording an approval** (`POST /candidates/:id/approve`) succeeds only if, atomically: the candidate is the task's live `active` candidate with `outcome = 'computed'`; the request's `boundTo` equals exactly `(candidate.candidate_sha, candidate.base_sha, tasks.current_intent_version)`; the candidate's latest check run is `passed` (or `check_policy.kind = 'none'`); the task is in `candidate` (or `landed`, for a follow-up attempt, §8.5); no fence is held; the caller is a human with approve rights. Any mismatch is `409 approval-mismatch` with the current triple in the body so the UI can re-render. Multi-approver policies are out of scope for this record; one live approval per candidate.
 
 **Recording a grant-derived approval** (`POST /candidates/:id/approve-with-grant`) is the
 registered-principal path under accepted [ADR 0001](adr/0001-machine-approval-authority.md); the legacy route above stays human-only.
@@ -323,7 +286,7 @@ submitter and delegated on-behalf-of provenance; old submissions are not reattri
 
 ### 7.3 Exactly which transitions clear an unfenced approval
 
-An approval in status `active` (recorded, not yet fenced) becomes `invalidated` the moment any element of its bound triple is no longer the task's current truth. The complete list, with what happens to the candidate and the task:
+An approval in status `active` (recorded, not yet fenced) becomes `invalidated` the moment any element of its bound triple is no longer the task's current truth. The complete list, one row per change, with what happens to the candidate and the task:
 
 | # | Change on the task | Why the triple broke | Approval → | Candidate → | Task → | Reason / ref |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -337,16 +300,6 @@ Everything else leaves the approval `active`: a check **rerun** on the same cand
 
 Ordering is by record, not by arrival: an observation or submission that is *older* than the approval (lower `seq`, earlier version) never invalidates it; the events consumer compares `seq`/`version`, not timestamps.
 
-- **INV-29** Approval immutable fields (`candidate_id`, `approved_by`, `approved_at`, the bound triple) never change (trigger); validity is expressed only through `status`.
-- **INV-30** An approval is recorded only when `boundTo` equals exactly the live computed candidate's `(candidate_sha, base_sha)` and the task's `current_intent_version`, the latest check run is `passed` or the policy is `none`, the task is `candidate` (or `landed` with a follow-up candidate, §8.5), no fence is held, and the actor uses the legacy human route; otherwise `409 approval-mismatch` and no row. For grant-derived approvals the actor is server-derived `human`, `policy_bot` or `workload`; the record additionally validates live authority, explicit policy opt-in, separation of duties and pinned latest required check-run IDs under ADR 0001.
-- **INV-31** At most one live (`active`/`fenced`) approval per candidate (partial unique index).
-- **INV-32** Creating an unfenced submission with `seq` greater than the approved candidate's submission invalidates the active approval with reason `submission` in the same batch.
-- **INV-33** A change of the target ref's known head to a value ≠ `bound_base_sha` (receipt on the same target, or reconciliation observation) invalidates the active approval with reason `base-move` and marks the candidate `stale`.
-- **INV-34** Creating an unfenced intent version invalidates the active approval with reason `intent-edit`; the candidate stays `active`.
-- **INV-35** Withdrawal and task close invalidate the active approval with reasons `withdrawn` / `task-closed`.
-- **INV-36** For legacy human-session approvals, nothing else invalidates: check reruns, unsubmitted-push observations, dependency changes, changes on other tasks and claim release leave the approval `active`. Grant-derived approvals additionally lose unfenced authority on expiry/revocation, attempt termination, policy replacement or changed check-run IDs; admission refuses immediately even before cleanup.
-- **INV-37** Approval status changes only along `approval_status_transitions`; `consumed` and `invalidated` are terminal.
-
 ---
 
 ## 8. Landing fence
@@ -359,7 +312,7 @@ Why: without a fence an agent push that arrives between "human clicked land" and
 
 ### 8.1 Acquisition (`POST /candidates/:id/land`)
 
-In one D1 batch, issued by the task's `TaskCoordinator` Durable Object (`apps/control-plane/src/task-coordinator.ts`):
+In one D1 batch, issued by the task's `TaskCoordinator` Durable Object:
 
 1. Validate: task `approved` (or `landed`, for a follow-up attempt, §8.5); the approval `active` and the task's live approval; its candidate the task's live `active` candidate; `approval.bound_candidate_sha = candidate.candidate_sha`; `approval.bound_base_sha = candidate.base_sha`; `approval.bound_intent_version = tasks.current_intent_version`; `target_refs.known_head_sha = candidate.base_sha` (else `409 stale-base`, and §7.3 row 2 has already fired or fires now); latest check run `passed` (or `check_policy.kind = none`); no held fence; no submission with `seq` greater than the candidate's submission.
 2. Insert `landing_fences` (`status = held`, copies of the triple, `integrator_run_id` minted now).
@@ -368,7 +321,7 @@ In one D1 batch, issued by the task's `TaskCoordinator` Durable Object (`apps/co
 
 If any validation fails, nothing is written except a `landing.fenced`-refused audit row (type `landing.fenced` with `refs.refused = reason`), and the response is `409` with the failing check.
 
-A matching cached head is not enough on its own: while a stale-evidence reconcile leaves `known_head_sha` unchanged until its head re-read runs (§8.4), a `landed` receipt whose fence was acquired on the candidate's base (`base_sha_before = candidate.base_sha`, `base_sha_after` different) is unresolved evidence about that base, whatever order the receipt and the candidate were recorded in. Generation order proves only that a read followed the fence, not the push, so only a head observation reserved after the receipt's reconcile (its generation, recorded in `canonical_head_observations` or being applied by the calling re-read, exceeds the reconcile's generation carried by the receipt's re-read job), or the receipt's own re-read, resolves it; the generation-validated cached head then decides, even when canonical was restored to the base (A→B→A, see INV-64). Fence acquisition copies the canonical generation without advancing it, so an observation applied at the fence's generation (a read reserved just before the fence and applied after it) counts as one since the fence; a missing observation is no evidence and never counts as generation zero. While unresolved: if no observation at or above the fence's generation has been applied, the receipt contradicts the base and `land` is refused up front with the refusal committed: `409 stale-base` (`details: {receiptId, headSha}`), §7.3 `base-move` (approval `invalidated`, candidate `stale`, `invalidation_ref` = that receipt), and a head re-read for the task, whose `base-move` schedules the recompute on the generation-validated head (linked in `target_ref.head_observed`, as staged follow-ups require); no fence is written and the same key replays the 409. If such an observation has been applied (at or above the fence's generation but not reserved after the reconcile, so possibly before the push), the evidence is ambiguous: `land` is refused with a retryable `409 stale-base` (`details: {receiptId, pending: true, rereadRunId}`) that writes nothing, so the approval stays `active` and the same key re-evaluates once the re-read has applied; a re-read showing another head refuses `land` on the cached head and its committed fan-out invalidates the approval (`base-move`, ref = the observed head), and one showing the base admits it. Separately, the fence batch re-checks the same unresolved-receipt condition, so a receipt that commits between validation and the batch rolls the whole batch back (`409 operation-in-progress`, nothing written) and the retry takes the refusal. A `base-move` never schedules a recompute against a head such a receipt leaves unresolved, and coalesces with a pending recompute of the same submission on the same base. The integrator's compare-and-swap stays the last line of defense.
+A matching cached head is not enough on its own: while a stale-evidence reconcile leaves `known_head_sha` unchanged until its head re-read runs (§8.4), a `landed` receipt whose fence was acquired on the candidate's base (`base_sha_before = candidate.base_sha`, `base_sha_after` different) is unresolved evidence about that base, whatever order the receipt and the candidate were recorded in. Generation order proves only that a read followed the fence, not the push, so only a head observation reserved after the receipt's reconcile (its generation, recorded in `canonical_head_observations` or being applied by the calling re-read, exceeds the reconcile's generation carried by the receipt's re-read job), or the receipt's own re-read, resolves it; the generation-validated cached head then decides, even when canonical was restored to the base (A→B→A). Fence acquisition copies the canonical generation without advancing it, so an observation applied at the fence's generation (a read reserved just before the fence and applied after it) counts as one since the fence; a missing observation is no evidence and never counts as generation zero. While unresolved: if no observation at or above the fence's generation has been applied, the receipt contradicts the base and `land` is refused up front with the refusal committed: `409 stale-base` (`details: {receiptId, headSha}`), §7.3 `base-move` (approval `invalidated`, candidate `stale`, `invalidation_ref` = that receipt), and a head re-read for the task, whose `base-move` schedules the recompute on the generation-validated head (linked in `target_ref.head_observed`, as staged follow-ups require); no fence is written and the same key replays the 409. If such an observation has been applied (at or above the fence's generation but not reserved after the reconcile, so possibly before the push), the evidence is ambiguous: `land` is refused with a retryable `409 stale-base` (`details: {receiptId, pending: true, rereadRunId}`) that writes nothing, so the approval stays `active` and the same key re-evaluates once the re-read has applied; a re-read showing another head refuses `land` on the cached head and its committed fan-out invalidates the approval (`base-move`, ref = the observed head), and one showing the base admits it. Separately, the fence batch re-checks the same unresolved-receipt condition, so a receipt that commits between validation and the batch rolls the whole batch back (`409 operation-in-progress`, nothing written) and the retry takes the refusal. A `base-move` never schedules a recompute against a head such a receipt leaves unresolved, and coalesces with a pending recompute of the same submission on the same base. The integrator's compare-and-swap stays the last line of defense.
 
 | `landing_fences` column | Definition |
 | --- | --- |
@@ -392,7 +345,7 @@ fence, consumed decision or response ledger fragments. Landing rights remain sep
 
 - The integrator mints an integrator-write grant scoped to the fenced landing, fetches `candidate_ref`, and pushes `candidate_sha` to the target ref with `--force-with-lease=<target_ref>:<base_sha>`. Exactly one of two concurrent landings on the same base can win the lease.
 - The task cannot be rejected, superseded, re-claimed or re-approved; `land` again is idempotent (`409 fenced` with the fence id for a different idempotency key).
-- A second fence on the same task is impossible (partial unique index). **At most one fence is held per target ref**, across tasks and task DOs: the unique partial index `canonical_one_held_fence` on `canonical_fences(repository_id, ref_name) WHERE status='held'` ([`migrations/0008_canonical_delivery_custody.sql:26`](../apps/control-plane/migrations/0008_canonical_delivery_custody.sql#L26 "CREATE UNIQUE INDEX canonical_one_held_fence")) is populated by the `canonical_fence_acquired` trigger ([`:27`](../apps/control-plane/migrations/0008_canonical_delivery_custody.sql#L27 "CREATE TRIGGER canonical_fence_acquired")) in the same batch as the `landing_fences` insert, so a competing admission fails and rolls back its approval fence and every related record. Per-task DOs do not serialize landings; the index does. The integrator's expected-old lease remains the final ref-write guard, and `raced` remains a resolution for a base that moved outside Octocove or between validation and push.
+- A second fence on the same task is impossible (partial unique index). **At most one fence is held per target ref**, across tasks and task DOs: the unique partial index `canonical_one_held_fence` on `canonical_fences(repository_id, ref_name) WHERE status='held'` is populated by the `canonical_fence_acquired` trigger in the same batch as the `landing_fences` insert, so a competing admission fails and rolls back its approval fence and every related record. Per-task DOs do not serialize landings; the index does. The integrator's expected-old lease remains the final ref-write guard, and `raced` remains a resolution for a base that moved outside Octocove or between validation and push.
 - The fence row, with its `integrator_run_id`, is the durable dispatch record: a restarted coordinator rebuilds its queue from held fences in D1, never from its own memory. A crash or timeout of the run is an *unknown* outcome, not permission to dispatch a second canonical writer for the same fence; the run must be confirmed terminated (or its write authority revoked through the broker) before the fence is resolved as `error`.
 
 ### 8.3 Staging
@@ -428,15 +381,7 @@ After release, staged records take effect, in `seq` order:
 
 - **Staged submissions.** The latest staged submission becomes the input of a new compute run: a new candidate with `recomputed_from_candidate_id` = the fenced candidate and `recompute_reason` = `staged-after-landing` (if the fence landed) or `fence-released` (otherwise), built on the **new** canonical head. It needs its own approval. Earlier staged submissions are simply history (no candidate is computed for them).
 - **Staged intent edits.** Already recorded as versions; `current_intent_version` already points at the newest. If release consumed or invalidated the approval, any future approval must bind the new version. If an infrastructure-error release reactivated it, staged application invalidates that active approval with `intent-edit` before another fence may be acquired (§15.4).
-- **If the fence landed**, the task is `landed` and terminal (INV-09). The staged submission's candidate is a **follow-up attempt** on a landed task: `tasks.status` stays `landed`, `accepted_receipt_id` stays the first receipt, and the follow-up carries its own candidate/approval/fence/receipt (attempt status does the work, INV-10). Dependents were admitted on the accepted receipt and are unaffected. A human may `withdraw`/`reject` the follow-up candidate instead of approving it. For a follow-up, every *task-status* step in §7.2, §8.1 and §8.4 is a no-op (the task stays `landed`, `accepted_receipt_id` is write-once); the *attempt* statuses (candidate, approval, claim, fence, receipt) move exactly as described, and a follow-up's `landed` receipt still updates the known head and base-move-invalidates other tasks. Only already-recorded staged submissions qualify as follow-ups. The agent's claim is `completed` at landing; §5 forbids new claims on a terminal task. New work after landing requires a new task; it cannot take over or reopen the landed task.
-
-- **INV-38** Fence acquisition validates the full tuple and writes fence + `approval → fenced` + `candidate → fenced` + `task → landing` + audit rows in one atomic batch; on any failed check nothing is written except the refused audit row. A `landed` receipt that moved canonical off the candidate's base refuses acquisition even when the cached head still matches, until a head observation reserved after that receipt's reconcile (not merely after its fence) has been applied: with no observation applied at or above the fence's generation, the refusal found at validation writes no fence but commits the §7.3 `base-move` invalidation citing the receipt and a head re-read; with one at or above the fence's generation but not reserved after the reconcile, the refusal is retryable and writes nothing; found only by the fence batch, the batch rolls back and writes nothing.
-- **INV-39** At most one `held` fence per task (partial unique index); a second `land` returns `409 fenced` with the held fence id.
-- **INV-40** While a fence is held, submissions and intent edits on the task are recorded with `staged_behind_fence_id` set and do not change the status of the fenced approval, the fenced candidate or the task.
-- **INV-41** A fence is released only in the same batch as its receipt, and only with `resolution` and `reconciled_at` set (CHECK); released fences never change (trigger).
-- **INV-42** Release applies exactly the outcome mapping of §8.4: `landed` → approval `consumed`, candidate `landed`, claim `completed`, task `landed`; `raced`/`conflict` → approval `invalidated` (`landing-raced`/`landing-conflict`), candidate `raced`/`failed`, task `submitted`; `error` → approval and candidate back to `active` and task `approved` iff canonical head still equals `base_sha`, else `base-move` invalidation and task `submitted`.
-- **INV-43** After release, the latest staged submission (if any) yields a new candidate with `recomputed_from_candidate_id` = the fenced candidate and `recompute_reason` ∈ {`staged-after-landing`, `fence-released`}, built on the new canonical head, with no approval; earlier staged submissions yield none.
-- **INV-44** A `fenced` approval is never invalidated by a staged submission, a staged intent edit, or an observation; only the fence's own resolution changes its status.
+- **If the fence landed**, the task is `landed` and terminal. The staged submission's candidate is a **follow-up attempt** on a landed task: `tasks.status` stays `landed`, `accepted_receipt_id` stays the first receipt, and the follow-up carries its own candidate/approval/fence/receipt (attempt status does the work). Dependents were admitted on the accepted receipt and are unaffected. A human may `withdraw`/`reject` the follow-up candidate instead of approving it. For a follow-up, every *task-status* step in §7.2, §8.1 and §8.4 is a no-op (the task stays `landed`, `accepted_receipt_id` is write-once); the *attempt* statuses (candidate, approval, claim, fence, receipt) move exactly as described, and a follow-up's `landed` receipt still updates the known head and base-move-invalidates other tasks. Only already-recorded staged submissions qualify as follow-ups. The agent's claim is `completed` at landing; §5 forbids new claims on a terminal task. New work after landing requires a new task; it cannot take over or reopen the landed task.
 
 ---
 
@@ -461,13 +406,7 @@ The attributable receipt a human gets per landing attempt. One per fence, immuta
 | `event_ids_consumed` | JSON array of `push_observations.event_id` the control plane consumed to confirm this landing (the canonical `pushed` event, any reconcile observations). |
 | `created_at` | |
 
-A **receipt is renderable from the audit log alone**: every field above appears in the `refs` of the fence's `landing.fenced` / `landing.resolved` / `landing.reconciled` / `landing.fence_released` / `task.landed` rows, so the audit module can render it without reading this table (INV-52).
-
-- **INV-45** Exactly one receipt per fence (`fence_id` unique), written in the release batch; receipts are immutable (triggers); `integrator_run_id` is unique across receipts.
-- **INV-46** `outcome = landed` ⇒ `landed_sha` set, `ancestry_verified = 1` and `base_sha_after = reconciled_against_sha` (CHECKs); the control plane never marks a task `landed` on an ls-remote SHA match without fetched-object ancestry.
-- **INV-47** `outcome = raced` ⇒ `base_sha_before ≠ base_sha_after` (CHECK); two concurrent fences whose candidates share a `base_sha` produce exactly one `landed` and one `raced` receipt, and the raced task returns to `submitted` with a recompute scheduled.
-- **INV-48** Every id in `event_ids_consumed` is a recorded `push_observations.event_id`, and no event id appears in two receipts.
-- **INV-49** Every receipt updates `target_refs.known_head_*` (`source = receipt`) to `base_sha_after`, and every `landed` receipt triggers `dependents.reevaluated` for tasks depending on this task and `base-move` invalidation (§7.3 row 2) for other tasks' unfenced approvals on the same target.
+A **receipt is renderable from the audit log alone**: every field above appears in the `refs` of the fence's `landing.fenced` / `landing.resolved` / `landing.reconciled` / `landing.fence_released` / `task.landed` rows, so the audit module can render it without reading this table.
 
 ---
 
@@ -481,8 +420,10 @@ Event types and the transition each marks:
 | --- | --- |
 | `project.created`, `repository.registered`, `target_ref.registered`, `target_ref.head_observed` | identity rows; every change to `known_head_*` |
 | `repository.verified` | an API-registered repository bound to its Artifacts remote by a `project:admin` human; once per repository, never undone |
-| `repository.creation_needs_operator` | a repository creation or import whose outcome Octocove could not settle on its own: the address stays reserved, nothing is deleted, and `refs.reason` says why; once per creation intent ([OPERATIONS](OPERATIONS.md#repository-creation-reconciliation)) |
+| `repository.creation_needs_operator` | a repository creation or import whose outcome Octocove could not settle on its own: the address stays reserved, nothing is deleted, and `refs.reason` says why; once per creation intent; the operator settles it from the reason |
 | `member.added`, `member.removed` | a `project:admin` human adds or removes a project member ([ADR 0020](adr/0020-project-members.md)); `refs.principalId` and the verbs granted or held. A removal's batch also ends the member's delegations in the project, and its webhooks' disables follow as `webhook.disabled` rows |
+| `notification_preferences.updated` | a human replaces their own notification preferences (`PUT /me/notification-preferences`, [ADR 0025](adr/0025-in-app-notifications.md)); `refs.principalId`, `mutedKinds` and `mutedProjects`, ids only. No project, so no project's `/audit` or `/events` serves it. Read marks are personal state and never audited |
+| `profile.updated` | a human edits their own profile ([ADR 0026](adr/0026-editable-profile.md)); `refs.principalId` and `refs.fields`, the names of the fields set, never their values. Not project-scoped: `project_id` and `task_id` are null, so the row is in neither the project `/audit` read nor `/events` |
 | `task.created`, `task.dependency_added`, `task.dependency_removed`, `task.published`, `task.ready`, `task.unready`, `task.rejected`, `task.superseded`, `task.landed` | task status and dependency changes |
 | `intent.edited`, `intent.edit_staged` | new intent version (staged variant while a fence is held) |
 | `webhook.created`, `webhook.replay_requested`, `webhook.disabled`, `webhook.reactivated` | subscription creation, replay request, effective disable and explicit reauthorization; identifiers and replay bounds only |
@@ -500,31 +441,16 @@ Event types and the transition each marks:
 | `approval_grant.issued`, `approval_grant.used`, `approval_grant.revoked`, `approval_grant.decided` | immutable grant creation, atomic consumption, write-once revocation and every durable decision/refusal; sanitized exact authority snapshot |
 | `approval_principal.registered`, `approval_principal.revoked`, `approval_policy.registered`, `approval_policy.revoked` | registration and write-once authority revocation, retained permanently |
 
-- **INV-50** `audit_log` rejects every `UPDATE` and `DELETE` (triggers) and every `type` outside the vocabulary (CHECK).
-- **INV-51** Every state transition in this document writes exactly one audit row of the corresponding type in the same D1 batch as the transition; a failed batch leaves neither.
-- **INV-52** A landing receipt can be rendered field-for-field from the audit rows of its fence alone (`landing.fenced`, `landing.resolved`, `landing.reconciled`, `landing.fence_released`, `task.landed`).
-
 ### 10.1 Machine exact-approval authority (ADR 0001)
-
-- **INV-53** Grant-derived decisions pin the exact candidate/base/intent, latest passed required check-run IDs and effective policy identity; changed evidence denies without consuming authority.
-- **INV-54** Human-only is the target default. Machine approval requires both principal permission and explicit current target policy; submitting and delegated on-behalf-of identities cannot approve their own candidate.
-- **INV-55** Grant consumption is one-use and atomic with approval, audit and decision/response ledgers. Concurrent use and revocation cannot leave partial state. Identical principal/key/body retries recover the original decision only while still authorized.
-- **INV-56** Grant-derived fence admission rechecks live authority, serialized with revocation. Held-fence authorization survives revocation; error reactivation requires qualifying authority and evidence.
-- **INV-57** Principal/policy/grant scope, approval evidence, replay and decision rows cannot be rewritten/deleted/replaced; only explicit write-once revocation/consumption metadata changes. Every issue/use/revocation/decision is audited and receipts/exports reconstruct kind, identity, policy and evidence from audit.
 
 ### 10.2 Chain lane strategy (ADR 0003)
 
 Chain is an existing lane (`task-repo` mapping plus chain id), with one T per
-sequence. Migration `0021_chain_lanes.sql` adds D1 pool inventory, pointer,
+sequence. The schema adds D1 pool inventory, pointer,
 cross-task writer lease, immutable pinned attempt bases and retained pending
 pushes. This operational state does not grant approval or canonical landing.
 First base pins the registered head; successor base pins the previous chain
 task's accepted landed receipt SHA. Shared T is not deleted by claim cleanup.
-
-- **INV-58** Chain admission grants exactly one writer across task coordinators; immutable canonical/target and exact preceding accepted receipt base cannot be retargeted. Claimant Git tokens are read-only and native writes hold a D1 operation fence.
-- **INV-59** Chain pointer, exact fetched ref/commit proof, task-repo mapping, broker authorization and audit commit atomically after token mint/native refresh; fork-before-attach and attach-before-pointer crashes reconcile the same T.
-- **INV-60** Every acknowledged early push retains durable native object custody and an immutable D1 FIFO job. Pending/exhausted retries remain observable as `remote-pending`; no job is discarded, overwritten or overtaken. Release/expiry retains accepted work and fences new writers until it drains.
-- **INV-61** Chain T retirement closes admission and never deletes before terminal tasks, ended claims, durable accepted landed receipts, canonical source custody, completed compute, delivered pushes and terminated writer operations/credentials. Immutable mappings/receipts survive deletion.
 
 ## 11. Task status versus attempt status — worked examples
 
@@ -664,25 +590,23 @@ sequenceDiagram
 ## 13. What this record does not contain (owned elsewhere)
 
 - **Principals, sessions, delegations, revocation lists** — the auth module. Here they appear only as opaque `actor_id`, `authorized_by`, `delegation_id`.
-- **Token-broker grants** (task → repo, scope, TTL) — the token broker. Claim grants (`claim_broker_grants`, mirrored into `broker_grants`) are revoked when the claim leaves `active` ([`0005_broker.sql:31`](../apps/control-plane/migrations/0005_broker.sql#L31 "CREATE TRIGGER broker_attempt_ended")) and when the task becomes terminal ([`:37`](../apps/control-plane/migrations/0005_broker.sql#L37 "CREATE TRIGGER broker_task_terminal")); fence grants are revoked when the fence is released ([`:55`](../apps/control-plane/migrations/0005_broker.sql#L55 "CREATE TRIGGER broker_fence_released")). Revocation closes the *grant* (no new tokens). Tokens already issued are marked `revoke_pending` for provider revocation only for `revoked`/`superseded`/`completed` claims, terminal tasks and released fences; on a plain release or expiry they remain valid until their own bounded expiry ([`0005_broker.sql:30`](../apps/control-plane/migrations/0005_broker.sql#L30 "-- Release/expiry stops minting; its existing bounded tokens may expire naturally.")).
+- **Token-broker grants** (task → repo, scope, TTL) — the token broker. Claim grants (`claim_broker_grants`, mirrored into `broker_grants`) are revoked when the claim leaves `active` and when the task becomes terminal; fence grants are revoked when the fence is released. Revocation closes the *grant* (no new tokens). Tokens already issued are marked `revoke_pending` for provider revocation only for `revoked`/`superseded`/`completed` claims, terminal tasks and released fences; on a plain release or expiry they remain valid until their own bounded expiry ([broker contract](HELPER_BROKER_CONTRACT.md#exchange)).
 - **Idempotency-key storage for every POST** — the API's operation ledger. Record tables carry `idempotency_key` columns so a replay can return the original row.
 - **Poison-message parking for the queue consumer** — the events consumer.
 - **Dispatch outbox and job leases** for integrator runs — the task lifecycle; the held fence (land step) and the submission (compute step) are the durable facts an outbox row points at, so losing the outbox is recoverable from this record.
 - **Handler names per transition** — §15 assigns the authoritative handler, trigger and idempotency rule for every record transition; the API spec defines the shared entrypoints.
 
-## 14. Migration notes
+## 14. Schema notes
 
-- `0001_record.sql` is the first migration (it drops a leftover `schema_marker` table if present). `pnpm db:migrate:local` applies it; wrangler 4.147 requires Node ≥ 22.
-- D1 is SQLite: triggers, partial indexes, `CHECK`, JSON1 and composite foreign keys are all used and verified to apply (`wrangler d1 migrations apply --local`, 89 statements). Foreign keys are enforced by default on D1.
-- Transition tables (`task_status_transitions`, `claim_status_transitions`, `candidate_status_transitions`, `approval_status_transitions`) are data seeded by the migration. Changing an allowed transition is a new migration and a change to this document, together.
+- D1 is SQLite: triggers, partial indexes, `CHECK`, JSON1 and composite foreign keys enforce the record. Foreign keys are enforced by default on D1.
+- Transition tables (`task_status_transitions`, `claim_status_transitions`, `candidate_status_transitions`, `approval_status_transitions`) are seeded data. Changing an allowed transition changes the schema and this document together.
 - Views: `v_task_dependency_state`, `v_task_admission` (the admission rule), `v_task_live_attempt` (active claim, latest `seq`, live candidate, live approval, held fence per task).
-- Migrations 0003 onwards are summarized in the per-migration appendix after §16. The `database_id` in `wrangler.jsonc` is a placeholder that each deployment replaces.
 
 ## 15. Authoritative handlers, triggers and idempotency
 
 This registry assigns every transition above to **one record writer**. Names are implementation contracts.
 
-**Handlers of §15 (`apps/control-plane/src/lifecycle.ts`).** Implemented: task creation/edit/publication, `makeUnready`, `changeDependency` (transactional cycle check), `closeTask`, `replaceClaim` (human takeover), `withdrawApproval`, `withdrawCandidate`, `rejectCandidate`, claim/provision/end, submission/compute/check/approve/land/reconciliation, invalidation cascades, canonical observations/admission, retention-aware cleanup/dispatch and reads. Governance routes require human membership rights, expected task status/current intent version and durable principal/command/key replay; candidate withdrawal also accepts the current owning claimant. Claim replacement grants the authenticated human a fresh attempt; it never accepts client-selected actor/delegation authority. Each coupled status change has its own guarded mutation and audit row in the same transaction, including response ledger and cleanup/provisioning facts. Projects, canonical repositories and target refs are created through `POST /projects` and the repository routes in [API.md](API.md), not through lifecycle handlers; no handler retires a canonical repository. Outbound webhook delivery/replay is implemented in `webhooks.ts`. `lifecycle.*` belongs to the task lifecycle; `auth.*` to the auth module; `ingest.*` to the events consumer; `audit.*` to the audit module. The integrator supplies run-bound evidence; it does not mutate policy tables. [API.md](API.md) and [OpenAPI](../apps/control-plane/openapi.yaml) define the shared wire boundary.
+**Handlers of §15.** Implemented: task creation/edit/publication, `makeUnready`, `changeDependency` (transactional cycle check), `closeTask`, `replaceClaim` (human takeover), `withdrawApproval`, `withdrawCandidate`, `rejectCandidate`, claim/provision/end, submission/compute/check/approve/land/reconciliation, invalidation cascades, canonical observations/admission, retention-aware cleanup/dispatch and reads. Governance routes require human membership rights, expected task status/current intent version and durable principal/command/key replay; candidate withdrawal also accepts the current owning claimant. Claim replacement grants the authenticated human a fresh attempt; it never accepts client-selected actor/delegation authority. Each coupled status change has its own guarded mutation and audit row in the same transaction, including response ledger and cleanup/provisioning facts. Projects, canonical repositories and target refs are created through `POST /projects` and the repository routes in [API.md](API.md), not through lifecycle handlers; no handler retires a canonical repository. Outbound webhook delivery and replay belong to the webhook module (`webhooks.*`). `lifecycle.*` belongs to the task lifecycle; `auth.*` to the auth module; `ingest.*` to the events consumer; `audit.*` to the audit module. The integrator supplies run-bound evidence; it does not mutate policy tables. [API.md](API.md) and [OpenAPI](../spec/openapi.yaml) define the shared wire boundary.
 
 Idempotency notation:
 
@@ -754,8 +678,6 @@ with `lane.provisioning_blocked` and explicit claim readiness metadata; ADR 0004
 D3/D5's dedicated names await v2 support. Subscription setup follows ready commit
 and is acceleration only; absent platform hints cannot prevent own completion.
 
-- **INV-62** Owned provisioning/submission request facts persist atomically before remote I/O. A ready mapping requires exact fetched ref/commit proof containing its pinned base (and external expected SHA); blocked provisioning has an atomic audit row. Explicit submissions fetch-verify their source, candidates fetch-verify publication, and claim → ready → submit → candidate → land completes with all platform hints suppressed. Token minting and acceleration subscription success are never completion evidence; retries retain request identity and attribution.
-
 ### 15.2.1 Internal inbound hint binding and quarantine
 
 `inbound_hint_bindings` retains authenticated source IDs, the immutable
@@ -767,10 +689,8 @@ JSON diagnostics, first/last seen times, optional pinned repair binding and
 successful replay identity/time. `inbound_hint_guards` contains CHECK-backed
 transactional assertions inserted and removed in the same evidence/effect batch;
 a routing change rolls that entire batch back. Quarantine is internal operational storage,
-not a task/repository state or public event. See the [outbox recovery runbook](runbooks/outbox-recovery.md)
-for inspection and re-drive procedures.
-
-- **INV-63** Inbound hints resolve exactly one active full binding and one live ref route before dedupe or follow-up; names and globally colliding provider IDs cannot route or suppress hints across scopes. Unknown, stale or ambiguous hints persist diagnostics in quarantine before acknowledgement and never drive observations, reads, head/outbox writes or state changes. Replay retains transport identity and pins explicit repairs across crashes. Verifiers use exact scoped broker reads; delete hints alone cannot mark a repository deleted.
+not a task/repository state or public event; operators inspect quarantined hints
+and re-drive them.
 
 ### 15.3 Candidate and approval transitions (all seeded status edges)
 
@@ -812,7 +732,7 @@ Withdrawal clarification: the seeded `candidate → submitted` task edge is also
 | Observation flag → matched/unsubmitted-push/unknown-repo/reconcile/canonical | `ingest.classifyObservation` | Mapping/submission correlation or remote reconciliation job | E + classification revision; duplicate same classification no-op; changes audited as observation.flagged. |
 | Dependency eligibility → reevaluated | `lifecycle.reevaluate` | Every landed receipt (including follow-up) | J `(receiptId, dependentTaskId)`; accepted result remains first landed receipt; conditional draft→ready. |
 | Project/repository/target absent → registered; repository → soft-deleted | `projects.createProject`; `repositories.createRepository` / `repository-creation.createProvidedRepository` (repository and its target ref); repository soft-delete *(not implemented)* | Human setup command, provisioning job, authorized cleanup | C/J plus provider identity; identity uniqueness, write-once deletion metadata; keep referenced history. |
-| Audit/event absent → append-only row; outbound delivery → acknowledged/retry/parked | `audit.appendTransitions` / `webhooks.deliverDue` (`enqueueDeliveries`, `deliverDue`, `attempt`; [webhooks.ts:377](../apps/control-plane/src/webhooks.ts#L377 "export async function enqueueDeliveries"), [webhooks.ts:534](../apps/control-plane/src/webhooks.ts#L534 "export async function deliverDue"), [webhooks.ts:421](../apps/control-plane/src/webhooks.ts#L421 "async function attempt"); [scheduled handler, index.ts:390](../apps/control-plane/src/index.ts#L390 "async scheduled(")) | Writer transaction / committed audit outbox | Transition cause + entity dedupe; delivery job ID/event ID; POST webhook replay uses P, consumers dedupe stable event ID. |
+| Audit/event absent → append-only row; outbound delivery → acknowledged/retry/parked | `audit.appendTransitions` / `webhooks.deliverDue` (enqueue, scheduled delivery sweep and per-attempt send) | Writer transaction / committed audit outbox | Transition cause + entity dedupe; delivery job ID/event ID; POST webhook replay uses P, consumers dedupe stable event ID. |
 
 Two boundary clarifications prevent contradictory implementations of earlier prose:
 
@@ -821,7 +741,7 @@ Two boundary clarifications prevent contradictory implementations of earlier pro
 
 ## 16. Audit implementation and integration contract
 
-`apps/control-plane/src/audit.ts` implements the §10 vocabulary, transactional writer and read projection. The existing table is named **`audit_log`**, not a second `audit` table. Migration `0002_audit_insert_only.sql` adds an insert guard against SQLite `REPLACE`: conflicting primary IDs or transition keys abort before SQLite can silently delete the old row. The original `BEFORE UPDATE` / `BEFORE DELETE` guards remain authoritative. No SQL grants or recursive-trigger setting is required.
+The audit module implements the §10 vocabulary, transactional writer and read projection. The table is named **`audit_log`**; there is no second `audit` table. An insert guard against SQLite `REPLACE`: conflicting primary IDs or transition keys abort before SQLite can silently delete the old row. The original `BEFORE UPDATE` / `BEFORE DELETE` guards remain authoritative. No SQL grants or recursive-trigger setting is required.
 
 ### 16.1 Transition writer
 
@@ -829,17 +749,17 @@ Lifecycle, ingest and integrator-result handlers call `appendTransitions(db, tra
 
 The writer constructs one D1 `batch` of each transition’s before writes, defining mutation, audit insert and after writes. The audit insert checks the preceding mutation's SQLite `changes()`: anything other than exactly one affected row makes `refs` NULL and aborts the batch. Thus a missed compare-and-swap, multi-row update, invalid mutation, invalid audit or duplicate transition key leaves **neither state nor audit**, including earlier transitions in the command. Callers use conditional updates (`WHERE status = expected` or expected version) so redundant updates cannot produce duplicate history. `idempotencyKey` is an internal cause/entity/transition identity, not a public request key shared by several transitions. Public retry handlers return their previously committed result before invoking the writer again.
 
-The application guard accepts a single unquoted-table INSERT/UPDATE/DELETE only; audit-table mutations, comments, scripts, CTEs, REPLACE and IGNORE are refused. Domain handlers remain responsible for admission, authorization, entity/event correspondence, durable no-state-change facts and replay decisions. Raw D1 access is reserved for migrations and reads; **all production record mutations must use this writer**. The lifecycle handlers listed in §15 call this writer (`apps/control-plane/src/lifecycle.ts`); the governance verbs ([lifecycle.ts:452](../apps/control-plane/src/lifecycle.ts#L452 "async edit(")) and outbound webhook transport ([webhooks.ts:421](../apps/control-plane/src/webhooks.ts#L421 "async function attempt")) are implemented and call the same transactional writer (§15).
+The application guard accepts a single unquoted-table INSERT/UPDATE/DELETE only; audit-table mutations, comments, scripts, CTEs, REPLACE and IGNORE are refused. Domain handlers remain responsible for admission, authorization, entity/event correspondence, durable no-state-change facts and replay decisions. Raw D1 access is reserved for migrations and reads; **all production record mutations must use this writer**. The lifecycle handlers listed in §15, including the governance verbs and the outbound webhook transport, call this writer.
 
 ### 16.2 Authorized reads
 
-`createApp(authorizeAudit)` exposes `GET /tasks/:id/log` and `GET /audit?since=`. The trusted auth adapter supplies `{principalId, projectId, taskId?}` after validating current membership or an agent's `audit:read` delegation. It must select the tenant's D1 binding and authorized project, and give agents a task scope. Scope values never come directly from query parameters. Missing adapter returns 401; missing `AUDIT_CURSOR_SECRET` returns 503. The default Worker wires this adapter (`authorizeAudit` in `src/index.ts`); no placeholder bearer or client actor is trusted.
+`GET /tasks/{id}/log` (`taskLog`) and `GET /audit?since=` (`auditList`) are the audit reads. The trusted auth adapter supplies `{principalId, projectId, taskId?}` after validating current membership or an agent's `audit:read` delegation. It must select the tenant's D1 binding and authorized project, and give agents a task scope. Scope values never come directly from query parameters. Without an auth adapter the reads answer 401; without a configured cursor secret they answer 503. No placeholder bearer or client actor is trusted.
 
 Pages contain `{items, nextCursor}`, ordered by increasing audit ID (decimal strings preserve 64-bit IDs). `limit` defaults to 50, maximum 200. `since` is an exclusive UTC ISO timestamp comparison; `cursor` (or task-log `after`) is an exclusive sequence position. HMAC cursors bind tenant, principal, project, task scope, requested task and since filter. Tampering/cross-scope/filter reuse returns 400 `invalid-cursor`; an invisible task returns 404. Empty pages retain the sequence for resumable polling. Rows are never expired; cursor v1 has no historical-expiry path. Reads send `Cache-Control: no-store`. An authorized project reader gets that project's rows, never tenant-wide unfiltered SQL; an agent's `/audit` is confined to its bound task.
 
 ### 16.3 Audit-only receipt evidence
 
-`deriveReceipt(rows, fenceId)` and `renderReceipt(rows, fenceId)` in `src/receipt.ts` read **audit rows only**. Every fence event carries `refs.fenceId`; the renderer requires fenced, resolved, reconciled and released evidence and, for a landed outcome, `task.landed`. It returns `receipt-pending` until release evidence exists and refuses missing or contradictory evidence. Conflicts/races/errors render explicit outcomes without fabricating a landed SHA.
+The receipt renderer reads **audit rows only**. Every fence event carries `refs.fenceId`; the renderer requires fenced, resolved, reconciled and released evidence and, for a landed outcome, `task.landed`. It returns `receipt-pending` until release evidence exists and refuses missing or contradictory evidence. Conflicts/races/errors render explicit outcomes without fabricating a landed SHA.
 
 Writers copy the immutable fenced snapshot into `landing.fenced.refs`: `receiptId`, `candidateId`, `approvalId`, `repositoryId`, `targetRef`, `sourceSha`, `candidateSha`, `baseShaBefore`, `intentVersion`, `integratorRunId`, `approvedBy`, `approvedAt`, and `boundTo: {submissionId, candidateSha, baseSha, intentVersion}`. The row's authenticated actor is the landing requester. The tuple must match the receipt's candidate/base/intent; later evidence cannot overwrite these snapshot fields.
 
@@ -849,29 +769,7 @@ receipt copies kind even for failed outcomes. Export retains the receipt row and
 audit-only approval reconstruction; no later policy lookup changes historical evidence.
 The renderer never infers ancestry from a SHA match. It includes the approver kind and identity, landing requester, source/base/candidate/landed SHAs, exact bound tuple, consumed events and reconciliation evidence in the human receipt.
 
-### 16.4 Validation boundary
-
-`tests/audit.test.ts` applies all migrations to actual SQLite and exercises the D1-shaped writer/query adapter. It verifies every §10 event type against the schema/document, one audit row per writer transition, trigger enforcement including REPLACE, rollback on failed/missed/multi-row transitions, scoped pagination/tamper protection, fail-closed routes, and receipt reconstruction for §12.1's upstream landing → explicit conflict → new candidate/base → re-approval → final landing, plus raced/pending/invalid evidence. These audit tests run on SQLite/Miniflare and do not exercise a live Artifacts or native-git engine; lifecycle coverage of the §15 handlers is in `tests/lifecycle-core.test.ts`, `tests/lifecycle-coordination.test.ts`, `tests/lifecycle-landing.test.ts`, `tests/lifecycle-records.test.ts` and `tests/http-projections.test.ts`. Governance and the dependency-admission race are covered by [tests/lifecycle-governance.test.ts:53](../apps/control-plane/tests/lifecycle-governance.test.ts#L53 "\"unpublishes ready atomically, replays without another audit and refuses stale/nonhuman/state changes\"") and [:115](../apps/control-plane/tests/lifecycle-governance.test.ts#L115 "\"admits an edge added after upstream landing enumerated its dependents\""). Signed delivery, replay, membership suspension, pinned transport and cancellation are covered by [tests/webhooks.test.ts:88](../apps/control-plane/tests/webhooks.test.ts#L88 "'signature'"), [:297](../apps/control-plane/tests/webhooks.test.ts#L297 "'suspends immediately on creator removal, cancels pending and never auto-reactivates'"), [:330](../apps/control-plane/tests/webhooks.test.ts#L330 "'cancels send admission after %s during DNS'") and [:369](../apps/control-plane/tests/webhooks.test.ts#L369 "'clamps future replay through at creation and keeps that bound on concurrent retries'"); immutable webhook evidence and referential guards by [tests/webhook-integrity.test.ts:48](../apps/control-plane/tests/webhook-integrity.test.ts#L48 "describe("). Asynchronous provisioning, timeouts, restart reconciliation and late-fork cleanup are covered by [tests/async-provisioning.test.ts:38](../apps/control-plane/tests/async-provisioning.test.ts#L38 "returns a claim and serves/edits the same task while the fork is held open") and [:256](../apps/control-plane/tests/async-provisioning.test.ts#L256 "\"keeps an ambiguous server-side fork recoverable across restart until GET observes and cleanup deletes it\""). Independent transition oracles and record constraints are covered by [tests/record-invariants.test.ts:106](../apps/control-plane/tests/record-invariants.test.ts#L106 "'task status matrix accepts every declared pair and rejects every undeclared pair and closed_at mismatch'"); false coverage from commented/skipped tests is rejected by [tests/record-invariant-checker.test.ts:24](../apps/control-plane/tests/record-invariant-checker.test.ts#L24 "'checker rejects false coverage from %s fixture'").
-
-## Appendix A. Per-migration notes (0003 onwards)
-
-Wrangler tracks migrations by full filename and applies them in lexical order. Migration prefixes are unique and sequential; CI rejects duplicate prefixes ([tools/check-migration-prefixes.mjs:7](../tools/check-migration-prefixes.mjs#L7 "const prefix = /^(\d+)_/.exec(file)?.[1];"), the "Reject duplicate migration prefixes" step of [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)). Never renumber an applied migration.
-
-| Migration | Adds | Notes |
-| --- | --- | --- |
-| `0003_auth.sql` | `auth_users`, `auth_memberships`, `auth_families`, `auth_sessions`, `auth_transactions`, `auth_devices`, `auth_authorizations`, `auth_delegations`, `auth_denylist`, `auth_recovery`, `auth_cas` | Provider identity is `(issuer, sub)`; profile data never grants project authority. `auth_recovery` holds short-lived **encrypted** retry payloads, never plaintext credentials. `auth_cas` is a batch compare-and-swap guard: a losing mutation aborts every credential/recovery write in its batch. Outside the record proper (§13). |
-| `0004_lifecycle.sql` | `lifecycle_operations`, `task_provisioning`, `lifecycle_outbox`, `claim_broker_grants`, `claim_http_results` | Recovery bookkeeping, distinct from immutable evidence. `lifecycle_operations` is the per-task/principal/command response ledger (changed body under one key → 409). `claim_broker_grants` is the credential-free authorization the broker consumes. `claim_http_results` freezes the final claim HTTP status/body so a retry cannot observe later provisioning progress. `lifecycle_outbox` holds at-least-once jobs with stable run ids. |
-| `0005_broker.sql` | `broker_grants`, `broker_tokens`; triggers `broker_claim_grant`, `broker_claim_grant_revoked`, `broker_attempt_ended`, `broker_task_terminal`, `broker_job_grants`, `broker_fence_released`, `broker_grants_immutable`, `broker_grants_revocation_once` | Server-owned policy; callers cannot create or edit grants. Compute/land outbox rows mint read grants; a `land` row additionally mints the write grant for the held fence. Revocation is final and the only mutable grant column. Release/expiry stops minting but does not recall issued tokens (see §13, `HELPER_BROKER_CONTRACT.md`). |
-| `0006_events.sql` | `poison_messages`; trigger `submission_pairs_observation` | Queue-consumer poison parking (`alerted_at` set only after the alert hook succeeds). The trigger is the **ground-rule 4 exception** documented in §1: it also writes an `observation.flagged` audit row. |
-| `0007_integrator_candidate_grants.sql` | `integrator_candidate_grants`, `integrator_candidate_tokens`; triggers for job grant, terminal task, immutability, revocation-once, no-delete | Artifacts tokens are repo-scoped, so a server-owned grant confines trusted integrator usage to protected candidate refs, never canonical `main`. |
-| `0008_canonical_delivery_custody.sql` | `canonical_generations`, `canonical_fences`, `canonical_event_work`, `source_object_custody`; unique index `canonical_one_held_fence`; triggers `canonical_generation_registered`, `canonical_generation_observed`, `canonical_fence_acquired`, `canonical_fence_released` | **Cross-task landing serialization lives here** (§8.2): at most one held fence per `(repository_id, ref_name)`. `canonical_generations` increments on every observed head change; remote reads reserve a generation before I/O and commit by generation CAS, so a delayed read or receipt cannot overwrite newer canonical evidence (it queues fresh reconciliation instead). `canonical_event_work` marks a canonical push event complete only after every per-task delivery commits. `source_object_custody` is a trusted retention-worker ledger, written only after fetching and verifying the exact source object in a protected ref; until a row exists, cleanup retains the source repository. Per [ADR 0003, source custody writer](adr/0003-chain-mode-repo-lanes.md#source-custody-writer) (`0032_source_custody_writer.sql`), the integrator's compute run is that writer for `task-repo` submissions: it pushes `refs/sources/<submissionId>` to canonical, fetches it back, then records the row with `verified_by_run_id`. Rows are write-once. No backup/retention worker is provisioned by this repo. |
-| [0009_record_integrity.sql:1](../apps/control-plane/migrations/0009_record_integrity.sql#L1 "-- Record integrity after 0008_canonical_delivery_custody.sql. Never depend on") | `*_no_replace` BEFORE INSERT guards (intents, submissions, submission_contexts, candidates, landing_receipts, tasks, claims, claim_dependency_results, task_dependencies, task_repo_mappings, push_observations, approvals, landing_fences, candidate_checks); `tasks_accepted_receipt_insert`/`_update`; `claim_dependency_results_owned`; rebuilt `v_task_dependency_state`/`v_task_admission`; rebuilt `candidate_checks` with append sequence; evidence-envelope trigger; new indexes | Closes REPLACE-based rewrites without depending on `recursive_triggers` (collision guards cover primary/composite identities, run/idempotency keys and partial unique live keys). A receipt may satisfy a dependency only if it is a landed receipt **owned by the same task** (INV-08); admission views and claim snapshots re-verify ownership, including against legacy invalid data. `candidate_checks.seq` is a database-assigned AUTOINCREMENT append order (explicit sequences rejected; historical rows keep their original rowid order); "latest check" uses it, never timestamps or opaque ids. New check evidence must be the v1 envelope `{version: 1, commands: [{argv, exitCode}]}`, with an empty `commands` list for no-check; historical evidence is retained verbatim. Indexes cover the production event-pairing, dependency and latest-check queries. |
-| [0010_async_provisioning.sql:1](../apps/control-plane/migrations/0010_async_provisioning.sql#L1 "-- Durable retry/lease bookkeeping; claim and mapping evidence remain immutable.") | `provisioning_attempts`: attempt count, lease and retry deadline | Long provider I/O happens outside the coordinator serial queue ([task-coordinator.ts:181](../apps/control-plane/src/task-coordinator.ts#L181 "// overlap HTTP commands while the bounded provider operation is pending.")). |
-| [0011_provisioning_operations.sql:1](../apps/control-plane/migrations/0011_provisioning_operations.sql#L1 "-- A lease bounds local work, not the lifetime of a server-side fork. Preserve") | `provisioning_operations`: durable operation identity and cleanup deadline | Backfills in-flight operations and reopens cleanup for ended claims, permitting operation-bound fork recovery after restart. |
-| [0012_webhooks.sql:1](../apps/control-plane/migrations/0012_webhooks.sql#L1 "\"Events, audit and webhooks\"") | `webhooks`, `webhook_replays`, `webhook_deliveries`, `webhook_attempts` | Audit cursors drive at-least-once outbound delivery. |
-| [0013_webhook_safety.sql:1](../apps/control-plane/migrations/0013_webhook_safety.sql#L1 "-- Persist identity components and the immutable creation result. Resolve legacy identities only") | structured creator identity, immutable creation/replay retry scopes, `webhook_reactivations`, membership suspension triggers | Revoke/restore leaves subscriptions disabled until explicit creator reauthorization. Encryption-key rotation is implemented in [webhooks.ts:89](../apps/control-plane/src/webhooks.ts#L89 "export async function rewrapWebhookSecrets"). |
-| [0014_webhook_integrity.sql:1](../apps/control-plane/migrations/0014_webhook_integrity.sql#L1 "-- Immutable webhook evidence and referential integrity. D1 enables foreign keys;") | webhook collision/UPDATE/DELETE guards, delivery audit FK, replay ownership/range validation | Immutable evidence and write-once replay expansion; live lineage stays unique. The rebuild preserves valid evidence and fails on invalid legacy references. |
-| [0027_webhook_operations.sql:1](../apps/control-plane/migrations/0027_webhook_operations.sql#L1 "-- ADR-0006: widen the closed audit vocabulary without rewriting existing IDs.") | immutable signing-rotation receipts, terminal-inspection evidence, delivery-window alert acknowledgements and automatic suspension audit trigger | ADR-0006; preserves audit IDs and populated delivery references while extending the closed event vocabulary. |
+## Appendix A. Transition writer details
 
 ### A.1 Per-entity guarded transitions
 
@@ -892,42 +790,12 @@ Every effective status change is its own element in the `appendTransitions` batc
 | Staged effects after an unchanged-base error | Task | approved → candidate (intent) or submitted (submission) | `approval.invalidated` |
 | Claim release/revocation | Task | claimed → ready | `claim.released` / `claim.revoked` |
 
-A normal fence therefore writes three `landing.fenced` rows (fence, candidate, task) plus `approval.fenced`. The fenced snapshot and canonical receipt evidence stay immutable; `deriveReceipt` reconstructs every receipt field from audit alone for landed, raced, conflict and both error outcomes (INV-52).
+A normal fence therefore writes three `landing.fenced` rows (fence, candidate, task) plus `approval.fenced`. The fenced snapshot and canonical receipt evidence stay immutable; the receipt renderer (§16.3) reconstructs every receipt field from audit alone for landed, raced, conflict and both error outcomes.
 
 ### A.2 Canonical ordering and fanout
 
 Canonical push handling batches the canonical head, evidence, audit and per-task delivery obligations (outbox rows with stable command keys) together; the event is completed only after every delivery commits, and redelivery resumes unacknowledged effects. Canonical retries stay retryable beyond the poison-message limit. Receipts and landed tasks fan out to live attempts preserving their terminal status and accepted receipt. Candidate-write grants permit exact compute runs for recorded staged work after landing (including staged intent application) and repeat the same policy check after provider I/O; ordinary post-landing agent work stays unauthorized. Source cleanup requires verified custody of every retained submission's exact source SHA in a protected canonical ref and waits for every outstanding compute to record its result.
 
-- **INV-64** Independent reconciliation rotates durable binding custody fairly with a resumable cursor and one live sweep lease per shard. Canonical and lane reads reserve generations before I/O and atomically commit verified heads/evidence/audit under generation and sweep-owner CAS. All push/fork/delete hints require our own read; verified ref absence is distinct from repository deletion or provider unavailability. A task is unnecessary for canonical read authority. Under the registered 14-binding/10-lane local profile, verification cycles are ≤15s and persistent remote changes converge to verified events ≤60s with zero platform hints. Failed observation effects remain durable, restart drains original command IDs, late pairing reopens work, and failed invalidation never acknowledges a message. Observed A→B→A is not deduped by SHA; overwritten, unread transients are outside the recoverable history contract. Sweep/effect age, backlog and failures remain measurable.
-
-### Queue and alarm recovery
-
-- **INV-65** Queue acceptance and DO alarms never discharge unfinished record
-  obligations. Recovery preserves pinned observation bytes/transport identity,
-  atomic canonical evidence and fanout, stable recipient command/run IDs, immutable
-  receipts and signed exports, and the original provisioning request/operation.
-  Computed candidates owe run-specific checks; land owes its receipt; export owes
-  signed completion. A task coordinator remains the lifecycle writer and an unknown
-  provider/Git writer is never replaced merely because a lease expired. Transient
-  exhaustion remains re-drivable without a new client request. Alert acknowledgement
-  metadata is written only after the configured sink accepts the alert; missing or
-  failed sinks leave the obligation visible. Backlog counts and oldest ages are
-  emitted per outbox. See [outbox recovery runbook](runbooks/outbox-recovery.md).
-
-
-### Webhook delivery capacity
-
-- **INV-66** Live fanout and replay expand bounded raw audit keysets with enqueue
-  and monotone cursor progress in one transaction; crash on either side of commit
-  never duplicates a delivery lineage. Fair persisted project rotation subdivides
-  the single tenant budget; per-project and global concurrency remain bounded,
-  and slow receivers cannot occupy another project's entire service budget.
-  Overload retains unexpanded audit/replay obligations and observable oldest age.
-  DNS, preparation and send share a deadline; timed-out continuations never send.
-  429/503 Retry-After is a minimum delay within the retry/parking policy. Park,
-  cancellation and disable remain fail closed; delivery telemetry never recurses.
-  A durable alarm recovers lost wakes. Acknowledgement lag persists in attempt
-  evidence and is recorded against the ≤5s healthy target at the registered local
-  16-delivery/s profile. See [webhook delivery capacity](WEBHOOK_DELIVERY_CAPACITY.md).
+### Webhook operations
 
 ADR-0006 adds `webhook.secret_rotated` (subscription ID, current/previous public signing key IDs, overlap expiry) and `webhook.deliveries_inspected` (subscription ID, terminal status filter, count). Inspection is telemetry excluded from domain event delivery; rotation is a lifecycle event. Automatic suspension appends existing system `webhook.disabled` with `membership-revoked`. Re-drive appends existing `webhook.replay_requested` for a new lineage; original delivery identities/deadlines remain immutable. See [ADR-0006](adr/0006-webhook-operations.md).

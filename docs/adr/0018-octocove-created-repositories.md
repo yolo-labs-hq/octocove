@@ -3,13 +3,13 @@ Status: proposed
 
 ## Need and archetypes
 
-[ADR 0017](0017-artifacts-namespace-per-project.md) put every project's repositories in its own Artifacts
-namespace, `oc-<projectId>`, and made ownership follow from that namespace: only the operator and Octocove's
+Every project's repositories live in its own Artifacts namespace, `oc-<projectId>`, and ownership follows from
+that namespace: only the operator and Octocove's
 control plane hold a token that can create repositories there. Users and agents hold no Artifacts API token, so
 without this decision a project admin has no way to get a repository into their project. Only the operator can,
 by hand.
 
-The need is the **project admin's** (a human). None of the three client archetypes (Studio adapter, own-clone CLI
+The need is the **project admin's** (a human). None of the three client archetypes (workspace adapter, own-clone CLI
 agents, CI + policy-bot approvers) creates canonical repositories; all of them need one to exist, verified,
 before they can claim. Registration (ADR 0015) names an existing repository and cannot create one.
 
@@ -30,7 +30,7 @@ special-use suffix. Artifacts, not Octocove, resolves and fetches the URL, so DN
 Artifacts' to enforce; this check cannot. No credentials are ever sent to a source.
 
 **Reserve, call, record; never delete.** A new record, the **creation intent**
-(`repository_creations`, migration 0045), is written before any Artifacts call. It is also the **address
+(`repository_creations`), is written before any Artifacts call. It is also the **address
 reservation** (namespace + name) that registration, creation/import and reconciliation share: at most one intent
 may be `pending` per project, and at most one may be open (`pending` or `needs-operator`) per address. The
 reservation insert is conditional on no `repositories` row holding the address, and a trigger refuses every
@@ -60,7 +60,7 @@ never deleted: `pending` → `committed` | `address-taken` | `abandoned` | `need
    repository (the same batch, actor `system`, refs `reconciled: true` and `requestedBy`, and the request's own
    ledger row, so a retry with the same `Idempotency-Key` answers the 201) only when the intent proves this request
    created it: its id is the one Artifacts returned, or, when no answer arrived, the address read 404 under this
-   reservation right before the call. That proof rests on ADR 0017's assumption: only the operator and this control
+   reservation right before the call. That proof rests on the namespace rule: only the operator and this control
    plane can create repositories in the namespace, and the reservation fences the control plane. A 404 or an
    unavailable read is not conclusive (an import may still be running, and Artifacts may still finish a create it
    timed out on). The intent stays reserved and is re-read until two hours after the call, then goes to
@@ -82,8 +82,7 @@ never deleted: `pending` → `committed` | `address-taken` | `abandoned` | `need
    fresh sign-in that is still an admin, 409 `repository-creation-pending`), never a replayed 201.
 5. `needs-operator` keeps the address reserved and appends one `repository.creation_needs_operator` audit row (new
    type, actor `system`, refs `intentId`, `namespace`, `name`, `mode`, `reason`, `repoId`, `providerCalled`). The
-   operator finds these intents with the [OPERATIONS runbook](../OPERATIONS.md#repository-creation-reconciliation)
-   query and settles each by hand: registering or deleting the Artifacts repository is the operator's decision,
+   operator finds these intents and settles each by hand: registering or deleting the Artifacts repository is the operator's decision,
    then the intent is marked `resolved`.
 
 There is no automatic delete and no claim that nothing is ever orphaned. The guarantee is narrower: every
@@ -91,8 +90,8 @@ repository this route may have created is either recorded as the project's, or h
 operator can see and resolve. A repository that existed before the request is never touched.
 
 **Born verified.** A created or imported repository gets **no** `repository_verifications` row, like the other
-trusted paths (provisioning, seed, migration). Verification proves that the repository exists in the project's
-own namespace (ADR 0017). Octocove itself put it there, in the same request, so that proof is already in hand.
+trusted paths (provisioning, seed). Verification proves that the repository exists in the project's
+own namespace. Octocove itself put it there, in the same request, so that proof is already in hand.
 Writing a verified row instead would credit `verified_by` with a proof nobody made, and it would keep two shapes of
 "trusted". So `repositoryUnverified`, the list's `verification` and the verify route
 (`binding: trusted`) all read the one unchanged predicate. The `repository.registered` audit row records who
@@ -143,6 +142,6 @@ New error codes: `repository-import-url-invalid` (400), `repository-import-refus
   the repository exists, and no evidence says otherwise.
 - Affected: OpenAPI `repositoryCreate` (`RepositoryCreate` is `oneOf` `RepositoryRegister` /
   `RepositoryCreateEmpty` / `RepositoryImport`), `Repository.importState`, `RepositoryListItem.importState`;
-  [API.md](../API.md), [OPERATIONS.md](../OPERATIONS.md#repository-creation-reconciliation), [GLOSSARY](../GLOSSARY.md),
+  [API.md](../API.md), [GLOSSARY](../GLOSSARY.md),
   [COLLABORATION_RECORD §10](../COLLABORATION_RECORD.md#10-audit-log);
   the CLI verb `octocove repo create`.

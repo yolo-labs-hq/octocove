@@ -1,6 +1,6 @@
 # octocove CLI
 
-One `octocove` binary with a subcommand per control-plane verb in [docs/API.md](../../docs/API.md). A human terminal and an
+One `octocove` binary with a subcommand per record API verb in [docs/API.md](../../docs/API.md). A human terminal and an
 agent sandbox run the same commands against the same API with the same semantics; only the credential differs. No
 CLI-managed background daemons: anything that waits (claim provisioning, landing) polls for a bounded time and then exits.
 Allocated claims require a protected attempt helper supplied by the trusted runtime.
@@ -47,7 +47,7 @@ pnpm --filter @yolo-labs/octocove test
 | `OCTOCOVE_BOOTSTRAP_FILE` | Protected JSON bootstrap hand-off to import when no active credential exists. The file contains `{apiUrl, token, kind:"bootstrap"}`; no token belongs in the environment. |
 | `OCTOCOVE_CONFIG_DIR` | Root containing `credentials/cli.json` (`{apiUrl, token, kind}`, mode 0600 in a 0700 directory). Defaults to `$XDG_CONFIG_HOME/octocove` or `~/.config/octocove`. Linux and macOS; no ancestor may be a symlink (on macOS use `/private/tmp`, not `/tmp`). |
 | `OCTOCOVE_HELPER_SOCK` | Required protected per-attempt socket for allocated ref/repo and chain claims. The trusted runtime starts `AttemptHelper` from `@octocove/helper` and provides `octocove-helper-connect` on PATH. |
-| `OCTOCOVE_LOCAL_GIT_ROOT` | Explicit local-runtime filesystem Git root. Claim admits paths only below its resolved root, with `OCTOCOVE_HELPER_SOCK` and an HTTP loopback API; normal remotes remain HTTPS-only. See [local walkthrough](../../docs/DEMO.md). |
+| `OCTOCOVE_LOCAL_GIT_ROOT` | Explicit local-runtime filesystem Git root. Claim admits paths only below its resolved root, with `OCTOCOVE_HELPER_SOCK` and an HTTP loopback API; normal remotes remain HTTPS-only. |
 
 The active protected store takes precedence over import settings. `OCTOCOVE_TOKEN` and
 `OCTOCOVE_CREDENTIAL_KIND` are not supported and are discarded. A legacy `credentials.json` is accepted only as an
@@ -100,7 +100,7 @@ retain their `delegationId` for renewal and self-revocation.
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
 | `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1009](src/cli.ts#L1009 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:310](src/cli.ts#L310 "humanOnly && creds.kind !== \"human\""), [lifecycle.ts:722](../../apps/control-plane/src/lifecycle.ts#L722-L725 "const owner = await this.one(")). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:310](src/cli.ts#L310 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 `--json` (anywhere) prints the API response instead of text; errors emit exactly one
 `{"error": {...}}` on stderr. Auth/authorize/claim responses expose metadata only, with credentials kept in the
@@ -389,20 +389,13 @@ The protected socket accepts `chain-stage`, a JSON header of exact identifiers,
 then Git bundle bytes. The helper rechecks live grant/expiry, independently binds
 task/attempt/base, verifies the commit and ancestry, and calls `stage` only after
 native bundle ingestion. No URL, credential or upstream write comes from the CLI.
-For a helper on the trusted pod, the callback delegates to
-`stageChainPush(spoolRoot, {...input, claimId: grant.attempt})` from
-`apps/integrator/src/chain-lanes.mjs`; objects must live on durable storage.
-A remote runtime adapter must transfer objects to that same protected custody
-before resolving the callback. The API independently fetch-verifies the handle
+The `stage` callback hands the verified objects to the service's protected
+chain-push custody, which keeps them on durable storage; a remote runtime
+adapter must transfer objects to that same protected custody before resolving
+the callback. The API independently fetch-verifies the handle
 before enqueueing. An absent/unconfigured helper refuses with exit 78, never a
 provider-token fallback. See [credential boundary](../../docs/adr/0005-credential-boundary.md)
 and [helper contract](../../docs/HELPER_BROKER_CONTRACT.md).
-
-Focused lifecycle and staging acceptance (one file, one worker):
-
-```sh
-pnpm --filter @octocove/control-plane exec vitest run tests/cli-chain.test.ts --maxWorkers=1
-```
 
 ### Headless machine grants
 

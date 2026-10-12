@@ -4,14 +4,14 @@ Status: accepted
 ## Need and archetypes
 
 Without a typed vocabulary, the event surface has 60 declared audit types, untyped payloads,
-missing effective transitions and divergent replay/webhook wire behavior. A Studio scheduler, own-clone CLI `--follow`, and CI cursor reader
+missing effective transitions and divergent replay/webhook wire behavior. A workspace adapter scheduler, own-clone CLI `--follow`, and CI cursor reader
 all need the same durable facts to make the DAG progress. Octocove never schedules
 agents. Artifacts events accelerate verification; they are never authority.
 
 ## Decision
 
 This is the required design, not a deployment claim. The 60-type baseline is
-the set of audit types declared in `audit.ts`; this ADR also accounts
+the closed set of audit types in the record; this ADR also accounts
 for [ADR 0003](0003-chain-mode-repo-lanes.md)'s chain operations. D1 record writers,
 auth handlers and trusted verification/recovery workers own emission. Clients
 cannot submit an event as a substitute for an authorized record command. Identity,
@@ -51,7 +51,7 @@ Change = {entity: ExistingRecordKind, entityId: Id, recordVersion: Positive,
 
 `ExistingRecordKind` and each entity's `State` are the existing record/table kinds
 and allowed values in [record §§4–10,15](../COLLABORATION_RECORD.md) and the
-[OpenAPI schemas](../../apps/control-plane/openapi.yaml). For append-only facts,
+[OpenAPI schemas](../../spec/openapi.yaml). For append-only facts,
 `from=null,to=recorded`; `recorded` is an event effect marker, not a new entity
 status. For metadata/operational changes, use that field's existing value and name
 it in `effect`; do not invent a task status. `recordVersion` is a persisted,
@@ -285,7 +285,8 @@ State edges and guards remain record §15, not new rights created by notificatio
 For invalidation: A covers intent/withdrawal/submission/authority changes; V/R is
 mandatory when claiming a verified base move or receipt outcome. Grant issue/use
 is an authority action; it does not imply verified Git or successful landing.
-Receipt-related rows remain distinct evidence/state effects per record INV-51/52;
+Receipt-related rows remain distinct evidence/state effects (every transition writes exactly one
+audit row in its own batch, and a receipt can be rendered from its fence's audit rows alone);
 `landing.resolved` and `landing.reconciled` must not duplicate the same effect.
 
 ### D5: Missing transition catalog
@@ -347,7 +348,7 @@ webhook domain fanout and `/events` domain replay to prevent recursion. They rem
 available in authorized `/audit`/task logs; future inspection routes need their own
 ADR. HTTP outcomes use `webhook.attempt_recorded`; no second delivery-success fact.
 
-Completeness boundaries: D4 covers every type in audit.ts at the source revision,
+Completeness boundaries: D4 covers every type in the closed audit vocabulary,
 including each coupled status edge through Change. D5 covers missing registration
 completion, provisioning/blocked/verified lane, own/external deletion, receipt
 export, authorization/delegation, automatic disable/parking/cancellation, and ADR
@@ -464,7 +465,8 @@ Unordered hints alone cannot provide complete discovery; own verification plus
 replay and a sweep are required, with the transient-history limit in D2.
 
 New writers and projections require synchronized [API](../API.md#events-audit-and-webhooks),
-[OpenAPI Event schemas](../../apps/control-plane/openapi.yaml), [record §§10,15–16](../COLLABORATION_RECORD.md)
+[OpenAPI Event schemas](../../spec/openapi.yaml), [record §§10,15–16](../COLLABORATION_RECORD.md)
 and glossary; migrations must extend the closed audit enum and guarded
-append-only/uniqueness rules. Existing receipt INV-51/52 and the atomic
+append-only/uniqueness rules. The existing one-audit-row-per-transition and
+receipt-from-audit rules and the atomic
 evidence/outbox guarantees remain binding.

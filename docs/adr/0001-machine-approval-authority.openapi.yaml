@@ -1,4 +1,4 @@
-# Accepted ADR-0001 merge delta; shapes are merged into the public OpenAPI.
+# Accepted ADR-0001 delta against spec/openapi.yaml; its shapes are merged into that document.
 # Deep-merge maps; append new properties, not required fields, to legacy schemas.
 # Base components/refs resolve in the merged document. ADR prose is normative.
 x-status: accepted

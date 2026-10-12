@@ -37,7 +37,7 @@ containment and provider revocation, not a claim that gateway policy stops it.
 
 | Archetype | Exposure and required client runtime behavior |
 | --- | --- |
-| Studio pod with N lanes | Lanes sharing a host UID can read each other's leases, so a shared UID breaks the boundary. The orchestrator must isolate each lane's host identity, PID/mount/proc view, HOME and sockets, and protect the helper from all lanes. Use distinct host UIDs plus namespaces, correctly mapped user namespaces, or a microVM per lane. No shared credential mounts, ptrace capability or inherited FDs. The orchestrator is implemented outside this repo. |
+| Workspace adapter pod with N lanes | Lanes sharing a host UID can read each other's leases, so a shared UID breaks the boundary. The orchestrator must isolate each lane's host identity, PID/mount/proc view, HOME and sockets, and protect the helper from all lanes. Use distinct host UIDs plus namespaces, correctly mapped user namespaces, or a microVM per lane. No shared credential mounts, ptrace capability or inherited FDs. The orchestrator is implemented outside this repo. |
 | Laptop / own-clone CLI agent | Processes under the user's ordinary UID are co-tenants. Run untrusted agents in separate OS identities/sandboxes or VMs with a protected helper and private config. A same-user daemon plus mode 0600 files is insufficient. Existing independent provider credentials must be kept outside the agent sandbox; an external writer retaining them is not an isolated caller. |
 | CI job / policy-bot approver | Use an ephemeral isolated job/VM identity, private proc/filesystem/socket and no shared runner credential cache. Reused self-hosted runners must provide the same separation and teardown. Bootstrap workload identity terminates in the protected helper; no reusable job bearer reaches untrusted steps. A read-only observer or approver needs no push lease; approval authority remains separate. |
 
@@ -92,7 +92,7 @@ Allocated ref/repo and chain claims require `OCTOCOVE_HELPER_SOCK` before creden
 import or claim creation. The CLI refuses missing/empty socket settings with exit
 78 and runtime setup instructions; it configures only `ext::octocove-helper-connect`
 and never writes the legacy bearer identity file or installs `credential.helper=artifacts`.
-There is no opt-in bearer fallback for laptop archetype (b). The trusted Studio,
+There is no opt-in bearer fallback for laptop archetype (b). The trusted workspace adapter,
 laptop sandbox or CI runtime starts `AttemptHelper` outside the agent domain and
 provides its protected socket and connector; a pathname alone is not isolation.
 
@@ -115,7 +115,7 @@ still exists, and none of this provides runtime isolation.
 Without this rule, an agent holding its stored delegation could call
 `POST /broker/token` and receive a raw provider **write** token for a non-chain
 allocated claim, bypassing the helper socket. Protected-runtime admission in
-`TokenBroker.mint` (`apps/control-plane/src/broker.ts`) refuses it for every principal:
+`brokerTokenCreate` refuses it for every principal:
 
 - Every allocated claim grant (ref lane, repo lane, chain lane) is a protected lane.
   Provider write tokens are never exported to clients; writes go through the attempt
@@ -132,17 +132,14 @@ allocated claim, bypassing the helper socket. Protected-runtime admission in
   A project belongs on the list only while its writing clients do not use the
   helper. A listed project is outside this boundary.
 - **Audit:** each refusal and each legacy write export appends one row to
-  `broker_admission_audit` (migration `0030`): project, task, claim, grant, lane,
+  `broker_admission_audit`: project, task, claim, grant, lane,
   owner key, scope, decision (`refused` / `legacy-export`), code and, for exports,
   the broker token ID. The row is recorded before provider I/O; legacy rows share a batch
   with the ledger row. It is append-only, holds no token material, and is broker
   bookkeeping, not a record state, public event or new noun.
 
 A write token already exported stays valid until its bounded expiry (≤900 s) or
-owner/lifecycle revocation; such tokens must drain before the boundary holds. Local
-tests are in `apps/control-plane/tests/broker.test.ts` ("ADR-0005 protected-runtime
-admission"): delegated refusal plus audit, chain refusal even under the flag, read
-minting and audited legacy export, and one helper write with no provider token. This
+owner/lifecycle revocation; such tokens must drain before the boundary holds. This
 narrows the route; it provides no runtime isolation, and a token that has already
 leaked can still write directly.
 
@@ -173,7 +170,7 @@ claims** only. Shared-repository ref lanes and chain lanes are unchanged.
     OS identity from the agent.
   - In CI it is a protected job step or runner identity, with the key coming from a secret that
     untrusted steps cannot read.
-  - In the Studio adapter it is the orchestrator that runs the lanes.
+  - In the workspace adapter it is the orchestrator that runs the lanes.
 
   The claimant delegation alone (what the CLI stores) can never write: it still gets 403
   `protected-runtime-required` from `/broker/token`, and `/broker/push` without a proof is refused
@@ -196,20 +193,20 @@ claims** only. Shared-repository ref lanes and chain lanes are unchanged.
      repository, whose remote must be an Artifacts account host and a `/git/<namespace>/<repo>.git`
      path;
   2. verifies the proof and parses the single command;
-  3. consumes the nonce durably (`broker_push_admissions`, migration `0031`) **before** provider I/O;
+  3. consumes the nonce durably (`broker_push_admissions`) **before** provider I/O;
   4. mints a 60 s write token for that task repository, forwards the bytes and revokes the token in
      the same call;
   5. returns only the upstream report-status, and settles the admission as `written`, `rejected` or
      `ambiguous`. A failed settle is logged with identifiers only and never replaces the
      report-status; the row stays `admitted`, which still refuses a replay.
 
-  Migration `0033` bounds `broker_push_admissions`: a settled row may be deleted once its proof is
+  `broker_push_admissions` is bounded: a settled row may be deleted once its proof is
   more than 60 s past expiry, and the task alarm sweeps such rows. By then a replay of that proof
   already fails the JWT expiry check.
 
   Refusals append the existing sanitized `broker_admission_audit` row.
 - **Where the gateway channel proof is required, and where task-repo isolation gives the same guarantee.**
-  Shared-repo ref lanes keep `apps/gateway`'s gateway lease, mTLS channel and gateway channel proof, plus its
+  Shared-repo ref lanes keep the gateway's gateway lease, mTLS channel and gateway channel proof, plus its
   whole-request ref policy. On a shared repository, a repo-scoped provider token could write any
   sibling's ref. `/broker/push` refuses ref lanes with `gateway-proof-required` and chain lanes with
   `chain-push-queue-required`.
@@ -230,8 +227,7 @@ claims** only. Shared-repository ref lanes and chain lanes are unchanged.
   legacy migration boundary are unchanged. Approval, landing and receipt authority are unchanged. The
   delegation stays in agent-visible CLI storage, where it can mint only read tokens. This section
   adds no isolation: a same-UID process can steal the runtime key unless the client runtime isolates
-  it (see [Required controls and verification](#required-controls-and-verification)). Local
-  negative tests: `apps/control-plane/tests/broker-repo-write.test.ts`.
+  it (see [Required controls and verification](#required-controls-and-verification)).
 
 ### Gateway channel proof (push-time)
 
@@ -309,11 +305,11 @@ releases it. No timer substitutes for that signal.
 These are the gateway-side components behind the gateway channel proof. None is a
 record noun, state or public route; all are broker bookkeeping.
 
-- **Proof broker** (`ProofBroker`, `apps/gateway/src/proof-broker.mjs`): the
+- **Proof broker** (`ProofBroker`): the
   broker core that binds gateway channels to gateway leases, issues and admits
   gateway channel proofs, consumes nonces serialized with revoke, and settles or
   reconciles each write.
-- **Upstream writer** (`UpstreamWriter`, `apps/gateway/src/upstream-writer.mjs`):
+- **Upstream writer** (`UpstreamWriter`):
   the server-only object that alone holds provider credentials and forwards Git
   requests upstream. It runs inside the broker service, never in the gateway or
   on an agent host.
@@ -364,7 +360,7 @@ the controls, not a stronger HMAC at a gateway the attacker bypasses.
 ## Does not do
 
 No change to approval, landing, checks, receipts or canonical-write authority.
-No Studio-specific code, agent scheduling, new noun, public record state or
+No workspace-adapter-specific code, agent scheduling, new noun, public record state or
 public write route. Nonces/channel validity are broker operational bookkeeping,
 not task/claim lifecycle states. The glossary scope fence is unchanged.
 It does not enable a topology flag or implement the orchestrator's lane isolation.
@@ -385,7 +381,7 @@ legacy boundary above.
 Chain queues retain ADR 0003's durable staging and chain writer lease; their trusted
 delivery path must keep upstream credentials off the staging/agent host.
 
-The gateway channel proof adds no [public OpenAPI](../../apps/control-plane/openapi.yaml), [API](../API.md) or
+The gateway channel proof adds no [public OpenAPI](../../spec/openapi.yaml), [API](../API.md) or
 [record](../COLLABORATION_RECORD.md#13-what-this-record-does-not-contain-owned-elsewhere)
 state or route: it is a broker/gateway transport with its own versioned wire
 contract. Broker write export adds only the 403 refusal and read default on the
@@ -403,7 +399,7 @@ The boundary holds for a client only when all three controls are in place:
 - **Gateway proof (Octocove):** nonce/HMAC and channel verification, atomic
   replay/revoke admission, a server-only upstream writer, rotation/revocation and
   sanitized evidence.
-- **Client runtime isolation:** the Studio adapter's UID/namespace/VM setup
+- **Client runtime isolation:** the workspace adapter's UID/namespace/VM setup
   (implemented outside this repository), laptop sandbox/helper setup and
   ephemeral or self-hosted CI setup, as in the archetype table.
 
