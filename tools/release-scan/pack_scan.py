@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""Tarball gate for the npm packages; no deps beyond pnpm for packing.
+
+    python3 tools/release-scan/pack_scan.py                      # pnpm pack both packages, check each
+    python3 tools/release-scan/pack_scan.py --package packages/cli --tarball X.tgz   # check an existing tarball
+
+Each tarball must (a) contain exactly the expected files, as regular files under package/;
+(b) pass the release scan detectors (classify.load_patterns: patterns.json plus any extra-patterns.json; the same policy as scan.py)
+over every file, so no secret, account id, sandbox path, private-repository link or operator
+domain ships; (c) carry no source map and no sourceMappingURL comment. The packed manifest
+must also name the public repository, the public publishConfig and no workspace/file/link
+specifier. Prints file lists and counts, never matched values. Exit 1 on any failure.
+The packages must be built first (`pnpm --filter <name> build`).
+"""
+import argparse
+import hashlib
+import json
+import pathlib
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+
+from classify import load_patterns
+from scan import scan_text
+
+HERE = pathlib.Path(__file__).resolve().parent
+ROOT = HERE.parents[1]
+REPOSITORY = 'git+https://github.com/yolo-labs-hq/octocove.git'
+PUBLISH_CONFIG = {'access': 'public', 'provenance': True}
+
+# Every path is relative to the tarball's package/ root. `allowed` must match every file;
+# `required` must all be present. Source maps are rejected separately, whatever `allowed` says.
+PACKAGES = {
+    'packages/cli': dict(
+        name='@yolo-labs/octocove',
+        allowed=re.compile(r'(dist/octocove\.mjs|README\.md|package\.json|LICENSE|NOTICE)\Z'),
+        required=('dist/octocove.mjs', 'README.md', 'package.json', 'LICENSE', 'NOTICE'),
+        # esbuild inlines only Octocove's own Apache-2.0 sources (cli, client, shared), which the
+        # root NOTICE covers. A bundled third-party module would need its notices in the tarball.
+        bundles=('dist/octocove.mjs',),
+    ),
+    'packages/client': dict(
+        name='@yolo-labs/octocove-client',
+        allowed=re.compile(r'(dist/[\w./-]+\.(js|d\.ts)|retry-policy\.json|README\.md|package\.json|LICENSE|NOTICE)\Z'),
+        required=('dist/index.js', 'dist/index.d.ts', 'dist/node.js', 'dist/generated/openapi.d.ts',
+                  'retry-policy.json', 'README.md', 'package.json', 'LICENSE', 'NOTICE'),
+    ),
+}
+SOURCE_MAP_URL = re.compile(rb'[#@]\s*sourceMappingURL\s*=')
+# esbuild's per-module path comment, e.g. `// ../../node_modules/pkg/index.js`.
+BUNDLED_DEPENDENCY = re.compile(rb'^// (?:\.\./)*node_modules/', re.MULTILINE)
+LOCAL_SPECIFIER = re.compile(r'^(workspace|file|link|portal|git\+file):')
+
+
+def load_detectors():
+    patterns = load_patterns()
+    entries = json.loads((HERE / 'fixture-allowlist.json').read_text())['entries']
+    fixtures = {(entry['file'], entry['kind'], entry['value_sha256'], entry['context_sha256']) for entry in entries}
+    return patterns, fixtures
+
+
+def read_members(tarball):
+    """Map package-relative path -> bytes; structural problems are returned as errors."""
+    files, errors = {}, []
+    with tarfile.open(tarball, 'r:gz') as archive:
+        for member in archive.getmembers():
+            if member.isdir():
+                continue
+            if not member.name.startswith('package/') or '..' in member.name.split('/'):
+                errors.append(f'entry outside package/: {member.name!r}')
+                continue
+            rel = member.name[len('package/'):]
+            if not member.isreg():
+                errors.append(f'{rel}: not a regular file (symlink, hard link or device)')
+                continue
+            if rel in files:
+                errors.append(f'{rel}: duplicate entry')
+            files[rel] = archive.extractfile(member).read()
+    return files, errors
+
+
+def manifest_errors(spec, manifest, source, packed):
+    errors = []
+    if manifest.get('name') != spec['name']:
+        errors.append(f"package.json name {manifest.get('name')!r} is not {spec['name']!r}")
+    if source is not None and manifest.get('version') != source.get('version'):
+        errors.append(f"packed version {manifest.get('version')!r} differs from the repository's {source.get('version')!r}")
+    repository = manifest.get('repository')
+    if not isinstance(repository, dict) or repository.get('url') != REPOSITORY:
+        errors.append(f'repository.url must be the public repository {REPOSITORY}')
+    if manifest.get('publishConfig') != PUBLISH_CONFIG:
+        errors.append(f'publishConfig must be {json.dumps(PUBLISH_CONFIG)}')
+    if not manifest.get('engines', {}).get('node'):
+        errors.append('engines.node is missing')
+    for kind in ('dependencies', 'optionalDependencies', 'peerDependencies'):
+        for name, value in (manifest.get(kind) or {}).items():
+            if LOCAL_SPECIFIER.match(str(value)):
+                errors.append(f'{kind}.{name} uses a local specifier {value!r}')
+    for name, target in (manifest.get('bin') or {}).items():
+        if target.removeprefix('./') not in packed:
+            errors.append(f'bin {name} -> {target} is not a packed file')
+    return errors
+
+
+def check_tarball(directory, tarball, detectors, source=None):
+    """Return (errors, files) for one package tarball. `source` is the repository package.json."""
+    spec = PACKAGES[directory]
+    files, errors = read_members(tarball)
+    for rel in sorted(files):
+        if not spec['allowed'].match(rel):
+            errors.append(f'unexpected file: {rel}')
+    for rel in spec['required']:
+        if rel not in files:
+            errors.append(f'missing file: {rel}')
+    for rel, data in sorted(files.items()):
+        if rel.endswith('.map'):
+            errors.append(f'{rel}: source map')
+        elif rel.endswith(('.js', '.mjs', '.cjs')) and SOURCE_MAP_URL.search(data):
+            errors.append(f'{rel}: sourceMappingURL comment')
+    for rel in spec.get('bundles', ()):
+        if BUNDLED_DEPENDENCY.search(files.get(rel, b'')):
+            errors.append(f'{rel}: inlines a node_modules package; add its licence notices and update this gate')
+    try:
+        manifest = json.loads(files.get('package.json', b'{}'))
+        errors.extend(manifest_errors(spec, manifest, source, set(files)))
+    except ValueError:
+        errors.append('package.json is not JSON')
+    patterns, fixtures = detectors
+    for rel, data in sorted(files.items()):
+        hits, binary = scan_text(f'{directory}/{rel}', data, patterns, fixtures)
+        if binary:
+            errors.append(f'{rel}: binary file (detectors cannot read it)')
+        for hit in hits:
+            if hit['disposition'] in ('remove', 'redact'):
+                # Location and detector only: the matched value may be the secret itself.
+                errors.append(f"{rel}:{hit['line']}: release-scan {hit['kind']} ({hit['disposition']})")
+    return errors, files
+
+
+def pack(directory, destination):
+    """`pnpm pack` one package (runs its prepack) into an empty directory; return the tarball."""
+    package = ROOT / directory
+    subprocess.run(['pnpm', 'pack', '--pack-destination', str(destination)], cwd=package, check=True,
+                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, timeout=120)
+    tarballs = sorted(pathlib.Path(destination).glob('*.tgz'))
+    if len(tarballs) != 1:
+        raise RuntimeError(f'{directory}: expected one tarball, found {len(tarballs)}')
+    return tarballs[0]
+
+
+def report(directory, tarball, errors, files):
+    data = pathlib.Path(tarball).read_bytes()
+    print(f'{directory}: {pathlib.Path(tarball).name}, {len(files)} files, {len(data)} bytes, sha256 {hashlib.sha256(data).hexdigest()}')
+    for rel in sorted(files):
+        print(f'  {len(files[rel]):>8}  {rel}')
+    for error in errors:
+        print(f'  FAIL {error}', file=sys.stderr)
+    print(f"  {'FAIL' if errors else 'ok'}: file set, release-scan detectors, source maps, manifest")
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--package', action='append', choices=sorted(PACKAGES), help='package directory (repeatable; default both)')
+    parser.add_argument('--tarball', type=pathlib.Path, help='check this existing tarball instead of packing (needs one --package)')
+    args = parser.parse_args(argv)
+    directories = args.package or sorted(PACKAGES)
+    if args.tarball and len(directories) != 1:
+        parser.error('--tarball needs exactly one --package')
+    detectors = load_detectors()
+    failed = False
+    for directory in directories:
+        source = json.loads((ROOT / directory / 'package.json').read_text())
+        if args.tarball:
+            errors, files = check_tarball(directory, args.tarball, detectors, source)
+            report(directory, args.tarball, errors, files)
+        else:
+            with tempfile.TemporaryDirectory(prefix='octocove-pack-') as scratch:
+                tarball = pack(directory, scratch)
+                errors, files = check_tarball(directory, tarball, detectors, source)
+                report(directory, tarball, errors, files)
+        failed |= bool(errors)
+    return int(failed)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

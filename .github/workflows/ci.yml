@@ -36,6 +36,10 @@ jobs:
         run: python3 -B tools/test_check_evidence_links.py
       - name: Test evidence link reanchor tool
         run: python3 -B tools/test_reanchor_evidence_links.py
+      - name: Secret and identifier scan (HEAD, counts only)
+        run: python3 -B tools/release-scan/scan.py
+      - name: Test the scan's detectors and dispositions
+        run: python3 -B tools/release-scan/test_scan.py
   events-conformance-local:
     name: events conformance (local oracles)
     runs-on: ubuntu-latest
@@ -133,8 +137,10 @@ jobs:
           name: octocove-client-${{ github.event.pull_request.head.sha || github.sha }}
           path: packages/client/pack-out/*-${{ github.event.pull_request.head.sha || github.sha }}.tgz
           if-no-files-found: error
-  # Builds @yolo-labs/octocove and @yolo-labs/octocove-client as npm-publish.yml
-  # would. Required through check; a PR whose diff misses its inputs skips
+  # The npm tarball gate. pnpm packs @yolo-labs/octocove and
+  # @yolo-labs/octocove-client exactly as npm-publish.yml would, and pack_scan.py rejects
+  # an unexpected file, a release-scan detector hit, a source map or a non-public
+  # manifest. Required through check; a PR whose diff misses its inputs skips
   # the steps in-job and reports success.
   npm-pack:
     name: npm tarball gate (cli + client)
@@ -148,7 +154,7 @@ jobs:
           fetch-depth: 2 # the PR merge commit and both parents
       - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
         id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'spec/**' 'packages/cli/**' 'packages/client/**' 'packages/shared/**' 'LICENSE' 'NOTICE' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
+        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'spec/**' 'packages/cli/**' 'packages/client/**' 'packages/shared/**' 'tools/release-scan/**' 'LICENSE' 'NOTICE' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         if: steps.scope.outputs.run == 'true'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -164,6 +170,12 @@ jobs:
         run: |
           timeout 120 pnpm --filter ./packages/cli build < /dev/null
           pnpm --filter ./packages/client build < /dev/null
+      - name: Tarball gate rejection cases
+        if: steps.scope.outputs.run == 'true'
+        run: python3 -B tools/release-scan/test_pack_scan.py
+      - name: Pack and gate each tarball (file set, release-scan detectors, source maps, manifest)
+        if: steps.scope.outputs.run == 'true'
+        run: timeout 300 python3 -B tools/release-scan/pack_scan.py < /dev/null
   # Preserve the required status name, including failure/cancellation of a shard.
   # `if: always()` is pinned (check-ci-policy.py): check
   # always reports. Where the branch model gates every need off a PR, the step
