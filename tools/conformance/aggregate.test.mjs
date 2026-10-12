@@ -50,6 +50,37 @@ test('cells load from an absolute evidence directory outside the repository, nev
   }
 });
 
+test('a cell qualifies only with its registered driver digest; unpinned, mismatched and unselected cells are BLOCKED', async () => {
+  const { pairingVerdict } = await import('./aggregate.mjs');
+  const { cells, manifest, driverPin } = await import('./protocol.mjs');
+  const n = manifest.repetitions;
+  const summaryFor = (id, pin) => {
+    const cell = cells().find(c => c.id === id);
+    const scenarios = manifest.scenarios.map(s => ({id:s.id,verdict:'PASS',counts:{PASS:n,FAIL:0,INCOMPLETE:0,BLOCKED:0,'NOT RUN':0},reasons:[],failedAssertions:[]}));
+    return {harnessVersion:manifest.harnessVersion,repetitions:n,thresholds:manifest.thresholds,scenarios:manifest.scenarios,
+      execution:{status:'COMPLETED'},driverPin:pin,perCell:[{...cell,verdict:'PASS',scenarios,errorCount:0,completedRepetitions:n,
+        counts:{PASS:n*scenarios.length,FAIL:0,INCOMPLETE:0,BLOCKED:0,'NOT RUN':0},requiredResults:n*scenarios.length,
+        remoteReceipts:n,timings:{sampleCount:n,adapterOnlyP95Ms:1,rawSamples:Array(n).fill(1)}}]};
+  };
+  const pin = driverPin('c');
+  assert.equal(pairingVerdict(summaryFor('c/artifacts/repo/main',pin)),'PASS');
+  assert.equal(pairingVerdict(summaryFor('c/artifacts/repo/main',undefined)),'BLOCKED(driver-unpinned:c:pin-not-recorded)');
+  // The recorded digest is re-checked; a recorded `pinned: true` is not trusted.
+  assert.equal(pairingVerdict(summaryFor('c/artifacts/repo/main',{...pin,actual:{sha256:'f'.repeat(64)}})),'BLOCKED(driver-digest-mismatch:c:sha256)');
+  assert.equal(pairingVerdict(summaryFor('b/github/ref/main',pin)),'BLOCKED(driver-unpinned:b:pin-for-other-archetype)');
+  const bundle = driverPin('b',{cliBinary:fileURLToPath(new URL('./manifest.json',import.meta.url))});
+  assert.equal(bundle.pinned,false);
+  assert.equal(pairingVerdict(summaryFor('b/github/ref/main',bundle)),'BLOCKED(driver-digest-mismatch:b:bundleSha256)');
+  assert.equal(pairingVerdict(summaryFor('b/github/ref/main',driverPin('b',{cliBinary:'/nonexistent/octocove.mjs'}))),'BLOCKED(driver-unpinned:b:cli-bundle-missing)');
+  assert.equal(pairingVerdict(summaryFor('a/forgejo/ref/main',driverPin('a',{env:{}}))),'BLOCKED(driver-unpinned:a:adapter-repository-or-commit-not-registered)');
+  // artifacts/ref is unsupported by design and never selected, whatever its driver.
+  assert.equal(pairingVerdict(summaryFor('c/artifacts/ref/main',pin)),'BLOCKED(unsupported)');
+  assert.equal(pairingVerdict({...summaryFor('c/artifacts/ref/main',pin),execution:{status:'BLOCKED',reason:'unsupported-by-design-not-selected'}}),'BLOCKED(unsupported)');
+  // Concrete failures dominate a driver blocker.
+  const failed = summaryFor('c/artifacts/repo/main',undefined); failed.perCell[0].errorCount = 1;
+  assert.equal(pairingVerdict(failed),'FAIL');
+});
+
 // Tests of the report renderers over kept evidence run where a maintainer hook provides them: the
 // module OCTOCOVE_CONFORMANCE_REPORT_TESTS names (resolved as in aggregate.mjs).
 const hook = process.env.OCTOCOVE_CONFORMANCE_REPORT_TESTS;

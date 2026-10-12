@@ -230,3 +230,49 @@ test('c cannot pass machine authority using only ordinary-agent denial or an API
   Object.assign(journey,{status:'PASS',assertions:[check('complete-authorized-journey',true)],driver:r.driver,evidence:r.evidence});
   assert.ok(verdict(rs).errors.some(e => e.startsWith('unregistered-machine-driver:')));
 });
+
+test('registration pins each archetype driver and the committed machine driver digest is current', async () => {
+  const { registration, driverPin, unsupportedByDesign } = await import('./protocol.mjs');
+  assert.equal(registration.a.qualification,'unqualified');
+  assert.equal(registration.a.pinnedDriver.kind,'external-adapter');
+  assert.equal(registration.a.pinnedDriver.pathEnv,'OCTOCOVE_CONFORMANCE_ADAPTER');
+  assert.equal(registration.b.pinnedDriver.cliVersion,JSON.parse(readFileSync(new URL('../../packages/cli/package.json',import.meta.url),'utf8')).version);
+  assert.match(registration.b.pinnedDriver.bundleSha256,/^[a-f0-9]{64}$/);
+  // Editing drivers/machine.mjs requires updating its registered digest in the same change.
+  const machine = driverPin('c');
+  assert.equal(machine.pinned,true,machine.reason);
+  assert.deepEqual(machine.actual,machine.expected);
+  assert.equal(manifest.unsupportedByDesign['artifacts/ref'].selected,false);
+  assert.ok(unsupportedByDesign(cells().find(c => c.id === 'b/artifacts/ref/integration')));
+  assert.equal(unsupportedByDesign(cells().find(c => c.id === 'b/artifacts/repo/integration')),null);
+});
+
+test('archetype a pins an external adapter checkout by commit, loaded from the path its variable names', async () => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFileSync } = await import('node:child_process');
+  const { registration, computeDriver, pinCheck, driverPin } = await import('./protocol.mjs');
+  const dir = await mkdtemp(join(tmpdir(),'conformance-adapter-'));
+  const git = (...args) => execFileSync('git',['-C',dir,'-c','user.name=fixture','-c','user.email=fixture@example.invalid',
+    '-c','commit.gpgsign=false',...args],{encoding:'utf8',env:{...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'}}).trim();
+  try {
+    git('init','-q'); await writeFile(join(dir,'adapter.mjs'),'export const adapter = 1;\n');
+    git('add','adapter.mjs'); git('commit','-q','-m','adapter');
+    const commit = git('rev-parse','HEAD');
+    const reg = structuredClone(registration);
+    Object.assign(reg.a.pinnedDriver,{repository:'https://example.invalid/adapter.git',commit});
+    const env = {OCTOCOVE_CONFORMANCE_ADAPTER:dir};
+    assert.deepEqual(computeDriver('a',{env,reg}),{commit});
+    assert.deepEqual(driverPin('a',{env,reg}),{archetype:'a',expected:{commit},actual:{commit},pinned:true,reason:null});
+    assert.equal(pinCheck('a',computeDriver('a',{env:{},reg}),reg).reason,'driver-unpinned:a:adapter-path-unset:OCTOCOVE_CONFORMANCE_ADAPTER');
+    assert.equal(pinCheck('a',computeDriver('a',{env:{OCTOCOVE_CONFORMANCE_ADAPTER:join(dir,'missing')},reg}),reg).reason,'driver-unpinned:a:adapter-checkout-unreadable');
+    await writeFile(join(dir,'adapter.mjs'),'export const adapter = 2;\n');
+    assert.equal(pinCheck('a',computeDriver('a',{env,reg}),reg).reason,'driver-unpinned:a:adapter-checkout-modified');
+    git('commit','-q','-am','moved');
+    assert.equal(pinCheck('a',computeDriver('a',{env,reg}),reg).reason,'driver-digest-mismatch:a:commit');
+    // The committed registration names no adapter, so archetype a stays unpinned even at a real checkout.
+    assert.equal(pinCheck('a',{commit},registration).reason,'driver-unpinned:a:adapter-repository-or-commit-not-registered');
+    assert.equal(pinCheck('a',{commit},{...reg,a:{...reg.a,pinnedDriver:{...reg.a.pinnedDriver,repository:'not-a-url'}}}).pinned,false);
+  } finally { await rm(dir,{recursive:true,force:true}); }
+});
