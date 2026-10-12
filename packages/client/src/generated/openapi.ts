@@ -4617,6 +4617,8 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Optional for humans; implicit bound task for agents, another task is forbidden. */
                 taskId?: components["schemas"]["Id"];
+                /** @description Long-poll, in whole seconds (default 0, no wait). The answer comes as soon as the page has an item; otherwise an empty page with the unchanged position after wait seconds. Authorization is checked on every request and nothing is held across the wait. Any other value is 400 invalid-request. */
+                wait?: number;
             };
             header?: never;
             path?: never;

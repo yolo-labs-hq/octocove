@@ -51,6 +51,29 @@ export const eventCases: Case[] = [
     equal((await next).done, true);
     equal(calls.length, 1, 'no request after the abort');
   }),
+  test('events.follow with waitSeconds sends wait and asks again at once after an empty long-polled page', async () => {
+    const controller = new AbortController();
+    const { fetch, calls } = scriptedFetch(json(200, { items: [], nextCursor: 'held.position' }), json(200, { items: [event('evt_4')], nextCursor: 'c' }));
+    const slept: number[] = [];
+    const sleeper = async (ms: number) => { slept.push(ms); };
+    const iterator = journeys(client(fetch)).events.follow({ filter: { projectId: 'p' }, signal: controller.signal, waitSeconds: 25, pollMs: 60_000, sleep: sleeper });
+    const items = await take(iterator, 2);
+    controller.abort();
+    equal(items.map((i) => [i.type, i.cursor]), [['position', 'held.position'], ['event', 'evt_4']]);
+    equal(query(calls[0]!.url), { projectId: 'p', wait: '25' });
+    equal(query(calls[1]!.url), { projectId: 'p', after: 'held.position', wait: '25' }, 'the next long poll resumes from the held position');
+    equal(slept, [], 'the server already waited; no idle sleep');
+  }),
+  test('events.follow refuses a waitSeconds outside 0–25 or not whole, and sends no wait for 0', async () => {
+    for (const waitSeconds of [-1, 26, 1.5, Number.NaN]) {
+      await rejects(() => journeys(client(scriptedFetch().fetch)).events.follow({ filter: { projectId: 'p' }, waitSeconds }).next(), TypeError);
+    }
+    const controller = new AbortController();
+    const { fetch, calls } = scriptedFetch(json(200, { items: [event('evt_5')], nextCursor: 'c' }));
+    await take(journeys(client(fetch)).events.follow({ filter: { projectId: 'p' }, signal: controller.signal, waitSeconds: 0 }), 1);
+    controller.abort();
+    equal(query(calls[0]!.url), { projectId: 'p' });
+  }),
   test('events.follow polls again after 429 and surfaces other refusals (e.g. 410 with a restart cursor)', async () => {
     const busy = problem(429, 'rate-limited');
     const headers = new Headers(busy.headers); headers.set('retry-after', '0.01');

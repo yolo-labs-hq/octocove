@@ -2763,6 +2763,10 @@ export const routing = {
         {
           "name": "taskId",
           "required": false
+        },
+        {
+          "name": "wait",
+          "required": false
         }
       ],
       "header": [],
