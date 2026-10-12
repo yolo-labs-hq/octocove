@@ -831,9 +831,6 @@ export const routing = {
     "csrfHeader": false,
     "requestBody": null,
     "responses": {
-      "200": [
-        "application/json"
-      ],
       "303": [],
       "400": [
         "application/problem+json"
@@ -851,9 +848,7 @@ export const routing = {
         "application/problem+json"
       ]
     },
-    "successStatuses": [
-      200
-    ],
+    "successStatuses": [],
     "redirectStatuses": [
       303
     ],

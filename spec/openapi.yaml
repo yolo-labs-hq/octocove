@@ -3133,21 +3133,22 @@ paths:
       summary: Complete the provider redirect
       description: Server override places callback at origin /auth/callback, outside /v1. Single-use browser-bound
         state, nonce and code transaction. Validate ID token then issue own session; never accept issuer tokens
-        as API authorization. Browser redirects to allowlisted UI/CLI confirmation. No Idempotency-Key on this OAuth
+        as API authorization. Browser redirects to an allowlisted UI path or, for CLI mode, to
+        /auth/cli?userCode=<code> with only the visible user code in the URL. No Idempotency-Key on this OAuth
         GET; transaction consumption is its idempotency guard.
       tags:
       - Auth
       security: []
       responses:
         '303':
-          description: Validated login; rotated session or CLI confirmation page. No token in redirect URL.
+          description: Validated login; rotated session or CLI confirmation page. Only the visible user code appears in the CLI redirect URL.
           headers:
             Location:
-              description: Allowlisted local UI path.
+              description: Allowlisted local UI path, including /auth/cli?userCode=<code> for CLI mode.
               schema:
                 type: string
             Set-Cookie:
-              description: Secure HttpOnly SameSite=Lax rotated Octocove session.
+              description: Secure HttpOnly SameSite=Lax rotated Octocove session and readable Secure CSRF cookie.
               schema:
                 type: string
             Cache-Control:
@@ -3162,29 +3163,6 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
-        '200':
-          description: CLI login consent handoff after validated OIDC identity; still requires explicit human
-            confirmation and verifier redemption. Same-origin JSON carrying only the user code and CSRF token,
-            never the session token.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [userCode, csrfToken, confirmEndpoint, requiresExplicitConsent]
-                properties:
-                  userCode:
-                    type: string
-                  csrfToken:
-                    type: string
-                  confirmEndpoint:
-                    type: string
-                  requiresExplicitConsent:
-                    type: boolean
-                    const: true
-          headers:
-            Cache-Control:
-              $ref: '#/components/headers/NoStore'
       x-authoritative-handler: auth.completeLogin
       parameters:
       - name: state
@@ -3299,7 +3277,7 @@ paths:
                 decision:
                   type: string
                   enum:
-                  - approve
+                  - allow
                   - deny
               required:
               - userCode
