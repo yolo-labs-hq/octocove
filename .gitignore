@@ -12,6 +12,8 @@ packages/cli/test-results/
 packages/*/LICENSE
 packages/*/NOTICE
 packages/client/pack-out/
+# esbuild metafile for the CLI bundle (not packed); pack_scan.py checks its inputs
+packages/cli/build-meta/
 
 # Evidence written by tests and runners (OCTOCOVE_EVIDENCE_DIR defaults here)
 .evidence/
