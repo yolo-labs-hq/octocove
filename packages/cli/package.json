@@ -1,6 +1,5 @@
 {
   "name": "@yolo-labs/octocove",
-  "private": true,
   "license": "Apache-2.0",
   "version": "0.1.0",
   "description": "The octocove command-line client for the Octocove API: login, projects, repositories, tasks, claims and candidates.",

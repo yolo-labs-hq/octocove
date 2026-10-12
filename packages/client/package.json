@@ -1,6 +1,5 @@
 {
   "name": "@yolo-labs/octocove-client",
-  "private": true,
   "license": "Apache-2.0",
   "version": "0.1.0",
   "description": "Typed client for the Octocove API: transports, generated operations and routing, retry policy, errors.",
