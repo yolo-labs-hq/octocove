@@ -173,6 +173,21 @@ cleanup and event injection routes are not exposed on the CLI's HTTP server.
   socket to CLI claims. This helper is setup-only: its seed/deliver callbacks
   refuse transport. Local source writes still use the declared Git double;
   this cannot prove production helper transport or runtime confinement.
+  The CLI `journey` assertion follows the cell's source topology
+  ([journey.mjs](journey.mjs), tested by [journey.test.mjs](journey.test.mjs)),
+  and neither topology's evidence satisfies the other's rule. A `ref` cell
+  proves own-clone registration of the external `review-ref`, with no allocated
+  repository or provisioning. A `repo` cell proves the allocated lane: the
+  task-repo claim, its server mapping and exact lane ref, all bound in the
+  checkout; the protected helper bound to that claim as the only source remote;
+  publication of the selected commit by `submit REF` itself; origin, HEAD,
+  status and `review-ref` preserved through landing; an approval bound to the
+  exact candidate tuple and consumed by its own fence; and the exact remote
+  receipt. The safety scenarios need the selected commit on the lane ref, so
+  before the journey's submit the fixture restores that ref to its provisioned
+  base. The journey requires the base on the lane before submit, the selected
+  commit after it (also as the persisted submission source) and an untouched
+  canonical target.
 * **c:** [drivers/machine.mjs](drivers/machine.mjs) invokes the actual CLI
   for independent submit/approval grants. Administrator provisioning uses public
   registration APIs; signed local fake policy-bot, GitHub Actions, Workers Cron

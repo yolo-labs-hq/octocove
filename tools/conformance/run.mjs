@@ -54,7 +54,7 @@ export async function loadHost(path) {
   return host;
 }
 async function fingerprint(host) {
-  const files = ['preregistration.json','manifest.json','diagnostics.mjs','protocol.mjs','cell.mjs','run.mjs','smoke.mjs','scenarios.ts',
+  const files = ['preregistration.json','manifest.json','diagnostics.mjs','protocol.mjs','cell.mjs','run.mjs','smoke.mjs','scenarios.ts','journey.mjs',
     'event-oracles.mjs','drivers/api.mjs','drivers/machine.mjs','drivers/cli.mjs','drivers/generic.mjs','drivers/git-transport.mjs','drivers/registration.json',
     'provider/contract.mjs','events/oracles.mjs','events/contract.mjs',
     '../../packages/helper/src/attempt-helper.mjs','../../packages/cli/src/bin.ts','../../packages/cli/src/cli.ts','../../packages/cli/src/machine.ts','../../packages/cli/src/http.ts','../../packages/cli/src/store.ts'];
