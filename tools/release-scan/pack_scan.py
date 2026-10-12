@@ -7,7 +7,13 @@
 Each tarball must (a) contain exactly the expected files, as regular files under package/;
 (b) pass the release scan detectors (classify.load_patterns: patterns.json plus any extra-patterns.json; the same policy as scan.py)
 over every file, so no secret, account id, sandbox path, private-repository link or operator
-domain ships; (c) carry no source map and no sourceMappingURL comment. The packed manifest
+domain ships; (c) carry no source map and no sourceMappingURL comment; (d) for the CLI bundle,
+inline only first-party Octocove source: every input in the esbuild metafile the build writes
+(packages/cli/build-meta/) must be under packages/{cli,client,shared}/src, the metafile must
+describe the packed bundle (same byte size), and its only external imports are node: builtins.
+No third-party code is bundled, so the tarball carries LICENSE and NOTICE but no third-party
+notices; if that changes this gate fails until the notices ship and the gate is updated
+(docs/RELEASE_SCOPE.md, "npm tarballs"). The packed manifest
 must also name the public repository, the public publishConfig and no workspace/file/link
 specifier. Prints file lists and counts, never matched values. Exit 1 on any failure.
 The packages must be built first (`pnpm --filter <name> build`).
@@ -16,6 +22,7 @@ import argparse
 import hashlib
 import json
 import pathlib
+import posixpath
 import re
 import subprocess
 import sys
@@ -40,6 +47,8 @@ PACKAGES = {
         # esbuild inlines only Octocove's own Apache-2.0 sources (cli, client, shared), which the
         # root NOTICE covers. A bundled third-party module would need its notices in the tarball.
         bundles=('dist/octocove.mjs',),
+        # Written by the package's build script (esbuild --metafile); never packed.
+        metafile='build-meta/octocove.mjs.json',
     ),
     'packages/client': dict(
         name='@yolo-labs/octocove-client',
@@ -51,6 +60,8 @@ PACKAGES = {
 SOURCE_MAP_URL = re.compile(rb'[#@]\s*sourceMappingURL\s*=')
 # esbuild's per-module path comment, e.g. `// ../../node_modules/pkg/index.js`.
 BUNDLED_DEPENDENCY = re.compile(rb'^// (?:\.\./)*node_modules/', re.MULTILINE)
+# Repository-relative source roots the CLI bundle may inline (all Apache-2.0, this repository).
+FIRST_PARTY_SOURCES = ('packages/cli/src/', 'packages/client/src/', 'packages/shared/src/')
 LOCAL_SPECIFIER = re.compile(r'^(workspace|file|link|portal|git\+file):')
 
 
@@ -81,6 +92,39 @@ def read_members(tarball):
     return files, errors
 
 
+def bundle_input_errors(directory, rel, data, metafile):
+    """Check one bundle against its esbuild metafile: first-party inputs only, node: externals only."""
+    if metafile is None:
+        return [f'{rel}: no esbuild metafile; build the package first (pnpm --filter ./{directory} build)']
+    output = metafile.get('outputs', {}).get(rel)
+    if output is None:
+        return [f'{rel}: the esbuild metafile does not describe this bundle']
+    errors = []
+    if output.get('bytes') != len(data):
+        errors.append(f"{rel}: the esbuild metafile is stale ({output.get('bytes')} bytes recorded, {len(data)} packed); rebuild")
+    inputs = metafile.get('inputs', {})
+    for path in sorted(set(inputs) | set(output.get('inputs', {}))):
+        resolved = posixpath.normpath(posixpath.join(directory, path))
+        if not resolved.startswith(FIRST_PARTY_SOURCES) or 'node_modules' in resolved.split('/'):
+            errors.append(f'{rel}: inlines {path}, which is not first-party Octocove source; '
+                          'ship its licence notices in the tarball and update this gate')
+    for path in sorted(inputs):
+        for imported in inputs[path].get('imports', ()):
+            if imported.get('external') and not imported.get('path', '').startswith('node:'):
+                errors.append(f"{rel}: {path} imports {imported.get('path')!r} at runtime, which the tarball does not ship")
+    return errors
+
+
+def load_metafiles(directory):
+    """Map bundle path -> parsed esbuild metafile (None when the build has not written one)."""
+    spec = PACKAGES[directory]
+    if 'metafile' not in spec:
+        return {}
+    path = ROOT / directory / spec['metafile']
+    metafile = json.loads(path.read_text()) if path.is_file() else None
+    return {rel: metafile for rel in spec.get('bundles', ())}
+
+
 def manifest_errors(spec, manifest, source, packed):
     errors = []
     if manifest.get('name') != spec['name']:
@@ -104,8 +148,9 @@ def manifest_errors(spec, manifest, source, packed):
     return errors
 
 
-def check_tarball(directory, tarball, detectors, source=None):
-    """Return (errors, files) for one package tarball. `source` is the repository package.json."""
+def check_tarball(directory, tarball, detectors, source=None, metafiles=None):
+    """Return (errors, files) for one package tarball. `source` is the repository package.json;
+    `metafiles` maps each bundle to its esbuild metafile (load_metafiles)."""
     spec = PACKAGES[directory]
     files, errors = read_members(tarball)
     for rel in sorted(files):
@@ -122,6 +167,7 @@ def check_tarball(directory, tarball, detectors, source=None):
     for rel in spec.get('bundles', ()):
         if BUNDLED_DEPENDENCY.search(files.get(rel, b'')):
             errors.append(f'{rel}: inlines a node_modules package; add its licence notices and update this gate')
+        errors.extend(bundle_input_errors(directory, rel, files.get(rel, b''), (metafiles or {}).get(rel)))
     try:
         manifest = json.loads(files.get('package.json', b'{}'))
         errors.extend(manifest_errors(spec, manifest, source, set(files)))
@@ -157,7 +203,7 @@ def report(directory, tarball, errors, files):
         print(f'  {len(files[rel]):>8}  {rel}')
     for error in errors:
         print(f'  FAIL {error}', file=sys.stderr)
-    print(f"  {'FAIL' if errors else 'ok'}: file set, release-scan detectors, source maps, manifest")
+    print(f"  {'FAIL' if errors else 'ok'}: file set, release-scan detectors, source maps, bundle inputs, manifest")
 
 
 def main(argv=None):
@@ -172,13 +218,14 @@ def main(argv=None):
     failed = False
     for directory in directories:
         source = json.loads((ROOT / directory / 'package.json').read_text())
+        metafiles = load_metafiles(directory)
         if args.tarball:
-            errors, files = check_tarball(directory, args.tarball, detectors, source)
+            errors, files = check_tarball(directory, args.tarball, detectors, source, metafiles)
             report(directory, args.tarball, errors, files)
         else:
             with tempfile.TemporaryDirectory(prefix='octocove-pack-') as scratch:
                 tarball = pack(directory, scratch)
-                errors, files = check_tarball(directory, tarball, detectors, source)
+                errors, files = check_tarball(directory, tarball, detectors, source, metafiles)
                 report(directory, tarball, errors, files)
         failed |= bool(errors)
     return int(failed)

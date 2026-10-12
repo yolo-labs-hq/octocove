@@ -32,6 +32,15 @@ def files(overrides=None):
     return {key: value for key, value in base.items() if value is not None}
 
 
+def bundle_metafile(bundle, inputs=('src/bin.ts', '../client/src/index.ts', '../shared/src/merge.mjs'), imports=()):
+    """An esbuild-shaped metafile describing `bundle` (paths relative to packages/cli)."""
+    return {
+        'inputs': {path: {'bytes': 1, 'imports': [{'path': i, 'kind': 'import-statement', 'external': True}
+                                                  for i in imports]} for path in inputs},
+        'outputs': {'dist/octocove.mjs': {'bytes': len(bundle), 'inputs': {path: {'bytesInOutput': 1} for path in inputs}}},
+    }
+
+
 class PackScanTest(unittest.TestCase):
     def setUp(self):
         self.detectors = pack_scan.load_detectors()
@@ -51,9 +60,11 @@ class PackScanTest(unittest.TestCase):
                 archive.addfile(info)
         return path
 
-    def errors(self, contents, **kwargs):
+    def errors(self, contents, metafile=None, **kwargs):
+        if metafile is None:
+            metafile = bundle_metafile(contents.get('dist/octocove.mjs', b''))
         return pack_scan.check_tarball('packages/cli', self.tarball(contents, **kwargs), self.detectors,
-                                       {'version': '0.1.0'})[0]
+                                       {'version': '0.1.0'}, {'dist/octocove.mjs': metafile})[0]
 
     def assertRejected(self, contents, fragment, **kwargs):
         errors = self.errors(contents, **kwargs)
@@ -81,6 +92,19 @@ class PackScanTest(unittest.TestCase):
         bundle = b'// ../client/src/index.ts\nx;\n// ../../node_modules/left-pad/index.js\ny;\n'
         self.assertRejected(files({'dist/octocove.mjs': bundle}), 'inlines a node_modules package')
         self.assertEqual(self.errors(files({'dist/octocove.mjs': b'// ../client/src/index.ts\nx;\n'})), [])
+
+    def test_bundle_inputs(self):
+        bundle = files()['dist/octocove.mjs']
+        self.assertEqual(self.errors(files(), bundle_metafile(bundle, imports=('node:fs',))), [])
+        for path in ('../../node_modules/.pnpm/left-pad@1.3.0/node_modules/left-pad/index.js',
+                     '../client/node_modules/yaml/dist/index.js', '../client/src/../../../vendor/x.js',
+                     '../helper/src/main.ts'):
+            self.assertRejected(files(), f'inlines {path}', metafile=bundle_metafile(bundle, inputs=('src/bin.ts', path)))
+        self.assertRejected(files(), "imports 'yaml' at runtime", metafile=bundle_metafile(bundle, imports=('yaml',)))
+        self.assertRejected(files(), 'metafile is stale', metafile=bundle_metafile(bundle + b'x'))
+        self.assertRejected(files(), 'does not describe this bundle', metafile={'inputs': {}, 'outputs': {}})
+        errors = pack_scan.check_tarball('packages/cli', self.tarball(files()), self.detectors, {'version': '0.1.0'})[0]
+        self.assertTrue(any('no esbuild metafile' in error for error in errors), errors)
 
     def test_manifest(self):
         def manifest(**changes):
