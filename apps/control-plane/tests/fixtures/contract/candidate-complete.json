@@ -1,0 +1,34 @@
+{
+  "path": "/submissions/{id}/candidate",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "state": "complete",
+    "candidate": {
+      "id": "5a8241fe-82c6-4054-9da7-3d9c229e7987",
+      "taskId": "task-9w4BIw1a46lVBmG9dBys73MGLLhfBLizBKIwLztCWC0",
+      "submissionId": "5f8c52ad-bdfd-4cdc-a406-c7563e5dfbad",
+      "outcome": "computed",
+      "status": "active",
+      "candidateSha": "cccccccccccccccccccccccccccccccccccccccc",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "candidateRef": "refs/candidates/5f8c52ad-bdfd-4cdc-a406-c7563e5dfbad",
+      "checkIdentity": "checks-v1",
+      "checkPolicy": {
+        "mode": "none"
+      },
+      "conflictFiles": null,
+      "errorDetail": null,
+      "computeRunId": "619d9ad8-88f6-4e25-b798-40cc055f23fc",
+      "recomputedFromCandidateId": null,
+      "recomputeReason": null,
+      "computedAt": "2026-10-11T06:33:04.879Z",
+      "latestCheck": null,
+      "reviewBoundTo": {
+        "candidateSha": "cccccccccccccccccccccccccccccccccccccccc",
+        "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "intentVersion": 1
+      }
+    }
+  }
+}

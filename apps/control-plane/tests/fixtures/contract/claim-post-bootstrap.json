@@ -1,0 +1,25 @@
+{
+  "path": "/tasks/{id}/claim",
+  "method": "post",
+  "status": 202,
+  "body": {
+    "claim": {
+      "id": "01M4MTMDADXHPGS9KQ2J0FSDPP",
+      "taskId": "task-R1CBA2KpPpupX5D72Ato7-gSO4rZ6-8EhVWyH6x_Xko",
+      "intentVersion": 1,
+      "status": "active",
+      "expiresAt": "2026-10-11T07:33:03.000Z",
+      "dependencyResults": [],
+      "provisioningState": "pending",
+      "workspace": null,
+      "blockedReason": null
+    },
+    "delegation": {
+      "accessToken": "fixture-access-token",
+      "revocationId": "tshuE4TtvPf-Q7xCGmCUE4syaXKkDe41VuGHXKt5_AU",
+      "tokenType": "Bearer",
+      "delegationId": "01M4MTMDADGZPC8SPDWP1DNYRT",
+      "expiresAt": "2026-10-11T06:48:03.000Z"
+    }
+  }
+}

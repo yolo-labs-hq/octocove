@@ -1,0 +1,32 @@
+{
+  "path": "/submissions/{id}/candidate",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "state": "complete",
+    "candidate": {
+      "id": "2985697d-141a-4eb7-b343-430fda22c71f",
+      "taskId": "task-9w4BIw1a46lVBmG9dBys73MGLLhfBLizBKIwLztCWC0",
+      "submissionId": "bb430f0a-90fe-4310-9b9b-010d7695415e",
+      "outcome": "conflict",
+      "status": "failed",
+      "candidateSha": null,
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "candidateRef": null,
+      "checkIdentity": "checks-v1",
+      "checkPolicy": {
+        "mode": "none"
+      },
+      "conflictFiles": [
+        "src/file.ts"
+      ],
+      "errorDetail": null,
+      "computeRunId": "37f968ea-11ad-4916-92a0-b829b6dde1da",
+      "recomputedFromCandidateId": null,
+      "recomputeReason": null,
+      "computedAt": "2026-10-11T06:33:05.368Z",
+      "latestCheck": null,
+      "reviewBoundTo": null
+    }
+  }
+}

@@ -1,0 +1,70 @@
+// Node-only: the retry-policy validator's rejection cases and manifest/runtime build-record agreement.
+import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
+// @ts-expect-error -- plain .mjs CI script without declarations
+import { check, readmeTable } from '../scripts/check-retry-policy.mjs';
+import { BUILD, CLIENT_VERSION, routing } from '../src/index.js';
+
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const policyText = read('../retry-policy.json');
+const spec = parse(read('../../../apps/control-plane/openapi.yaml'));
+const readme = read('../README.md');
+const run = (text: string) => check({ policyText: text, spec, readme }) as string[];
+const edit = (mutate: (p: Record<string, any>) => void) => {
+  const policy = JSON.parse(policyText);
+  mutate(policy);
+  return JSON.stringify(policy, null, 2);
+};
+
+describe('retry-policy.json validator', () => {
+  it('accepts the committed policy', () => {
+    expect(run(policyText)).toEqual([]);
+  });
+  it('rejects a duplicated operationId that JSON.parse would collapse', () => {
+    const duplicated = policyText.replace('{\n  "approvalGrantExchange"', '{\n  "taskGet": {"callable": true, "autoRetry": "network-only", "replay": null},\n  "approvalGrantExchange"');
+    expect(run(duplicated)).toContain('taskGet: listed more than once');
+  });
+  it('rejects a missing operation, an unknown one, and a wrong count', () => {
+    const errors = run(edit((p) => { delete p.taskGet; p.taskTeleport = { callable: true, autoRetry: 'never', replay: 'none' }; }));
+    expect(errors).toContain('taskGet: OpenAPI operation missing from retry-policy.json');
+    expect(errors).toContain('taskTeleport: not an OpenAPI operationId');
+  });
+  it('rejects values outside the sets and malformed shapes', () => {
+    expect(run(edit((p) => { p.taskCreate.autoRetry = 'always'; }))).toContainEqual(expect.stringContaining('taskCreate: autoRetry "always"'));
+    expect(run(edit((p) => { p.taskCreate.replay = 'cached'; }))).toContainEqual(expect.stringContaining('taskCreate: replay "cached"'));
+    expect(run(edit((p) => { p.authCallback.reason = 'redirect'; }))).toContainEqual(expect.stringContaining('authCallback: reason'));
+    expect(run(edit((p) => { p.taskCreate.extra = 1; }))).toContainEqual(expect.stringContaining('taskCreate: callable shape'));
+    expect(run(edit((p) => { p.taskClaim.variants = { human: p.taskClaim.variants.human }; }))).toContainEqual(expect.stringContaining('variants are exactly human and bootstrap'));
+    expect(run(edit((p) => { p.taskCreate = { callable: true, selector: 'credential', variants: p.taskClaim.variants }; }))).toContain('taskCreate: only taskClaim is credential-selected');
+  });
+  it('reserves replay null for reads', () => {
+    expect(run(edit((p) => { p.taskCreate.replay = null; }))).toContain('taskCreate: replay null is reserved for reads');
+  });
+  it('rejects classes that differ from the README retry table, even when the shape is valid', () => {
+    expect(run(edit((p) => { p.webhookDisable.autoRetry = 'network-only'; }))).toContainEqual(expect.stringContaining('webhookDisable: retry-policy.json'));
+    expect(run(edit((p) => { p.taskClaim.variants.bootstrap.replay = 'stored-result'; }))).toContainEqual(expect.stringContaining('taskClaim/bootstrap'));
+  });
+  it('parses all 82 ids plus the taskClaim variants from the README table', () => {
+    const table = readmeTable(readme) as Map<string, unknown>;
+    expect(table.size).toBe(83);
+    expect(table.get('taskClaim/bootstrap')).toEqual({ autoRetry: 'network-only', replay: 'bounded-recovery' });
+    expect(table.get('collaborationEventDelivery')).toEqual({ callable: false, reason: 'excluded' });
+  });
+});
+
+describe('generated routing and build record', () => {
+  it('joins exactly the policy into the routing table: 82 operations, 81 path operations', () => {
+    const policy = JSON.parse(policyText);
+    expect(Object.keys(routing)).toHaveLength(82);
+    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(81);
+    for (const [id, route] of Object.entries(routing)) expect(route.policy).toEqual(policy[id]);
+  });
+  it('records the same OpenAPI version and generator revisions in package.json and at runtime', () => {
+    const manifest = JSON.parse(read('../package.json'));
+    expect(manifest.version).toBe(CLIENT_VERSION);
+    expect(manifest.octocove).toEqual({ openapiVersion: BUILD.openapiVersion, generator: BUILD.generator, routingGenerator: BUILD.routingGenerator });
+    expect(BUILD.generator).toBe(`openapi-typescript@${manifest.devDependencies['openapi-typescript']}`);
+    expect(BUILD.openapiVersion).toBe(spec.info.version);
+  });
+});

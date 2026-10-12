@@ -1,0 +1,15 @@
+{
+  "name": "@octocove/helper",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": { "octocove-helper-connect": "bin/octocove-helper-connect.mjs" },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./connect": "./src/connect.mjs"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/grant.test.mjs tests/helper.test.mjs"
+  }
+}

@@ -1,0 +1,417 @@
+{
+  "approvalGrantExchange": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "metadata-without-token"
+  },
+  "approvalGrantRevoke": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalPolicyDisable": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalPolicyRegister": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalPrincipalDisable": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalPrincipalRegister": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalTrustActivate": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "state"
+  },
+  "approvalTrustActivationChallenge": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "none"
+  },
+  "approvalTrustDisable": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalTrustRotate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "approvalWithdraw": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "auditList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "authCallback": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "authCliConfirm": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "state"
+  },
+  "authCliExchange": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "authCliStart": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "authLogin": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "authLoginBinding": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "none"
+  },
+  "authLogout": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "brokerHelperPush": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "brokerTokenCreate": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "none"
+  },
+  "brokerTokenRevoke": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "state"
+  },
+  "candidateApprove": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "candidateApproveWithGrant": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "guarded-result"
+  },
+  "candidateGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateLand": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "candidateReject": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "candidateWithdraw": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "chainLaneGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "chainLanePush": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "chainLaneRetire": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "chainLaneRetry": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "claimAuthorize": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "claimGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "claimReplace": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "codeBlobGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "codeTreeGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "collaborationEventDelivery": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "delegationRenew": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "delegationRevoke": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "state"
+  },
+  "eventPermissionCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "eventPermissionRevoke": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "eventsReplay": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "landingsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meDelegationsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meSessionRevoke": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "meProjectsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meSessionsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "memberAdd": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "memberRemove": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "membersList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "projectCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "receiptGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "repositoriesList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "repositoryCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "repositoryVerify": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "sessionRenew": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "submissionCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "submitGrantExchange": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "metadata-without-token"
+  },
+  "submitGrantRevoke": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "submitWithGrant": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "guarded-result"
+  },
+  "taskClaim": {
+    "callable": true,
+    "selector": "credential",
+    "variants": {
+      "human": {
+        "autoRetry": "network-only",
+        "replay": "stored-result"
+      },
+      "bootstrap": {
+        "autoRetry": "network-only",
+        "replay": "bounded-recovery"
+      }
+    }
+  },
+  "taskCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskDependencyAdd": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskDependencyRemove": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskEditIntent": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "taskLog": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "taskPublish": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskReject": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskRelease": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskSupersede": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskUnpublish": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "tasksList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "webhookCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "webhookDeliveriesInspect": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "webhookDeliveryRedrive": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "webhookDisable": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "state"
+  },
+  "webhookReactivate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "webhookReplay": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "webhookSecretRotate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  }
+}

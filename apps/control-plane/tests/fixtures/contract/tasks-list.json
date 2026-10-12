@@ -1,0 +1,151 @@
+{
+  "path": "/tasks",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "items": [
+      {
+        "id": "task-9w4BIw1a46lVBmG9dBys73MGLLhfBLizBKIwLztCWC0",
+        "projectId": "other-project",
+        "key": "fx-live",
+        "status": "submitted",
+        "intentVersion": 1,
+        "intent": {
+          "title": "Ship the task",
+          "description": "A complete task contract",
+          "acceptanceCriteria": [
+            "All checks pass"
+          ]
+        },
+        "repositoryId": "canonical-other-project",
+        "targetRef": "refs/heads/main",
+        "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dependencies": [],
+        "acceptedReceiptId": null,
+        "liveAttempt": {
+          "claimId": "claim-_xfmgqMrdtmMAHgPV30UXu5sDTshVmgur3W91rm1HQw",
+          "submissionId": "bb430f0a-90fe-4310-9b9b-010d7695415e",
+          "candidateId": null,
+          "approvalId": null,
+          "fenceId": null
+        },
+        "claimedBy": {
+          "id": "https://identity.example|alice",
+          "kind": "human"
+        },
+        "intentEditedAt": "2026-10-11T06:33:03.130Z",
+        "updatedAt": "2026-10-11T06:33:05.188Z",
+        "candidate": null,
+        "needsReview": false,
+        "reviewReason": null
+      },
+      {
+        "id": "task-MGgy16rI1gXpIk94VtFVLmwAZMSNNZbGmz8ClY_n5sQ",
+        "projectId": "other-project",
+        "key": "fx-ready",
+        "status": "claimed",
+        "intentVersion": 1,
+        "intent": {
+          "title": "Ship the task",
+          "description": "A complete task contract",
+          "acceptanceCriteria": [
+            "All checks pass"
+          ]
+        },
+        "repositoryId": "canonical-other-project",
+        "targetRef": "refs/heads/main",
+        "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dependencies": [],
+        "acceptedReceiptId": null,
+        "liveAttempt": {
+          "claimId": "claim-0w8ffe6xTom8-lAg9Vt2MbyMZzt9Yw5FlXub3aO0pf8",
+          "submissionId": null,
+          "candidateId": null,
+          "approvalId": null,
+          "fenceId": null
+        },
+        "claimedBy": {
+          "id": "https://identity.example|alice",
+          "kind": "human"
+        },
+        "intentEditedAt": "2026-10-11T06:33:01.813Z",
+        "updatedAt": "2026-10-11T06:33:02.114Z",
+        "candidate": null,
+        "needsReview": false,
+        "reviewReason": null
+      },
+      {
+        "id": "task-R1CBA2KpPpupX5D72Ato7-gSO4rZ6-8EhVWyH6x_Xko",
+        "projectId": "other-project",
+        "key": "fx-bootstrap",
+        "status": "claimed",
+        "intentVersion": 1,
+        "intent": {
+          "title": "Ship the task",
+          "description": "A complete task contract",
+          "acceptanceCriteria": [
+            "All checks pass"
+          ]
+        },
+        "repositoryId": "canonical-other-project",
+        "targetRef": "refs/heads/main",
+        "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dependencies": [],
+        "acceptedReceiptId": null,
+        "liveAttempt": {
+          "claimId": "01M4MTMDADXHPGS9KQ2J0FSDPP",
+          "submissionId": null,
+          "candidateId": null,
+          "approvalId": null,
+          "fenceId": null
+        },
+        "claimedBy": {
+          "id": "agent-a",
+          "kind": "agent",
+          "delegatedBy": "https://identity.example|alice"
+        },
+        "intentEditedAt": "2026-10-11T06:33:02.799Z",
+        "updatedAt": "2026-10-11T06:33:03.087Z",
+        "candidate": null,
+        "needsReview": false,
+        "reviewReason": null
+      },
+      {
+        "id": "task-Wgtl08-vXT2c5hIXqaYW5m2zg1O05lgWZg6w0nxEopo",
+        "projectId": "other-project",
+        "key": "fx-pending",
+        "status": "claimed",
+        "intentVersion": 1,
+        "intent": {
+          "title": "Ship the task",
+          "description": "A complete task contract",
+          "acceptanceCriteria": [
+            "All checks pass"
+          ]
+        },
+        "repositoryId": "canonical-other-project",
+        "targetRef": "refs/heads/main",
+        "canonicalHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "dependencies": [],
+        "acceptedReceiptId": null,
+        "liveAttempt": {
+          "claimId": "claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A",
+          "submissionId": null,
+          "candidateId": null,
+          "approvalId": null,
+          "fenceId": null
+        },
+        "claimedBy": {
+          "id": "https://identity.example|alice",
+          "kind": "human"
+        },
+        "intentEditedAt": "2026-10-11T06:33:00.655Z",
+        "updatedAt": "2026-10-11T06:33:00.969Z",
+        "candidate": null,
+        "needsReview": false,
+        "reviewReason": null
+      }
+    ],
+    "nextCursor": null
+  }
+}

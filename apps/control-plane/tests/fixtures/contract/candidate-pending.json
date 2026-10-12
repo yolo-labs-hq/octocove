@@ -1,0 +1,10 @@
+{
+  "path": "/submissions/{id}/candidate",
+  "method": "get",
+  "status": 202,
+  "body": {
+    "state": "pending",
+    "submissionId": "d0b7c32a-d03c-458c-a034-0431cbd2709c",
+    "jobId": "c73fbdb8-04de-4f09-89b0-b59fa9232044"
+  }
+}

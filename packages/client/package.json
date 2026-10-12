@@ -1,0 +1,72 @@
+{
+  "name": "@yolo-labs/octocove-client",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "description": "Typed client for the Octocove control-plane API: transports, generated operations and routing, retry policy, errors.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yolo-labs-hq/octocove.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/yolo-labs-hq/octocove/tree/main/packages/client#readme",
+  "bugs": {
+    "url": "https://github.com/yolo-labs-hq/octocove/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./openapi": {
+      "types": "./dist/generated/openapi.d.ts"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./retry-policy.json": "./retry-policy.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "retry-policy.json",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "octocove": {
+    "openapiVersion": "0.1.0",
+    "generator": "openapi-typescript@7.13.0",
+    "routingGenerator": "octocove-client-routing@1"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "check:generated": "node scripts/generate.mjs --check",
+    "check:policy": "node scripts/check-retry-policy.mjs",
+    "build": "rm -rf dist && timeout 300 tsc -p tsconfig.build.json",
+    "prepack": "cp ../../LICENSE ../../NOTICE .",
+    "typecheck": "timeout 300 tsc -p tsconfig.json",
+    "test": "CI=1 timeout 300 vitest run --maxWorkers=1 < /dev/null",
+    "test:workerd": "timeout 300 node scripts/test-workerd.mjs",
+    "smoke:pack": "node scripts/smoke-pack.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "esbuild": "0.28.1",
+    "miniflare": "4.20260702.0",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "yaml": "2.8.1"
+  }
+}

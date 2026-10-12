@@ -1,0 +1,45 @@
+{
+  "name": "@yolo-labs/octocove",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "description": "The octocove command-line client for the Octocove control-plane API: login, projects, repositories, tasks, claims and candidates.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yolo-labs-hq/octocove.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/yolo-labs-hq/octocove/tree/main/packages/cli#readme",
+  "bugs": {
+    "url": "https://github.com/yolo-labs-hq/octocove/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "octocove": "dist/octocove.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "esbuild src/bin.ts --bundle --platform=node --target=node20 --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/octocove.mjs",
+    "prepack": "cp ../../LICENSE ../../NOTICE .",
+    "typecheck": "timeout 300 tsc -p tsconfig.json",
+    "test": "CI=1 timeout 300 vitest run --maxWorkers=1 < /dev/null"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
