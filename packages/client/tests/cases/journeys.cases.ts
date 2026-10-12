@@ -143,6 +143,20 @@ export const journeyCases: Case[] = [
     ok(Date.now() - started >= 900, 'waited the default second');
     equal(keys(calls)[0], keys(calls)[1]);
   }),
+  test('command body timeout and busy refusals retry with the same key; oversized bodies do not', async () => {
+    const task = { projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] };
+    for (const [status, code] of [[408, 'request-body-timeout'], [429, 'request-body-busy']] as const) {
+      const { fetch, calls } = scriptedFetch(withRetryAfter(problem(status, code), '0.01'), json(201, { id: 'task-1' }));
+      equal((await journeys(client(fetch)).tasks.create(task, { deadline: soon() })).id, 'task-1');
+      equal(calls.length, 2);
+      equal(keys(calls)[0], keys(calls)[1]);
+      equal(calls[0]!.body, calls[1]!.body);
+    }
+    const oversized = scriptedFetch(problem(413, 'request-body-too-large'), json(201, { id: 'task-1' }));
+    const error = await rejects(() => journeys(client(oversized.fetch)).tasks.create(task, { deadline: soon() }), ApiError);
+    equal([error.status, error.code], [413, 'request-body-too-large']);
+    equal(oversized.calls.length, 1);
+  }),
   test('a busy answer whose Retry-After does not fit the deadline is surfaced, not waited out', async () => {
     const { fetch, calls } = scriptedFetch(withRetryAfter(problem(409, 'operation-in-progress'), '30'), json(201, {}));
     const error = await rejects(() => journeys(client(fetch)).tasks.publish('t', { deadline: Date.now() + 1_000 }), ApiError);
