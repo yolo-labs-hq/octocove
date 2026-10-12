@@ -8,7 +8,7 @@ import re
 import sys
 
 
-REQUIRED_WORKFLOWS = ("ci.yml", "integrator.yml", "demo.yml")
+REQUIRED_WORKFLOWS = ("ci.yml",)
 TOKEN_REFERENCE = re.compile(
     r"\bsecrets\s*(?:\.\s*GITHUB_TOKEN\b|\[\s*(['\"])GITHUB_TOKEN\1\s*\])"
 )
@@ -30,8 +30,7 @@ ACTION = re.compile(r"^\s*(?:-\s*)?uses\s*:\s*(.*?)\s*$", re.MULTILINE)
 # name is the fork author's choice, so a fork head with either prefix always runs
 # every job. canonical() derives one spelling per gate class from the model; every
 # job carries exactly its class's gate (or none where the class has no gate).
-# `check` itself is exactly `if: always()` (also pinned by the conformance smoke
-# test) so the aggregate always reports. retarget() re-renders a canonical
+# `check` itself is exactly `if: always()` so the aggregate always reports. retarget() re-renders a canonical
 # workflow for another model, such as the default model.
 BRANCH_MODEL = Path(__file__).resolve().with_name("ci-branch-model.json")
 DEFAULT_MODEL = {"push": ["main"], "automation_prefix": None, "integration_prefix": None}
@@ -107,9 +106,7 @@ GATES, CHECK_STEP_GATE, CHECK_STEP = CANONICAL["gates"], CANONICAL["check_step_g
 # In-job area skips: exactly these jobs call tools/ci-scope.py, right after a
 # depth-2 checkout, and every later step is conditional on its output.
 SCOPED_JOBS = {
-    "ci.yml": {"conformance", "migrations", "npm-pack", "openapi-lint"},
-    "integrator.yml": {"native-git"},
-    "demo.yml": {"demo", "demo-library"},
+    "ci.yml": {"npm-pack", "spec-lint"},
 }
 CHECKOUT = "      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1\n"
 SCOPE_RUN = "        id: scope\n        run: python3 tools/ci-scope.py '.github/workflows/{name}' "
@@ -204,7 +201,7 @@ def workflow_violations(name, source, model=None):
         errors.append(f"push must allow only {', '.join(model['push'])}; pull_request must be unfiltered")
     concurrency = re.search(r"^concurrency:\s*\n(.*?)(?=^\S|\Z)", source, re.MULTILINE | re.DOTALL)
     # PR runs cancel superseded PR runs; pushes queue so every pushed head of a
-    # push branch still reaches a completed run (ADR 0012).
+    # push branch still reaches a completed run.
     expected_concurrency = (f"  group: {Path(name).stem}-${{{{ github.ref }}}}\n"
                             "  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\n")
     if not concurrency or concurrency[1] != expected_concurrency:
@@ -396,8 +393,6 @@ def jobs(source):
 
 
 def gate_class(name, job, needed):
-    if name == "demo.yml":
-        return "walkthrough"
     if name == "ci.yml" and job == "check":
         return "check"
     if name == "ci.yml" and job in needed:

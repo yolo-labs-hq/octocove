@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir, mkdtemp, rm, rename } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, relative } from 'node:path';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cells, manifest, manifestSha256, resultPath, sanitize, summarizeRows } from './protocol.mjs';
 import { cellBudget, mergeCell, resumeIndex, displayCell } from './cell.mjs';
 import { smokeVerdict, smokePolicy } from './smoke.mjs';
@@ -17,7 +17,7 @@ export function parseArgs(args) {
     const flag = args[i];
     if (flag === '--shard' || flag === '--smoke' || flag === '--ci-gate' || flag === '--resume') options[flag.slice(2)] = true;
     else if (flag === '--maxWorkers=1') options.maxWorkers = 1;
-    else if (['--archetype','--pairing','--out','--mode','--timeout-seconds','--maxWorkers','--target'].includes(flag)) {
+    else if (['--archetype','--pairing','--out','--mode','--timeout-seconds','--maxWorkers','--target','--host'].includes(flag)) {
       const value = args[++i];
       if (!value || value.startsWith('--')) throw new Error('missing-option-value');
       options[flag.slice(2)] = value;
@@ -42,14 +42,23 @@ export function parseArgs(args) {
   return options;
 }
 const git = (...args) => execFileSync('git',args,{cwd:root,encoding:'utf8'}).trim();
-async function fingerprint() {
-  const files = ['preregistration.json','manifest.json','diagnostics.mjs','protocol.mjs','cell.mjs','run.mjs','smoke.mjs','scenarios.ts','vitest.config.mjs','worker.ts',
+// A host module names the service under test: `vitestConfig` and `vitestBin` (absolute paths)
+// run its suite, which calls registerConformance from scenarios.ts, and `fingerprintFiles` lists
+// the host-side files that belong in the harness fingerprint.
+export async function loadHost(path) {
+  if (!path) return null;
+  const host = await import(pathToFileURL(resolve(path)).href);
+  if (typeof host.vitestConfig !== 'string' || typeof host.vitestBin !== 'string' || !Array.isArray(host.fingerprintFiles)) throw new Error('invalid-host');
+  return host;
+}
+async function fingerprint(host) {
+  const files = ['preregistration.json','manifest.json','diagnostics.mjs','protocol.mjs','cell.mjs','run.mjs','smoke.mjs','scenarios.ts',
     'event-oracles.mjs','drivers/api.mjs','drivers/machine.mjs','drivers/cli.mjs','drivers/generic.mjs','drivers/git-transport.mjs','drivers/registration.json',
     'provider/contract.mjs','events/oracles.mjs','events/contract.mjs',
-    '../../apps/control-plane/tests/conformance-fixture.ts','../../apps/control-plane/tests/conformance.suite.ts',
     '../../packages/helper/src/attempt-helper.mjs','../../packages/cli/src/bin.ts','../../packages/cli/src/cli.ts','../../packages/cli/src/machine.ts','../../packages/cli/src/http.ts','../../packages/cli/src/store.ts'];
   const hash = createHash('sha256');
   for (const file of files) hash.update(file).update(await readFile(new URL(file,import.meta.url)));
+  for (const file of host?.fingerprintFiles ?? []) hash.update(relative(root,file)).update(await readFile(file));
   return hash.digest('hex');
 }
 async function artifact(file, value) {
@@ -63,6 +72,7 @@ async function artifact(file, value) {
   await rename(file+'.tmp',file);
 }
 export async function run(options) {
+  const host = await loadHost(options.host);
   const shard = options.shard ? `${options.archetype}/${options.pairing}` : null;
   const selected = options.shard ? cells().filter(c => c.archetype === options.archetype && `${c.provider}/${c.topology}` === options.pairing
     && c.target === `refs/heads/${options.target}`) : cells();
@@ -71,7 +81,7 @@ export async function run(options) {
   const preregistration = { schemaVersion:1, protocol:manifest.protocol, harnessVersion:manifest.harnessVersion,
     mode:'local', reportOnly:true, attemptEvidence:true, aggregateVerdict:null,
     commit:git('rev-parse','HEAD'), committedTree:git('rev-parse','HEAD^{tree}'), dirty:!!git('status','--porcelain'),
-    harnessSha256:await fingerprint(), manifestSha256, shard, smoke:options.smoke,
+    harnessSha256:await fingerprint(host), manifestSha256, shard, smoke:options.smoke,
     cells:selected, repetitions, maxWorkers:1, wallClockSeconds:options.seconds, budget:options.budget, teardownSeconds:manifest.teardownSeconds, target:options.target, resume:!!options.resume, rawTimingCap:manifest.rawTimingCap,
     ciGate:!!options['ci-gate'], ...(options.smoke ? {qualifiesFullCell:false} : {}),
     ...(options['ci-gate'] ? {smokeScope:smokePolicy} : {}),
@@ -90,7 +100,8 @@ export async function run(options) {
     perCell:[displayCell(completedCell,selected[0],repetitions)],completedCell,segments,resumed:!!previous});
   const supported = manifest.localPairings.includes(options.pairing);
   if (options.shard && !supported) execution = {status:'BLOCKED',reason:'unsupported-local-pairing-never-simulated'};
-  if (options.shard && supported && startRepetition <= repetitions) {
+  else if (options.shard && !host) execution = {status:'BLOCKED',reason:'no-conformance-host'};
+  if (options.shard && supported && host && startRepetition <= repetitions) {
     const cell = selected[0], startedAt = new Date().toISOString(), started = performance.now();
     const temporary = await mkdtemp(join(tmpdir(),'octocove-conformance-cell-'));
     const file = join(temporary,'summary.json'), cancelFile = join(temporary,'cancel');
@@ -100,7 +111,7 @@ export async function run(options) {
         const executionSeconds = Math.max(1,options.seconds-(options.smoke ? 60 : manifest.teardownSeconds)- (options.budget?.bootSeconds ?? 0));
         // Invoke the installed Vitest entry directly: private HOME must not trigger
         // Corepack downloads/version discovery once per cell.
-        const child = spawn(process.execPath,[resolve(root,'apps/control-plane/node_modules/vitest/vitest.mjs'),'run','--config',resolve(root,'tools/conformance/vitest.config.mjs'),
+        const child = spawn(process.execPath,[host.vitestBin,'run','--config',host.vitestConfig,
           '--maxWorkers=1','--minWorkers=1','--reporter=dot'], {cwd:root,detached:true,stdio:['ignore','ignore','pipe'],
           env:{PATH:process.env.PATH,HOME:temporary,CI:'1',TMPDIR:temporary,
             CONFORMANCE_SHARD:shard,CONFORMANCE_SHARD_OUTPUT:file,CONFORMANCE_MODE:'local',CONFORMANCE_CANCEL_FILE:cancelFile,

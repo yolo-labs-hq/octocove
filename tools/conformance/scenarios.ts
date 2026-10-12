@@ -1,17 +1,16 @@
 import { diagnostic, stderrTail } from './diagnostics.mjs';
 import { writeFile, rename, access, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { localEnvironment, runKey } from '../../apps/control-plane/tests/conformance-fixture';
 import { manifest, cells, check, keyOf, sanitize, summarizeRows, serialCells } from './protocol.mjs';
 import { apiDriver } from './drivers/api.mjs';
 import { machineDriver } from './drivers/machine.mjs';
 import { cliDriver } from './drivers/cli.mjs';
-import { git as localGit } from '../../apps/control-plane/tests/native-fixture.mjs';
 import { genericDriver } from './drivers/generic.mjs';
-export function registerConformance({ it, expect, beforeAll, afterAll, SignJWT, decodeJwt }: any) {
+/** The host supplies the service under test: `localEnvironment` boots it, `runKey` derives idempotency keys and `git` is the fallback Git runner. */
+export function registerConformance({ it, expect, beforeAll, afterAll, SignJWT, decodeJwt, localEnvironment, runKey, git: localGit }: any) {
 const controller = new AbortController();
 let deadline: ReturnType<typeof setTimeout>;
-let env: Awaited<ReturnType<typeof localEnvironment>>;
+let env: any;
 const git = (...args: any[]) => (env as any).git ? (env as any).git(...args) : (localGit as any)(...args);
 const results: any[] = [];
 // Issuance-count assertions read the shared provider double; cell loops never overlap.

@@ -3,7 +3,7 @@
 Generated from the lockfiles; do not edit. See [release scope](docs/RELEASE_SCOPE.md)
 for redistribution obligations.
 
-289 locked package/version pairs, including optional platforms and development tooling.
+243 locked package/version pairs, including optional platforms and development tooling.
 Lockfiles: `pnpm-lock.yaml`.
 Declarations are frozen from the npm registry and lockfile license fields; this is not a binary SBOM
 or a substitute for upstream copyright, license and NOTICE files when bundling dependencies.
@@ -14,17 +14,16 @@ or a substitute for upstream copyright, license and NOTICE files when bundling d
 | --- | ---: |
 | (MIT OR CC0-1.0) | 1 |
 | 0BSD | 1 |
-| Apache-2.0 | 41 |
-| Apache-2.0 AND LGPL-3.0-or-later | 6 |
-| Apache-2.0 AND LGPL-3.0-or-later AND MIT | 2 |
+| Apache-2.0 | 22 |
+| Apache-2.0 AND LGPL-3.0-or-later | 3 |
+| Apache-2.0 AND LGPL-3.0-or-later AND MIT | 1 |
 | BSD-2-Clause | 3 |
-| BSD-3-Clause | 4 |
+| BSD-3-Clause | 3 |
 | BlueOak-1.0.0 | 1 |
 | CC0-1.0 | 2 |
 | ISC | 7 |
-| LGPL-3.0-or-later | 20 |
-| MIT | 182 |
-| MIT OR Apache-2.0 | 4 |
+| LGPL-3.0-or-later | 10 |
+| MIT | 174 |
 | MIT-0 | 2 |
 | MPL-2.0 | 12 |
 | Python-2.0 | 1 |
@@ -38,33 +37,19 @@ Current source-only publication contains no installed third-party executable dep
 | Package | Version | Declaration | Intended use / qualification |
 | --- | --- | --- | --- |
 | @img/sharp-libvips-darwin-arm64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-darwin-arm64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-darwin-x64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-darwin-x64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linux-arm | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linux-arm | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linux-arm64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linux-arm64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linux-ppc64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linux-ppc64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linux-riscv64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linux-riscv64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linux-s390x | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linux-s390x | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linux-x64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linux-x64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linuxmusl-arm64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linuxmusl-arm64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-libvips-linuxmusl-x64 | 1.2.4 | LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-libvips-linuxmusl-x64 | 1.3.3 | LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-wasm32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-wasm32 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-win32-arm64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-win32-arm64 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-win32-ia32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-win32-ia32 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | @img/sharp-win32-x64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | Development-only Miniflare 4 image support; not shipped in source-only release. LGPL qualification if tooling or binary is redistributed. |
-| @img/sharp-win32-x64 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later | Optional sharp image-processing platform binary/WASM, reached through local Miniflare tooling (see the JSON reachability). No third-party binary ships in current source-only release; LGPL qualification required before bundling. |
 | lightningcss | 1.33.0 | MPL-2.0 | Build/test CSS tooling; not intended in deployed runtime. Verify exclusion from every emitted artifact; MPL if redistributed. |
 | lightningcss-android-arm64 | 1.33.0 | MPL-2.0 | Build/test CSS tooling; not intended in deployed runtime. Verify exclusion from every emitted artifact; MPL if redistributed. |
 | lightningcss-darwin-arm64 | 1.33.0 | MPL-2.0 | Build/test CSS tooling; not intended in deployed runtime. Verify exclusion from every emitted artifact; MPL if redistributed. |
@@ -87,19 +72,11 @@ Current source-only publication contains no installed third-party executable dep
 | @babel/code-frame | 7.29.7 | MIT | [declaration](https://registry.npmjs.org/%40babel%2Fcode-frame/7.29.7) | pnpm-lock.yaml |
 | @babel/helper-validator-identifier | 7.29.7 | MIT | [declaration](https://registry.npmjs.org/%40babel%2Fhelper-validator-identifier/7.29.7) | pnpm-lock.yaml |
 | @bramus/specificity | 2.4.2 | MIT | [declaration](https://registry.npmjs.org/%40bramus%2Fspecificity/2.4.2) | pnpm-lock.yaml |
-| @cloudflare/kv-asset-handler | 0.5.0 | MIT OR Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fkv-asset-handler/0.5.0) | pnpm-lock.yaml |
-| @cloudflare/unenv-preset | 2.16.2 | MIT OR Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Funenv-preset/2.16.2) | pnpm-lock.yaml |
 | @cloudflare/workerd-darwin-64 | 1.20260702.1 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @cloudflare/workerd-darwin-64 | 1.20261001.1 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fworkerd-darwin-64/1.20261001.1) | pnpm-lock.yaml |
 | @cloudflare/workerd-darwin-arm64 | 1.20260702.1 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @cloudflare/workerd-darwin-arm64 | 1.20261001.1 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fworkerd-darwin-arm64/1.20261001.1) | pnpm-lock.yaml |
 | @cloudflare/workerd-linux-64 | 1.20260702.1 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @cloudflare/workerd-linux-64 | 1.20261001.1 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fworkerd-linux-64/1.20261001.1) | pnpm-lock.yaml |
 | @cloudflare/workerd-linux-arm64 | 1.20260702.1 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @cloudflare/workerd-linux-arm64 | 1.20261001.1 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fworkerd-linux-arm64/1.20261001.1) | pnpm-lock.yaml |
 | @cloudflare/workerd-windows-64 | 1.20260702.1 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @cloudflare/workerd-windows-64 | 1.20261001.1 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fworkerd-windows-64/1.20261001.1) | pnpm-lock.yaml |
-| @cloudflare/workers-types | 4.20260702.1 | MIT OR Apache-2.0 | [declaration](https://registry.npmjs.org/%40cloudflare%2Fworkers-types/4.20260702.1) | pnpm-lock.yaml |
 | @cspotcode/source-map-support | 0.8.1 | MIT | lockfile license field | pnpm-lock.yaml |
 | @csstools/color-helpers | 6.1.2 | MIT-0 | [declaration](https://registry.npmjs.org/%40csstools%2Fcolor-helpers/6.1.2) | pnpm-lock.yaml |
 | @csstools/css-calc | 3.4.3 | MIT | [declaration](https://registry.npmjs.org/%40csstools%2Fcss-calc/3.4.3) | pnpm-lock.yaml |
@@ -137,55 +114,29 @@ Current source-only publication contains no installed third-party executable dep
 | @exodus/bytes | 1.16.0 | MIT | [declaration](https://registry.npmjs.org/%40exodus%2Fbytes/1.16.0) | pnpm-lock.yaml |
 | @img/colour | 1.1.0 | MIT | lockfile license field | pnpm-lock.yaml |
 | @img/sharp-darwin-arm64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-darwin-arm64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-darwin-arm64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-darwin-x64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-darwin-x64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-darwin-x64/0.35.4) | pnpm-lock.yaml |
-| @img/sharp-freebsd-wasm32 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-freebsd-wasm32/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-libvips-darwin-arm64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-darwin-arm64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-darwin-arm64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-darwin-x64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-darwin-x64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-darwin-x64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linux-arm | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linux-arm | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-arm/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linux-arm64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linux-arm64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-arm64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linux-ppc64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linux-ppc64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-ppc64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linux-riscv64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linux-riscv64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-riscv64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linux-s390x | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linux-s390x | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-s390x/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linux-x64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linux-x64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linux-x64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linuxmusl-arm64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linuxmusl-arm64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linuxmusl-arm64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-libvips-linuxmusl-x64 | 1.2.4 | LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-libvips-linuxmusl-x64 | 1.3.3 | LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-libvips-linuxmusl-x64/1.3.3) | pnpm-lock.yaml |
 | @img/sharp-linux-arm | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linux-arm | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linux-arm/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linux-arm64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linux-arm64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linux-arm64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linux-ppc64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linux-ppc64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linux-ppc64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linux-riscv64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linux-riscv64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linux-riscv64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linux-s390x | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linux-s390x | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linux-s390x/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linux-x64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linux-x64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linux-x64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linuxmusl-arm64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linuxmusl-arm64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linuxmusl-arm64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-linuxmusl-x64 | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-linuxmusl-x64 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-linuxmusl-x64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-wasm32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-wasm32 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later AND MIT | [declaration](https://registry.npmjs.org/%40img%2Fsharp-wasm32/0.35.4) | pnpm-lock.yaml |
-| @img/sharp-webcontainers-wasm32 | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/%40img%2Fsharp-webcontainers-wasm32/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-win32-arm64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-win32-arm64 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-win32-arm64/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-win32-ia32 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-win32-ia32 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-win32-ia32/0.35.4) | pnpm-lock.yaml |
 | @img/sharp-win32-x64 | 0.34.5 | Apache-2.0 AND LGPL-3.0-or-later | lockfile license field | pnpm-lock.yaml |
-| @img/sharp-win32-x64 | 0.35.4 | Apache-2.0 AND LGPL-3.0-or-later | [declaration](https://registry.npmjs.org/%40img%2Fsharp-win32-x64/0.35.4) | pnpm-lock.yaml |
 | @jridgewell/gen-mapping | 0.3.13 | MIT | [declaration](https://registry.npmjs.org/%40jridgewell%2Fgen-mapping/0.3.13) | pnpm-lock.yaml |
 | @jridgewell/resolve-uri | 3.1.2 | MIT | lockfile license field | pnpm-lock.yaml |
 | @jridgewell/source-map | 0.3.11 | MIT | [declaration](https://registry.npmjs.org/%40jridgewell%2Fsource-map/0.3.11) | pnpm-lock.yaml |
@@ -240,14 +191,11 @@ Current source-only publication contains no installed third-party executable dep
 | @vitest/utils | 3.2.4 | MIT | [declaration](https://registry.npmjs.org/%40vitest%2Futils/3.2.4) | pnpm-lock.yaml |
 | acorn | 8.18.0 | MIT | [declaration](https://registry.npmjs.org/acorn/8.18.0) | pnpm-lock.yaml |
 | agent-base | 7.1.4 | MIT | [declaration](https://registry.npmjs.org/agent-base/7.1.4) | pnpm-lock.yaml |
-| ajv | 8.20.0 | MIT | [declaration](https://registry.npmjs.org/ajv/8.20.0) | pnpm-lock.yaml |
-| ajv-formats | 3.0.1 | MIT | [declaration](https://registry.npmjs.org/ajv-formats/3.0.1) | pnpm-lock.yaml |
 | ansi-colors | 4.1.3 | MIT | [declaration](https://registry.npmjs.org/ansi-colors/4.1.3) | pnpm-lock.yaml |
 | argparse | 2.0.1 | Python-2.0 | [declaration](https://registry.npmjs.org/argparse/2.0.1) | pnpm-lock.yaml |
 | assertion-error | 2.0.1 | MIT | [declaration](https://registry.npmjs.org/assertion-error/2.0.1) | pnpm-lock.yaml |
 | balanced-match | 1.0.2 | MIT | [declaration](https://registry.npmjs.org/balanced-match/1.0.2) | pnpm-lock.yaml |
 | bidi-js | 1.1.0 | MIT | [declaration](https://registry.npmjs.org/bidi-js/1.1.0) | pnpm-lock.yaml |
-| blake3-wasm | 2.1.5 | MIT | [declaration](https://registry.npmjs.org/blake3-wasm/2.1.5) | pnpm-lock.yaml |
 | brace-expansion | 2.1.7 | MIT | [declaration](https://registry.npmjs.org/brace-expansion/2.1.7) | pnpm-lock.yaml |
 | buffer-from | 1.1.2 | MIT | [declaration](https://registry.npmjs.org/buffer-from/1.1.2) | pnpm-lock.yaml |
 | cac | 6.7.14 | MIT | [declaration](https://registry.npmjs.org/cac/6.7.14) | pnpm-lock.yaml |
@@ -270,10 +218,8 @@ Current source-only publication contains no installed third-party executable dep
 | estree-walker | 3.0.3 | MIT | [declaration](https://registry.npmjs.org/estree-walker/3.0.3) | pnpm-lock.yaml |
 | expect-type | 1.4.0 | Apache-2.0 | [declaration](https://registry.npmjs.org/expect-type/1.4.0) | pnpm-lock.yaml |
 | fast-deep-equal | 3.1.3 | MIT | [declaration](https://registry.npmjs.org/fast-deep-equal/3.1.3) | pnpm-lock.yaml |
-| fast-uri | 3.1.8 | BSD-3-Clause | [declaration](https://registry.npmjs.org/fast-uri/3.1.8) | pnpm-lock.yaml |
 | fdir | 6.5.0 | MIT | [declaration](https://registry.npmjs.org/fdir/6.5.0) | pnpm-lock.yaml |
 | fsevents | 2.3.3 | MIT | [declaration](https://registry.npmjs.org/fsevents/2.3.3) | pnpm-lock.yaml |
-| hono | 4.13.13 | MIT | [declaration](https://registry.npmjs.org/hono/4.13.13) | pnpm-lock.yaml |
 | html-encoding-sniffer | 7.0.0 | MIT | [declaration](https://registry.npmjs.org/html-encoding-sniffer/7.0.0) | pnpm-lock.yaml |
 | https-proxy-agent | 7.0.6 | MIT | [declaration](https://registry.npmjs.org/https-proxy-agent/7.0.6) | pnpm-lock.yaml |
 | index-to-position | 1.2.0 | MIT | [declaration](https://registry.npmjs.org/index-to-position/1.2.0) | pnpm-lock.yaml |
@@ -303,14 +249,12 @@ Current source-only publication contains no installed third-party executable dep
 | magic-string | 0.30.21 | MIT | [declaration](https://registry.npmjs.org/magic-string/0.30.21) | pnpm-lock.yaml |
 | mdn-data | 2.27.1 | CC0-1.0 | [declaration](https://registry.npmjs.org/mdn-data/2.27.1) | pnpm-lock.yaml |
 | miniflare | 4.20260702.0 | MIT | lockfile license field | pnpm-lock.yaml |
-| miniflare | 5.20261001.0-alpha | MIT | [declaration](https://registry.npmjs.org/miniflare/5.20261001.0-alpha) | pnpm-lock.yaml |
 | minimatch | 5.1.9 | ISC | [declaration](https://registry.npmjs.org/minimatch/5.1.9) | pnpm-lock.yaml |
 | ms | 2.1.3 | MIT | [declaration](https://registry.npmjs.org/ms/2.1.3) | pnpm-lock.yaml |
 | nanoid | 3.3.19 | MIT | [declaration](https://registry.npmjs.org/nanoid/3.3.19) | pnpm-lock.yaml |
 | openapi-typescript | 7.13.0 | MIT | [declaration](https://registry.npmjs.org/openapi-typescript/7.13.0) | pnpm-lock.yaml |
 | parse-json | 8.3.0 | MIT | [declaration](https://registry.npmjs.org/parse-json/8.3.0) | pnpm-lock.yaml |
 | parse5 | 8.0.1 | MIT | [declaration](https://registry.npmjs.org/parse5/8.0.1) | pnpm-lock.yaml |
-| path-to-regexp | 6.3.0 | MIT | [declaration](https://registry.npmjs.org/path-to-regexp/6.3.0) | pnpm-lock.yaml |
 | pathe | 2.0.3 | MIT | [declaration](https://registry.npmjs.org/pathe/2.0.3) | pnpm-lock.yaml |
 | pathval | 2.0.1 | MIT | [declaration](https://registry.npmjs.org/pathval/2.0.1) | pnpm-lock.yaml |
 | picocolors | 1.1.1 | ISC | [declaration](https://registry.npmjs.org/picocolors/1.1.1) | pnpm-lock.yaml |
@@ -323,7 +267,6 @@ Current source-only publication contains no installed third-party executable dep
 | saxes | 6.0.0 | ISC | [declaration](https://registry.npmjs.org/saxes/6.0.0) | pnpm-lock.yaml |
 | semver | 7.8.5 | ISC | lockfile license field | pnpm-lock.yaml |
 | sharp | 0.34.5 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| sharp | 0.35.4 | Apache-2.0 | [declaration](https://registry.npmjs.org/sharp/0.35.4) | pnpm-lock.yaml |
 | siginfo | 2.0.0 | ISC | [declaration](https://registry.npmjs.org/siginfo/2.0.0) | pnpm-lock.yaml |
 | source-map | 0.6.1 | BSD-3-Clause | [declaration](https://registry.npmjs.org/source-map/0.6.1) | pnpm-lock.yaml |
 | source-map-js | 1.2.2 | BSD-3-Clause | [declaration](https://registry.npmjs.org/source-map-js/1.2.2) | pnpm-lock.yaml |
@@ -347,10 +290,8 @@ Current source-only publication contains no installed third-party executable dep
 | type-fest | 4.41.0 | (MIT OR CC0-1.0) | [declaration](https://registry.npmjs.org/type-fest/4.41.0) | pnpm-lock.yaml |
 | typescript | 5.9.3 | Apache-2.0 | [declaration](https://registry.npmjs.org/typescript/5.9.3) | pnpm-lock.yaml |
 | undici | 7.28.0 | MIT | lockfile license field | pnpm-lock.yaml |
-| undici | 7.29.1 | MIT | [declaration](https://registry.npmjs.org/undici/7.29.1) | pnpm-lock.yaml |
 | undici | 8.11.2 | MIT | [declaration](https://registry.npmjs.org/undici/8.11.2) | pnpm-lock.yaml |
 | undici-types | 8.9.0 | MIT | [declaration](https://registry.npmjs.org/undici-types/8.9.0) | pnpm-lock.yaml |
-| unenv | 2.0.0-rc.24 | MIT | [declaration](https://registry.npmjs.org/unenv/2.0.0-rc.24) | pnpm-lock.yaml |
 | uri-js-replace | 1.0.1 | MIT | [declaration](https://registry.npmjs.org/uri-js-replace/1.0.1) | pnpm-lock.yaml |
 | vite | 7.3.6 | MIT | [declaration](https://registry.npmjs.org/vite/7.3.6) | pnpm-lock.yaml |
 | vite-node | 3.2.4 | MIT | [declaration](https://registry.npmjs.org/vite-node/3.2.4) | pnpm-lock.yaml |
@@ -361,8 +302,6 @@ Current source-only publication contains no installed third-party executable dep
 | whatwg-url | 17.2.0 | MIT | [declaration](https://registry.npmjs.org/whatwg-url/17.2.0) | pnpm-lock.yaml |
 | why-is-node-running | 2.3.0 | MIT | [declaration](https://registry.npmjs.org/why-is-node-running/2.3.0) | pnpm-lock.yaml |
 | workerd | 1.20260702.1 | Apache-2.0 | lockfile license field | pnpm-lock.yaml |
-| workerd | 1.20261001.1 | Apache-2.0 | [declaration](https://registry.npmjs.org/workerd/1.20261001.1) | pnpm-lock.yaml |
-| wrangler | 4.147.0 | MIT OR Apache-2.0 | [declaration](https://registry.npmjs.org/wrangler/4.147.0) | pnpm-lock.yaml |
 | ws | 8.21.0 | MIT | lockfile license field | pnpm-lock.yaml |
 | xml-name-validator | 5.0.0 | Apache-2.0 | [declaration](https://registry.npmjs.org/xml-name-validator/5.0.0) | pnpm-lock.yaml |
 | xmlchars | 2.2.0 | MIT | [declaration](https://registry.npmjs.org/xmlchars/2.2.0) | pnpm-lock.yaml |

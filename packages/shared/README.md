@@ -2,7 +2,7 @@
 
 Generic runtime utilities that more than one Octocove app, package or tool must
 run identically. Nothing here is a schema: the wire contract is
-`apps/control-plane/openapi.yaml`, typed for clients by the client library's
+`spec/openapi.yaml`, typed for clients by the client library's
 (`packages/client`) `/openapi` entry, and view models belong to the app that
 renders them (the hosted review UI's live with it, outside this repository).
 

@@ -118,7 +118,7 @@ export interface CredentialHeaders {
   /** The credential class for credential-selected retry policy. */
   readonly variant: 'human' | 'bootstrap';
   /**
-   * The fetch credentials mode. Bearer requests use `omit` so a browser on the control-plane origin
+   * The fetch credentials mode. Bearer requests use `omit` so a browser on the API origin
    * never adds its ambient session cookie (cookie plus bearer is refused as `ambiguous-credential`).
    */
   readonly credentials: 'omit' | 'same-origin';

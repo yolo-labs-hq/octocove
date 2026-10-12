@@ -1,4 +1,4 @@
-// Client-owned local cache. No control-plane authority or source-remote mutation.
+// Client-owned local cache. No service authority or source-remote mutation.
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile, rename, rm } from 'node:fs/promises';

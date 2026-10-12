@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-const require = createRequire(new URL('../../../apps/control-plane/package.json',import.meta.url));
+const require = createRequire(new URL('../package.json',import.meta.url));
 const { generateKeyPair, exportJWK, SignJWT } = await import(require.resolve('jose'));
 import { cliDriver } from './cli.mjs';
 import { manifest } from '../protocol.mjs';

@@ -3,14 +3,14 @@
 How each writing archetype must configure its runtime so the
 [ADR 0005](../adr/0005-credential-boundary.md) credential boundary holds. The Octocove-side
 pieces — the authenticated local helper (`packages/helper`) and the push-time proof
-(`apps/gateway`) — are implemented and locally qualified. The remaining, **unqualified** piece is the
+checked by the service's ref-policy gateway — are implemented and locally qualified. The remaining, **unqualified** piece is the
 client's own **runtime isolation**, which lives with the archetype, not in this repo.
 
 The boundary is the conjunction of three controls; none is sufficient alone:
 
 1. **(i) per-lane OS isolation** — the client runtime's job (this runbook);
 2. **(ii) authenticated local helper** — Octocove, `packages/helper`;
-3. **(iii) push-time nonce/HMAC proof** — Octocove, `apps/gateway` (ref lane).
+3. **(iii) push-time nonce/HMAC proof** — Octocove, the service's ref-policy gateway (ref lane).
 
 Qualify **one named runtime and archetype at a time** (`multi-lane-runtime`, `laptop-agent`
 or `ci-job`), running as its protected holder/helper identity and launching the probe

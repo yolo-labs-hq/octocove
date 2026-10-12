@@ -225,6 +225,26 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "meNotificationsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meNotificationsMarkRead": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "meNotificationPreferencesGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meNotificationPreferencesPut": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
   "meSessionRevoke": {
     "callable": true,
     "autoRetry": "network-only",
@@ -234,6 +254,11 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
+  },
+  "meProfileUpdate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
   },
   "meSessionsList": {
     "callable": true,

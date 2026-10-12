@@ -1,1 +1,0 @@
-it.skip('covered invariant', () => {});

@@ -116,7 +116,7 @@ export function checkBaseUrl(baseUrl: string): string {
   }
   if (url.search || url.hash || url.username || url.password) throw new TypeError('baseUrl carries no query, fragment or credentials');
   const base = `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
-  if (/\/v1$/.test(base)) throw new TypeError('baseUrl is the control-plane origin without /v1; routing adds each operation\'s server path');
+  if (/\/v1$/.test(base)) throw new TypeError('baseUrl is the API origin without /v1; routing adds each operation\'s server path');
   return base;
 }
 

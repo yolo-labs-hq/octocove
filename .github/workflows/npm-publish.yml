@@ -11,7 +11,7 @@
 # Required repository setup (not enforceable from this file): an `npm` environment
 # whose deployment rules admit only the tags cli-v* and client-v* (a branch rule of
 # `main` would reject every tag run, which is why this is not `production`), with
-# required reviewers, holding the NPM_TOKEN secret. See docs/OPERATIONS.md,
+# required reviewers, holding the NPM_TOKEN secret. See docs/RELEASING.md,
 # "Releasing the CLI and client".
 # This workflow reads a publishing secret, so it is intentionally outside the
 # secret-free REQUIRED_WORKFLOWS set checked by tools/check-ci-policy.py.

@@ -3,7 +3,7 @@
 Octocove serves any AI project or workspace through one record, broker and
 integrator. This document is the normative contract every client meets, whichever
 of the three client archetypes it is. The [glossary](../GLOSSARY.md) defines the
-nouns, the [OpenAPI](../../apps/control-plane/openapi.yaml) and the
+nouns, the [OpenAPI](../../spec/openapi.yaml) and the
 [API guide](../API.md) define the routes, and the
 [conformance harness](../../tools/conformance/README.md) executes this contract.
 No noun, state, permission or write route is introduced here; new authority or
@@ -141,7 +141,7 @@ nor approval authority.
 A human session with `candidates:approve` may approve by CLI or web. A registered
 machine approval principal may approve under
 [ADR 0001](../adr/0001-machine-approval-authority.md): a project administrator
-registers its identity and policy, and the [machine-trust runbook](../runbooks/machine-trust.md)
+registers its identity and policy, and [API.md](../API.md#machine-trust-administration)
 covers registration and revocation. A valid signature alone is not authority;
 the principal's issuer, audience and subject or key trust, project, target and
 verb bounds, expiry, replay protection and revocation all apply. The exact tuple,
@@ -210,7 +210,7 @@ helper to hold its own mTLS client identity, readable only inside that helper an
 bound to the lease; a copied lease or proof is useless without it.
 
 In ref-lane mode every archetype reaches the shared canonical only through the
-`apps/gateway` Worker (`/repos/<registered-id>`). A trusted broker issues an opaque
+service's ref-policy gateway (`/repos/<registered-id>`). A trusted broker issues an opaque
 `ocg_` lease for an authenticated principal's live attempt. The lease grants read,
 or write to exactly `refs/heads/lane/<lane>`, for 60–900 s. Renewal mints a new
 lease and revocation is immediate. A lease cannot approve or land. `main`, sibling

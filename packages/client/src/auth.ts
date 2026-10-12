@@ -108,6 +108,23 @@ export type MeDelegation = OpenEnums<components['schemas']['MeDelegation']>;
 /** One page of `meDelegationsList`; pass `nextCursor` back as `cursor` until it is `null`. */
 export interface MeDelegationsPage { readonly items: readonly MeDelegation[]; readonly nextCursor: string | null }
 
+/**
+ * One of the caller's in-app notifications (`meNotificationsList` item, ADR 0025): ids plus display fields joined when
+ * read. `id` is what `notifications.markRead` takes; `eventId` is the `GET /events` id. `kind` is open.
+ */
+export type MeNotification = OpenEnums<components['schemas']['MeNotification']>;
+/** One page of `meNotificationsList`; pass `nextCursor` back as `cursor` until it is `null`. `unreadCount` is the badge. */
+export interface MeNotificationsPage { readonly items: readonly MeNotification[]; readonly nextCursor: string | null; readonly unreadCount: number }
+/** The caller's mutes (`meNotificationPreferencesGet` / `Put`); everything is on by default. */
+export type NotificationPreferences = components['schemas']['NotificationPreferences'];
+/**
+ * A human's profile (`meGet` `profile`, `meProfileUpdate` answer): each field null while unset; `name` falls back to
+ * the identity provider's display name, so it is null only when neither exists.
+ */
+export type Profile = components['schemas']['Profile'];
+/** A `meProfileUpdate` body: a key present sets that field, `null` clears it, an absent key leaves it unchanged. */
+export type ProfileUpdate = components['schemas']['ProfileUpdate'];
+
 /** A renewed (or newly issued) human session plus the session-bound CSRF token, when the server returns one. */
 export type IssuedSession = HumanSession & { readonly csrfToken?: string };
 
@@ -378,7 +395,81 @@ export function authJourneys(client: OctocoveClient) {
     },
   };
 
-  return { browser, cli, session, delegation, logout, me, sessions, delegations };
+  const isPreferences = (b: unknown): b is NotificationPreferences =>
+    isObject(b) && Array.isArray(b.mutedKinds) && Array.isArray(b.mutedProjects);
+  const notifications = {
+    /**
+     * `meNotificationsList` (`GET /v1/me/notifications`): one page of the human caller's notifications, newest first,
+     * and the unread count under the same filter (membership and preferences). `limit: 0` reads only the count.
+     */
+    async list(options: JourneyOptions & { readonly unread?: boolean; readonly limit?: number; readonly cursor?: string }): Promise<MeNotificationsPage> {
+      const scope = journeyScope(options);
+      try {
+        const unread = options.unread === undefined ? undefined : options.unread ? 'true' as const : 'false' as const;
+        const response = await send(client, scope, options, 'meNotificationsList', { query: { unread, limit: options.limit, cursor: options.cursor } });
+        const b: unknown = response.body;
+        if (!isObject(b) || !Array.isArray(b.items) || (b.nextCursor !== null && !isString(b.nextCursor)) || typeof b.unreadCount !== 'number') {
+          throw offShape(response, 'the response is not a notification page');
+        }
+        return { items: response.body.items, nextCursor: response.body.nextCursor ?? null, unreadCount: response.body.unreadCount };
+      } finally { scope.dispose(); }
+    },
+    /**
+     * `meNotificationsMarkRead` (`POST /v1/me/notifications/read`): `{ids}` or `{upTo}`. Only the caller's own visible
+     * rows change; anything else is ignored and the answer is the same 204, so a repeat is always safe.
+     */
+    async markRead(target: { readonly ids: readonly string[] } | { readonly upTo: string }, options: CommandOptions): Promise<void> {
+      const scope = journeyScope(options);
+      try {
+        const body = 'ids' in target ? { ids: [...target.ids] } : { upTo: target.upTo };
+        await send(client, scope, options, 'meNotificationsMarkRead', { body }, { idempotencyKey: options.idempotencyKey });
+      } finally { scope.dispose(); }
+    },
+    preferences: {
+      /** `meNotificationPreferencesGet` (`GET /v1/me/notification-preferences`). */
+      async get(options: JourneyOptions): Promise<NotificationPreferences> {
+        const scope = journeyScope(options);
+        try {
+          const response = await send(client, scope, options, 'meNotificationPreferencesGet', {});
+          if (!isPreferences(response.body)) throw offShape(response, 'the response is not notification preferences');
+          return response.body;
+        } finally { scope.dispose(); }
+      },
+      /**
+       * `meNotificationPreferencesPut` (`PUT /v1/me/notification-preferences`): replaces both lists and answers what was
+       * stored. An unknown kind or a project the caller is not a member of is a `400 invalid-request` `ApiError`.
+       */
+      async put(preferences: NotificationPreferences, options: CommandOptions): Promise<NotificationPreferences> {
+        const scope = journeyScope(options);
+        try {
+          const body = { mutedKinds: [...preferences.mutedKinds], mutedProjects: [...preferences.mutedProjects] };
+          const response = await send(client, scope, options, 'meNotificationPreferencesPut', { body }, { idempotencyKey: options.idempotencyKey });
+          if (!isPreferences(response.body)) throw offShape(response, 'the response is not notification preferences');
+          return response.body;
+        } finally { scope.dispose(); }
+      },
+    },
+  };
+
+
+  const profile = {
+    /**
+     * `meProfileUpdate` (`PATCH /v1/me/profile`): set the human caller's own name, pronouns, bio and time zone, and
+     * answer the profile after the edit. A lost answer is replayed from the server's ledger with the same key. An
+     * invalid field is a `400 invalid-profile` `ApiError` whose `details.field` names it.
+     */
+    async update(patch: ProfileUpdate, options: CommandOptions): Promise<Profile> {
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'meProfileUpdate', { body: patch }, { idempotencyKey: options.idempotencyKey });
+        const b: unknown = response.body;
+        if (!isObject(b) || !isObject(b.profile)) throw offShape(response, 'the response is not a profile');
+        return response.body.profile;
+      } finally { scope.dispose(); }
+    },
+  };
+
+  return { browser, cli, session, delegation, logout, me, sessions, delegations, notifications, profile };
 }
 
 export type AuthJourneys = ReturnType<typeof authJourneys>;
