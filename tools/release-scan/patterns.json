@@ -1,0 +1,13 @@
+{
+  "token": "(?:cfut_|art_v1_|gh[opusr]_|github_pat_)[A-Za-z0-9_\\-]*",
+  "jwt": "eyJ[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+\\.[A-Za-z0-9_\\-]+",
+  "hex32": "(?<![a-fA-F0-9])[a-fA-F0-9]{32}(?![a-fA-F0-9])",
+  "email": "[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}",
+  "secret_assignment": "(?i)(?:api[_-]?key|api[_-]?token|password|client[_-]?secret|private[_-]?key|authorization)[\"']?\\s*[=:]\\s*[^\\s,;]+",
+  "url_host": "(?i)(?:https?|ssh|git)://(?:[^/@\\s\\\"<>]+@)?([a-z0-9][a-z0-9.\\-]*)(?::[0-9]+)?",
+  "private_key": "-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+  "other_token": "\\b(?:AKIA[A-Z0-9]{16}|xox[baprs]-[A-Za-z0-9-]+|oc(?:b|g|s|sg)_[A-Za-z0-9_-]+)\\b",
+  "account_literal": "(?i)(?:account[_-]?id[\\\"\\x27]?\\s*[:=]\\s*[\\\"\\x27][^\\\"\\x27]+|/accounts/[^/\\s\\\"\\x27`]+)",
+  "basic_auth": "\\bBasic\\s+[A-Za-z0-9+/]{16,}={0,2}|eC1hY2Nlc3MtdG9rZW46[A-Za-z0-9+/=]*",
+  "unprefixed_token": "(?<![A-Za-z0-9_\\-/+=.])(?=[A-Za-z0-9_\\-]{0,39}[a-z])(?=[A-Za-z0-9_\\-]{0,39}[A-Z])(?=[A-Za-z0-9_\\-]{0,39}[0-9])[A-Za-z0-9_\\-]{40}(?![A-Za-z0-9_\\-/+=.])"
+}

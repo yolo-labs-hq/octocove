@@ -3,7 +3,8 @@
 # pull request, a branch push or a dispatch. The job refuses unless the tagged commit
 # is reachable from main, the package's version equals the tag, and the package no
 # longer carries "private": true (removing it is a reviewed change on main, never a
-# commit made here). It then builds, tests and packs, and publishes that exact tarball.
+# commit made here). It then builds, tests, packs, runs the tarball gate
+# (tools/release-scan/pack_scan.py) on that exact tarball and publishes that file.
 # It runs only in yolo-labs-hq/octocove (tools/check-ci-policy.py, PUBLIC_GUARD):
 # npm provenance requires a public repository matching package.json `repository`,
 # so tags pushed to any other repository, including a fork, skip the job. Releases
@@ -108,6 +109,11 @@ jobs:
           set -- "$out"/*.tgz
           if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then echo "expected exactly one tarball" >&2; exit 1; fi
           echo "tarball=$1" >> "$GITHUB_OUTPUT"
+      - name: Tarball gate (file set, release-scan detectors, source maps, manifest)
+        env:
+          DIR: ${{ steps.tag.outputs.dir }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: python3 -B tools/release-scan/pack_scan.py --package "$DIR" --tarball "$TARBALL"
       - name: Smoke the packed CLI binary
         if: steps.tag.outputs.dir == 'packages/cli'
         env:
@@ -117,7 +123,7 @@ jobs:
           rm -rf "$smoke" && mkdir "$smoke"
           tar -xzf "$TARBALL" -C "$smoke"
           node "$smoke/package/dist/octocove.mjs" --help > /dev/null
-      - name: Publish the packed tarball with provenance
+      - name: Publish the gated tarball with provenance
         env:
           TARBALL: ${{ steps.pack.outputs.tarball }}
           DIST_TAG: ${{ steps.tag.outputs.dist_tag }}

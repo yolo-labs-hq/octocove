@@ -54,16 +54,23 @@ repository.
    - a frozen-lockfile install of the CLI and client slice succeeds, then the build
      (plus, for the client, the generated-types and retry-policy drift checks) and the
      package's tests pass;
-   - `pnpm pack` produces exactly one tarball;
+   - `pnpm pack` produces exactly one tarball, and
+     `tools/release-scan/pack_scan.py --tarball` passes on it. That gate allows only the
+     expected files and runs the release-scan detectors over every file (credentials,
+     account ids, sandbox paths and private repository links). It rejects source maps and
+     `sourceMappingURL` comments, and it requires the public `repository` and
+     `publishConfig`;
    - for the CLI, the packed binary runs `--help`.
 
    It then runs `npm publish <that tarball> --provenance --access public`, with
-   `NODE_AUTH_TOKEN` taken from `NPM_TOKEN`, so the file that was packed and smoked is
-   the file that is published. All actions are pinned by commit SHA.
+   `NODE_AUTH_TOKEN` taken from `NPM_TOKEN`, so the file that passed the gate is the
+   file that is published. All actions are pinned by commit SHA.
 
-CI builds both packages in the required, area-scoped `npm-pack` job whenever
-`packages/cli`, `packages/client` or `packages/shared` change. Inspect a tarball
-with `pnpm pack` and `tar -tzf` before tagging. For an `npm publish --dry-run`, copy the
+The same gate runs in CI as the required, area-scoped `npm-pack` job whenever
+`packages/cli`, `packages/client`, `packages/shared` or the scan policy change. Locally,
+after `pnpm --filter @yolo-labs/octocove build` and
+`pnpm --filter @yolo-labs/octocove-client build`, run
+`python3 tools/release-scan/pack_scan.py`. For an `npm publish --dry-run`, copy the
 package directory to a scratch location outside the repository and remove `private`
 there, never in the repository.
 

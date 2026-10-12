@@ -81,11 +81,11 @@ The jobs behind `check`:
 | Job | What it runs |
 | --- | --- |
 | `workflow-policy` | `python3 tools/check-ci-policy.py` and its fixture tests. |
-| `repo-hygiene` | The documentation link checks (`tools/check-evidence-links.py`) and their fixture tests. |
+| `repo-hygiene` | The documentation link checks (`tools/check-evidence-links.py`), the counts-only secret and identifier scan of `HEAD` (`tools/release-scan/scan.py`), and their fixture tests. |
 | `events-conformance-local` | The event oracle and fault protocol tests under `tools/conformance/events/`, with local timings uploaded as an artifact (never live qualification). |
 | `check-shards` | Typecheck and tests of the packages under `packages/` other than the client. |
 | `client` | The client's generated-code and retry-policy drift checks, its unit tests on Node 22 and inside a workerd isolate, and a smoke import of its `npm pack` tarball. |
-| `npm-pack` | Builds `@yolo-labs/octocove` and the client; it publishes nothing ([Releasing the CLI and client](docs/RELEASING.md#releasing-the-cli-and-client)). |
+| `npm-pack` | Builds `@yolo-labs/octocove` and the client, `pnpm pack`s both and runs the tarball gate (`tools/release-scan/pack_scan.py`); it publishes nothing ([Releasing the CLI and client](docs/RELEASING.md#releasing-the-cli-and-client)). |
 | `spec-lint` | Redocly lint of `spec/openapi.yaml`. |
 
 ### CI event and cancellation policy
