@@ -1,0 +1,2 @@
+
+ALTER TABLE repository_creations ADD COLUMN seed INTEGER NOT NULL DEFAULT 0 CHECK(seed IN (0,1));
