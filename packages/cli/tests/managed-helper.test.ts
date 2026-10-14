@@ -3,19 +3,20 @@ import { createServer } from 'node:http';
 import { createServer as createSocketServer } from 'node:net';
 import { saveBootstrap, loadCredentials, saveCredentials } from '../src/config.js';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, rm, readFile, stat, mkdir, readdir } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, stat, mkdir, readdir, rename } from 'node:fs/promises';
 import { chmod, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { run, EXIT, type Deps } from '../src/cli.js';
 import { systemGit } from '../src/git.js';
+import { managedHelperRemote, helperStatus } from '../src/helper.js';
 import { startManagedHelper } from '../src/managed-helper.mjs';
 import { inflateSync } from 'node:zlib';
 const dirs: string[] = [];
 async function bind(f: Awaited<ReturnType<typeof fixture>>) {
   for (const [key,value] of Object.entries({taskId:'T1',claimId:'C1',projectId:'P1',baseSha:f.baseSha,intentVersion:'1'})) await f.git(['config',`octocove.${key}`,value]);
-  await f.git(['remote','add','octocove','ext::octocove-helper-connect %s']);
+  await f.git(['remote','add','octocove',managedHelperRemote(f.deps.connectorPath)]);
   await f.git(['config','octocove.remote','octocove']);await f.git(['config','protocol.ext.allow','user']);
 }
 
@@ -72,7 +73,7 @@ async function fixture() {
     if (path === '/v1/submissions/S1/candidate') return Response.json({state:'complete',candidate:{id:'K1',candidateSha:baseSha}});
     throw new Error(`unexpected ${path}`);
   };
-  const deps: Deps = {argv:[],env:{PATH:bins+':'+process.env.PATH},credentials:{apiUrl:'https://api.example.invalid/v1',token:'credential-secret',kind:'agent'},fetch,git,
+  const deps: Deps = {connectorPath:join(bins,'octocove-helper-connect.mjs'),argv:[],env:{PATH:bins+':'+process.env.PATH},credentials:{apiUrl:'https://api.example.invalid/v1',token:'credential-secret',kind:'agent'},fetch,git,
     stdout:s=>{stdout+=s;},stderr:s=>{stderr+=s;},stdin:async()=>''};
   return {dir,canonical,git,baseSha,claim,deps,calls,revoked,get staged(){return staged;},get output(){return stdout+stderr;}};
 }
@@ -89,7 +90,7 @@ it('claim starts a same-user helper, installs credential-free config, and revoke
 it('lane push proxies real receive-pack using the agent credential, without an external socket', async () => {
   const f=await fixture();
   for (const [key,value] of Object.entries({taskId:'T1',claimId:'C1',projectId:'P1',baseSha:f.baseSha,intentVersion:'1'})) await f.git(['config',`octocove.${key}`,value]);
-  await f.git(['remote','add','octocove','ext::octocove-helper-connect %s']);
+  await f.git(['remote','add','octocove',managedHelperRemote(f.deps.connectorPath)]);
   await f.git(['config','octocove.remote','octocove']);
   await f.git(['config','protocol.ext.allow','user']);
   const code=await run({...f.deps,argv:['lane','push','--push-id','push-1']});
@@ -120,7 +121,7 @@ it('the standalone CLI handles SIGINT, removes its runtime and revokes all read 
   await build({entryPoints: {octocove: 'src/bin.ts', 'pre-receive-hook':'../helper/src/pre-receive-hook.mjs', 'octocove-helper-connect':'src/helper-connect.mjs'},
     bundle:true,platform:'node',format:'esm',target:'node20',outdir:bin,outExtension:{'.js':'.mjs'}});
   const cfg = join(f.dir,'cfg');
-  await f.git(['remote','add','octocove','ext::octocove-helper-connect %s']);
+  await f.git(['remote','add','octocove',managedHelperRemote(join(bin,'octocove-helper-connect.mjs'))]);
   await f.git(['config','octocove.remote','octocove']);await f.git(['config','protocol.ext.allow','user']);
   for (const [key,value] of Object.entries({taskId:'T1',claimId:'C1',projectId:'P1',baseSha:f.baseSha,intentVersion:'1'})) await f.git(['config',`octocove.${key}`,value]);
   let ready!: () => void;
@@ -383,4 +384,86 @@ it('external non-native chain stages a real bundle, enqueues and submits without
     expect(requests).toContain('/v1/tasks/T1/submissions');
     expect(f.revoked).toEqual([]);
   }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
+
+it('absolute installed CLI claims, fetches and pushes without its bin directory on PATH',async()=>{
+  const f=await fixture(),installed=join(f.dir,'install % path'),dist=join(installed,'dist');
+  await mkdir(dist,{recursive:true});
+  await writeFile(join(installed,'package.json'),JSON.stringify({version:'0.3.2',type:'module'}));
+  await build({entryPoints:{octocove:'src/bin.ts','octocove-helper-connect':'src/helper-connect.mjs','pre-receive-hook':'../helper/src/pre-receive-hook.mjs'},
+    bundle:true,platform:'node',format:'esm',target:'node20',outdir:dist,outExtension:{'.js':'.mjs'}});
+  const server=createServer(async(request,response)=>{
+    try{
+      const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(Buffer.from(chunk));
+      const body=Buffer.concat(chunks),path=request.url!;
+      const artifact=path.startsWith('/artifacts/');
+      const result=await f.deps.fetch(artifact?'https://git.example.invalid'+path.slice('/artifacts'.length):'http://127.0.0.1'+path,
+        {method:request.method,headers:request.headers as Record<string,string>,redirect:'manual',...(body.length?{body}:{})});
+      response.writeHead(result.status,Object.fromEntries(result.headers));response.end(Buffer.from(await result.arrayBuffer()));
+    }catch(error){response.writeHead(500);response.end(String(error));}
+  });
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const address=server.address() as import('node:net').AddressInfo,origin=`http://127.0.0.1:${address.port}`;
+  // Fake Artifacts transport; Git itself and both installed executables are real.
+  const preload=join(f.dir,'fake-artifacts.mjs');
+  await writeFile(preload,`const original=globalThis.fetch;globalThis.fetch=(url,init)=>{const u=new URL(url);return original(u.hostname==='git.example.invalid'?${JSON.stringify(origin)}+'/artifacts'+u.pathname+u.search:url,init)};`);
+  const cfg=join(f.dir,'agent-installed');
+  await saveCredentials({OCTOCOVE_CONFIG_DIR:cfg},{apiUrl:origin+'/v1',token:'credential-secret',kind:'agent'});
+  const env={...process.env,PATH:'/usr/bin:/bin',OCTOCOVE_CONFIG_DIR:cfg,OCTOCOVE_API_URL:'',OCTOCOVE_HELPER_SOCK:'',NODE_OPTIONS:`--import=${preload}`};
+  const execute=(binary:string,args:string[])=>new Promise<{code:number|null,output:string}>(resolve=>{
+    const child=spawn(binary,args,{cwd:f.dir,env,stdio:['ignore','pipe','pipe']});let output='';
+    child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);child.once('exit',code=>resolve({code,output}));
+  });
+  try{
+    const connector=join(dist,'octocove-helper-connect.mjs');
+    await rename(connector,connector+'.unavailable');
+    const refused=await execute(process.execPath,[join(dist,'octocove.mjs'),'task','claim','T1','--intent-version','1']);
+    expect(refused.code,refused.output).toBe(EXIT.config);
+    expect(f.calls).not.toContain('POST /v1/tasks/T1/claim');
+    await rename(connector+'.unavailable',connector);
+    const claim=await execute(process.execPath,[join(dist,'octocove.mjs'),'task','claim','T1','--intent-version','1']);
+    expect(claim.code,claim.output).toBe(0);
+    const remote=await f.git(['remote','get-url','octocove']);
+    expect(remote).toContain('install% %%% path/dist/octocove-helper-connect.mjs');
+    expect(await f.git(['config','protocol.ext.allow'])).toBe('user');
+    await writeFile(join(f.dir,'README.md'),'Current canonical\n');
+    await f.git(['add','README.md']);await f.git(['-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','canonical update']);
+    const head=await f.git(['rev-parse','HEAD']);await f.git(['push',f.canonical,'HEAD:refs/heads/main']);
+    const fetched=await execute('git',['fetch','octocove']);expect(fetched.code,fetched.output).toBe(0);
+    expect(await f.git(['rev-parse','refs/remotes/octocove/main'])).toBe(head);
+    const pushed=await execute('git',['push','octocove']);expect(pushed.code,pushed.output).toBe(0);
+    const lane=await execute(process.execPath,[join(dist,'octocove.mjs'),'lane','push']);expect(lane.code,lane.output).toBe(0);
+    const config=await readFile(join(f.dir,'.git/config'),'utf8');
+    expect(config).not.toContain('credential-secret');expect(config).not.toContain('provider-secret');
+  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+},30000);
+
+it('missing bundled connector refuses before creating a server-side claim',async()=>{
+  const f=await fixture();f.deps.connectorPath=join(f.dir,'missing-connector.mjs');
+  expect(await run({...f.deps,argv:['task','claim','T1','--intent-version','1']})).toBe(EXIT.config);
+  expect(f.output).toContain('reinstall the CLI before claiming');
+  expect(f.calls).not.toContain('POST /v1/tasks/T1/claim');expect(f.revoked).toEqual([]);
+});
+
+it('managed transports refuse a shadow PATH connector; an explicit external socket permits the legacy contract',async()=>{
+  const f=await fixture();await bind(f);
+  await f.git(['remote','set-url','octocove','ext::octocove-helper-connect %s']);
+  await f.git(['config','octocove.mappingId','M1']);await f.git(['config','octocove.ref',f.claim.workspace.ref]);
+  const marker=join(f.dir,'shadow-ran');
+  await writeFile(join(f.dir,'bins','octocove-helper-connect'),`#!/bin/sh\nprintf ran > '${marker}'\nexec '${process.execPath}' '${f.deps.connectorPath}' "$@"\n`);
+  await chmod(join(f.dir,'bins','octocove-helper-connect'),0o755);
+  for(const argv of [['lane','sync'],['lane','push'],['submit','HEAD']]){
+    expect(await run({...f.deps,argv}),f.output).toBe(EXIT.config);
+    expect(await stat(marker).then(()=>true).catch(()=>false)).toBe(false);
+  }
+  expect((await helperStatus(f.git,f.deps.env,f.deps.connectorPath)).configured).toBe(false);
+  expect(f.calls.some(call=>call.includes('/broker/token'))).toBe(false);
+  const helper=await startManagedHelper({...f.deps.credentials!,fetch:f.deps.fetch,taskId:'T1',claimId:'C1',projectId:'P1',baseSha:f.baseSha,stderr:f.deps.stderr});
+  try{
+    const env={...f.deps.env,OCTOCOVE_HELPER_SOCK:helper.socketPath};
+    expect((await helperStatus(f.git,env,f.deps.connectorPath)).configured).toBe(true);
+    expect(await run({...f.deps,env,argv:['lane','sync']}),f.output).toBe(0);
+    expect(await readFile(marker,'utf8')).toBe('ran');
+    expect(await f.git(['rev-parse','refs/remotes/octocove/main'])).toBe(f.baseSha);
+  }finally{await helper.close();}
 });
