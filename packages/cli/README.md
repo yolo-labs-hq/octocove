@@ -17,6 +17,7 @@ self-contained ESM file with no runtime dependencies; Node.js 20 or newer, Linux
 
 ```sh
 npm i -g @yolo-labs/octocove
+octocove --version    # installed CLI package version; also: -v or version --json
 octocove login        # prints a verification URL and code; open it, sign in and explicitly allow this CLI
 octocove whoami       # the signed-in principal, credential kind and project memberships
 octocove repo list PROJECT   # or `project create`, `task list --project ID`, ... (see Commands)
@@ -59,6 +60,7 @@ retain their `delegationId` for renewal and self-revocation.
 
 | Command | API |
 | --- | --- |
+| `version [--json]`, `--version`, `-v` | Local installed package version; no configuration or API request |
 | `login [--wait SECONDS]` | `POST /auth/login {mode:"cli",cliChallenge}`; browser visits the returned `GET /auth/cli/start` URL and explicitly consents; CLI polls `POST /auth/cli/exchange` |
 | `logout` | `POST /auth/logout`; clear active credential after success |
 | `whoami [--json]` | `GET /me` (library `auth.me()`): the authenticated principal, credential kind and project memberships |

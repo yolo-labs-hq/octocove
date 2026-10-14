@@ -214,6 +214,7 @@ exports[`help 1`] = `
 Usage: octocove [--json] <command> [options]
 
 Commands:
+  version                                     (installed package version; no sign-in required)
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
   whoami                                      (authenticated principal and project memberships)
@@ -270,6 +271,7 @@ Global options:
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
+  --version, -v          print the installed package version
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.
