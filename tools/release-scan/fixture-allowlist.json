@@ -771,6 +771,34 @@
       "kind": "secret_assignment",
       "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
       "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "197c3b8f61bd26609d94d189f08e24b4cd3215d14a9ec2437c1e336e19a0c901",
+      "file": "server/.dev.vars.example",
+      "kind": "secret_assignment",
+      "reason": "Local configuration placeholder; not a credential.",
+      "value_sha256": "46e31df44d42262ca85709a2a7715c1d7a5bad0206f89fa2c3c0d1b59eb062b7"
+    },
+    {
+      "context_sha256": "6de6b89f1574e4ddeca611dbc3ad4189f16f4ae1b3a6d2a772add850956bb29c",
+      "file": "server/.dev.vars.example",
+      "kind": "secret_assignment",
+      "reason": "Local configuration placeholder; not a credential.",
+      "value_sha256": "e75ca3388bd997ac1d8b75f188b95d44e5971cbc1714f3301a26a3650772be02"
+    },
+    {
+      "context_sha256": "415459be7f250fae69a508221a05d3e8a901200dbb3a2ea01e95453745fba6e2",
+      "file": "server/tests/worker-native-land.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic provider credential or account used by an isolated Git fixture; not a live credential.",
+      "value_sha256": "dc2ecba57434a2b18664684ba1173a37168d92fdae0ab3d4381b6f526d14ad31"
+    },
+    {
+      "context_sha256": "415459be7f250fae69a508221a05d3e8a901200dbb3a2ea01e95453745fba6e2",
+      "file": "server/tests/worker-native-land.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic provider credential or account used by an isolated Git fixture; not a live credential.",
+      "value_sha256": "bbfb0a8f2c34206f7b67f231d476bfcd7dca6c9b0501668d62b6bea9f5ee3572"
     }
   ]
 }
