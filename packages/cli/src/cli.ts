@@ -811,6 +811,12 @@ const COMMANDS: Record<string, Handler> = {
       const settled = await pollApi.j.claims.waitForProvisioning(claimId, pollApi.until(Date.now() + waitSeconds * 1000));
       if (settled.claim) claim = claimOf(settled.claim);
     }
+    if (delegation && claim.provisioningState === "ready") {
+      // The bootstrap cannot read tasks. Its saved replacement delegation can read
+      // this scoped task, whose project binding the helper needs for agent pushes.
+      task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } })).body;
+      if (typeof task?.projectId !== "string" || !task.projectId) throw new ConfigError("claimed task has no project binding; run octocove task show to inspect it");
+    }
     const ws = claim.workspace;
     const external = ws?.credentialSource?.kind === "external";
     // Validate allocated remotes before git mutations, even if helper metadata is absent.
