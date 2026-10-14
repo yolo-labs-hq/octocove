@@ -36,7 +36,8 @@ export function helperTransportActive(env: NodeJS.ProcessEnv): boolean {
 
 export const HELPER_HINT =
   'The helper is a protected per-attempt AttemptHelper that carries Git traffic without exposing credentials. ' +
-  'A logged-in CLI alone cannot claim an allocated workspace. Have a trusted runtime provision the helper, ' +
+  'A logged-in CLI alone cannot claim an allocated workspace. No trusted agent runtime is provisioned for the hosted service yet. ' +
+  'Have a trusted runtime provision the helper, ' +
   'expose its socket as OCTOCOVE_HELPER_SOCK and put octocove-helper-connect on PATH. ' +
   'See https://github.com/yolo-labs-hq/octocove/blob/main/packages/cli/README.md#claiming-as-an-agent-runtime-prerequisites.';
 

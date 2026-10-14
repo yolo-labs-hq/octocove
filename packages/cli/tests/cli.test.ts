@@ -201,16 +201,26 @@ describe("repo add / verify / list", () => {
 
   it.each([false, true])("repository setup guidance in JSON=%s", async (jsonMode) => {
     const flags = jsonMode ? ["--json"] : [];
-    for (const command of ["create", "verify"]) {
-      routes[`POST /projects/${PROJECT}/repositories${command === "verify" ? "/" + repository.id + "/verify" : ""}`] =
-        () => json(command === "create" ? 201 : 200, { ...repository, binding: "trusted", verifiedAt: null });
-      const args = command === "create" ? ["--name", "canonical"] : [repository.id];
-      expect(await cli(["repo", command, PROJECT, ...args, ...flags], { kind: "human" })).toBe(0);
-      expect(errText).toBe("");
-      const guidance = jsonMode ? JSON.parse(outText).nextSteps : outText;
-      expect(guidance).toContain("#starting-from-an-empty-repository");
-      expect(guidance.toLowerCase()).toContain("empty");
-      expect(JSON.stringify(jsonMode ? JSON.parse(outText) : outText)).not.toContain("cloneUrl");
+    for (const cloneUrl of [undefined, "https://git.example.org/team/canonical.git"]) {
+      for (const command of ["create", "verify", "list"]) {
+        const response = { ...repository, ...(cloneUrl ? { cloneUrl } : {}), binding: "trusted", verifiedAt: null };
+        routes[`${command === "list" ? "GET" : "POST"} /projects/${PROJECT}/repositories${command === "verify" ? "/" + repository.id + "/verify" : ""}`] =
+          () => json(command === "create" ? 201 : 200, command === "list" ? { items: [response] } : response);
+        const args = command === "create" ? ["--name", "canonical"] : command === "verify" ? [repository.id] : [];
+        expect(await cli(["repo", command, PROJECT, ...args, ...flags], { kind: "human" })).toBe(0);
+        expect(errText).toBe("");
+        expect(outText).toContain(cloneUrl ?? "clone URL not available yet");
+        if (jsonMode) {
+          const result = command === "list" ? JSON.parse(outText).items[0] : JSON.parse(outText);
+          expect(result.cloneUrl).toBe(cloneUrl ?? null);
+          if (!cloneUrl) expect(result.cloneUrlHint).toBe("clone URL not available yet");
+        }
+        if (command !== "list") {
+          const guidance = jsonMode ? JSON.parse(outText).nextSteps : outText;
+          expect(guidance).toContain("#starting-from-an-empty-repository");
+          expect(guidance.toLowerCase()).toContain("empty");
+        }
+      }
     }
   });
 
@@ -281,7 +291,7 @@ describe("repo add / verify / list", () => {
     expect(outText).toContain("refs/heads/main");
     expect(outText).toContain("ns/repo-1");
     expect(await cli(["--json", "repo", "list", PROJECT])).toBe(0);
-    expect(JSON.parse(outText)).toEqual({ items: [repository] });
+    expect(JSON.parse(outText)).toEqual({ items: [{ ...repository, cloneUrl: null, cloneUrlHint: "clone URL not available yet" }] });
     routes[`GET /projects/${PROJECT}/repositories`] = () => json(200, { items: [] });
     expect(await cli(["repo", "list", PROJECT])).toBe(0);
     expect(outText).toContain("(no repositories)");

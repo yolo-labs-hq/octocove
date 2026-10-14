@@ -215,19 +215,20 @@ Exit codes: 0 ok, 1 failure, 2 usage, 75 still pending, 77 human credential requ
 
 ## Starting from an empty repository
 
-`repo create` without `--import` creates an empty repository. Creation or verification
-alone does not seed a first commit. The current API responses do not include a
-canonical clone URL; the CLI does not construct one from provider identifiers.
-`repo create` and `repo verify` include guidance in their human output and a
-`nextSteps` field in JSON output.
+`repo create` without `--import` creates an empty repository. There is no public
+CLI route for its first commit: an operator with authority at the repository host
+must seed the first commit on `main`. Until then tasks have no canonical head and
+claims cannot select a base. Creation or verification alone does not seed a commit.
 
-**Pending authoritative instructions:** the supported first-commit route will be
-filled in here after the service contract is confirmed. Do not infer a clone or
-push route from the repository name or attempt a claim to seed an empty repository.
+Repository create, verify and list output includes the credential-free canonical
+`cloneUrl` when the API knows it. When absent, human output says "clone URL not
+available yet"; JSON carries `cloneUrl: null` and the same text in `cloneUrlHint`.
+Creation and verification also include a `nextSteps` field in JSON output.
 
 ## Claiming as an agent: runtime prerequisites
 
-A logged-in CLI alone cannot claim an allocated workspace. A trusted workspace,
+A logged-in CLI alone cannot claim an allocated workspace. No trusted agent
+runtime is provisioned for the hosted service yet. A trusted workspace,
 agent or CI runtime must provision a protected per-attempt `AttemptHelper`, expose
 its socket through `OCTOCOVE_HELPER_SOCK`, and put `octocove-helper-connect` on
 `PATH`. The helper carries Git traffic without exposing reusable credentials to

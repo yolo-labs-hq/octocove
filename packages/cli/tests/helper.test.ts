@@ -125,6 +125,7 @@ it.each([undefined, ''])('claim refuses without a helper socket (%s) before API,
       expect(output).toContain('octocove-helper-connect on PATH');
       expect(output).not.toContain(secret);
       expect(output).toContain('A logged-in CLI alone cannot claim');
+      expect(output).toContain('No trusted agent runtime is provisioned for the hosted service yet');
       expect(output).toContain('#claiming-as-an-agent-runtime-prerequisites');
       if (json) expect(JSON.parse(output).error).toMatchObject({ code: 'helper-required', hint: expect.stringContaining('trusted runtime') });
     }
@@ -167,6 +168,7 @@ it.each([false, true])('unconfigured helper status gives runtime guidance in JSO
     expect(error).toBe('');
     expect(output).toContain('helper-required');
     expect(output).toContain('A logged-in CLI alone cannot claim');
+      expect(output).toContain('No trusted agent runtime is provisioned for the hosted service yet');
     expect(output).toContain('trusted runtime');
     expect(output).toContain('#claiming-as-an-agent-runtime-prerequisites');
     if (jsonMode) expect(JSON.parse(output)).toMatchObject({ configured: false, code: 'helper-required', hint: expect.any(String) });
