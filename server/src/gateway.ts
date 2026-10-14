@@ -71,6 +71,8 @@ export const routeRules: RouteRule[] = [
     { method: "POST", path: "/projects/:project/repositories/:repository/verify", access: "human", recentSignIn: true },
     { method: "GET", path: "/projects/:project/tree", access: "verb", agent: "tasks:read" },
     { method: "GET", path: "/projects/:project/blob", access: "verb", agent: "tasks:read" },
+    { method: "GET", path: "/projects/:project/compare", access: "verb", agent: "tasks:read" },
+    { method: "GET", path: "/projects/:project/commits", access: "verb", agent: "tasks:read" },
     { method: "GET", path: "/projects/:project/members", access: "human" },
     { method: "POST", path: "/projects/:project/members", access: "human", recentSignIn: true },
     { method: "POST", path: "/projects/:project/members/:principalId/remove", access: "human", recentSignIn: true },
@@ -128,6 +130,7 @@ export const routeRules: RouteRule[] = [
     { method: "POST", path: "/me/notifications/read", access: "human", machineGrant: true },
     { method: "GET", path: "/me/notification-preferences", access: "human", machineGrant: true },
     { method: "PUT", path: "/me/notification-preferences", access: "human", machineGrant: true },
+    { method: "GET", path: "/people/:principalId", access: "human", machineGrant: true },
     { method: "PATCH", path: "/me/profile", access: "human", machineGrant: true },
 ];
 const compiled = routeRules.map((rule) => ({

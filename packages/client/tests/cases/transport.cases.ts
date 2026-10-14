@@ -202,6 +202,26 @@ export const transportCases: Case[] = [
     }
     equal(routing.taskGet.basePath, '/v1');
   }),
+  test('canonical compare and history use authenticated versioned project routes', async () => {
+    const { fetch, calls } = scriptedFetch(json(200, { files: [], commits: [], omittedFiles: 0 }), json(200, { repositoryId: 'repo', ref: 'refs/heads/main', commitSha: null, commits: [] }));
+    const c = client(fetch);
+    const base = 'a'.repeat(40), head = 'b'.repeat(40);
+    await c.call('codeCompareGet', { path: { project: 'a b/c' }, query: { base, head } });
+    await c.call('codeCommitsGet', { path: { project: 'a b/c' }, query: { ref: 'refs/heads/main', limit: 10 } });
+    equal(calls.map((x) => `${x.method} ${x.url}`), [
+      `GET ${BASE}/v1/projects/a%20b%2Fc/compare?base=${base}&head=${head}`,
+      `GET ${BASE}/v1/projects/a%20b%2Fc/commits?limit=10&ref=refs%2Fheads%2Fmain`,
+    ]);
+    for (const call of calls) equal(call.headers.authorization, `Bearer ${TOKEN}`);
+  }),
+  test('person profile reads encode the complete principal as one segment', async () => {
+    const principalId = 'https://issuer.example.invalid|person/one';
+    const { fetch, calls } = scriptedFetch(json(200, { principalId, profile: { name: null, pronouns: null, bio: null, timezone: null } }));
+    await client(fetch).call('peopleGet', { path: { principalId } });
+    equal(calls[0]!.url, `${BASE}/v1/people/${encodeURIComponent(principalId)}`);
+    equal(calls[0]!.method, 'GET');
+    equal(calls[0]!.headers.authorization, `Bearer ${TOKEN}`);
+  }),
   test('navigation and excluded operations are not callable', async () => {
     const c = client(scriptedFetch().fetch);
     for (const id of ['authCallback', 'authCliStart', 'brokerHelperPush', 'collaborationEventDelivery']) {

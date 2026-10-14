@@ -2555,6 +2555,143 @@ export const routing = {
       "replay": null
     }
   },
+  "codeCommitsGet": {
+    "operationId": "codeCommitsGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/projects/{project}/commits",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "limit",
+          "required": false
+        },
+        {
+          "name": "ref",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "codeCompareGet": {
+    "operationId": "codeCompareGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/projects/{project}/compare",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "base",
+          "required": true
+        },
+        {
+          "name": "head",
+          "required": true
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "codeTreeGet": {
     "operationId": "codeTreeGet",
     "kind": "path",
@@ -3806,6 +3943,54 @@ export const routing = {
         "application/problem+json"
       ],
       "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "peopleGet": {
+    "operationId": "peopleGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/people/{principalId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "principalId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
         "application/problem+json"
       ]
     },

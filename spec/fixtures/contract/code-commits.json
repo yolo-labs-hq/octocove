@@ -1,0 +1,21 @@
+{
+  "path": "/projects/{project}/commits",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "repositoryId": "repository-example",
+    "ref": "refs/heads/main",
+    "commitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "commits": [
+      {
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "message": "Update greeting",
+        "authorName": "Example Author",
+        "authoredAt": "2026-01-01T00:00:00.000Z",
+        "parents": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      }
+    ]
+  }
+}

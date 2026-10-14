@@ -735,3 +735,10 @@ describe('migration 0046 on a database with live eight-hour sign-ins', () => {
         }
     });
 });
+it('refuses a real delegation on the human-only person profile route', async () => {
+    const { createApp } = await import('../src/index');
+    const { credential, human } = await delegation();
+    const response = await createApp().request(`http://localhost:8787/v1/people/${encodeURIComponent(`${human.issuer}|${human.sub}`)}`, { headers: bearerHeader(credential.accessToken) }, env);
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe('human-required');
+});
