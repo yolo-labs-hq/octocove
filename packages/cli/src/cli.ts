@@ -691,7 +691,7 @@ const COMMANDS: Record<string, Handler> = {
     const nextSteps = input.mode === "create"
       ? v.seed ? "Use the seeded head as the base when creating and claiming tasks." : "Empty repository: see " + EMPTY_REPOSITORY_GUIDE
       : "Wait for `repo list` to show the import ready before claiming.";
-    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "clone URL not available yet" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "clone URL not available yet"], ["Target ref", r.targetRef],
+    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Target ref", r.targetRef],
       ["Head", r.knownHeadSha], ["Import", r.importState ? `${r.importState} (claims wait until \`repo list\` shows it ready)` : v.seed ? "none (seeded repository)" : "none (empty repository)"], ["Next steps", nextSteps]]));
   },
 
@@ -701,7 +701,7 @@ const COMMANDS: Record<string, Handler> = {
     if (creds.kind !== "human") throw new HumanRequiredError("repo verify requires a human credential");
     const r = await api.j.repositories.verify(pos[0]!, pos[1]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
     const nextSteps = "If the repository is empty, see " + EMPTY_REPOSITORY_GUIDE;
-    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "clone URL not available yet" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "clone URL not available yet"], ["Binding", r.binding],
+    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Binding", r.binding],
       ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"], ["Next steps", nextSteps]]));
   },
 
@@ -709,7 +709,7 @@ const COMMANDS: Record<string, Handler> = {
     const { v, pos } = opts(args, {}, 1);
     const { api } = await client(d);
     const items = await api.j.repositories.list(pos[0]!, api.until(Date.now() + READ_SECONDS * 1000));
-    out(d, v.json, { items: items.map(r => ({ ...r, cloneUrl: r.cloneUrl ?? null, cloneUrlHint: r.cloneUrl ? undefined : "clone URL not available yet" })) }, () => items.map((r) => `${r.id}  ${r.targetRef}  ${r.knownHeadSha ?? "(head unavailable)"}  ${r.namespace}/${r.repoId}  ${r.name}${r.importState ? `  (import ${r.importState})` : ""}  ${r.cloneUrl ?? "clone URL not available yet"}`).join("\n") || "(no repositories)");
+    out(d, v.json, { items: items.map(r => ({ ...r, cloneUrl: r.cloneUrl ?? null, cloneUrlHint: r.cloneUrl ? undefined : "No clone URL was returned" })) }, () => items.map((r) => `${r.id}  ${r.targetRef}  ${r.knownHeadSha ?? "(head unavailable)"}  ${r.namespace}/${r.repoId}  ${r.name}${r.importState ? `  (import ${r.importState})` : ""}  ${r.cloneUrl ?? "No clone URL was returned"}`).join("\n") || "(no repositories)");
   },
 
   "task create": async (d, args) => {
