@@ -74,6 +74,12 @@ after `pnpm --filter @yolo-labs/octocove build` and
 package directory to a scratch location outside the repository and remove `private`
 there, never in the repository.
 
+## Version 0.2.0
+
+The [0.2.0 changelog](../CHANGELOG.md#020) covers the CLI and client release. Both package manifests must contain `0.2.0`. After the release PR merges, the operator tags a commit reachable from `main` with `cli-v0.2.0` and `client-v0.2.0`. Each tag starts its own publication run in the `npm` environment; its package version must equal the version in the tag. Tag rules must admit both prefixes, and publication authorization must be available to the workflow before the tags are pushed.
+
+Validate the complete CLI suite, client tests and both npm tarballs before tagging. The reviewed release includes the presenter output changes, whose JSON responses remain unchanged.
+
 ## Yanking or deprecating a release
 
 Prefer deprecation plus a fixed patch release over unpublishing:
