@@ -156,7 +156,7 @@ export async function run(d: Deps): Promise<number> {
   clearCredentialEnv(d.env);
   const json = d.argv.includes("--json") || d.argv.includes("--grant") || (d.argv.includes("auth") && d.argv.includes("exchange"));
   try {
-    if (d.argv.length === 0 || d.argv[0] === "--help" || d.argv[0] === "help") {
+    if (d.argv.length === 0 || d.argv[0] === "help") {
       d.stdout(HELP);
       return EXIT.ok;
     }
@@ -206,6 +206,28 @@ function report(d: Deps, err: unknown, json: boolean): number {
 const GROUPS = new Set(["project", "repo", "task", "candidate", "receipt", "events", "webhook", "helper", "auth", "approval", "workspace", "lane"]);
 
 async function dispatch(d: Deps) {
+  // Help wins before parsing required arguments or entering any execution path.
+  if (d.argv.includes("--help")) {
+    const words = d.argv.filter(arg => arg !== "--help" && arg !== "--json");
+    const first = words[0] === "--version" || words[0] === "-v" ? "version" : words[0];
+    const command = first && GROUPS.has(first) && first !== "events"
+      ? `${first} ${words[1] ?? ""}`
+      : first === "events" && words[1] === "replay" ? "events replay" : first;
+    if (command && COMMAND_NAMES.includes(command)) {
+      const commandWords = command.split(" ");
+      const entry = HELP.slice(HELP.indexOf("Commands:"), HELP.indexOf("Global options:")).split("\n").find(line => {
+        const usageWords = line.trim().split(/\s+/);
+        return commandWords.every((word, index) => usageWords[index]?.split("|").includes(word));
+      });
+      if (!entry) throw new Error(`missing help for command: ${command}`);
+      const [signature, description] = entry.trim().split(/\s{2,}/);
+      const usage = [...commandWords, ...signature!.split(" ").slice(commandWords.length)].join(" ");
+      d.stdout(`octocove — Git hosting for humans and agents\n\nUsage: octocove ${usage}\n${description ? `\n${description}\n` : ""}\n${HELP.slice(HELP.indexOf("Global options:"))}`);
+    } else {
+      d.stdout(HELP);
+    }
+    return;
+  }
   // Global flags may lead; command words follow, then the command's own flags.
   const lead: string[] = [];
   let argv = d.argv;
@@ -1023,6 +1045,11 @@ const COMMANDS: Record<string, Handler> = {
     out(d, v.json, body, () => kv([["Webhook", body.id], ["Status", body.status]]));
   },
 };
+
+/** Commands handled by the dispatcher, including the machine path and shorthand aliases. */
+export const COMMAND_NAMES: readonly string[] = Object.freeze([
+  ...Object.keys(COMMANDS), "auth exchange", "auth approve", "events", "claim",
+]);
 
 function auditText(page: any) {
   const rows = (page.items ?? []).map((r: any) => `${String(r.id).padStart(6)}  ${r.at}  ${r.actorType}:${r.actorId}  ${r.type}  ${Object.keys(r.refs ?? {}).length ? JSON.stringify(r.refs) : ""}`.trimEnd());
