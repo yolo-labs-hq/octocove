@@ -460,6 +460,7 @@ describe("task claim", () => {
   });
 
   it("with a bootstrap, stores the delegation privately and never prints it", async () => {
+    routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(201, { ...ready, delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
     const cfg = join(repo, "..", "cfg-bootstrap");
     expect(await cli(["--json", "task", "claim", "T1", "--intent-version", "3"], { kind: "bootstrap", token: "boot" }, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(0);
@@ -855,6 +856,25 @@ describe('chain claim options', () => {
     expect(outText).toContain('Pointer SHA'); expect(outText).toContain(SHA_A);
     expect(outText).toContain('workspace prepare'); expect(outText).toContain('workspace open');
     expect(git('config', 'octocove.baseSha')).toBe(SHA_A);
+  });
+
+  it('reads the scoped project after saving a bootstrap chain delegation', async () => {
+    const cfg = join(repo, '..', 'chain-agent');
+    const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap' });
+    routes['POST /tasks/T1/claim'] = () => json(201, { ...ready(SHA_A), delegation: {
+      delegationId: 'D1', accessToken: 'PRIVATE-AGENT', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
+    } });
+    routes['GET /tasks/T1'] = c => {
+      expect(c.headers.authorization).toBe('Bearer PRIVATE-AGENT');
+      expect(JSON.parse(readFileSync(join(cfg, 'credentials', 'cli.json'), 'utf8')).kind).toBe('agent');
+      return json(200, task);
+    };
+    expect(await cli(['task', 'claim', 'T1', '--intent-version', '3', '--lane', 'chain', '--chain-id', 'chain-1', '--base', SHA_A,
+      '--bootstrap-file', bootstrapFile], {}, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(EXIT.ok);
+    expect(calls.map(c => `${c.method} ${c.url.pathname}`)).toEqual(['POST /v1/tasks/T1/claim', 'GET /v1/tasks/T1']);
+    expect(git('config', '--local', 'octocove.projectId')).toBe('P1');
+    expect(git('config', '--local', 'octocove.baseSha')).toBe(SHA_A);
+    expect(outText + errText).not.toContain('PRIVATE-AGENT');
   });
 
   it('explicit ref overrides a chain declaration and retains the existing request shape', async () => {

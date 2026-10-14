@@ -56,7 +56,7 @@ it('claim installs the documented config with no secret in git config, remote, l
   const claim = { id: 'c', intentVersion: 1, provisioningState: 'ready', workspace: { remote, ref: 'refs/heads/work', mappingId: 'm', kind: 'task-repo', credentialSource: source } };
   const deps = { env, credentials: { apiUrl: 'https://api.example/v1', token: 'bootstrap', kind: 'bootstrap' as const },
     git: async (args: string[]) => { spawnArgs.push(args); return git(args); },
-    fetch: async () => Response.json({ claim, delegation: { delegationId: 'd', accessToken: secret, tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r' } }, { status: 201 }),
+    fetch: async (url: string) => new URL(url).pathname.endsWith("/tasks/t") ? Response.json({ id: "t", projectId: "p", intentVersion: 1 }) : Response.json({ claim, delegation: { delegationId: 'd', accessToken: secret, tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r' } }, { status: 201 }),
     stdout: (s: string) => { output += s; }, stderr: (s: string) => { output += s; }, stdin: async () => '' };
   expect(await run({ ...deps, argv: ['task', 'claim', 't', '--intent-version', '1', '--json'] })).toBe(EXIT.ok);
   const config = await readFile(join(repo, '.git', 'config'), 'utf8');
