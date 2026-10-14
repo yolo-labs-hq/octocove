@@ -51,6 +51,21 @@ host runtime isolation is client runtime work (ADR 0005 guidance; outside this r
   `refs/heads/lane/<lane>` in a shared repository) or `repo` (a write grant owns its task
   repository's working `refs/heads/*` branch). Lane kind is immutable identity.
 
+## Server-mediated receive-pack
+
+An authority may additionally implement `receivePack({socket, protocol, leftover, ref})`.
+`AttemptHelper` rechecks its bound live read grant and peer before calling this adapter.
+The adapter forwards an exact claim-ref receive-pack exchange to the authenticated
+Worker, which authorizes the write independently; the broker read grant never grants
+provider write access. The adapter must bind the command to `ref`, bound upload size,
+apply deadlines, and stream only sanitized errors or Git report-status back to the peer.
+Without this adapter, the existing read/write service checks and mirror delivery apply.
+
+The CLI supplies this adapter in an explicitly same-user runtime. Its private directory
+protects against other users, but supplies no same-user credential isolation. It uses
+only the agent delegation in that agent's config directory, revokes read leases and
+removes its runtime on exit. An externally provided socket takes precedence.
+
 ## Runtime contract (the trusted runtime must provide)
 
 1. A Unix socket confined to the attempt's isolated process domain — distinct host UID plus

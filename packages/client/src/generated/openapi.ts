@@ -574,6 +574,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks/{id}/lane/receive-pack/refs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover the authenticated claim ref for Worker receive-pack
+         * @description Exact agent claim authority. Receive-pack v1 advertisement contains refs/octocove/claims/{claimId} at its current tip (zero when absent), and .have lines for the original claim base and current canonical head. The helper forwards this advertisement to Git; the credential is never returned.
+         */
+        get: operations["chainLaneReceivePackRefs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/receive-pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Push Git objects to the authenticated claim ref and compute its candidate
+         * @description Exact scoped agent claimant with submissions:create. One command targets refs/octocove/claims/{claimId}; old SHA must equal its current tip (zero on the first push). Send a non-thin pack with delta compression disabled so the Worker can verify commit ancestry. The Worker creates the submission and candidate and streams report-status unchanged. Candidate base is the current canonical head when source descends from it. Otherwise the candidate is stale and approval refuses it; fetch and merge the current canonical locally, then push again. No integrator, staging endpoint or provider write credential is involved.
+         */
+        post: operations["chainLaneReceivePack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tasks/{id}/lane/pushes": {
         parameters: {
             query?: never;
@@ -1981,6 +2021,8 @@ export interface components {
             /** @enum {string} */
             status: "active" | "fenced" | "landed" | "raced" | "failed" | "superseded" | "stale" | "withdrawn" | "rejected";
             candidateSha: components["schemas"]["Sha"] | null;
+            /** @description Known canonical head when the candidate is stale */
+            currentHead?: string | null;
             candidateRef: string | null;
             baseSha: components["schemas"]["Sha"];
             checkIdentity: string | null;
@@ -4170,6 +4212,83 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
+        };
+    };
+    chainLaneReceivePackRefs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Receive-pack v1 advertisement. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-git-receive-pack-advertisement": string;
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    chainLaneReceivePack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-git-receive-pack-request": string;
+            };
+        };
+        responses: {
+            /** @description Upstream report-status; discover the created submission through task.liveAttempt and read its candidate. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-git-receive-pack-result": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            /** @description chain-push-non-fast-forward; fetch canonical with a read lease, merge locally with the original base, then push again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            413: components["responses"]["Problem"];
+            /** @description candidate-ancestry-unverifiable; retry with pack.window=0 or a no-delta pack. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            503: components["responses"]["Problem"];
         };
     };
     chainLanePush: {

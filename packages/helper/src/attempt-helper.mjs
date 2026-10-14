@@ -37,11 +37,12 @@ const SERVICES = new Set(['git-upload-pack', 'git-receive-pack']);
 export const CONTROL_NONCE = Symbol('octocove.controlNonce');
 
 export class AttemptHelper {
-  #grant; #dir; #authority; #authPeer; #now; #audit; #git; #chain;
+  #signal; #grant; #dir; #authority; #authPeer; #now; #audit; #git; #chain;
   #laneSock; #ctlSock; #ctlNonce; #mirror; #servers = []; #closing = false; #conns = new Set();
 
-  constructor({ grant, runtimeDir, authority, chain, peer = {}, now = () => Date.now(), audit = () => {}, gitBin = 'git' }) {
+  constructor({ grant, runtimeDir, authority, chain, peer = {}, now = () => Date.now(), audit = () => {}, gitBin = 'git', signal }) {
     // Binding throws on any missing/forged field: a partial grant cannot authorize I/O.
+    this.#signal = signal;
     this.#grant = bindGrant(grant);
     if (typeof runtimeDir !== 'string' || !runtimeDir) throw new GrantError('invalid-runtime-dir');
     for (const m of ['live', 'seed', 'deliver'])
@@ -166,13 +167,21 @@ export class AttemptHelper {
 
   async #serve(socket, service, protocol, leftover) {
     if (service === 'chain-stage') { await this.#stage(socket, protocol, leftover); return; }
-    if (!SERVICES.has(service) || !serviceAllowed(this.#grant, service) ||
+    // A server-mediated receive-pack adapter uses claim authority, never a provider write lease.
+    const mediated = service === 'git-receive-pack' && typeof this.#authority.receivePack === 'function';
+    if (!SERVICES.has(service) || (!mediated && !serviceAllowed(this.#grant, service)) ||
         !/^(|version=[12])$/.test(protocol)) { this.#refuse(socket, 'grant-denied'); return; }
     // Recheck live authority before starting any transport: a revoked/expired/changed grant
     // refuses here, before a single git byte is served.
     let live;
     try { live = bindGrant(await this.#authority.live()); } catch { this.#refuse(socket, 'grant-denied'); return; }
     if (!sameGrant(live, this.#grant)) { this.#refuse(socket, 'grant-denied'); return; }
+
+    if (mediated) {
+      try { await this.#authority.receivePack({ socket, protocol, leftover, ref: this.#grant.ref }); }
+      catch { this.#refuse(socket, 'authority-unavailable'); }
+      return;
+    }
 
     // Seed the mirror with the exact registered ref's current upstream tip and objects, so
     // the advertisement and CAS the lane sees match reality. The service resolves the ref;
@@ -303,7 +312,7 @@ export class AttemptHelper {
 
   #run(args, opts = {}) {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.#git, args, { env: gitEnv(opts.env), stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(this.#git, args, { env: gitEnv(opts.env), signal: this.#signal, stdio: ['ignore', 'pipe', 'pipe'] });
       let out = '', err = '';
       child.stdout.on('data', d => (out += d));
       child.stderr.on('data', d => (err += d));

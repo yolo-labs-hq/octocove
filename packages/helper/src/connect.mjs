@@ -9,7 +9,7 @@
 // bytes only, and the authenticated upstream connection lives entirely in the helper.
 import { createConnection } from 'node:net';
 
-export function runConnector({ service, socketPath, gitProtocol = '', stdin, stdout, onExit }) {
+export function runConnector({ service, socketPath, gitProtocol = '', stdin, stdout, onExit, signal }) {
   if (!socketPath) { process.stderr.write('OCTOCOVE_HELPER_SOCK is not set\n'); onExit(1); return; }
   // git's ext:: transport substitutes %s with the short service name (`receive-pack`,
   // `upload-pack`); normalize to the canonical `git-` form the helper expects.
@@ -18,8 +18,11 @@ export function runConnector({ service, socketPath, gitProtocol = '', stdin, std
     process.stderr.write(`unsupported service: ${service}\n`); onExit(1); return;
   }
   // Half-open so git can keep reading the report after it has finished sending the pack.
+  let finished = false;
+  const finish = code => { if (!finished) { finished = true; signal?.removeEventListener('abort', abort); onExit(code); } };
+  const abort = () => { sock.destroy(); finish(1); };
   const sock = createConnection({ path: socketPath, allowHalfOpen: true });
-  sock.on('error', err => { process.stderr.write(`octocove helper connect failed: ${err.code || 'error'}\n`); onExit(1); });
+  sock.on('error', err => { process.stderr.write(`octocove helper connect failed: ${err.code || 'error'}\n`); finish(1); });
   sock.on('connect', () => {
     // Two header lines identify the service and protocol to the helper; everything after is
     // the verbatim git stream in both directions.
@@ -27,5 +30,7 @@ export function runConnector({ service, socketPath, gitProtocol = '', stdin, std
     stdin.pipe(sock);
     sock.pipe(stdout);
   });
-  sock.on('close', () => onExit(0));
+  sock.on('close', () => finish(0));
+  signal?.addEventListener('abort', abort, {once:true});
+  if(signal?.aborted)abort();
 }

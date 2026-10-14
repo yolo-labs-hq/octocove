@@ -35,16 +35,14 @@ export function helperTransportActive(env: NodeJS.ProcessEnv): boolean {
 }
 
 export const HELPER_HINT =
-  'The helper is a protected per-attempt AttemptHelper that carries Git traffic without exposing credentials. ' +
-  'A logged-in CLI alone cannot claim an allocated workspace. No trusted agent runtime is provisioned for the hosted service yet. ' +
-  'Have a trusted runtime provision the helper, ' +
-  'expose its socket as OCTOCOVE_HELPER_SOCK and put octocove-helper-connect on PATH. ' +
-  'See https://github.com/yolo-labs-hq/octocove/blob/main/packages/cli/README.md#claiming-as-an-agent-runtime-prerequisites.';
+  'task claim and lane push start a same-user helper automatically. ' +
+  'This is not an isolated credential boundary. An external OCTOCOVE_HELPER_SOCK takes precedence. ' +
+  'Use lane push with the agent delegation in its own OCTOCOVE_CONFIG_DIR.';
 
 export class HelperRequiredError extends ConfigError {
   readonly code = 'helper-required';
   readonly hint = HELPER_HINT;
-  constructor() { super('OCTOCOVE_HELPER_SOCK is required for allocated claims. ' + HELPER_HINT); }
+  constructor() { super('This operation requires an external helper. ' + HELPER_HINT); }
 }
 
 export function requireHelperTransport(env: NodeJS.ProcessEnv) {
@@ -68,14 +66,14 @@ export async function helperRemoteMatches(git: GitRunner, remoteName: string) {
   return fetchUrl === HELPER_REMOTE && pushUrls.length > 0 && pushUrls.every(url => url === HELPER_REMOTE);
 }
 
-export async function helperStatus(git: GitRunner) {
+export async function helperStatus(git: GitRunner, env: NodeJS.ProcessEnv = {}) {
   const name = await getConfig(git, 'octocove.remote');
-  if (!name) return { configured: false, code: 'helper-required', hint: HELPER_HINT };
+  if (!name) return { configured: false, runtime: 'built-in same-user (not an isolated credential boundary)', hint: HELPER_HINT };
   const url = await git(['remote', 'get-url', name]);
   // Socket-helper transport: the remote is the ext:: connector and carries no credential.
   if (/^ext::octocove-helper-connect\b/.test(url))
-    return { configured: true, transport: 'socket-helper', helper: 'octocove-helper-connect', remote: name };
+    return { configured: true, runtime: helperTransportActive(env) ? 'external' : 'built-in same-user (not an isolated credential boundary)', transport: 'socket-helper', helper: 'octocove-helper-connect', remote: name };
   const u = cleanUrl(url);
   return { configured: false, origin: u.origin, path: u.pathname.slice(1),
-    helper: 'missing socket transport; ask the trusted runtime to provision it', code: 'helper-required', hint: HELPER_HINT };
+    helper: 'missing socket transport; run task claim to configure it', runtime: 'built-in same-user (not an isolated credential boundary)', hint: HELPER_HINT };
 }

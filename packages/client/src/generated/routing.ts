@@ -1983,6 +1983,124 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "chainLaneReceivePack": {
+    "operationId": "chainLaneReceivePack",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/receive-pack",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/x-git-receive-pack-request"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/x-git-receive-pack-result"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "422": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "chainLaneReceivePackRefs": {
+    "operationId": "chainLaneReceivePackRefs",
+    "kind": "path",
+    "method": "GET",
+    "path": "/tasks/{id}/lane/receive-pack/refs",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/x-git-receive-pack-advertisement"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
   "chainLaneRetire": {
     "operationId": "chainLaneRetire",
     "kind": "path",
