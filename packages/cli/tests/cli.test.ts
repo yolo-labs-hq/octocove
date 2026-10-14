@@ -209,11 +209,11 @@ describe("repo add / verify / list", () => {
         const args = command === "create" ? ["--name", "canonical"] : command === "verify" ? [repository.id] : [];
         expect(await cli(["repo", command, PROJECT, ...args, ...flags], { kind: "human" })).toBe(0);
         expect(errText).toBe("");
-        expect(outText).toContain(cloneUrl ?? "clone URL not available yet");
+        expect(outText).toContain(cloneUrl ?? "No clone URL was returned");
         if (jsonMode) {
           const result = command === "list" ? JSON.parse(outText).items[0] : JSON.parse(outText);
           expect(result.cloneUrl).toBe(cloneUrl ?? null);
-          if (!cloneUrl) expect(result.cloneUrlHint).toBe("clone URL not available yet");
+          if (!cloneUrl) expect(result.cloneUrlHint).toBe("No clone URL was returned");
         }
         if (command !== "list") {
           const guidance = jsonMode ? JSON.parse(outText).nextSteps : outText;
@@ -291,7 +291,7 @@ describe("repo add / verify / list", () => {
     expect(outText).toContain("refs/heads/main");
     expect(outText).toContain("ns/repo-1");
     expect(await cli(["--json", "repo", "list", PROJECT])).toBe(0);
-    expect(JSON.parse(outText)).toEqual({ items: [{ ...repository, cloneUrl: null, cloneUrlHint: "clone URL not available yet" }] });
+    expect(JSON.parse(outText)).toEqual({ items: [{ ...repository, cloneUrl: null, cloneUrlHint: "No clone URL was returned" }] });
     routes[`GET /projects/${PROJECT}/repositories`] = () => json(200, { items: [] });
     expect(await cli(["repo", "list", PROJECT])).toBe(0);
     expect(outText).toContain("(no repositories)");
