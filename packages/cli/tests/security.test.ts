@@ -79,6 +79,10 @@ describe("bootstrap hand-off", () => {
     helper = attemptHelper;
     await attemptHelper.start();
     env.OCTOCOVE_HELPER_SOCK = attemptHelper.socketPath;
+    routes["GET /v1/tasks/T1"] = (init) => {
+      expect((init.headers as any).authorization).toBe(`Bearer ${AGENT}`);
+      return response({ id: "T1", projectId: "P1", intentVersion: 1 });
+    };
   });
 
   it("persists a 202 delegation before polling with it and uses it on the next invocation", async () => {
@@ -98,7 +102,7 @@ describe("bootstrap hand-off", () => {
     expect((await stat(activeFile())).mode & 0o777).toBe(0o600);
     expect((await stat(join(dir, "credentials"))).mode & 0o777).toBe(0o700);
     expect(await cli(["task", "claim-status", "C1"])).toBe(EXIT.ok);
-    expect(calls.map((c) => c.route)).toEqual(["POST /v1/tasks/T1/claim", "GET /v1/claims/C1", "GET /v1/claims/C1"]);
+    expect(calls.map((c) => c.route)).toEqual(["POST /v1/tasks/T1/claim", "GET /v1/claims/C1", "GET /v1/tasks/T1", "GET /v1/claims/C1"]);
   });
 
   it.each([undefined, "k".repeat(20)])("recovers a lost issuance body under the same key and bootstrap: one logical claim, delegation saved (key=%s)", async (key) => {

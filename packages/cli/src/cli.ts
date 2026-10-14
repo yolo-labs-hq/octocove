@@ -803,10 +803,6 @@ const COMMANDS: Record<string, Handler> = {
     if (delegation) {
       activeCreds = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId };
       credentialsFile = await saveCredentials(d.env, activeCreds);
-      // The bootstrap cannot read tasks. Its saved replacement delegation can read
-      // this scoped task, whose project binding the helper needs for agent pushes.
-      task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } })).body;
-      if (typeof task?.projectId !== "string" || !task.projectId) throw new ConfigError("claimed task has no project binding; run octocove task show to inspect it");
     }
     let claim = granteeClaim;
     if (claim.provisioningState === "pending") {
@@ -814,6 +810,12 @@ const COMMANDS: Record<string, Handler> = {
       const pollApi = connect(d, activeCreds);
       const settled = await pollApi.j.claims.waitForProvisioning(claimId, pollApi.until(Date.now() + waitSeconds * 1000));
       if (settled.claim) claim = claimOf(settled.claim);
+    }
+    if (delegation && claim.provisioningState === "ready") {
+      // The bootstrap cannot read tasks. Its saved replacement delegation can read
+      // this scoped task, whose project binding the helper needs for agent pushes.
+      task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } })).body;
+      if (typeof task?.projectId !== "string" || !task.projectId) throw new ConfigError("claimed task has no project binding; run octocove task show to inspect it");
     }
     const ws = claim.workspace;
     const external = ws?.credentialSource?.kind === "external";
