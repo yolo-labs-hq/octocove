@@ -969,3 +969,17 @@ describe("recovery after a committed answer whose body was lost", () => {
     expect(outText).toContain(shown);
   });
 });
+
+
+describe("expired session recovery guidance", () => {
+  it.each([false, true])("names recovery commands and preserves refusal metadata in JSON=%s", async jsonMode => {
+    routes["GET /me"] = () => json(401, { code: "credential-expired", detail: "credential-expired", status: 401, requestId: "request-expired" });
+    expect(await cli(["whoami", ...(jsonMode ? ["--json"] : [])], { kind: "human" })).toBe(EXIT.failure);
+    expect(outText).toBe("");
+    expect(errText).toContain("octocove auth renew");
+    expect(errText).toContain("octocove login");
+    expect(errText).not.toContain("credential-expired: credential-expired");
+    if (jsonMode) expect(JSON.parse(errText).error).toMatchObject({ code: "credential-expired", status: 401, requestId: "request-expired", nextSteps: expect.stringContaining("octocove auth renew"), hint: expect.stringContaining("octocove login") });
+    expect(calls).toHaveLength(1);
+  });
+});

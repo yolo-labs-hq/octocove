@@ -60,3 +60,14 @@ describe("command help before execution", () => {
     expect(await help(["events", "--follow", "--help", "--project", "P1"])).toContain("Usage: octocove events --follow");
   });
 });
+
+
+it.each(["claim", "task claim"])("%s help advertises canonical and wait options", async command => {
+  const text = await help([...command.split(" "), "--help"]);
+  expect(text).toContain("--canonical URL");
+  expect(text).toContain("--wait SECONDS");
+});
+
+it("lane push help advertises exact source selection", async () => {
+  expect(await help(["lane", "push", "--help"])).toContain("--source SHA");
+});
