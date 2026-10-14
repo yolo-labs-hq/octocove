@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- Return exit code 74 from `candidate show` when completed work conflicts or fails, with recovery guidance. Preserve the JSON output and successful retrieval of pending or superseded candidates.
+- Document the agent workflow for checking candidate outcomes before approval and landing.
+
 ## 0.3.3
 
 - Automatically renew stored human bearer sessions near token expiry or after a credential-expired response, persist the replacement privately and retry once. Enforce idle and absolute sign-in limits without implicitly renewing agent delegations.
