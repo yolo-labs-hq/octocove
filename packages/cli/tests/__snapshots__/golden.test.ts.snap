@@ -292,7 +292,7 @@ exports[`land --json 1`] = `
   "landing": {
     "fenceId": "F1",
     "receiptId": "F1",
-    "status": "pending",
+    "status": "landed",
     "receiptUrl": "https://api.example.invalid/v1/receipts/F1"
   },
   "receipt": {
