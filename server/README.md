@@ -29,13 +29,13 @@ pnpm --filter @octocove/server dev --local --ip 127.0.0.1 --port 8790
 In another terminal:
 
 ```sh
-curl --fail http://localhost:8790/healthz
-export OCTOCOVE_API_URL=http://localhost:8790/v1
-npx @yolo-labs/octocove whoami --json
+curl -q --fail http://localhost:8790/healthz
+curl -q --silent --show-error --output /dev/null --write-out '%{http_code}\n' http://localhost:8790/v1/me
 ```
 
-Without configured authentication, the health request succeeds and `whoami`
-is refused. This is an API boot check, not a login or repository-write demo.
+The health request returns HTTP 200 and the unauthenticated `me` request must
+print `401`. These checks send no CLI credentials, so saved hosted credentials
+cannot redirect them to another API. This is an API boot check, not a login or repository-write demo.
 Migrations and `wrangler dev` must use the same local persistence directory;
 the commands above use Wrangler's default `.wrangler/state` under `server/`.
 No hosted database is changed by `db:migrate:local`.
@@ -102,7 +102,11 @@ session, CSRF and explicit allow/deny endpoints. The hosted service provides
 this page. This server snapshot's local boot instructions do not yet provide
 that page: pointing `OCTOCOVE_API_URL` at the API is insufficient to complete an
 interactive login without a separately configured consent UI and OIDC client.
-Do not replace this flow with an arbitrary development bearer.
+Do not replace this flow with an arbitrary development bearer. The published
+CLI requires an HTTPS verification URL; interactive self-host login also needs
+trusted HTTPS, even though the API boot check uses local HTTP. When configuring
+a separate deployment, set `OCTOCOVE_API_URL` to its API URL and use a fresh
+private `OCTOCOVE_CONFIG_DIR`, such as `$(mktemp -d)`, to isolate credentials.
 
 ## Core checks
 

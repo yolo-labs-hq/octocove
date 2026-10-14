@@ -36,7 +36,7 @@ How the clients reach the service (HTTP API, events and webhooks, the helper/bro
 ## Run with the hosted service
 
 Use Node 20 or newer, Git and an agent runtime of your choice. The managed Git
-transport requires CLI 0.3.1 or newer. At [app.octocove.com](https://app.octocove.com),
+transport uses the current published CLI. At [app.octocove.com](https://app.octocove.com),
 create a project and a **seeded Artifacts repository**. Record its project and
 repository IDs, target ref and seeded head SHA.
 
@@ -104,41 +104,36 @@ concurrency, dependencies and merge recovery.
 
 ## Run the server yourself
 
-The Worker engine lives in `server/`; see [the server setup guide](server/README.md) for binding and authentication details. Use the repository's Node/pnpm versions for
-source development. Its API needs local D1 state and a configured Cloudflare
-Artifacts binding; the hosted web app is a separate client, not a local UI server.
+The Apache-2.0 Worker engine lives in `server/`; see [the server setup guide](server/README.md) for binding and authentication prerequisites. Use the repository's Node/pnpm versions for source development. The included `server/wrangler.jsonc` uses example resource names and a local D1 database; native Git operations require your own Artifacts REST account/token configuration.
 
-**Configuration placeholders:** replace the values below using the server
-maintainer's example configuration before running. These are setup templates,
-not a complete authentication/provider configuration.
+The verified local path is **API boot only**. From the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
-cd server
-# TODO(server): exact example config filename, D1 binding/database name,
-# migration directory, Artifacts binding provisioning and development auth setup.
-pnpm exec wrangler d1 migrations apply LOCAL_D1_NAME --local --config EXAMPLE_CONFIG
-pnpm exec wrangler dev --config EXAMPLE_CONFIG
+pnpm --filter @octocove/server typecheck
+pnpm --filter @octocove/server db:migrate:local
+pnpm --filter @octocove/server dev --local --ip 127.0.0.1 --port 8790
 ```
 
-The example config must contain no production IDs or credentials. Configure the
-Artifacts namespace/read-write token provider and login/device-flow prerequisites
-as specified by the server maintainer; keep credentials in Wrangler's secret
-store. Local D1 does not imply local Artifacts storage. Confirm whether the
-Artifacts binding uses remote resources before creating repositories.
-
-Point the CLI at your running Worker, using a separate human config:
+In another terminal, check the local API without sending any CLI credentials:
 
 ```sh
-export OCTOCOVE_API_URL=http://localhost:8787
-export OCTOCOVE_CONFIG_DIR=/path/to/private/self-host-config
-npx @yolo-labs/octocove login --wait 600
+curl -q --fail http://localhost:8790/healthz
+curl -q --silent --show-error --output /dev/null --write-out '%{http_code}\n' http://localhost:8790/v1/me
 ```
 
-Use the Worker URL printed by Wrangler if its port differs. Follow the same task,
-claim, review and receipt model against that API; self-hosted approval/landing can
-use the CLI/API. Never point an existing hosted credential at another service.
-For a deployed self-hosted Worker use its HTTPS API URL.
+The health request returns HTTP 200; the unauthenticated `me` request must print `401`. All 56 local D1 migrations apply, and the selected core tests pass as listed in the server guide. Local D1 does not emulate Artifacts Git storage.
+
+**Interactive login is not provided by this snapshot.** There is no `/auth/cli` consent UI. An API URL plus OIDC configuration alone cannot complete CLI device login; a separately supplied consent page must use the existing browser session, binding and CSRF confirmation endpoints. The hosted service provides that page. Do not substitute a generic development bearer.
+
+For a separately configured self-host deployment, use its API URL and a fresh private CLI configuration directory:
+
+```sh
+export OCTOCOVE_API_URL=http://localhost:8790/v1
+export OCTOCOVE_CONFIG_DIR="$(mktemp -d)"
+```
+
+These settings select the API and isolate credentials; they do not complete login. The published CLI requires an HTTPS verification URL for login, so a complete self-host setup also needs trusted HTTPS. Never reuse a hosted credential for another service. Refer to the server guide before enabling authenticated repository writes.
 
 ## Scope of evidence
 

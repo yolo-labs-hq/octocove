@@ -2,7 +2,7 @@
 
 Use the [hosted or self-hosted setup](../README.md#run-with-the-hosted-service)
 first. The hosted walkthrough uses the web app for human review and landing;
-workers use the published CLI (0.3.1 or newer) and local Git. Your agent runtime
+workers use the current published CLI and local Git. Your agent runtime
 chooses and launches agents; Octocove records their intent, authority and results.
 
 ## Plan three tracks
