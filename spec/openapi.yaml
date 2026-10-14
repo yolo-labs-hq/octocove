@@ -835,6 +835,109 @@ paths:
         '503':
           $ref: '#/components/responses/Problem'
       x-authoritative-handler: code-view.readBlob
+  /projects/{project}/compare:
+    get:
+      operationId: codeCompareGet
+      summary: Compare two commits in the canonical repository
+      description: >-
+        Requires tasks:read membership; agent delegations are limited to their own project.
+        Uses server-side canonical repository credentials. Machine grants are refused.
+        Invalid query parameters return 400. Provider failures return sanitized errors.
+        Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 trees, 100000 entries or depth 64 returns 413. Commit messages are subjects.
+      tags: [Projects]
+      security:
+      - HumanSession: []
+      - HumanCliSession: []
+      - AgentDelegation: []
+      parameters:
+      - $ref: '#/components/parameters/ProjectPath'
+      - in: query
+        name: base
+        required: true
+        schema: {type: string, pattern: '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$'}
+      - in: query
+        name: head
+        required: true
+        schema: {type: string, pattern: '^[a-fA-F0-9]{40}([a-fA-F0-9]{24})?$'}
+      responses:
+        '200':
+          description: Canonical repository data.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/CodeCacheControl'
+            X-Content-Type-Options:
+              $ref: '#/components/headers/NoSniff'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeCompare'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      x-authoritative-handler: code-compare.readCompare
+  /projects/{project}/commits:
+    get:
+      operationId: codeCommitsGet
+      summary: Read canonical repository commit history
+      description: >-
+        Requires tasks:read membership; agent delegations are limited to their own project.
+        Uses server-side canonical repository credentials. Machine grants are refused.
+        Invalid query parameters return 400. Provider failures return sanitized errors.
+        Returns full commit messages and available author metadata. Named refs use no-store; SHA refs use private immutable caching. An empty canonical target returns null commitSha and an empty list.
+      tags: [Projects]
+      security:
+      - HumanSession: []
+      - HumanCliSession: []
+      - AgentDelegation: []
+      parameters:
+      - $ref: '#/components/parameters/ProjectPath'
+      - in: query
+        name: ref
+        description: Full branch ref or commit SHA; defaults to the canonical target ref.
+        schema: {type: string}
+      - in: query
+        name: limit
+        schema: {type: integer, minimum: 1, maximum: 100, default: 30}
+      responses:
+        '200':
+          description: Canonical repository data.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/CodeCacheControl'
+            X-Content-Type-Options:
+              $ref: '#/components/headers/NoSniff'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeCommits'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      x-authoritative-handler: code-compare.readCommits
   /projects/{project}/members:
     get:
       operationId: membersList
@@ -6878,6 +6981,71 @@ components:
       required:
       - items
       - creations
+    CodeCommit:
+      type: object
+      additionalProperties: false
+      required: [sha, message, authorName, authoredAt, parents]
+      properties:
+        sha: {$ref: '#/components/schemas/Sha'}
+        message: {type: string}
+        authorName: {type: [string, 'null']}
+        authoredAt: {type: [string, 'null'], format: date-time}
+        parents:
+          type: array
+          items: {$ref: '#/components/schemas/Sha'}
+    CodeDiffHunk:
+      type: object
+      additionalProperties: false
+      required: [oldStart, newStart, lines]
+      properties:
+        oldStart: {type: integer, minimum: 1}
+        newStart: {type: integer, minimum: 1}
+        lines:
+          type: array
+          items: {type: string}
+    CodeDiffFile:
+      type: object
+      additionalProperties: false
+      required: [path, status, added, removed]
+      properties:
+        path: {type: string}
+        status: {type: string, enum: [added, modified, deleted]}
+        added: {type: integer, minimum: 0}
+        removed: {type: integer, minimum: 0}
+        hunks:
+          type: array
+          items: {$ref: '#/components/schemas/CodeDiffHunk'}
+        omitted: {type: string, enum: [binary, too-large, unavailable]}
+        error: {type: string}
+    CodeCompare:
+      type: object
+      additionalProperties: false
+      required: [files, commits, omittedFiles]
+      properties:
+        files:
+          type: array
+          maxItems: 300
+          items: {$ref: '#/components/schemas/CodeDiffFile'}
+        commits:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/CodeCommit'}
+        omittedFiles: {type: integer, minimum: 0}
+    CodeCommits:
+      type: object
+      additionalProperties: false
+      required: [repositoryId, ref, commitSha, commits]
+      properties:
+        repositoryId: {$ref: '#/components/schemas/Id'}
+        ref: {type: string}
+        commitSha:
+          oneOf:
+          - {$ref: '#/components/schemas/Sha'}
+          - {type: 'null'}
+        commits:
+          type: array
+          maxItems: 100
+          items: {$ref: '#/components/schemas/CodeCommit'}
     CodeTree:
       type: object
       additionalProperties: false

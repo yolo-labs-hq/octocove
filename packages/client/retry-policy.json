@@ -184,6 +184,16 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "codeCommitsGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "codeCompareGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "codeTreeGet": {
     "callable": true,
     "autoRetry": "network-only",

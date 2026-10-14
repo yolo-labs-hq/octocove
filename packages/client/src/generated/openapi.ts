@@ -253,6 +253,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project}/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare two commits in the canonical repository
+         * @description Requires tasks:read membership; agent delegations are limited to their own project. Uses server-side canonical repository credentials. Machine grants are refused. Invalid query parameters return 400. Provider failures return sanitized errors. Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 trees, 100000 entries or depth 64 returns 413. Commit messages are subjects.
+         */
+        get: operations["codeCompareGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project}/commits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read canonical repository commit history
+         * @description Requires tasks:read membership; agent delegations are limited to their own project. Uses server-side canonical repository credentials. Machine grants are refused. Invalid query parameters return 400. Provider failures return sanitized errors. Returns full commit messages and available author metadata. Named refs use no-store; SHA refs use private immutable caching. An empty canonical target returns null commitSha and an empty list.
+         */
+        get: operations["codeCommitsGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project}/members": {
         parameters: {
             query?: never;
@@ -2591,6 +2631,41 @@ export interface components {
             /** @description The project's open repository creations, oldest first (empty when none). Not repositories - nothing here can be claimed or targeted. */
             creations: components["schemas"]["RepositoryCreation"][];
         };
+        CodeCommit: {
+            sha: components["schemas"]["Sha"];
+            message: string;
+            authorName: string | null;
+            /** Format: date-time */
+            authoredAt: string | null;
+            parents: components["schemas"]["Sha"][];
+        };
+        CodeDiffHunk: {
+            oldStart: number;
+            newStart: number;
+            lines: string[];
+        };
+        CodeDiffFile: {
+            path: string;
+            /** @enum {string} */
+            status: "added" | "modified" | "deleted";
+            added: number;
+            removed: number;
+            hunks?: components["schemas"]["CodeDiffHunk"][];
+            /** @enum {string} */
+            omitted?: "binary" | "too-large" | "unavailable";
+            error?: string;
+        };
+        CodeCompare: {
+            files: components["schemas"]["CodeDiffFile"][];
+            commits: components["schemas"]["CodeCommit"][];
+            omittedFiles: number;
+        };
+        CodeCommits: {
+            repositoryId: components["schemas"]["Id"];
+            ref: string;
+            commitSha: components["schemas"]["Sha"] | null;
+            commits: components["schemas"]["CodeCommit"][];
+        };
         /** @description One directory of the canonical repository at a ref. */
         CodeTree: {
             repositoryId: components["schemas"]["Id"];
@@ -3466,6 +3541,78 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    codeCompareGet: {
+        parameters: {
+            query: {
+                base: string;
+                head: string;
+            };
+            header?: never;
+            path: {
+                /** @description The project id (`GET /me` memberships). */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canonical repository data. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["CodeCacheControl"];
+                    "X-Content-Type-Options": components["headers"]["NoSniff"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeCompare"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    codeCommitsGet: {
+        parameters: {
+            query?: {
+                /** @description Full branch ref or commit SHA; defaults to the canonical target ref. */
+                ref?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The project id (`GET /me` memberships). */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canonical repository data. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["CodeCacheControl"];
+                    "X-Content-Type-Options": components["headers"]["NoSniff"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeCommits"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };
