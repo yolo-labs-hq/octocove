@@ -1,12 +1,15 @@
 # Public scope
 
-This repository is the client side of Octocove, under the Apache-2.0
+This repository contains the Octocove clients and server engine, under the Apache-2.0
 [LICENSE](../LICENSE). It contains:
 
 - the packages: the `octocove` CLI ([`packages/cli`](../packages/cli/README.md)),
   the typed client library ([`packages/client`](../packages/client/README.md)),
   the local credential helper ([`packages/helper`](../packages/helper/README.md))
   and the code they share ([`packages/shared`](../packages/shared/README.md));
+- the Worker server engine ([`server/`](../server/README.md)): record API,
+  D1 migrations, task coordination, native Artifacts push/landing, authentication
+  and core tests; the example configuration contains placeholders only;
 - the API contract under `spec/`: [`spec/openapi.yaml`](../spec/openapi.yaml)
   and the contract fixtures under `spec/fixtures/contract/`, which the client is
   generated from and tested against;
@@ -18,15 +21,16 @@ This repository is the client side of Octocove, under the Apache-2.0
   reference documents, such as the [generic client contract](reference/CLIENT_CONTRACT.md)
   and the retry table in the [client library guide](../packages/client/README.md).
 
-The hosted service implements the contract. It is reached only through the
-surfaces described in [how the client talks to the service](README.md#how-the-client-talks-to-the-service):
+The server engine implements the contract. Clients reach either a hosted or
+self-hosted deployment through the surfaces described in
+[how the client talks to the service](README.md#how-the-client-talks-to-the-service):
 the HTTP API, events and webhooks, the helper/broker contract and Git transport.
-Nothing in this repository depends on the service's code. A review UI is one
-client among several: build one against the record API (`spec/openapi.yaml`)
-and the client library (`packages/client`). Where documentation describes the
-browser topology (for example [AUTH.md](AUTH.md#browser-origins-same-origin-web-proxy)),
-it is the contract any same-origin web front end follows, not a description of
-code in this repository.
+The hosted web application is a separate client and is not included here. A
+review UI can be built against the record API (`spec/openapi.yaml`) and client
+library (`packages/client`). Authentication requires a registered OIDC client,
+keys and deployment configuration. The server guide distinguishes verified
+local API boot and core test journeys from the interactive consent UI required
+for self-hosted device login.
 
 Tests and runners that record evidence write it under the gitignored
 `.evidence/` directory, or under the directory `OCTOCOVE_EVIDENCE_DIR` names

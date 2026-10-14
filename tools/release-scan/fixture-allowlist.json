@@ -141,6 +141,664 @@
       "kind": "secret_assignment",
       "reason": "Generated openapi-typescript declaration (built from src/generated/openapi.ts) for the declared BYO Basic credential field; a type, not a credential value; shipped in the npm tarball.",
       "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
+    },
+    {
+      "context_sha256": "e901f70685164eb7187de0aa701c40a21ac254b212e171df219abb644b0cb4b1",
+      "file": "server/gateway/src/worker.mjs",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "87ad67acdbad6ba7ded7c982116eddaa7b30316f6dc427e9d960b12a7c85954a"
+    },
+    {
+      "context_sha256": "113a7da9128c324b4731b0b821b984f1ac7d3931386dddff2db3c37c5971f053",
+      "file": "server/gateway/src/worker.mjs",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "87ad67acdbad6ba7ded7c982116eddaa7b30316f6dc427e9d960b12a7c85954a"
+    },
+    {
+      "context_sha256": "65936a95b983f13baafe8985894f0bde1f7373ae849871ddb7d7721034f342f5",
+      "file": "server/gateway/tests/gateway.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "b6351b45a1b68b5354bd4249d5ee5ec2318ddc527779af105279702d415a726c"
+    },
+    {
+      "context_sha256": "3b19d0203a3efc33d0f67e2d59375ac3a429626a24059c9365f93230121ae2c7",
+      "file": "server/gateway/tests/gateway.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "cce0ac84f6a98a24abbbc07e4ec4932ef3553a98c01534bac7a6fba54d5fb96f",
+      "file": "server/gateway/tests/gateway.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "53257a600ede313b4f4d16bd746cdb99cf264f1a4d2e3402ec867c1a67487e7b",
+      "file": "server/gateway/tests/gateway.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "9f03b97700081750dd87fb906e2abd8a7dc7cd55492a6f1434c443f15a6a2c37",
+      "file": "server/gateway/tests/gateway.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "b8bed3bf1dcfbd1a1f923725c25dd440fb9029b5aa80531840029b7dc936b39d",
+      "file": "server/gateway/tests/gateway.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "837ea12976d612743032ed3137e9febe6a38215e1b4227672ea85b5a6687333e",
+      "file": "server/gateway/tests/proof-e2e.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "c07ccef5d92cad1e78b4a56cd18e27c7db9d09660c292e72283520282575203c",
+      "file": "server/gateway/tests/proof-fixture.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "ce83ff40806f04080fb5cdff7f71f22b9537b6a4cb9b7840b473678e12f658c0",
+      "file": "server/gateway/tests/proof.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "e26445e8ad510f644ba05347ae8a6fa2b9fd070085c38060b73a15533c00b831",
+      "file": "server/gateway/tests/proof.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "a72e5b478b50baaf96b6ae86d79c3d531b2078068a3c42df1018ff1474f665f6"
+    },
+    {
+      "context_sha256": "e09ecb2d609f802d2c5a9f0173b49cf17ee04800fd25e19b3e6a61eb936eb8e9",
+      "file": "server/gateway/tests/proof.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "e1d727373ab224cad39759ed55963ce9fca93897106d85d71dc00741033fc82a",
+      "file": "server/gateway/tests/proof.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "c3caba6c3d8857ba584ec4fe8356144345d9bae7c871c308d1c682dc9e6b9471",
+      "file": "server/gateway/tests/proof.test.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "622e24079bfe148938e0c4e02b218fce0638d1287844031f608fc32d10c03663",
+      "file": "server/gateway/tests/support/harness.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "9e6fc4be3cf39d5e832944a6b1e9b06ed7bd8a2519958e83b4ee616e09ee0110",
+      "file": "server/gateway/tests/support/harness.mjs",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "2fdeb7bcb41a60e52be9529b7d747afeab82f1e958de06dfbf8bb8136626fbe9"
+    },
+    {
+      "context_sha256": "43d885a4811c352e0029dd692a5dcc016d8089aa999bba721d20101f02e4188d",
+      "file": "server/src/artifacts-token-provider.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "db0ca47b3308197c2dcee7b076c6f0c9698490421d5884bf29475b8ee06cc890",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "50e84c9333c3f05fd9bea15ae51462bfa1706009e3da5282084cf18962685679"
+    },
+    {
+      "context_sha256": "8d4595477c00632f9fb7da06edcf2e31e49eb12e218be4bfd30e988351088a0d",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "a309be66ae24a6f56ec4c629ea30e342eef97f7f05e2c74bfb096d9229bf9bd6"
+    },
+    {
+      "context_sha256": "06e94f45c8998ae62d833d8fd1f2a12ad2515c7ef9e1914b20a4c94216b2fe97",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "371458db069bef2076c0692bed90a70a37988cdf6d5020c1686b2df0a180229f"
+    },
+    {
+      "context_sha256": "6e02043ad4db568fc13cae211e4b7c0d3ead805298e1ee09c5fcafbf49ef1208",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "f3cb1111e291103fd43d503b2606f73639bb1118a88a9e230b0326696197f190",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "afa236aa8d3236c146bd7322c2bcaa325872b602b209172fef667565cd0cd2a8",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "d3926716bed64879cb288d27b830a2de810a4f7908e4cfcf4ef48f72d219c0e5",
+      "file": "server/src/auth.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "909f5b0ad906afe582269eb1df78f6ea1fd6ba400512e2e80228753a7719b0ae",
+      "file": "server/src/broker.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "506cee9263748b26a47dba6397ff54a799528a55e0548ab7e0a4b2bc88c841bc"
+    },
+    {
+      "context_sha256": "88b22e720056de7aafaf5a27dcf69a31aa55fdeac80b996278e273e3f0c5cacb",
+      "file": "server/src/broker.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "cbbfe4a2e93752cd35855ff1b7e79858b03f98bd971533b8cdea5cedb304a63d",
+      "file": "server/src/broker.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "3f9b1e5df159dfa036087c69b925667a54be0db8efc985d630a546e17e71bd7f"
+    },
+    {
+      "context_sha256": "822315e9952b3ebc7996010ea770499d68b2701e34b017b850019b3e6b92db4e",
+      "file": "server/src/chain-native.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "d7f9ff083484c014b72173cb87b1275dd41f4e79cf20dee0d2ad4c7664cbf992",
+      "file": "server/src/chain-native.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "68f8c5c26848486cbcf100980d8eaf694c8ea79a6b71a66f8234e088e24c85de",
+      "file": "server/src/events.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "506cee9263748b26a47dba6397ff54a799528a55e0548ab7e0a4b2bc88c841bc"
+    },
+    {
+      "context_sha256": "6c2e4a3031edb05e71e5e6510ead33054585b4a56f14603b7a72b59855e6c6c1",
+      "file": "server/src/external-source.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "3f9b1e5df159dfa036087c69b925667a54be0db8efc985d630a546e17e71bd7f"
+    },
+    {
+      "context_sha256": "d7f9ff083484c014b72173cb87b1275dd41f4e79cf20dee0d2ad4c7664cbf992",
+      "file": "server/src/external-source.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "26b574df7308ed7069eab0d6d7d76b53b15fccc21310d104c7d33eec92defbf2",
+      "file": "server/src/integrator-control.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "42e433ede993bafd2b81fefdb4ecb6c1dcc14af553b94bf18b87fffd001083ea"
+    },
+    {
+      "context_sha256": "cda6646274f0d6afac63b7c7e99b2672758b882c738f9f61612cb87c78da06fc",
+      "file": "server/src/integrator-control.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "037013381dc0a2b167035f7241e05de7e6284b1670bb3b62081729202bf20f3d",
+      "file": "server/src/integrator-runner.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "c4de034da1b06e75f7b88a2371043bf3b0fb2f2712d075a6d643557669f73831",
+      "file": "server/src/local-git.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "09889855a35b8b3df24fb50c5b43cd8f4a167a48780b7af40e804154daed3234",
+      "file": "server/src/provisioner.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "4f8cea186174c99248f9c3e5319195060edc25e6477a22c17ed142b9553f5a29",
+      "file": "server/src/recovery-alerts.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "ca1510f1dc6d848a9dafb0be8167d9d52618658ecdef369b9f68593b68f155c0",
+      "file": "server/src/remote-resolver.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "600ae0166c4e657f80a869cb8fd440112f35eb1c1b411cbc519992aa97edcbc1",
+      "file": "server/src/repository-creation.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "f31f3135eb78d3137ff4d28ce5e470e293f48c5c53948430584e99c1a3b2585b",
+      "file": "server/src/repository-seed.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "607e231db9c6fb98830ad32691bc2e1fca6134d9f6f975d6a94bfe50205c3352",
+      "file": "server/src/worker-native-git.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "829c30aac82cfd62cafbbd8826b6483c4c582a80b4049453e89716dfd8fe866f",
+      "file": "server/src/worker-native-land.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "88b22e720056de7aafaf5a27dcf69a31aa55fdeac80b996278e273e3f0c5cacb",
+      "file": "server/src/worker-native-receipt.ts",
+      "kind": "secret_assignment",
+      "reason": "Runtime credential plumbing; values are supplied at runtime.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "90ba73eae5ca38259fe9e5b9ae447fe6108bf17325de132a2ca5204ba4041bad",
+      "file": "server/tests/async-provisioning.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "3a3207cbda614cde7e3db065277bb6f4721bd02d3a08beefdd5601230c1b1283"
+    },
+    {
+      "context_sha256": "1fa084c36cc876445cb0fff52ec768bc6714a86666527130f7cc2de16a280dea",
+      "file": "server/tests/auth.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "d58b685bb4d05d8af3ddee947397828666bd82253728a3c7d416031997b8f8ea"
+    },
+    {
+      "context_sha256": "4fb48d50cbe33d77039d42433b5a9322975b3884ef00625b8629d61cf2ae0c8d",
+      "file": "server/tests/auth.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "08e46d94f924fa44a7849e2b04ae0f0db4c08d09d79c56a8be50eb14dd613667"
+    },
+    {
+      "context_sha256": "a7c71e574b3113495e7591e1c9462352429a7c484a656375a01c961aed20aaee",
+      "file": "server/tests/broker.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "15040c5946a5b7729fac109eff52ff7ce61a6cdcdb2f89c9ca16d436dbbaf0d2"
+    },
+    {
+      "context_sha256": "b87d1093a451fdb6cb8a58159286c679ae980b2553fb2eeaca1ad2abe3827056",
+      "file": "server/tests/broker.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "15040c5946a5b7729fac109eff52ff7ce61a6cdcdb2f89c9ca16d436dbbaf0d2"
+    },
+    {
+      "context_sha256": "ab9e0a57d5efab1ec30e4ce6f4d08bf9bb07184bd0fba7bd8e40cdb2418448db",
+      "file": "server/tests/byo-canonical.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "92f279b9f962e82aab800628c893d7dd21efac6f4e03d24d9f1d750b028549c0"
+    },
+    {
+      "context_sha256": "8f6093cff34880bddc3f9b8aa7e8b7f32b819a0f349d52564c56b5143281fcb2",
+      "file": "server/tests/byo-canonical.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "92f279b9f962e82aab800628c893d7dd21efac6f4e03d24d9f1d750b028549c0"
+    },
+    {
+      "context_sha256": "5f10e665e65801d7efbbd4c7aa2b5feb9238ff7346051e395b3c74d0b6912f3e",
+      "file": "server/tests/byo-canonical.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "15040c5946a5b7729fac109eff52ff7ce61a6cdcdb2f89c9ca16d436dbbaf0d2"
+    },
+    {
+      "context_sha256": "5f10e665e65801d7efbbd4c7aa2b5feb9238ff7346051e395b3c74d0b6912f3e",
+      "file": "server/tests/byo-canonical.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "bbfb0a8f2c34206f7b67f231d476bfcd7dca6c9b0501668d62b6bea9f5ee3572"
+    },
+    {
+      "context_sha256": "2df4c5229b55bc21830f9eec6cc697b42f827acc103c3b0b701fc1accf11f5b1",
+      "file": "server/tests/byo-canonical.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "3290942f8321aedc1bd4aa0b5f2efdf2a688f726e996f7a356519c8b9ff0dcb2"
+    },
+    {
+      "context_sha256": "77a9125222b27311a1f21af57bfe0f459a8d7e33f7523c0b0737cfcaf8acc646",
+      "file": "server/tests/events-routing.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6b007094d65993bc0572e72de047607ccab99cb6ce314912608114f5ec25a284"
+    },
+    {
+      "context_sha256": "1d89c8c0da4521556b592c5b97d0bc5af29ee3926dd97bf6279e1c42b8182cd4",
+      "file": "server/tests/events-routing.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "c55f2752caf56fbeadc9cc1004f88f23381ab638b75da024f136f2e7291a2bc3"
+    },
+    {
+      "context_sha256": "0bfb16b8dada644966022af4545006181dcd8261845694b0798111781059022b",
+      "file": "server/tests/events-routing.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "d92a2ca3492b7bf1f317553b833fef1927a84e7bdde558daeae8572e569e8765"
+    },
+    {
+      "context_sha256": "5c8703d940357b6a91a58b106610a29137698d93555b6fc9a7731393e333398a",
+      "file": "server/tests/events-routing.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "4f00e35086175a206fe600be7163bd1cf4204415943cc5cd8f8c030834affdcf"
+    },
+    {
+      "context_sha256": "4d630a6c4a97690217cb7e9f2b00a735db39beb81ea9b6f80fc9d4fe4160e600",
+      "file": "server/tests/events-routing.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "5fa50fb2569afa8c0e1cc55c0b506018f2ac3414722b4d8bf1919d04014e3213"
+    },
+    {
+      "context_sha256": "be9fab9f4b3265c6ffbe77e006ffddc71b90ec620ed94562a24a18b21c8aa30c",
+      "file": "server/tests/events-routing.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "9b5d78e1afadfdeeb5eacc9ab94ec881541f2325358dee831766ad3e9a84716a"
+    },
+    {
+      "context_sha256": "328b04e08bd2e780efa947aa0f6d603caf02c7340012d0580ef0e35c18123cba",
+      "file": "server/tests/events.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "70f2e282ecebad7991f52877bc8b147eea055199f9521299729702ed9d6cdaf7"
+    },
+    {
+      "context_sha256": "9658febe850f7babd92ab39c7635a4c2a5b3d0e9f4a0f1081d64a9095159d37c",
+      "file": "server/tests/fixtures/oidc.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "42c54302ab0b1c2f9cdf2507a984f2a1d009d31335e3fb17b1fb3f9fb8e3693c"
+    },
+    {
+      "context_sha256": "9bd2732509d73b3834f209a5731ca4813757f2ea0ba1593582a00df3fa0c7216",
+      "file": "server/tests/http-projections.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "08e46d94f924fa44a7849e2b04ae0f0db4c08d09d79c56a8be50eb14dd613667"
+    },
+    {
+      "context_sha256": "d65b05d9bd12ad19c33685de1e20da5b90dd25430c5eb4a9e86445bcd75d32e1",
+      "file": "server/tests/http-projections.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "08e46d94f924fa44a7849e2b04ae0f0db4c08d09d79c56a8be50eb14dd613667"
+    },
+    {
+      "context_sha256": "83b62491c286c0eaf252836826bf16239eb268fc5004b51c5c865edaeb590a3c",
+      "file": "server/tests/http-projections.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "08e46d94f924fa44a7849e2b04ae0f0db4c08d09d79c56a8be50eb14dd613667"
+    },
+    {
+      "context_sha256": "afe96fd3f7c51bbcf564adb1864f82220427271e21309045e75ed532bfd18145",
+      "file": "server/tests/integrator-target.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "dc2ecba57434a2b18664684ba1173a37168d92fdae0ab3d4381b6f526d14ad31"
+    },
+    {
+      "context_sha256": "afe96fd3f7c51bbcf564adb1864f82220427271e21309045e75ed532bfd18145",
+      "file": "server/tests/integrator-target.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "0e75b7c6f755354362a55c3e4a8f2e09b089eab8b4787de0bb58d18d6eabd498"
+    },
+    {
+      "context_sha256": "adc5cdbb53af552236622c126fd7e343eda41209fcf2b24eac25f113ebcf0c50",
+      "file": "server/tests/json-command-ingress.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "bdc7cfbe0860f3de9cbaa6dbc842887720d49dcf32a1df97124e1ee7a0905dac"
+    },
+    {
+      "context_sha256": "458a320e8c41a23e0dbb98f7277861de1d50bb33120cb385e8eec1396b9bc5d7",
+      "file": "server/tests/json-command-ingress.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "3a3207cbda614cde7e3db065277bb6f4721bd02d3a08beefdd5601230c1b1283"
+    },
+    {
+      "context_sha256": "c5ec20300a239fa8199268fa8f7bef8fcd0a524f326af5c43735870309f342e9",
+      "file": "server/tests/lifecycle-coordination.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "f027cfed0d6aa763f8e7ac51764c9f86c1718926d841586f8cd36ab1ab536caa"
+    },
+    {
+      "context_sha256": "3cfdf1576c7316a6612d4a3ccb068dff0d07fc05f5c112e34950dbefb2b4284f",
+      "file": "server/tests/lifecycle-coordination.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "f027cfed0d6aa763f8e7ac51764c9f86c1718926d841586f8cd36ab1ab536caa"
+    },
+    {
+      "context_sha256": "875782a0950afd7e290da3de38ce958924248003ec47c3458c87e282843d36cb",
+      "file": "server/tests/lifecycle-coordination.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6199b5bc4917befcf2ad68709f643c004136148fb9d7eb21b86d7e533a811c63"
+    },
+    {
+      "context_sha256": "4c68c6f69d0f8678cd7be684b6da321786f33b6a11d304bd7a5626e7a7ceb888",
+      "file": "server/tests/lifecycle-core.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "08e46d94f924fa44a7849e2b04ae0f0db4c08d09d79c56a8be50eb14dd613667"
+    },
+    {
+      "context_sha256": "92a159bc68351caac19c33da112b5785759122d90a85788f6bf0e7b6101c226c",
+      "file": "server/tests/local-git.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "42ece7bf57af845e895ed3193d86f1161de7d54f74bc6106461b48e2ded40e2f"
+    },
+    {
+      "context_sha256": "42f01376fab6dc7b7d83a13f820adc8bf5e88528436b66e001e818aa9533d38a",
+      "file": "server/tests/outbox-recovery-worker.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "e3b829e7adb680a9b222839ccffcb907ff7e2e1f66a06d6bb2fdccb2a433b123"
+    },
+    {
+      "context_sha256": "57cee2e71f6bc33f177efbdc75dce437d351470aa0f31cf5ea78025f1e73ea17",
+      "file": "server/tests/sweep-cost.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "dc2ecba57434a2b18664684ba1173a37168d92fdae0ab3d4381b6f526d14ad31"
+    },
+    {
+      "context_sha256": "57cee2e71f6bc33f177efbdc75dce437d351470aa0f31cf5ea78025f1e73ea17",
+      "file": "server/tests/sweep-cost.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "0e75b7c6f755354362a55c3e4a8f2e09b089eab8b4787de0bb58d18d6eabd498"
+    },
+    {
+      "context_sha256": "4c3e5dd1847baab24d2c1d152aa187cfc8986f0e42bc94121f701597a7a5797e",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "e75f7408d91089f591a36f3d926069a418d0087efb9220e3c569207a6660590e",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "15040c5946a5b7729fac109eff52ff7ce61a6cdcdb2f89c9ca16d436dbbaf0d2"
+    },
+    {
+      "context_sha256": "e75f7408d91089f591a36f3d926069a418d0087efb9220e3c569207a6660590e",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "bbfb0a8f2c34206f7b67f231d476bfcd7dca6c9b0501668d62b6bea9f5ee3572"
+    },
+    {
+      "context_sha256": "6599f683499e903b16c6d23a5e54707e6e69605e223f17fdef05b061a0cf04df",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "434d2b2413550bf55c65b536011711f047ca0d59751f8b71a5e41e1023fd9a3a",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "c305cee9a74f6e90ad7c949b16d15c5f0e8911cec96ba806d5a0db2d466cb48e",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "2b4091381ab5d4cde1a93805372ef06fb0d91ac81532ce6e01133371425fea83",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "2a94af169995a78352ed09bdb6b59845d23521120da0428982bb273686aed3d4",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "f035587bb28b99d934eb28d28d5991035c28529ba0a2973f5562140fd080e6e4",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "08e46d94f924fa44a7849e2b04ae0f0db4c08d09d79c56a8be50eb14dd613667"
+    },
+    {
+      "context_sha256": "d4222e25f25c5acd45d6b644929488e49133e913a2705fc2694c3df93fdaf7f5",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "ed6189059af06e0060f577e409a0e1dd9be7152681f6ca695cac857eafc16bd2",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "6e0f40a6bf478b75c7bca2e5a54227df2f5005db4f955548e2565733086ba3f6",
+      "file": "server/tests/worker-native-push.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic test fixture; no deployed credential or account identity is embedded.",
+      "value_sha256": "6034c33a01b3cf72f25ec3be7103f2b917a372cdb6ffa2e65ed273674e60a71c"
+    },
+    {
+      "context_sha256": "197c3b8f61bd26609d94d189f08e24b4cd3215d14a9ec2437c1e336e19a0c901",
+      "file": "server/.dev.vars.example",
+      "kind": "secret_assignment",
+      "reason": "Local configuration placeholder; not a credential.",
+      "value_sha256": "46e31df44d42262ca85709a2a7715c1d7a5bad0206f89fa2c3c0d1b59eb062b7"
+    },
+    {
+      "context_sha256": "6de6b89f1574e4ddeca611dbc3ad4189f16f4ae1b3a6d2a772add850956bb29c",
+      "file": "server/.dev.vars.example",
+      "kind": "secret_assignment",
+      "reason": "Local configuration placeholder; not a credential.",
+      "value_sha256": "e75ca3388bd997ac1d8b75f188b95d44e5971cbc1714f3301a26a3650772be02"
+    },
+    {
+      "context_sha256": "415459be7f250fae69a508221a05d3e8a901200dbb3a2ea01e95453745fba6e2",
+      "file": "server/tests/worker-native-land.test.ts",
+      "kind": "secret_assignment",
+      "reason": "Synthetic provider credential or account used by an isolated Git fixture; not a live credential.",
+      "value_sha256": "dc2ecba57434a2b18664684ba1173a37168d92fdae0ab3d4381b6f526d14ad31"
+    },
+    {
+      "context_sha256": "415459be7f250fae69a508221a05d3e8a901200dbb3a2ea01e95453745fba6e2",
+      "file": "server/tests/worker-native-land.test.ts",
+      "kind": "account_literal",
+      "reason": "Synthetic provider credential or account used by an isolated Git fixture; not a live credential.",
+      "value_sha256": "bbfb0a8f2c34206f7b67f231d476bfcd7dca6c9b0501668d62b6bea9f5ee3572"
     }
   ]
 }

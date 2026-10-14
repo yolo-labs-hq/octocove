@@ -1,0 +1,107 @@
+{
+  "_comment": "Emoji ZWJ sequences for project-name validation. A skin-tone modifier before a ZWJ requires a pictographic base.",
+  "accept": [
+    {
+      "label": "woman technologist (ZWJ)",
+      "name": "Platform 👩‍💻"
+    },
+    {
+      "label": "family of four (three ZWJ)",
+      "name": "Family 👨‍👩‍👧‍👦"
+    },
+    {
+      "label": "rainbow flag (U+FE0F before ZWJ)",
+      "name": "Pride 🏳️‍🌈"
+    },
+    {
+      "label": "pirate flag (ZWJ then U+FE0F)",
+      "name": "Crew 🏴‍☠️"
+    },
+    {
+      "label": "skin-tone modifier then ZWJ",
+      "name": "Dev 🧑🏽‍💻"
+    },
+    {
+      "label": "regional-indicator flags",
+      "name": "Offices 🇺🇸 🇯🇵"
+    },
+    {
+      "label": "skin-tone modifier",
+      "name": "Hello 👋🏽"
+    },
+    {
+      "label": "keycap sequences",
+      "name": "Step 1️⃣ #️⃣"
+    }
+  ],
+  "reject": [
+    {
+      "label": "lone ZWJ",
+      "name": "‍"
+    },
+    {
+      "label": "ZWJ between letters",
+      "name": "z‍j"
+    },
+    {
+      "label": "ZWJ after an emoji, before a letter",
+      "name": "👩‍x"
+    },
+    {
+      "label": "ZWJ after a letter, before an emoji",
+      "name": "x‍💻"
+    },
+    {
+      "label": "trailing ZWJ after an emoji",
+      "name": "Platform 👩‍"
+    },
+    {
+      "label": "doubled ZWJ between emoji",
+      "name": "👩‍‍💻"
+    },
+    {
+      "label": "zero-width space",
+      "name": "zero​width"
+    },
+    {
+      "label": "zero-width space between emoji",
+      "name": "👩​💻"
+    },
+    {
+      "label": "zero-width non-joiner",
+      "name": "a‌b"
+    },
+    {
+      "label": "right-to-left override",
+      "name": "abc‮exe.txt"
+    },
+    {
+      "label": "next line (C1)",
+      "name": "nel"
+    },
+    {
+      "label": "tag characters (subdivision flag)",
+      "name": "England 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
+    },
+    {
+      "label": "standalone skin-tone modifier then ZWJ (no pictographic base)",
+      "name": "🏽‍💻"
+    },
+    {
+      "label": "letter, skin-tone modifier, ZWJ, emoji",
+      "name": "x🏽‍💻"
+    },
+    {
+      "label": "space, skin-tone modifier, ZWJ, emoji",
+      "name": "Dev 🏽‍💻"
+    },
+    {
+      "label": "skin-tone modifier, U+FE0F, ZWJ, emoji (no base)",
+      "name": "x🏽️‍💻"
+    },
+    {
+      "label": "two skin-tone modifiers after the base, then ZWJ",
+      "name": "🧑🏽🏽‍💻"
+    }
+  ]
+}

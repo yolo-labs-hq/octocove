@@ -1,0 +1,31 @@
+{
+  "name": "@octocove/server",
+  "private": true,
+  "license": "Apache-2.0",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "timeout -k 5 120 vitest run tests/worker-native-land.test.ts tests/worker-native-push.test.ts tests/lifecycle-landing.test.ts tests/auth.test.ts --testNamePattern 'writes exact bytes|refuses sibling task agent|two-agent native HTTP|lands the exact human approval|records moved canonical as raced|reconciles ambiguous-|keeps ambiguous unchanged-head|refuses an exact approval mismatch|post-mint expiry failures|two agents land sequential|durably reconciles stale-base evidence|rolls back reactivation|round-trips PKCE login|CLI browser consent requires binding|binds one project/task/attempt|enforces CSRF' --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
+    "db:migrate:local": "wrangler d1 migrations apply example-octocove --local",
+    "dev": "wrangler dev",
+    "test:all": "vitest run --maxWorkers=1 --minWorkers=1 --no-file-parallelism"
+  },
+  "dependencies": {
+    "@octocove/shared": "workspace:*",
+    "hono": "4.13.13",
+    "jose": "6.1.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20260702.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "esbuild": "0.28.1",
+    "miniflare": "4.20260702.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4",
+    "wrangler": "4.147.0",
+    "yaml": "2.8.1"
+  },
+  "description": "Workers API for scoped Git collaboration, review and receipts."
+}
