@@ -1,3 +1,4 @@
+import { humanSessionFetch, renewHuman } from "./session.js";
 import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
 import { stageChain } from "./chain-stage.js";
@@ -13,7 +14,7 @@ import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
 import { Api, ApiError, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type CandidateWaitResult, type ClaimBootstrap, type CommandOptions, type FetchLike, type Journeys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
-import { ConfigError, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
+import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import { HelperRequiredError, validateClaimRemote, requireHelperTransport, setupHelperTransport, managedHelperRemote, preflightConnector, helperStatus, helperRemoteMatches } from "./helper.js";
 import { getConfig, type GitRunner } from "./git.js";
 
@@ -273,6 +274,10 @@ async function dispatch(d: Deps) {
   let argv = d.argv;
   while (argv[0] === "--json" || argv[0] === "--verbose") lead.push(argv[0]), (argv = argv.slice(1));
   const [a = "", b, ...tail] = argv;
+  if (!d.credentials && !["version", "--version", "-v", "login", "workspace"].includes(a)) {
+    const stored = await activeCredentials(d.env);
+    if (stored?.kind === "human") d = { ...d, fetch: humanSessionFetch(d.env, stored, d.fetch) };
+  }
   if (a === "events" && b?.startsWith("--")) {
     await eventsFollow(d, [...lead,b,...tail]);
     return;
@@ -291,7 +296,7 @@ async function dispatch(d: Deps) {
 const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
   d.stdout(json ? JSON.stringify(body, null, 2) + "\n" : text() + "\n");
 
-const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: d.fetch, sleep: d.sleep, signal: d.signal });
+const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: creds.kind === "human" && !d.credentials ? humanSessionFetch(d.env, creds, d.fetch) : d.fetch, sleep: d.sleep, signal: d.signal });
 async function client(d: Deps) {
   const creds = d.credentials ?? (await loadCredentials(d.env));
   return { creds, api: connect(d, creds) };
@@ -611,7 +616,15 @@ const COMMANDS: Record<string, Handler> = {
     const apiUrl = resolveApiOrigin(d.env, d.credentials ?? (d.env.OCTOCOVE_API_URL ? undefined : await storedOrigin(d.env)));
     // The public login routes carry no credential. The library's CLI journey owns the transaction, the
     // exchange key, poll timing and lost-answer recovery; one --wait deadline bounds all of it.
-    const api = new Api({ apiUrl, fetch: d.fetch, sleep: d.sleep });
+    let idleExpiresAt: string | undefined;
+    const api = new Api({ apiUrl, fetch: async (url, init) => {
+      const response = await d.fetch(url, init);
+      if (response.ok && new URL(url).pathname.endsWith("/auth/cli/exchange")) {
+        const body: any = await response.clone().json().catch(() => undefined);
+        if (typeof body?.idleExpiresAt === "string") idleExpiresAt = body.idleExpiresAt;
+      }
+      return response;
+    }, sleep: d.sleep });
     const deadline = Date.now() + waitSeconds * 1000;
     // Without --idempotency-key the start is fresh-only. With it, the prepared start (verifier, challenge,
     // that key) is persisted before the first request and the opened transaction after it, so a retry with
@@ -643,7 +656,7 @@ const COMMANDS: Record<string, Handler> = {
     const result = await api.j.auth.cli.waitForSession(tx, api.until(deadline))
       .catch(offShapeAs("login did not return a session credential"));
     if (result.state === "authenticated" && result.session.transport === "bearer") {
-      const credentialsFile = await saveCredentials(d.env, { apiUrl, token: result.session.token, kind: "human" });
+      const credentialsFile = await saveCredentials(d.env, { apiUrl, token: result.session.token, kind: "human", expiresAt: result.session.expiresAt, absoluteExpiresAt: result.session.absoluteExpiresAt, issuedAt: new Date().toISOString(), ...(idleExpiresAt ? { idleExpiresAt } : {}) });
       if (key) {
         const retainUntil = Math.max(Date.parse(tx.expiresAt) || 0, Date.now() + LOGIN_KEY_RETAIN_SECONDS * 1000);
         await completeLoginAttempt(d.env, apiUrl, key, { completed: { at: new Date().toISOString(), retainUntil: new Date(retainUntil).toISOString() } });
@@ -673,6 +686,11 @@ const COMMANDS: Record<string, Handler> = {
     // The renewal journeys pin the predecessor credential and the key: an answer lost after the server
     // committed (predecessor revoked, replacement issued) is recovered within the server's window, never
     // renewed afresh under a new key. The replacement is saved before anything else happens.
+    if (creds.kind === "human" && !d.credentials) {
+      const renewed = await renewHuman(d.env, creds, d.fetch, { signal: d.signal, idempotencyKey: v["idempotency-key"] });
+      out(d, v.json, { renewed: true, kind: creds.kind, expiresAt: renewed.expiresAt, credentialsFile: join(configDir(d.env), "credentials", "cli.json") }, () => "Credential renewed and saved privately.");
+      return;
+    }
     const options = api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]);
     const current: AgentDelegation = { kind: "agent-delegation", token: creds.token, delegationId: creds.delegationId!, revocationId: "", expiresAt: "" };
     const renewed = await (creds.kind === "human" ? api.j.auth.session.renew(options) : api.j.auth.delegation.renew(current, options))

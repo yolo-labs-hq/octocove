@@ -11,6 +11,10 @@ export interface Credentials {
   kind: CredentialKind;
   delegationId?: string;
   agentId?: string;
+  issuedAt?: string;
+  expiresAt?: string;
+  idleExpiresAt?: string;
+  absoluteExpiresAt?: string;
 }
 export class ConfigError extends Error {}
 const KINDS = new Set<string>(["human", "agent", "bootstrap", "machine"]);
@@ -26,7 +30,14 @@ function parseCredentials(raw: string): Credentials {
     if (!file || typeof file.apiUrl !== "string" || !file.apiUrl || typeof file.token !== "string" || !file.token || !KINDS.has(file.kind)) throw new Error();
     if (file.agentId !== undefined && (typeof file.agentId !== "string" || !file.agentId)) throw new Error();
     if (file.delegationId !== undefined && typeof file.delegationId !== "string") throw new Error();
-    return { apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
+    const lifetime: Partial<Credentials> = {};
+    for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt"] as const) {
+      if (file[key] !== undefined) {
+        if (typeof file[key] !== "string" || !Number.isFinite(Date.parse(file[key]))) throw new Error();
+        lifetime[key] = file[key];
+      }
+    }
+    return { ...lifetime, apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
   } catch { throw new ConfigError("invalid credentials file"); }
 }
 
