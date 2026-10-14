@@ -101,7 +101,11 @@ describe("whoami", () => {
     expect(calls[0]!.headers.authorization).toBe("Bearer tok");
     expect(outText).toContain("https://issuer.example.invalid|alice");
     expect(outText).toContain("Alice");
+    expect(outText).toContain("P1 (reader)");
+    expect(outText).not.toContain("tasks:list,tasks:read");
+    expect(await cli(["--verbose", "whoami"], { kind: "human" })).toBe(0);
     expect(outText).toContain("P1  tasks:list,tasks:read");
+    expect(outText).not.toContain("tok");
     expect(outText).not.toContain("tok");
   });
 
@@ -586,8 +590,8 @@ describe("land / receipt", () => {
     let n = 0;
     routes["GET /receipts/F1"] = () => (++n < 3 ? json(202, { receiptId: "F1", status: "pending" }) : json(200, receipt));
     expect(await cli(["land", "CA1", "--approval", "AP1", "--wait"])).toBe(0);
-    expect(outText).toContain("final");
-    expect(outText).toContain(`Landed SHA`);
+    expect(outText).toContain("Landing:          landed");
+    expect(outText).toContain(`Landed candidate SHA`);
   });
 
   it("receipt show --wait waits out the first 202's Retry-After before polling again (no read deduplication)", async () => {
@@ -597,7 +601,7 @@ describe("land / receipt", () => {
     routes["GET /receipts/F1"] = () => (timeline.push("read"), ++n < 3 ? json(202, { receiptId: "F1", status: "pending" }, { "retry-after": n === 1 ? "60" : "7" }) : json(200, receipt));
     expect(await cli(["receipt", "show", "F1", "--wait"], {}, {}, { sleep: async (ms) => { timeline.push(`sleep ${ms}`); } })).toBe(0);
     expect(timeline).toEqual(["read", "sleep 60000", "read", "sleep 7000", "read"]);
-    expect(outText).toContain("final");
+    expect(outText).toContain("Landing:          landed");
   });
 
   it("land --json bundles acceptance and receipt", async () => {
@@ -1055,5 +1059,82 @@ describe("agent presentation and recovery", () => {
     routes["GET /tasks/T1"] = () => json(409, { code, status: 409, detail: "original refusal", requestId: "request-1" });
     expect(await cli(["--json", "task", "show", "T1"])).toBe(EXIT.failure);
     expect(JSON.parse(errText).error).toMatchObject({ code, status: 409, requestId: "request-1", hint: expect.stringContaining("octocove task show"), message: expect.stringContaining("original refusal") });
+  });
+});
+
+
+describe("presenter output", () => {
+  const attribution = { kind: "agent", id: "worker-one", delegatedBy: "issuer|author" };
+  const candidate = { id: "CA1", taskId: "T1", status: "landed", outcome: "computed", candidateSha: SHA_A, baseSha: SHA_B,
+    checkPolicy: { kind: "none" }, latestCheck: { result: "skipped" }, reviewBoundTo: { intentVersion: 3 } };
+  const view = { state: "complete", workAttribution: attribution, candidate };
+  const receipt = { id: "R1", taskId: "T1", candidateId: "CA1", candidateSha: SHA_A, landedSha: SHA_A,
+    outcome: "landed", ancestryVerified: true, workAttribution: attribution };
+  beforeEach(() => {
+    routes["GET /submissions/S1/candidate"] = () => json(200, view);
+    routes["GET /receipts/R1"] = () => json(200, receipt);
+    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } });
+    routes["GET /projects/P1/landings"] = () => json(200, { items: [{ receiptId: "R1", taskId: "T1", candidateSha: SHA_A,
+      approvedBy: "issuer|reviewer", approvedAt: "2030-01-01T00:00:00Z", actor: { type: "human", id: "issuer|requester" } }], nextCursor: null });
+  });
+  it.each([["candidate", "show", "--submission", "S1"], ["receipt", "show", "R1"]])("renders work and the exact landing approver for %j", async (...args) => {
+    expect(await cli(args)).toBe(EXIT.ok);
+    expect(outText).toContain("Worked by:        worker-one (agent)");
+    expect(outText).toContain("Delegated by:     issuer|author");
+    expect(outText).toContain("Approved by:      issuer|reviewer");
+    expect(outText).toContain("Approved at:");
+    expect(outText).not.toContain("issuer|requester");
+  });
+  it("follows landing pagination and rejects a different candidate SHA", async () => {
+    routes["GET /projects/P1/landings"] = c => json(200, c.url.searchParams.get("cursor")
+      ? { items: [{ receiptId: "R1", candidateSha: SHA_B, approvedBy: "wrong-person" }], nextCursor: null }
+      : { items: [{ receiptId: "other", approvedBy: "another-person" }], nextCursor: "next" });
+    expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(EXIT.ok);
+    expect(calls.filter(c => c.url.pathname.endsWith("/landings"))).toHaveLength(2);
+    expect(outText).toContain("Approved by:      unavailable");
+    expect(outText).not.toContain("wrong-person");
+    expect(outText).not.toContain("another-person");
+  });
+  it("omits approval for an unlanded candidate and never infers historical work", async () => {
+    routes["GET /tasks/T1"] = () => json(200, { ...task, acceptedReceiptId: null });
+    routes["GET /submissions/S1/candidate"] = () => json(200, { state: "complete", candidate: { ...candidate, status: "active" } });
+    expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(EXIT.ok);
+    expect(outText).not.toContain("Approved by:");
+    expect(outText).toContain("Attribution:      not recorded (created before attribution)");
+    expect(outText).not.toContain("worker-one");
+    expect(outText).toContain("Compute:          complete");
+    expect(outText).toContain("Checks:           not configured");
+  });
+  it("keeps a receipt readable when optional landing metadata is forbidden", async () => {
+    routes["GET /projects/P1/landings"] = () => json(403, { code: "forbidden", status: 403 });
+    expect(await cli(["receipt", "show", "R1"])).toBe(EXIT.ok);
+    expect(outText).toContain("Approved by:      unavailable");
+    expect(outText).toContain("Verification:     ancestry verified");
+    expect(outText.split(SHA_A)).toHaveLength(2);
+    expect(await cli(["receipt", "show", "R1", "--verbose"])).toBe(EXIT.ok);
+    expect(outText).toContain("Ancestry verified: true");
+  });
+  it("shows landed receipt details and next commands instead of null live fields", async () => {
+    expect(await cli(["task", "show", "T1"])).toBe(EXIT.ok);
+    expect(outText).toContain("Current repository head:");
+    expect(outText).toContain("Landed\n");
+    expect(outText).toContain("Receipt ID:       R1");
+    expect(outText).toContain("Candidate ID:     CA1");
+    expect(outText).toContain("octocove receipt show R1");
+    expect(outText).toContain("octocove log T1");
+    expect(outText).not.toContain("Live attempt");
+    expect(outText).not.toContain("null");
+  });
+  it("preserves JSON bytes and performs no presenter enrichment", async () => {
+    const cases: [string[], any][] = [
+      [["candidate", "show", "--submission", "S1"], view], [["receipt", "show", "R1"], receipt],
+      [["task", "show", "T1"], { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } }],
+    ];
+    for (const [args, body] of cases) {
+      calls = [];
+      expect(await cli(["--json", ...args])).toBe(EXIT.ok);
+      expect(outText).toBe(JSON.stringify(body, null, 2) + "\n");
+      expect(calls).toHaveLength(1);
+    }
   });
 });
