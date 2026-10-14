@@ -199,6 +199,30 @@ describe("repo add / verify / list", () => {
     expect(calls).toEqual([]);
   });
 
+  it.each([false, true])("repository setup guidance in JSON=%s", async (jsonMode) => {
+    const flags = jsonMode ? ["--json"] : [];
+    for (const command of ["create", "verify"]) {
+      routes[`POST /projects/${PROJECT}/repositories${command === "verify" ? "/" + repository.id + "/verify" : ""}`] =
+        () => json(command === "create" ? 201 : 200, { ...repository, binding: "trusted", verifiedAt: null });
+      const args = command === "create" ? ["--name", "canonical"] : [repository.id];
+      expect(await cli(["repo", command, PROJECT, ...args, ...flags], { kind: "human" })).toBe(0);
+      expect(errText).toBe("");
+      const guidance = jsonMode ? JSON.parse(outText).nextSteps : outText;
+      expect(guidance).toContain("#starting-from-an-empty-repository");
+      expect(guidance.toLowerCase()).toContain("empty");
+      expect(JSON.stringify(jsonMode ? JSON.parse(outText) : outText)).not.toContain("cloneUrl");
+    }
+  });
+
+  it.each([false, true])("preserves the server's invalid slug message in JSON=%s", async (jsonMode) => {
+    const message = "Repository slug must contain only lowercase letters, digits and hyphens.";
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(400, { code: "usage", status: 400, detail: message });
+    expect(await cli(["repo", "create", PROJECT, "--name", "Invalid Slug", ...(jsonMode ? ["--json"] : [])], { kind: "human" })).toBe(EXIT.usage);
+    expect(outText).toBe("");
+    if (jsonMode) expect(JSON.parse(errText).error.message).toBe("usage: " + message);
+    else expect(errText).toContain(message);
+  });
+
   it("repo create posts mode create, or mode import with --import/--branch, under an Idempotency-Key", async () => {
     routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, repository);
     expect(await cli(["repo", "create", PROJECT, "--name", "canonical"], { kind: "human" })).toBe(0);
@@ -236,7 +260,7 @@ describe("repo add / verify / list", () => {
     expect(outText).toContain("2026-10-10T00:00:00.000Z");
     expect(await cli(["--json", "repo", "verify", PROJECT, repository.id, "--idempotency-key", "k".repeat(20)], { kind: "human" })).toBe(0);
     expect(calls[1]!.headers["idempotency-key"]).toBe("k".repeat(20));
-    expect(JSON.parse(outText)).toEqual(verified);
+    expect(JSON.parse(outText)).toMatchObject({ ...verified, nextSteps: expect.stringContaining("#starting-from-an-empty-repository") });
     for (const [status, code] of [[409, "repository-remote-not-found"], [503, "broker-unavailable"], [403, "forbidden"], [409, "repository-namespace-mismatch"], [409, "repository-provider-unsupported"],
       [503, "broker-provider-unavailable"], [404, "not-found"]] as const) {
       routes[path] = () => problem(status, code);

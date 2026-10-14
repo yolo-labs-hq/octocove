@@ -124,7 +124,9 @@ it.each([undefined, ''])('claim refuses without a helper socket (%s) before API,
       expect(output).toContain('AttemptHelper');
       expect(output).toContain('octocove-helper-connect on PATH');
       expect(output).not.toContain(secret);
-      if (json) expect(JSON.parse(output).error.code).toBe('config');
+      expect(output).toContain('A logged-in CLI alone cannot claim');
+      expect(output).toContain('#claiming-as-an-agent-runtime-prerequisites');
+      if (json) expect(JSON.parse(output).error).toMatchObject({ code: 'helper-required', hint: expect.stringContaining('trusted runtime') });
     }
   }
   expect(api).not.toHaveBeenCalled();
@@ -146,4 +148,28 @@ it('helper status refuses to report a bearer credential helper as configured', a
     stdout: s => { output += s; }, stderr: s => { output += s; }, stdin: async () => '' })).toBe(0);
   expect(JSON.parse(output)).toMatchObject({ configured: false });
   expect(output).toContain('missing socket transport');
+});
+
+
+it.each([false, true])('unconfigured helper status gives runtime guidance in JSON=%s', async (jsonMode) => {
+  for (const legacyRemote of [false, true]) {
+    const dir = await temp();
+    execFileSync('git', ['init', '-q', dir]);
+    const git = systemGit(dir);
+    if (legacyRemote) {
+      await git(['remote', 'add', 'octocove', 'https://git.example/repo.git']);
+      await git(['config', 'octocove.remote', 'octocove']);
+    }
+    const fetch = vi.fn();
+    let output = '', error = '';
+    expect(await run({ argv: ['helper', 'status', ...(jsonMode ? ['--json'] : [])], env: {}, git, fetch,
+      stdout: s => { output += s; }, stderr: s => { error += s; }, stdin: async () => '' })).toBe(0);
+    expect(error).toBe('');
+    expect(output).toContain('helper-required');
+    expect(output).toContain('A logged-in CLI alone cannot claim');
+    expect(output).toContain('trusted runtime');
+    expect(output).toContain('#claiming-as-an-agent-runtime-prerequisites');
+    if (jsonMode) expect(JSON.parse(output)).toMatchObject({ configured: false, code: 'helper-required', hint: expect.any(String) });
+    expect(fetch).not.toHaveBeenCalled();
+  }
 });

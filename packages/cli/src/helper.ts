@@ -34,13 +34,20 @@ export function helperTransportActive(env: NodeJS.ProcessEnv): boolean {
   return typeof env[HELPER_TRANSPORT_ENV] === 'string' && env[HELPER_TRANSPORT_ENV] !== '';
 }
 
+export const HELPER_HINT =
+  'The helper is a protected per-attempt AttemptHelper that carries Git traffic without exposing credentials. ' +
+  'A logged-in CLI alone cannot claim an allocated workspace. Have a trusted runtime provision the helper, ' +
+  'expose its socket as OCTOCOVE_HELPER_SOCK and put octocove-helper-connect on PATH. ' +
+  'See https://github.com/yolo-labs-hq/octocove/blob/main/packages/cli/README.md#claiming-as-an-agent-runtime-prerequisites.';
+
+export class HelperRequiredError extends ConfigError {
+  readonly code = 'helper-required';
+  readonly hint = HELPER_HINT;
+  constructor() { super('OCTOCOVE_HELPER_SOCK is required for allocated claims. ' + HELPER_HINT); }
+}
+
 export function requireHelperTransport(env: NodeJS.ProcessEnv) {
-  if (!helperTransportActive(env)) throw new ConfigError(
-    'OCTOCOVE_HELPER_SOCK is required for allocated claims; no bearer credential-helper fallback is allowed. ' +
-    'Have the trusted workspace adapter, own-clone agent runtime or CI runtime start a protected per-attempt AttemptHelper ' +
-    'from @octocove/helper, expose its socket as OCTOCOVE_HELPER_SOCK and put octocove-helper-connect on PATH. ' +
-    'See packages/helper/README.md and docs/runbooks/credential-boundary.md.',
-  );
+  if (!helperTransportActive(env)) throw new HelperRequiredError();
 }
 
 export async function setupHelperTransport(git: GitRunner, remoteName: string, haveRemote: boolean) {
@@ -62,12 +69,12 @@ export async function helperRemoteMatches(git: GitRunner, remoteName: string) {
 
 export async function helperStatus(git: GitRunner) {
   const name = await getConfig(git, 'octocove.remote');
-  if (!name) return { configured: false };
+  if (!name) return { configured: false, code: 'helper-required', hint: HELPER_HINT };
   const url = await git(['remote', 'get-url', name]);
   // Socket-helper transport: the remote is the ext:: connector and carries no credential.
   if (/^ext::octocove-helper-connect\b/.test(url))
     return { configured: true, transport: 'socket-helper', helper: 'octocove-helper-connect', remote: name };
   const u = cleanUrl(url);
   return { configured: false, origin: u.origin, path: u.pathname.slice(1),
-    helper: 'missing socket transport; rerun claim with OCTOCOVE_HELPER_SOCK' };
+    helper: 'missing socket transport; ask the trusted runtime to provision it', code: 'helper-required', hint: HELPER_HINT };
 }
