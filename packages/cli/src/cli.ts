@@ -1104,7 +1104,7 @@ async function printReceipt(d: Deps, api: Api, receiptId: string, deadline: numb
     if (waited.state === "final") { b = waited.receipt; final = true; }
     else if (waited.pending) b = waited.pending;
   }
-  out(d, json, accepted ? { landing: accepted, receipt: b } : b, () =>
+  out(d, json, accepted ? { landing: final && isRecord(accepted) ? { ...accepted, status: b.outcome } : accepted, receipt: b } : b, () =>
     kv([["Receipt", b.receiptId ?? b.id ?? receiptId], ["State", final ? "final" : "pending"], ["Outcome", b.outcome], ["Task", b.taskId], ["Candidate", b.candidateSha], ["Landed SHA", b.landedSha], ["Base before", b.baseShaBefore], ["Base after", b.baseShaAfter], ["Conflicts", b.conflictFiles?.join(", ") || undefined], ["Error", b.errorDetail], ["Ancestry verified", b.ancestryVerified], ["Fence", b.fenceId], ["Integrator run", b.integratorRunId], ["Reconciled at", b.reconciledAt]]),
   );
   if (!final && (deadline !== undefined || !accepted)) throw pending();
