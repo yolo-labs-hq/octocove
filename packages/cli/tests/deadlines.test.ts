@@ -77,6 +77,25 @@ describe("lane push shared wait budget", () => {
     expect(calls).toContain(phase);
   });
 
+  it("successful wait reports the latest matching delivered push rather than the enqueue answer", async () => {
+    const delivered = { ...lane, pushes: [{ pushId: "other-push", status: "remote-pending" },
+      { pushId: "push-1", status: "delivered", sourceSha: SOURCE, attempts: 2, error: null }] };
+    const running = command(push, async (url, init) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/candidate")) return response({ state: "complete", candidate: { id: "K1" } });
+      if (init.method === "GET") return response(delivered);
+      if (path.endsWith("/pushes")) return response({ pushId: "push-1", status: "remote-pending" }, 202);
+      return response({ id: "S1" }, 201);
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await running.done).toBe(EXIT.ok);
+    const { data } = JSON.parse(running.output().stdout);
+    expect(data.push).toMatchObject({ pushId: "push-1", status: "delivered", attempts: 2 });
+    expect(data.push.status).toBe(data.lane.pushes.find((p: { pushId: string }) => p.pushId === data.push.pushId).status);
+    expect(data.candidate.state).toBe("complete");
+    expect(running.output().stderr).toBe("");
+  });
+
   it("a stalled delivery poll preserves pending output and exit 75 within the same budget", async () => {
     let reads = 0;
     const running = command(push, async (_url, init) => {

@@ -65,10 +65,10 @@ Commands:
   task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]
   task publish ID
   task release ID [--claim ID]
-  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID]
-  lane push [REF] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
+  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]
+  lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
   lane status|retry|retire [--task ID] [--claim ID]
-  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]
+  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
   task dependency-add ID --upstream ID --expected-status S --intent-version N
@@ -200,7 +200,11 @@ function report(d: Deps, err: unknown, json: boolean): number {
   // No server answer: a client-side failure, reported in the CLI's own wording.
   if (err instanceof TransportError) return emit(err.code, `${err.code}: ${TRANSPORT_DETAIL[err.code] ?? err.message}`, { status: 0 }), EXIT.failure;
   if (err instanceof ApiError) {
-    emit(err.code, err.message, { status: err.status, requestId: err.requestId, details: err.details });
+    const nextSteps = err.code === "credential-expired"
+      ? "Run `octocove auth renew` to recover the expired session. If renewal is refused, run `octocove login` to sign in again."
+      : undefined;
+    emit(err.code, nextSteps ? `credential-expired: ${nextSteps}` : err.message,
+      { status: err.status, requestId: err.requestId, details: err.details, ...(nextSteps ? { nextSteps, hint: nextSteps } : {}) });
     if (!json && err.details) d.stderr(`details: ${JSON.stringify(err.details)}\n`);
     if (err.status === 503 && err.code === "oidc-registration-required") return EXIT.config;
     if (err.code === "usage") return EXIT.usage;
@@ -455,7 +459,7 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
     const submission = await api.j.submissions.create(taskId, { claimAttemptId, sourceSha, baseSha, intentVersion },
       { ...api.until(deadline!), idempotencyKey: `submission-${createHash("sha256").update(key).digest("hex")}` });
     const candidate = candidateBody(await api.j.candidates.waitFor(submission.id, api.until(deadline!)));
-    laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane, submission, candidate }, key);
+    laneOut(d, v.json, action, taskId, projectId, { push: { ...queued, ...delivery.lane.pushes.find(push => push.pushId === pushId) }, lane: delivery.lane, submission, candidate }, key);
     if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
   } finally { scope?.dispose(); }
 };
