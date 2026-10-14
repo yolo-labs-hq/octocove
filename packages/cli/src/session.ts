@@ -1,4 +1,4 @@
-import { redactBody, redactText } from '../../client/src/redact.js';
+import { routing } from '../../client/src/generated/routing.js';
 import { mkdir, rmdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -99,15 +99,24 @@ export function humanSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, 
   const wrapped: FetchLike = async (url, init) => {
     try {
       const response = await perform(url, init);
-      // The SDK pinned the predecessor before calling fetch. Scrub errors that
-      // echo its replacement too; never modify credential issuance success bodies.
-      if (current.token !== initial.token && response.status >= 400) {
-        const headers = new Headers(response.headers);
-        headers.forEach((value, key) => headers.set(key, redactText(value, [current.token])));
-        headers.delete('content-length');
-        return new Response(redactBody(await response.text(), [current.token], Infinity), { status: response.status, headers });
-      }
-      return response;
+      // The SDK pinned the predecessor before fetch. Mask both known session
+      // credentials for every status, including redirects and malformed successes.
+      // Exact replacements preserve unrelated newly issued grant credentials.
+      const secrets = [...new Set([initial.token, current.token])].sort((a,b)=>b.length-a.length);
+      const scrub = (text: string) => secrets.reduce((value, secret) => {
+        const encoded = JSON.stringify(secret).slice(1,-1);
+        return value.split(encoded).join('[redacted]').split(secret).join('[redacted]');
+      }, text);
+      const headers = new Headers(response.headers);
+      headers.forEach((value, key) => headers.set(key, scrub(value)));
+      headers.delete('content-length');
+      const sessionIssuance = new URL(url).pathname.endsWith('/auth/session/renew')
+        && (routing.sessionRenew.successStatuses as readonly number[]).includes(response.status);
+      const empty = [204,205,304].includes(response.status);
+      const body = empty ? null : await response.text();
+      return new Response(sessionIssuance ? body : body === null ? null : scrub(body), {
+        status: response.status, statusText: scrub(response.statusText), headers,
+      });
     }
     catch (error) {
       if (error instanceof ConfigError) return Response.json({ code: error.message === SIGN_IN ? 'session-sign-in-required' : 'config', detail: error.message }, { status: 401 });

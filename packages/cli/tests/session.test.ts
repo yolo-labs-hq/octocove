@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { saveCredentials, loadCredentials, type Credentials } from '../src/config.js';
+import { humanSessionFetch } from '../src/session.js';
 import { run, type Deps } from '../src/cli.js';
 const dirs:string[]=[];
 afterEach(async()=>{for(const dir of dirs.splice(0))await rm(dir,{recursive:true,force:true});});
@@ -108,4 +109,29 @@ it('errors after renewal redact the replacement token from body and request id',
   f.deps.fetch=(url,init)=>new Headers(init.headers).get('authorization')==='Bearer new-session'
     ?Promise.resolve(Response.json({code:'refused',detail:'echo new-session'},{status:403,headers:{'x-request-id':'new-session'}})):fetch(url,init);
   expect(await run(f.deps)).toBe(1);expect(f.rotations).toBe(1);expect(f.output).not.toContain('new-session');
+});
+
+it.each([302,201])('replacement and predecessor tokens are redacted from status %s errors',async(status)=>{
+  const f=await fixture(),fetch=f.deps.fetch;
+  f.deps.fetch=(url,init)=>new Headers(init.headers).get('authorization')==='Bearer new-session'
+    ?Promise.resolve(Response.json({detail:'echo new-session old-session'},{status,statusText:'echo new-session',headers:{'x-request-id':'new-session','location':'https://example.invalid/new-session'}})):fetch(url,init);
+  expect(await run(f.deps)).toBe(1);expect(f.rotations).toBe(1);
+  expect(f.output).not.toContain('new-session');expect(f.output).not.toContain('old-session');
+  expect(f.output).toContain('redacted');
+});
+it('declared success with invalid JSON redacts the replacement token diagnostic',async()=>{
+  const f=await fixture(),fetch=f.deps.fetch;
+  f.deps.fetch=(url,init)=>new Headers(init.headers).get('authorization')==='Bearer new-session'
+    ?Promise.resolve(new Response('echo new-session',{status:200,headers:{'x-request-id':'new-session'}})):fetch(url,init);
+  expect(await run(f.deps)).toBe(1);expect(f.output).not.toContain('new-session');expect(f.rotations).toBe(1);
+});
+
+it('legitimate grant credential issuance survives renewal response scrubbing',async()=>{
+  const f=await fixture(),fetch=f.deps.fetch;
+  const wrapped=humanSessionFetch(f.env,await loadCredentials(f.env),async(url,init)=>
+    new Headers(init.headers).get('authorization')==='Bearer new-session'
+      ?Response.json({token:'issued-grant-credential',expiresAt:future(60000)},{status:201}):fetch(url,init));
+  const headers=new Headers();headers.set('authorization','Bearer '+'old-session');
+  const response=await wrapped('https://api.example.invalid/v1/auth/approval-grants',{method:'POST',headers});
+  expect(response.status).toBe(201);expect(await response.json()).toMatchObject({token:'issued-grant-credential'});expect(f.rotations).toBe(1);
 });
