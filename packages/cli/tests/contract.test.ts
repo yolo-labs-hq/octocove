@@ -132,9 +132,31 @@ describe("candidate show against recorded responses", () => {
     expect(JSON.parse(out)).toEqual(fixture("candidate-complete-checked").body);
   });
   it("complete conflict shows the conflicting files", async () => {
-    expect(await show("candidate-conflict")).toBe(EXIT.ok);
+    expect(await show("candidate-conflict")).toBe(EXIT.candidateFailed);
     expect(out).toContain("src/file.ts");
     expect(out).toContain("conflict");
+    expect(err).toContain("resolve the listed files");
+    expect(err).toContain("octocove lane push");
+    expect(await show("candidate-conflict", "--json")).toBe(EXIT.candidateFailed);
+    expect(out).toBe(JSON.stringify(fixture("candidate-conflict").body, null, 2) + "\n");
+    expect(JSON.parse(err).error.code).toBe("candidate-failed");
+  });
+  it.each([true, false])("failed and error candidates keep their output and exit 74 (json=%s)", async (json) => {
+    for (const change of [{outcome:"computed",status:"failed"}, {outcome:"error",status:"active"}]) {
+      const body = {state:"complete",candidate:{...fixture("candidate-complete-checked").body.candidate,...change,errorDetail:"Compute needs recovery"}};
+      routes["GET /submissions/S1/candidate"] = () => reply(200,body);
+      expect(await cli(["candidate","show","--submission","S1",...(json?["--json"]:[])])).toBe(EXIT.candidateFailed);
+      if(json)expect(out).toBe(JSON.stringify(body,null,2)+"\n");
+      else expect(out).toContain("Compute needs recovery");
+      expect(err).toContain("octocove lane push");
+    }
+  });
+  it("a computed active candidate with a failed check retains retrieval success", async () => {
+    const body={...fixture("candidate-complete-checked").body};
+    body.candidate={...body.candidate,latestCheck:{result:"failed"}};
+    routes["GET /submissions/S1/candidate"] = () => reply(200,body);
+    expect(await cli(["candidate","show","--submission","S1","--json"])).toBe(EXIT.ok);
+    expect(JSON.parse(out)).toEqual(body);expect(err).toBe("");
   });
   it("rejects a flat candidate shape", async () => {
     routes["GET /submissions/S1/candidate"] = () => reply(200, { id: "CA1", outcome: "computed" });

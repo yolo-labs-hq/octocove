@@ -20,7 +20,7 @@ import { getConfig, type GitRunner } from "./git.js";
 
 type ChainClaim = components["schemas"]["ChainClaim"];
 
-export const EXIT = { ok: 0, failure: 1, usage: 2, pending: 75, stale: 76, humanRequired: 77, config: 78 } as const;
+export const EXIT = { ok: 0, failure: 1, usage: 2, candidateFailed: 74, pending: 75, stale: 76, humanRequired: 77, config: 78 } as const;
 
 export interface Deps {
   argv: string[];
@@ -50,6 +50,14 @@ class CandidateIdRequiredError extends UsageError {
 }
 class HumanRequiredError extends Error {}
 class PendingError extends Error {}
+class CandidateFailedError extends Error {
+  readonly code = "candidate-failed";
+  constructor(conflict: boolean) {
+    super(conflict
+      ? "Candidate has conflicts: resolve the listed files, commit the fix, then run `octocove lane push` again."
+      : "Candidate failed: inspect its checks and error, resolve the failure, then run `octocove lane push` again.");
+  }
+}
 class StaleCandidateError extends Error {
   readonly code = "candidate-stale";
   constructor(readonly currentHead: string) {
@@ -219,6 +227,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof HumanRequiredError) return emit("human-required", err.message), EXIT.humanRequired;
   if (err instanceof HelperRequiredError) return emit(err.code, err.message, { hint: err.hint }), EXIT.config;
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
+  if (err instanceof CandidateFailedError) return emit(err.code, err.message), EXIT.candidateFailed;
   if (err instanceof StaleCandidateError) return emit(err.code, err.message, { currentHead: err.currentHead }), EXIT.stale;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
   // No server answer: a client-side failure, reported in the CLI's own wording.
@@ -1192,6 +1201,8 @@ const COMMANDS: Record<string, Handler> = {
       const c = view.candidate;
       return kv([["Task", c.taskId], ["Candidate", c.id], ...attributionRows(view.workAttribution ?? c.workAttribution), ...approval, ["Compute", c.outcome === "computed" ? "complete" : c.outcome], ["Landing", c.status === "active" ? "not landed" : c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Checks", c.checkPolicy?.kind === "none" ? "not configured" : c.latestCheck?.result ?? "pending"], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["Intent version", c.reviewBoundTo?.intentVersion]]);
     });
+    if (view.state === "complete" && (view.candidate.outcome === "conflict" || view.candidate.outcome === "error" || view.candidate.status === "failed"))
+      throw new CandidateFailedError(view.candidate.outcome === "conflict");
   },
 
   approve: async (d, args) => {
