@@ -42,6 +42,7 @@ const HELP = `octocove — Git hosting for humans and agents
 Usage: octocove [--json] <command> [options]
 
 Commands:
+  version                                     (installed package version; no sign-in required)
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
   whoami                                      (authenticated principal and project memberships)
@@ -98,6 +99,7 @@ Global options:
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
+  --version, -v          print the installed package version
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else ${DEFAULT_API_ORIGIN}; other commands use the origin stored with their credential.
@@ -214,10 +216,10 @@ async function dispatch(d: Deps) {
     return;
   }
   const grouped = GROUPS.has(a);
-  const command = grouped ? `${a} ${b}` : a;
+  const command = a === "--version" || a === "-v" ? "version" : grouped ? `${a} ${b}` : a;
   const machineArgs = grouped ? tail : b === undefined ? [] : [b, ...tail];
   if (await machineCommand(d, command, [...lead, ...machineArgs])) return;
-  const handler = COMMANDS[a === "claim" ? "task claim" : grouped ? `${a} ${b}` : a];
+  const handler = COMMANDS[a === "claim" ? "task claim" : command];
   if (!handler) throw new UsageError(`unknown command: ${[a, grouped ? b : undefined].filter(Boolean).join(" ")}`);
   const args = grouped ? tail : b === undefined ? [] : [b, ...tail];
   await handler(d, [...lead, ...args]);
@@ -418,6 +420,12 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
 };
 
 const COMMANDS: Record<string, Handler> = {
+  version: async (d, args) => {
+    const { v } = opts(args, {}, 0);
+    // Both src/ and the installed dist/ sit beside the package's own manifest.
+    const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+    out(d, v.json, { version }, () => `octocove ${version}`);
+  },
   "lane status": laneHandler("status"),
   "lane push": laneHandler("push"),
   "lane retry": laneHandler("retry"),
