@@ -1,3 +1,4 @@
+import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
 import { stageChain } from "./chain-stage.js";
 import { followEvents } from './event-follow.js';
@@ -137,7 +138,10 @@ async function sourceRemoteMatches(git: GitRunner, name: string, remote: string)
 }
 async function resolveCommit(git: GitRunner, ref: string) {
   try { return await git(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]); }
-  catch { throw new UsageError("REF must resolve to a commit in the current clone"); }
+  catch (error) {
+    if (error instanceof TransportError) throw error;
+    throw new UsageError("REF must resolve to a commit in the current clone");
+  }
 }
 
 function need(v: Record<string, any>, name: string): string {
@@ -169,7 +173,7 @@ export async function run(d: Deps): Promise<number> {
 
 const TRANSPORT_DETAIL: Partial<Record<TransportError["code"], string>> = {
   "network-error": "API request failed",
-  "deadline-exceeded": "--wait deadline reached",
+  "deadline-exceeded": "command deadline reached",
 };
 
 /** Wraps an error whose JSON envelope was already written to stdout; only the exit code remains. */
@@ -250,7 +254,7 @@ async function dispatch(d: Deps) {
 const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
   d.stdout(json ? JSON.stringify(body, null, 2) + "\n" : text() + "\n");
 
-const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: d.fetch, sleep: d.sleep });
+const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: d.fetch, sleep: d.sleep, signal: d.signal });
 async function client(d: Deps) {
   const creds = d.credentials ?? (await loadCredentials(d.env));
   return { creds, api: connect(d, creds) };
@@ -390,55 +394,63 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
     ...(action === "push" ? { source: { type: "string" as const }, base: { type: "string" as const },
       "push-id": { type: "string" as const }, wait: { type: "string" as const } } : {}),
   }, action === "push" ? 1 : 0, 0);
-  const taskId = v.task ?? await getConfig(d.git, "octocove.taskId");
-  if (!taskId) throw new UsageError("--task is required (no claimed task in this repository's git config)");
-  const { api, creds } = await client(d);
-  if (action === "retire" && creds.kind !== "human") throw new HumanRequiredError("lane retire requires a human credential");
-  const projectId = await getConfig(d.git, "octocove.projectId") ?? null;
-  const path = { id: taskId };
-  if (action === "status" || action === "retire") {
-    const r = action === "status" ? (await api.call("chainLaneGet", { path })).body
-      : await api.j.chain.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
-  }
-  const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
-  if (!claimAttemptId) throw new UsageError("--claim is required");
-  if (action === "retry") {
-    const r = await api.j.chain.retry(taskId, { claimAttemptId }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
-  }
-  if (pos[0] && v.source) throw new UsageError("use REF or --source, not both");
-  const wait = intFlag(v, "wait") ?? 60;
-  if (v.source && !/^[a-f0-9]{40}$/.test(v.source)) throw new UsageError("--source must be an exact commit SHA");
-  if (v["push-id"] && !/^[A-Za-z0-9_-]{1,160}$/.test(v["push-id"])) throw new UsageError("invalid --push-id");
-  const sourceSha = await resolveCommit(d.git, v.source ?? pos[0] ?? "HEAD");
-  const baseSha = v.base ?? await getConfig(d.git, "octocove.baseSha");
-  if (!baseSha || !/^[a-f0-9]{40}$/.test(baseSha)) throw new UsageError("--base must be an exact commit SHA (or claim first)");
-  const lane = (await api.call("chainLaneGet", { path })).body;
-  if (lane.claimAttemptId !== claimAttemptId || lane.writerClaimId !== claimAttemptId) throw new ConfigError("claim does not own this lane");
-  if (lane.baseSha !== baseSha) throw new ApiError({ status: 409, code: "chain-base-mismatch", detail: "recorded base differs from the lane's immutable base" });
-  await d.git(["merge-base", "--is-ancestor", baseSha, sourceSha]).catch(() => {
-    throw new ApiError({ status: 409, code: "chain-base-mismatch", detail: "source commit does not contain the pinned base" });
-  });
-  const intentVersion = Number(await getConfig(d.git, "octocove.intentVersion"));
-  if (!Number.isInteger(intentVersion) || intentVersion < 1) throw new UsageError("claim first to record the intent version");
-  const key = v["idempotency-key"] ?? newIdempotencyKey();
-  const pushId = v["push-id"] ?? `push-${createHash("sha256").update(taskId + "\0" + claimAttemptId + "\0" + key).digest("hex")}`;
-  await stageChain(d.git, d.env.OCTOCOVE_HELPER_SOCK, { taskId, claimId: claimAttemptId, pushId, sourceSha, baseSha });
-  // The push was staged by the CLI's own Git path, so it is queued as one keyed command (stored-result).
-  const queued = (await api.j.command("chainLanePush", { path, body: { claimAttemptId, pushId, sourceSha } }, api.write(COMMAND_SECONDS, key))).body;
-  // One --wait deadline bounds the delivery wait and the candidate wait; neither reissues its command.
-  const deadline = Date.now() + wait * 1000;
-  const delivery = await api.j.chain.waitForDelivery(taskId, pushId, api.until(deadline));
-  if (delivery.state !== "delivered") {
-    laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane ?? lane }, key);
-    throw new Emitted(new PendingError("lane push is remote-pending; inspect lane status and retry"));
-  }
-  const submission = await api.j.submissions.create(taskId, { claimAttemptId, sourceSha, baseSha, intentVersion },
-    api.write(COMMAND_SECONDS, `submission-${createHash("sha256").update(key).digest("hex")}`));
-  const candidate = candidateBody(await api.j.candidates.waitFor(submission.id, api.until(deadline)));
-  laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane, submission, candidate }, key);
-  if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
+  const deadline = action === "push" ? Date.now() + (intFlag(v, "wait") ?? 60) * 1000 : undefined;
+  const scope = deadline === undefined ? undefined : new CallScope([d.signal], [deadline]);
+  const originalGit = d.git;
+  if (scope) d = { ...d, git: args => {
+    scope.throwIfEnded();
+    return scope.guard(originalGit(args, { signal: scope.signal }));
+  } };
+  try {
+    const taskId = v.task ?? await getConfig(d.git, "octocove.taskId");
+    if (!taskId) throw new UsageError("--task is required (no claimed task in this repository's git config)");
+    const { api, creds } = await client(d);
+    if (action === "retire" && creds.kind !== "human") throw new HumanRequiredError("lane retire requires a human credential");
+    const projectId = await getConfig(d.git, "octocove.projectId") ?? null;
+    const path = { id: taskId };
+    if (action === "status" || action === "retire") {
+      const r = action === "status" ? (await api.call("chainLaneGet", { path, deadline: Date.now() + READ_SECONDS * 1000 })).body
+        : await api.j.chain.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+      laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
+    }
+    const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
+    if (!claimAttemptId) throw new UsageError("--claim is required");
+    if (action === "retry") {
+      const r = await api.j.chain.retry(taskId, { claimAttemptId }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+      laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
+    }
+    if (pos[0] && v.source) throw new UsageError("use REF or --source, not both");
+    if (v.source && !/^[a-f0-9]{40}$/.test(v.source)) throw new UsageError("--source must be an exact commit SHA");
+    if (v["push-id"] && !/^[A-Za-z0-9_-]{1,160}$/.test(v["push-id"])) throw new UsageError("invalid --push-id");
+    const sourceSha = await resolveCommit(d.git, v.source ?? pos[0] ?? "HEAD");
+    const baseSha = v.base ?? await getConfig(d.git, "octocove.baseSha");
+    if (!baseSha || !/^[a-f0-9]{40}$/.test(baseSha)) throw new UsageError("--base must be an exact commit SHA (or claim first)");
+    const lane = (await api.call("chainLaneGet", { path, deadline })).body;
+    if (lane.claimAttemptId !== claimAttemptId || lane.writerClaimId !== claimAttemptId) throw new ConfigError("claim does not own this lane");
+    if (lane.baseSha !== baseSha) throw new ApiError({ status: 409, code: "chain-base-mismatch", detail: "recorded base differs from the lane's immutable base" });
+    await d.git(["merge-base", "--is-ancestor", baseSha, sourceSha]).catch((error) => {
+      if (error instanceof TransportError) throw error;
+      throw new ApiError({ status: 409, code: "chain-base-mismatch", detail: "source commit does not contain the pinned base" });
+    });
+    const intentVersion = Number(await getConfig(d.git, "octocove.intentVersion"));
+    if (!Number.isInteger(intentVersion) || intentVersion < 1) throw new UsageError("claim first to record the intent version");
+    const key = v["idempotency-key"] ?? newIdempotencyKey();
+    const pushId = v["push-id"] ?? `push-${createHash("sha256").update(taskId + "\0" + claimAttemptId + "\0" + key).digest("hex")}`;
+    await stageChain(originalGit, d.env.OCTOCOVE_HELPER_SOCK, { taskId, claimId: claimAttemptId, pushId, sourceSha, baseSha }, { deadline, signal: d.signal });
+    // The push was staged by the CLI's own Git path, so it is queued as one keyed command (stored-result).
+    const queued = (await api.j.command("chainLanePush", { path, body: { claimAttemptId, pushId, sourceSha } }, { ...api.until(deadline!), idempotencyKey: key })).body;
+    // Staging, enqueue, submission and both polling journeys share the original --wait deadline.
+    const delivery = await api.j.chain.waitForDelivery(taskId, pushId, api.until(deadline!));
+    if (delivery.state !== "delivered") {
+      laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane ?? lane }, key);
+      throw new Emitted(new PendingError("lane push is remote-pending; inspect lane status and retry"));
+    }
+    const submission = await api.j.submissions.create(taskId, { claimAttemptId, sourceSha, baseSha, intentVersion },
+      { ...api.until(deadline!), idempotencyKey: `submission-${createHash("sha256").update(key).digest("hex")}` });
+    const candidate = candidateBody(await api.j.candidates.waitFor(submission.id, api.until(deadline!)));
+    laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane, submission, candidate }, key);
+    if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
+  } finally { scope?.dispose(); }
 };
 
 const COMMANDS: Record<string, Handler> = {
@@ -580,7 +592,7 @@ const COMMANDS: Record<string, Handler> = {
   "task list": async (d, args) => {
     const { v } = opts(args, { project: { type: "string" }, status: { type: "string" }, cursor: { type: "string" }, limit: { type: "string" } }, 0);
     const { api } = await client(d);
-    const r = await api.call("tasksList", { query: { projectId: need(v, "project"), status: v.status, cursor: v.cursor, limit: intFlag(v, "limit") } });
+    const r = await api.call("tasksList", { deadline: Date.now() + READ_SECONDS * 1000, query: { projectId: need(v, "project"), status: v.status, cursor: v.cursor, limit: intFlag(v, "limit") } });
     out(d, v.json, r.body, () => {
       const rows = (r.body.items ?? []).map((t: any) => `${t.id}  ${String(t.status).padEnd(10)}  v${t.intentVersion}  ${t.key ?? ""}  ${t.intent?.title ?? ""}`);
       return [...rows, r.body.nextCursor ? `next: --cursor ${r.body.nextCursor}` : ""].filter(Boolean).join("\n") || "(no tasks)";
@@ -590,7 +602,7 @@ const COMMANDS: Record<string, Handler> = {
   "task show": async (d, args) => {
     const { v, pos } = opts(args, {}, 1);
     const { api } = await client(d);
-    const r = await api.call("taskGet", { path: { id: pos[0]! } });
+    const r = await api.call("taskGet", { deadline: Date.now() + READ_SECONDS * 1000, path: { id: pos[0]! } });
     out(d, v.json, r.body, () =>
       `${contractText(r.body)}\n\n${kv([["Status", r.body.status], ["Target", r.body.targetRef], ["Canonical head", r.body.canonicalHeadSha], ["Live attempt", r.body.liveAttempt]])}`,
     );
@@ -926,7 +938,7 @@ const COMMANDS: Record<string, Handler> = {
   "candidate show": async (d, args) => {
     const { v } = opts(args, { submission: { type: "string" } }, 0);
     const { api } = await client(d);
-    const r = await api.call("candidateGet", { path: { id: need(v, "submission") } });
+    const r = await api.call("candidateGet", { deadline: Date.now() + READ_SECONDS * 1000, path: { id: need(v, "submission") } });
     // CandidateReady | CandidateSuperseded | CandidatePending, discriminated by `state`.
     const view = r.body;
     if (!isRecord(view) || !["pending", "superseded", "complete"].includes(view.state) || (view.state === "complete" && !isRecord(view.candidate)))
@@ -973,14 +985,14 @@ const COMMANDS: Record<string, Handler> = {
   log: async (d, args) => {
     const { v, pos } = opts(args, { after: { type: "string" }, limit: { type: "string" } }, 1);
     const { api } = await client(d);
-    const r = await api.call("taskLog", { path: { id: pos[0]! }, query: { after: v.after, limit: intFlag(v, "limit") } });
+    const r = await api.call("taskLog", { deadline: Date.now() + READ_SECONDS * 1000, path: { id: pos[0]! }, query: { after: v.after, limit: intFlag(v, "limit") } });
     out(d, v.json, r.body, () => auditText(r.body));
   },
 
   "events replay": async (d, args) => {
     const { v } = opts(args, { project: { type: "string" }, task: { type: "string" }, after: { type: "string" }, limit: { type: "string" } }, 0);
     const { api } = await client(d);
-    const r = await api.call("eventsReplay", { query: { projectId: need(v, "project"), taskId: v.task, after: v.after, limit: intFlag(v, "limit") } });
+    const r = await api.call("eventsReplay", { deadline: Date.now() + READ_SECONDS * 1000, query: { projectId: need(v, "project"), taskId: v.task, after: v.after, limit: intFlag(v, "limit") } });
     out(d, v.json, r.body, () => [...(r.body.items ?? []).map((e: any) => `${e.occurredAt}  ${e.type}  ${e.taskId ?? ""}  ${e.id}`), `next: --after ${r.body.nextCursor}`].join("\n"));
   },
 
