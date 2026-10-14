@@ -121,6 +121,31 @@ exports[`auth revoke 1`] = `
 }
 `;
 
+exports[`candidate show attributed 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /submissions/S1/candidate",
+    "GET /tasks/T1",
+    "GET /projects/P1/landings?limit=100",
+  ],
+  "stderr": "",
+  "stdout": "Task:             T1
+Candidate:        CA1
+Worked by:        worker-one (agent)
+Delegated by:     issuer|author
+Approved by:      issuer|reviewer
+Approved at:      2030-01-01T00:00:00Z
+Compute:          complete
+Landing:          landed
+Candidate SHA:    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Base SHA:         bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Checks:           not configured
+Intent version:   3
+",
+}
+`;
+
 exports[`candidate show complete 1`] = `
 {
   "code": 0,
@@ -129,12 +154,12 @@ exports[`candidate show complete 1`] = `
   ],
   "stderr": "",
   "stdout": "Candidate:        CA1
-State:            complete
-Outcome:          computed
-Status:           active
+Attribution:      not recorded (created before attribution)
+Compute:          complete
+Landing:          not landed
 Candidate SHA:    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 Base SHA:         bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-Check:            passed
+Checks:           passed
 Intent version:   3
 ",
 }
@@ -147,7 +172,7 @@ exports[`candidate show pending 1`] = `
     "GET /submissions/S1/candidate",
   ],
   "stderr": "",
-  "stdout": "State:            pending
+  "stdout": "Compute:          pending
 Job:              (staged behind a landing fence)
 ",
 }
@@ -160,7 +185,7 @@ exports[`candidate show superseded 1`] = `
     "GET /submissions/S1/candidate",
   ],
   "stderr": "",
-  "stdout": "State:            superseded
+  "stdout": "Compute:          superseded
 Superseded by:    S2
 ",
 }
@@ -271,6 +296,7 @@ Commands:
   webhook reactivate ID
 
 Global options:
+  --verbose               show full permissions and verification details
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
@@ -321,18 +347,16 @@ exports[`land --wait 1`] = `
   "requests": [
     "POST /candidates/CA1/land",
     "GET /receipts/F1",
+    "GET /tasks/T1",
   ],
   "stderr": "",
   "stdout": "Receipt:          F1
-State:            final
-Outcome:          landed
+Landing:          landed
 Task:             T1
-Candidate SHA:    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Landed SHA:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Base before:      bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-Base after:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Ancestry verified:true
-Fence:            F1
+Attribution:      not recorded (created before attribution)
+Approved by:      unavailable
+Landed candidate SHA: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Verification:     ancestry verified
 ",
 }
 `;
@@ -358,8 +382,7 @@ exports[`land pending 1`] = `
   ],
   "stderr": "",
   "stdout": "Receipt:          F1
-State:            pending
-Fence:            F1
+Landing:          pending
 Integrator run:   run1
 ",
 }
@@ -509,9 +532,31 @@ exports[`receipt show --wait timeout with changing pending metadata 1`] = `
   "stderr": "octocove: landing pending; poll with \`octocove receipt show F1 --wait\`
 ",
   "stdout": "Receipt:          F1
-State:            pending
-Fence:            F1
+Landing:          pending
 Integrator run:   latest-run
+",
+}
+`;
+
+exports[`receipt show attributed 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /receipts/R1",
+    "GET /tasks/T1",
+    "GET /projects/P1/landings?limit=100",
+  ],
+  "stderr": "",
+  "stdout": "Receipt:          R1
+Landing:          landed
+Task:             T1
+Worked by:        worker-one (agent)
+Delegated by:     issuer|author
+Approved by:      issuer|reviewer
+Approved at:      2030-01-01T00:00:00Z
+Candidate:        CA1
+Landed candidate SHA: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Verification:     ancestry verified
 ",
 }
 `;
@@ -521,18 +566,16 @@ exports[`receipt show final 1`] = `
   "code": 0,
   "requests": [
     "GET /receipts/F1",
+    "GET /tasks/T1",
   ],
   "stderr": "",
   "stdout": "Receipt:          F1
-State:            final
-Outcome:          landed
+Landing:          landed
 Task:             T1
-Candidate SHA:    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Landed SHA:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Base before:      bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-Base after:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Ancestry verified:true
-Fence:            F1
+Attribution:      not recorded (created before attribution)
+Approved by:      unavailable
+Landed candidate SHA: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Verification:     ancestry verified
 ",
 }
 `;
@@ -564,8 +607,7 @@ exports[`receipt show pending 1`] = `
   "stderr": "octocove: landing pending; poll with \`octocove receipt show F1 --wait\`
 ",
   "stdout": "Receipt:          F1
-State:            pending
-Fence:            F1
+Landing:          pending
 Integrator run:   run1
 ",
 }
@@ -953,7 +995,7 @@ exports[`task list 1`] = `
     "GET /tasks?limit=5&projectId=P1&status=ready",
   ],
   "stderr": "",
-  "stdout": "T1  ready       v3  k  Add CLI
+  "stdout": "Add CLI  [ready]  k
 next: --cursor c2
 ",
 }
@@ -1088,8 +1130,10 @@ Upstream results:
 
 Status:           ready
 Target:           refs/heads/main
-Canonical head:   aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Live attempt:     {"claimId":"C1"}
+Current repository head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+Live attempt
+claimId:          C1
 ",
 }
 `;
@@ -1101,6 +1145,40 @@ exports[`task show insecure API URL --json 1`] = `
   "stderr": "{"error":{"code":"insecure-api-url","message":"insecure-api-url: the API URL must use https:// (http:// only for loopback)","status":0}}
 ",
   "stdout": "",
+}
+`;
+
+exports[`task show landed 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /tasks/T1",
+    "GET /receipts/R1",
+  ],
+  "stderr": "",
+  "stdout": "Task T1 (intent v3)
+Title: Add CLI
+
+Build it
+
+Acceptance criteria:
+  - tests pass
+  - help lists verbs
+
+Upstream results:
+  T0  receipt R0  landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+Status:           landed
+Target:           refs/heads/main
+Current repository head: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+Landed
+Receipt ID:       R1
+Landed SHA:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Candidate ID:     CA1
+Next:             octocove receipt show R1
+History:          octocove log T1
+",
 }
 `;
 

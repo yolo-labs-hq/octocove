@@ -167,6 +167,20 @@ const cases: Record<string, () => Scenario> = {
   "receipt show pending --json": () => ({ argv: ["receipt", "show", "F1", "--json"], routes: { "GET /receipts/F1": json(202, pendingReceipt) } }),
   "receipt show final": () => ({ argv: ["receipt", "show", "F1"], routes: { "GET /receipts/F1": json(200, receipt) } }),
   "log": () => ({ argv: ["log", "T1", "--after", "5", "--limit", "10"], routes: { "GET /tasks/T1/log": json(200, { items: [{ id: "6", at: "2030-01-01T00:00:00Z", actorType: "human", actorId: "u1", projectId: "P1", taskId: "T1", type: "claim.granted", refs: { claimId: "C1" }, idempotencyKey: null }], nextCursor: "6" }) } }),
+  "candidate show attributed": () => ({ argv: ["candidate", "show", "--submission", "S1"], routes: {
+    "GET /submissions/S1/candidate": json(200, { state: "complete", workAttribution: { kind: "agent", id: "worker-one", delegatedBy: "issuer|author" }, candidate: { ...candidate, taskId: "T1", status: "landed", checkPolicy: { kind: "none" }, latestCheck: { result: "skipped" } } }),
+    "GET /tasks/T1": json(200, { ...task, status: "landed", acceptedReceiptId: "R1" }),
+    "GET /projects/P1/landings": json(200, { items: [{ receiptId: "R1", candidateSha: SHA_A, approvedBy: "issuer|reviewer", approvedAt: "2030-01-01T00:00:00Z", actor: { id: "issuer|requester" } }], nextCursor: null }),
+  } }),
+  "receipt show attributed": () => ({ argv: ["receipt", "show", "R1"], routes: {
+    "GET /receipts/R1": json(200, { id: "R1", taskId: "T1", candidateId: "CA1", candidateSha: SHA_A, landedSha: SHA_A, outcome: "landed", ancestryVerified: true, workAttribution: { kind: "agent", id: "worker-one", delegatedBy: "issuer|author" } }),
+    "GET /tasks/T1": json(200, { ...task, status: "landed", acceptedReceiptId: "R1" }),
+    "GET /projects/P1/landings": json(200, { items: [{ receiptId: "R1", candidateSha: SHA_A, approvedBy: "issuer|reviewer", approvedAt: "2030-01-01T00:00:00Z" }], nextCursor: null }),
+  } }),
+  "task show landed": () => ({ argv: ["task", "show", "T1"], routes: {
+    "GET /tasks/T1": json(200, { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } }),
+    "GET /receipts/R1": json(200, { id: "R1", taskId: "T1", candidateId: "CA1", landedSha: SHA_A, outcome: "landed" }),
+  } }),
   "events replay": () => ({ argv: ["events", "replay", "--project", "P1", "--task", "T1", "--after", "c1", "--limit", "2"], routes: { "GET /events": json(200, { items: [{ ...event(1), occurredAt: "t1" }], nextCursor: "9" }) } }),
   "events --follow": () => {
     const controller = new AbortController();

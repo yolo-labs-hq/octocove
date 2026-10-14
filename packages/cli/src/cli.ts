@@ -107,6 +107,7 @@ Commands:
   webhook reactivate ID
 
 Global options:
+  --verbose               show full permissions and verification details
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
@@ -117,7 +118,7 @@ API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored cred
 Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 75 still pending, 77 human credential required, 78 config.
 `;
 
-const GLOBAL = { json: { type: "boolean" }, "idempotency-key": { type: "string" }, help: { type: "boolean" } } as const;
+const GLOBAL = { verbose: { type: "boolean" }, json: { type: "boolean" }, "idempotency-key": { type: "string" }, help: { type: "boolean" } } as const;
 
 function opts<T extends Record<string, { type: "string" | "boolean" }>>(args: string[], spec: T, positionals: number, minPositionals = positionals) {
   try {
@@ -236,7 +237,7 @@ const GROUPS = new Set(["project", "repo", "task", "candidate", "receipt", "even
 async function dispatch(d: Deps) {
   // Help wins before parsing required arguments or entering any execution path.
   if (d.argv.includes("--help")) {
-    const words = d.argv.filter(arg => arg !== "--help" && arg !== "--json");
+    const words = d.argv.filter(arg => arg !== "--help" && arg !== "--json" && arg !== "--verbose");
     const first = words[0] === "--version" || words[0] === "-v" ? "version" : words[0];
     const command = first && GROUPS.has(first) && first !== "events"
       ? first === "project" && words[1] === "member" ? `project member ${words[2] ?? ""}` : `${first} ${words[1] ?? ""}`
@@ -259,7 +260,7 @@ async function dispatch(d: Deps) {
   // Global flags may lead; command words follow, then the command's own flags.
   const lead: string[] = [];
   let argv = d.argv;
-  while (argv[0] === "--json") lead.push(argv[0]), (argv = argv.slice(1));
+  while (argv[0] === "--json" || argv[0] === "--verbose") lead.push(argv[0]), (argv = argv.slice(1));
   const [a = "", b, ...tail] = argv;
   if (a === "events" && b?.startsWith("--")) {
     await eventsFollow(d, [...lead,b,...tail]);
@@ -319,8 +320,48 @@ function candidateBody(result: CandidateWaitResult) {
 const kv = (rows: [string, unknown][]) =>
   rows
     .filter(([, v]) => v !== undefined && v !== null)
-    .map(([k, v]) => `${(k + ":").padEnd(18)}${typeof v === "object" ? JSON.stringify(v) : v}`)
+    .map(([k, v]) => `${(k + ":").padEnd(Math.max(18, k.length + 2))}${typeof v === "object" ? JSON.stringify(v) : v}`)
     .join("\n");
+
+function attributionRows(attribution: any): [string, unknown][] {
+  return attribution && typeof attribution.id === "string" && typeof attribution.kind === "string"
+    ? [["Worked by", `${attribution.id} (${attribution.kind})`], ["Delegated by", attribution.delegatedBy]]
+    : [["Attribution", "not recorded (created before attribution)"]];
+}
+
+/** Text-only enrichment. The landing approver is distinct from its requester. */
+async function approvalRows(api: Api, taskId: string | undefined, receiptId?: string, candidateSha?: string, commandDeadline?: number): Promise<[string, unknown][]> {
+  if (!taskId) return [["Approved by", "unavailable"]];
+  const deadline = Math.min(Date.now() + 5000, commandDeadline ?? Infinity);
+  if (Date.now() >= deadline) return [["Approved by", "unavailable"]];
+  try {
+    const task = (await api.call("taskGet", { path: { id: taskId }, deadline })).body;
+    const exactReceipt = receiptId ?? task.acceptedReceiptId;
+    if (!exactReceipt) return receiptId ? [["Approved by", "unavailable"]] : [];
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    do {
+      const page = (await api.call("landingsList", { path: { project: task.projectId }, query: { limit: 100, ...(cursor ? { cursor } : {}) }, deadline })).body;
+      const landing = page.items?.find((item: any) => item.receiptId === exactReceipt);
+      if (landing) {
+        if (candidateSha !== undefined && landing.candidateSha !== candidateSha) return [["Approved by", "unavailable"]];
+        return typeof landing.approvedBy === "string"
+          ? [["Approved by", landing.approvedBy], ["Approved at", landing.approvedAt]] : [["Approved by", "unavailable"]];
+      }
+      cursor = page.nextCursor ?? undefined;
+      if (cursor && seen.has(cursor)) break;
+      if (cursor) seen.add(cursor);
+    } while (cursor && Date.now() < deadline);
+  } catch { /* Optional display metadata never changes the primary command's result. */ }
+  return [["Approved by", "unavailable"]];
+}
+
+function projectRole(verbs: string[]): string {
+  if (verbs.includes("project:admin")) return "project admin";
+  if (verbs.includes("candidates:approve")) return "approver";
+  if (verbs.includes("tasks:create") || verbs.includes("tasks:claim")) return "contributor";
+  return "reader";
+}
 
 function contractText(task: any, dependencyResults?: any[]) {
   const intent = task.intent ?? {};
@@ -602,12 +643,15 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     const me = await api.j.auth.me(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("whoami did not return a principal"));
     out(d, v.json, me, () => [
-      kv([["Principal", me.principal.id], ["Kind", me.principal.kind], ["Agent", me.principal.kind === "delegation" ? creds.agentId ?? me.principal.displayName : undefined], ["Name", me.principal.displayName], ["Email", me.principal.email],
+      kv([["Principal", me.principal.id], ["Kind", me.principal.kind], ["Agent", me.principal.kind === "delegation" ? creds.agentId ?? me.principal.displayName : undefined],
+        ["Name", me.principal.displayName], ["Email", me.principal.email],
         ["Delegated by", me.principal.kind === "delegation" ? `${me.principal.issuer}|${me.principal.sub}` : undefined],
         ["Identity", me.principal.kind === "machine" ? `${me.principal.issuer}|${me.principal.sub}` : undefined],
         ["Policy version", me.principal.policyVersion],
-        ["Credential", me.credential.kind], ["Expires", me.credential.expiresAt]]),
-      ...(me.memberships.length ? me.memberships.map((m) => `${m.projectId}  ${m.verbs.join(",")}`) : ["(no project memberships)"]),
+        ...(v.verbose ? [["Credential", me.credential.kind], ["Expires", me.credential.expiresAt]] as [string, unknown][] : [])]),
+      ...(me.memberships.length ? me.memberships.map((m) => v.verbose
+        ? `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})\n  ${m.projectId}  ${m.verbs.join(",")}`
+        : `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})`) : ["(no project memberships)"]),
     ].join("\n"));
   },
 
@@ -630,7 +674,7 @@ const COMMANDS: Record<string, Handler> = {
     const { api } = await client(d);
     const r = await api.call("tasksList", { deadline: Date.now() + READ_SECONDS * 1000, query: { projectId: need(v, "project"), status: v.status, cursor: v.cursor, limit: intFlag(v, "limit") } });
     out(d, v.json, r.body, () => {
-      const rows = (r.body.items ?? []).map((t: any) => `${t.id}  ${String(t.status).padEnd(10)}  v${t.intentVersion}  ${t.key ?? ""}  ${t.intent?.title ?? ""}`);
+      const rows = (r.body.items ?? []).map((t: any) => `${t.intent?.title ?? "Untitled task"}  [${t.status}]${t.key ? `  ${t.key}` : ""}${v.verbose ? `\n  ${t.id}  intent v${t.intentVersion}` : ""}`);
       return [...rows, r.body.nextCursor ? `next: --cursor ${r.body.nextCursor}` : ""].filter(Boolean).join("\n") || "(no tasks)";
     });
   },
@@ -639,9 +683,23 @@ const COMMANDS: Record<string, Handler> = {
     const { v, pos } = opts(args, {}, 1);
     const { api } = await client(d);
     const r = await api.call("taskGet", { deadline: Date.now() + READ_SECONDS * 1000, path: { id: pos[0]! } });
-    out(d, v.json, r.body, () =>
-      `${contractText(r.body)}\n\n${kv([["Status", r.body.status], ["Target", r.body.targetRef], ["Canonical head", r.body.canonicalHeadSha], ["Live attempt", r.body.liveAttempt]])}`,
-    );
+    const task = r.body;
+    let receipt: any;
+    if (!v.json && task.status === "landed" && task.acceptedReceiptId) {
+      try { receipt = (await api.call("receiptGet", { path: { id: task.acceptedReceiptId }, deadline: Date.now() + 5000 })).body; }
+      catch { /* The task remains readable if receipt details are unavailable. */ }
+      if (receipt?.taskId !== task.id || receipt?.outcome !== "landed") receipt = undefined;
+    }
+    out(d, v.json, task, () => {
+      const state = kv([["Status", task.status], ["Target", task.targetRef], ["Current repository head", task.canonicalHeadSha]]);
+      if (task.status === "landed") return `${contractText(task)}\n\n${state}\n\nLanded\n${kv([
+        ["Receipt ID", task.acceptedReceiptId ?? "not recorded"], ["Landed SHA", receipt?.landedSha ?? "unavailable"], ["Candidate ID", receipt?.candidateId ?? "unavailable"],
+        ["Next", task.acceptedReceiptId ? `octocove receipt show ${task.acceptedReceiptId}` : undefined],
+        ["History", `octocove log ${task.id}`],
+      ])}`;
+      const live = Object.entries(task.liveAttempt ?? {}).filter(([, value]) => value !== null && value !== undefined);
+      return `${contractText(task)}\n\n${state}${live.length ? `\n\nLive attempt\n${kv(live)}` : ""}`;
+    });
   },
 
   "project create": async (d, args) => {
@@ -1005,11 +1063,13 @@ const COMMANDS: Record<string, Handler> = {
     const view = r.body;
     if (!isRecord(view) || !["pending", "superseded", "complete"].includes(view.state) || (view.state === "complete" && !isRecord(view.candidate)))
       throw new ConfigError("invalid candidate response from the control plane");
+    const approval = !v.json && view.state === "complete" && view.candidate.status === "landed"
+      ? await approvalRows(api, view.candidate.taskId, undefined, view.candidate.candidateSha) : [];
     out(d, v.json, view, () => {
-      if (view.state === "pending") return kv([["State", view.state], ["Job", view.jobId ?? "(staged behind a landing fence)"]]);
-      if (view.state === "superseded") return kv([["State", view.state], ["Superseded by", view.replacementSubmissionId]]);
+      if (view.state === "pending") return kv([["Compute", view.state], ["Job", view.jobId ?? "(staged behind a landing fence)"]]);
+      if (view.state === "superseded") return kv([["Compute", view.state], ["Superseded by", view.replacementSubmissionId]]);
       const c = view.candidate;
-      return kv([["Task", c.taskId], ["Candidate", c.id], ["State", view.state], ["Outcome", c.outcome], ["Status", c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Check", c.latestCheck?.result], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["Intent version", c.reviewBoundTo?.intentVersion]]);
+      return kv([["Task", c.taskId], ["Candidate", c.id], ...attributionRows(view.workAttribution ?? c.workAttribution), ...approval, ["Compute", c.outcome === "computed" ? "complete" : c.outcome], ["Landing", c.status === "active" ? "not landed" : c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Checks", c.checkPolicy?.kind === "none" ? "not configured" : c.latestCheck?.result ?? "pending"], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["Intent version", c.reviewBoundTo?.intentVersion]]);
     });
   },
 
@@ -1036,13 +1096,13 @@ const COMMANDS: Record<string, Handler> = {
     const options = deadline !== undefined ? { ...api.until(deadline), ...(v["idempotency-key"] ? { idempotencyKey: v["idempotency-key"] } : {}) }
       : api.write(COMMAND_SECONDS, v["idempotency-key"]);
     const accepted = await api.j.command("candidateLand", { path: { id: pos[0]! }, body: { approvalId: need(v, "approval") } }, options);
-    await printReceipt(d, api, accepted.body.receiptId, deadline, v.json, accepted.body);
+    await printReceipt(d, api, accepted.body.receiptId, deadline, v.json, accepted.body, v.verbose);
   },
 
   "receipt show": async (d, args) => {
     const { v, pos } = opts(args, { wait: { type: "boolean" } }, 1);
     const { api } = await client(d);
-    await printReceipt(d, api, pos[0]!, v.wait ? Date.now() + RECEIPT_WAIT_SECONDS * 1000 : undefined, v.json);
+    await printReceipt(d, api, pos[0]!, v.wait ? Date.now() + RECEIPT_WAIT_SECONDS * 1000 : undefined, v.json, undefined, v.verbose);
   },
 
   log: async (d, args) => {
@@ -1138,7 +1198,7 @@ const LOGIN_KEY_RETAIN_SECONDS = 24 * 60 * 60;
 const RECEIPT_WAIT_SECONDS = 120;
 
 /** Prints a receipt; with a deadline, waits for it to become final. A wait never re-lands. */
-async function printReceipt(d: Deps, api: Api, receiptId: string, deadline: number | undefined, json: boolean, accepted?: unknown) {
+async function printReceipt(d: Deps, api: Api, receiptId: string, deadline: number | undefined, json: boolean, accepted?: unknown, verbose = false) {
   const pending = () => new PendingError(`landing pending; poll with \`octocove receipt show ${receiptId} --wait\``);
   let r;
   try { r = await api.call("receiptGet", { path: { id: receiptId }, deadline }); }
@@ -1152,8 +1212,17 @@ async function printReceipt(d: Deps, api: Api, receiptId: string, deadline: numb
     if (waited.state === "final") { b = waited.receipt; final = true; }
     else if (waited.pending) b = waited.pending;
   }
+  const approval = !json && final ? await approvalRows(api, b.taskId, receiptId, undefined, deadline) : [];
   out(d, json, accepted ? { landing: final && isRecord(accepted) ? { ...accepted, status: b.outcome } : accepted, receipt: b } : b, () =>
-    kv([["Receipt", b.receiptId ?? b.id ?? receiptId], ["State", final ? "final" : "pending"], ["Outcome", b.outcome], ["Task", b.taskId], ["Candidate", b.candidateId], ["Candidate SHA", b.candidateSha], ["Landed SHA", b.landedSha], ["Base before", b.baseShaBefore], ["Base after", b.baseShaAfter], ["Conflicts", b.conflictFiles?.join(", ") || undefined], ["Error", b.errorDetail], ["Ancestry verified", b.ancestryVerified], ["Fence", b.fenceId], ["Integrator run", b.integratorRunId], ["Reconciled at", b.reconciledAt]]),
+    kv([["Receipt", b.receiptId ?? b.id ?? receiptId], ["Landing", final ? b.outcome ?? "final" : "pending"], ["Task", b.taskId],
+      ...(final ? attributionRows(b.workAttribution) : []), ...approval, ["Candidate", b.candidateId],
+      ["Integrator run", !final && !verbose ? b.integratorRunId ?? b.runId : undefined],
+      [b.landedSha && b.landedSha === b.candidateSha ? "Landed candidate SHA" : "Candidate SHA", b.candidateSha],
+      ["Landed SHA", b.landedSha && b.landedSha !== b.candidateSha ? b.landedSha : undefined],
+      ["Verification", b.ancestryVerified === true ? "ancestry verified" : b.ancestryVerified === false ? "ancestry not verified" : undefined],
+      ["Conflicts", b.conflictFiles?.join(", ") || undefined], ["Error", b.errorDetail],
+      ...(verbose ? [["Base before", b.baseShaBefore], ["Base after", b.baseShaAfter], ["Ancestry verified", b.ancestryVerified],
+        ["Fence", b.fenceId], ["Integrator run", b.integratorRunId], ["Reconciled at", b.reconciledAt]] as [string, unknown][] : [])]),
   );
   if (!final && (deadline !== undefined || !accepted)) throw pending();
 }
