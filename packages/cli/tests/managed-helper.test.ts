@@ -1,5 +1,6 @@
 import { build } from 'esbuild';
 import { createServer } from 'node:http';
+import { createServer as createSocketServer } from 'node:net';
 import { saveBootstrap, loadCredentials, saveCredentials } from '../src/config.js';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdtemp, rm, readFile, stat, mkdir, readdir } from 'node:fs/promises';
@@ -344,4 +345,42 @@ it('claim refuses to overwrite ignored local files and preserves their bytes',as
   expect(f.output).toContain('including ignored files');
   expect(f.output).toContain('move them aside');
   expect(f.revoked).toEqual(['L1','L2']);
+});
+
+it('external non-native chain stages a real bundle, enqueues and submits without native receive-pack',async()=>{
+  const f=await fixture();await bind(f);
+  f.claim.workspace.ref='refs/heads/oc/C1';
+  await f.git(['config','octocove.ref',f.claim.workspace.ref]);
+  const socket=join(f.dir,'external.sock');let staged:Buffer|undefined;
+  const server=createSocketServer({allowHalfOpen:true},connection=>{
+    const chunks:Buffer[]=[];connection.on('data',chunk=>chunks.push(Buffer.from(chunk)));
+    connection.on('end',()=>{
+      staged=Buffer.concat(chunks);const lines=staged.toString().split('\n');
+      connection.end(JSON.stringify({ok:true,...JSON.parse(lines[1]!)}));
+    });
+  });
+  await new Promise<void>(resolve=>server.listen(socket,resolve));
+  const fetch=f.deps.fetch;const requests:string[]=[];let delivered=false;
+  f.deps.env.OCTOCOVE_HELPER_SOCK=socket;
+  f.deps.fetch=async(url,init)=>{
+    const path=new URL(url).pathname;requests.push(path);
+    if(path.endsWith('/lane/pushes')){
+      expect(JSON.parse(init.body as string)).toEqual({claimAttemptId:'C1',pushId:'legacy-push',sourceSha:f.baseSha});
+      delivered=true;return Response.json({pushId:'legacy-push',sourceSha:f.baseSha,status:'queued'},{status:202});
+    }
+    if(path.endsWith('/lane'))return Response.json({chainId:'chain',claimAttemptId:'C1',writerClaimId:'C1',baseSha:f.baseSha,
+      pushes:delivered?[{pushId:'legacy-push',sourceSha:f.baseSha,status:'delivered'}]:[]});
+    if(path.endsWith('/submissions')){
+      expect(JSON.parse(init.body as string)).toEqual({claimAttemptId:'C1',sourceSha:f.baseSha,baseSha:f.baseSha,intentVersion:1});
+      return Response.json({id:'S1',taskId:'T1',sourceSha:f.baseSha,baseSha:f.baseSha},{status:201});
+    }
+    return fetch(url,init);
+  };
+  try{
+    expect(await run({...f.deps,argv:['lane','push','HEAD','--push-id','legacy-push','--json']})).toBe(0);
+    expect(staged!.includes(Buffer.from('# v2 git bundle'))).toBe(true);
+    expect(requests.some(path=>path.includes('receive-pack'))).toBe(false);
+    expect(requests).toContain('/v1/tasks/T1/submissions');
+    expect(f.revoked).toEqual([]);
+  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
 });
