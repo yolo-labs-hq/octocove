@@ -169,10 +169,12 @@ describe("bootstrap hand-off", () => {
 });
 
 describe("protected credential imports", () => {
-  it("imports the bootstrap without requiring an external helper before claiming", async () => {
+  it("imports the bootstrap and surfaces claim-held after connector preflight", async () => {
+    const connectorPath = join(dir, "bundled-connector.mjs");
+    await writeFile(connectorPath, "// installed connector fixture\n");
     const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
     routes["POST /v1/tasks/T1/claim"] = () => response({ code: "claim-held" }, 409);
-    expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.failure);
+    expect(await cli([...claimArgs, "--bootstrap-file", file], { connectorPath })).toBe(EXIT.failure);
     expect(stderr).toContain("claim-held");
     expect(calls.map(c => c.route)).toEqual(["POST /v1/tasks/T1/claim"]);
     expect(gitArgs).toHaveLength(0);
