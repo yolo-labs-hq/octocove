@@ -864,12 +864,12 @@ describe('chain claim options', () => {
 
   it('reads the scoped project after saving a bootstrap chain delegation', async () => {
     const cfg = join(repo, '..', 'chain-agent');
-    const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap', agentId: 'sampleAgent' });
+    const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap', agentId: 'worker-one' });
     routes['POST /tasks/T1/claim'] = () => json(201, { ...ready(SHA_A), delegation: {
-      delegationId: 'D1', accessToken: 'PRIVATE-AGENT', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
+      delegationId: 'D1', accessToken: 'sampleDelegationToken', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
     } });
     routes['GET /tasks/T1'] = c => {
-      expect(c.headers.authorization).toBe('Bearer PRIVATE-AGENT');
+      expect(c.headers.authorization).toBe('Bearer sampleDelegationToken');
       expect(JSON.parse(readFileSync(join(cfg, 'credentials', 'cli.json'), 'utf8')).kind).toBe('agent');
       return json(200, task);
     };
@@ -877,9 +877,9 @@ describe('chain claim options', () => {
       '--bootstrap-file', bootstrapFile], {}, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(EXIT.ok);
     expect(calls.map(c => `${c.method} ${c.url.pathname}`)).toEqual(['POST /v1/tasks/T1/claim', 'GET /v1/tasks/T1']);
     expect(git('config', '--local', 'octocove.projectId')).toBe('P1');
-    expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: cfg })).toMatchObject({ kind: 'agent', agentId: 'sampleAgent', delegationId: 'D1' });
+    expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: cfg })).toMatchObject({ kind: 'agent', agentId: 'worker-one', delegationId: 'D1' });
     expect(git('config', '--local', 'octocove.baseSha')).toBe(SHA_A);
-    expect(outText + errText).not.toContain('PRIVATE-AGENT');
+    expect(outText + errText).not.toContain('sampleDelegationToken');
   });
 
   it('explicit ref overrides a chain declaration and retains the existing request shape', async () => {
