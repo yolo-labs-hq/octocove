@@ -35,6 +35,15 @@ export interface Deps {
 }
 
 class UsageError extends Error {}
+class CandidateIdRequiredError extends UsageError {
+  readonly code = "candidate-id-required";
+  readonly hint: string;
+  constructor(taskId: string) {
+    const hint = `Run \`octocove task show ${taskId}\` to find the candidate, then pass its candidate ID to \`octocove land\`.`;
+    super(`land requires a candidate ID; ${taskId} is a task ID. ${hint}`);
+    this.hint = hint;
+  }
+}
 class HumanRequiredError extends Error {}
 class PendingError extends Error {}
 
@@ -83,7 +92,7 @@ Commands:
   submit [REF] [--task ID] [--source SHA] [--base SHA] [--intent-version N] [--claim ID] [--wait SECONDS]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
-  land ID --approval ID [--wait]
+  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octocove land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
   receipt show ID [--wait]
   log ID [--after CURSOR] [--limit N]
   events --follow --project ID [--task ID] [--from CURSOR] [--checkpoint FILE]
@@ -189,7 +198,8 @@ function report(d: Deps, err: unknown, json: boolean): number {
   const emit = (code: string, message: string, extra: object = {}) =>
     quiet ? undefined : d.stderr(json ? JSON.stringify({ error: { code, message, ...extra } }) + "\n" : `octocove: ${message}\n`);
   if (err instanceof UsageError) {
-    emit("usage", err.message);
+    emit(err instanceof CandidateIdRequiredError ? err.code : "usage", err.message,
+      err instanceof CandidateIdRequiredError ? { hint: err.hint } : {});
     if (!json) d.stderr("Run `octocove --help` for usage.\n");
     return EXIT.usage;
   }
@@ -980,6 +990,7 @@ const COMMANDS: Record<string, Handler> = {
 
   land: async (d, args) => {
     const { v, pos } = opts(args, { approval: { type: "string" }, wait: { type: "boolean" } }, 1);
+    if (pos[0]!.startsWith("task-")) throw new CandidateIdRequiredError(pos[0]!);
     const { api } = await client(d);
     // --wait: one end-to-end deadline bounds the landing request, its body read and the receipt wait.
     const deadline = v.wait ? Date.now() + RECEIPT_WAIT_SECONDS * 1000 : undefined;
