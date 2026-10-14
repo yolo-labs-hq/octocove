@@ -514,7 +514,7 @@ describe("candidate show", () => {
     routes["GET /submissions/S1/candidate"] = () => json(200, { state: "complete", candidate: { id: "CA1", outcome: "computed", status: "active", candidateSha: SHA_A, baseSha: SHA_B, latestCheck: null, reviewBoundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 3 } } });
     expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(0);
     expect(outText).toContain("CA1");
-    expect(outText).toContain('"intentVersion":3');
+    expect(outText).toContain('Intent version:   3');
   });
 
   it("prints pending compute", async () => {
@@ -860,7 +860,7 @@ describe('chain claim options', () => {
 
   it('reads the scoped project after saving a bootstrap chain delegation', async () => {
     const cfg = join(repo, '..', 'chain-agent');
-    const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap' });
+    const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap', agentId: 'worker-one' });
     routes['POST /tasks/T1/claim'] = () => json(201, { ...ready(SHA_A), delegation: {
       delegationId: 'D1', accessToken: 'PRIVATE-AGENT', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
     } });
@@ -873,6 +873,7 @@ describe('chain claim options', () => {
       '--bootstrap-file', bootstrapFile], {}, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(EXIT.ok);
     expect(calls.map(c => `${c.method} ${c.url.pathname}`)).toEqual(['POST /v1/tasks/T1/claim', 'GET /v1/tasks/T1']);
     expect(git('config', '--local', 'octocove.projectId')).toBe('P1');
+    expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: cfg })).toMatchObject({ kind: 'agent', agentId: 'worker-one', delegationId: 'D1' });
     expect(git('config', '--local', 'octocove.baseSha')).toBe(SHA_A);
     expect(outText + errText).not.toContain('PRIVATE-AGENT');
   });
@@ -1001,5 +1002,58 @@ describe("expired session recovery guidance", () => {
     expect(errText).not.toContain("credential-expired: credential-expired");
     if (jsonMode) expect(JSON.parse(errText).error).toMatchObject({ code: "credential-expired", status: 401, requestId: "request-expired", nextSteps: expect.stringContaining("octocove auth renew"), hint: expect.stringContaining("octocove login") });
     expect(calls).toHaveLength(1);
+  });
+});
+
+
+describe("membership commands", () => {
+  it("maps an approver role to explicit verbs and preserves the caller key", async () => {
+    routes["POST /projects/P1/members"] = c => json(201, { principalId: c.body.principalId, verbs: c.body.verbs, addedAt: "2030-01-01T00:00:00Z" });
+    expect(await cli(["project", "member", "add", "P1", "--principal", "issuer|reviewer", "--role", "approver", "--idempotency-key", "member-key"], { kind: "human" })).toBe(EXIT.ok);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.headers["idempotency-key"]).toBe("member-key");
+    expect(calls[0]!.body).toEqual({ principalId: "issuer|reviewer", verbs: ["tasks:list", "tasks:read", "candidates:read", "candidates:approve", "candidates:land", "receipts:read", "audit:read", "events:read"] });
+    expect(outText).toContain("issuer|reviewer");
+    expect(calls[0]!.body.verbs).not.toContain("project:admin");
+  });
+  it("uses the server default for member and refuses agents before writing", async () => {
+    routes["POST /projects/P1/members"] = c => json(201, { principalId: c.body.principalId, verbs: [], addedAt: null });
+    expect(await cli(["--json", "project", "member", "add", "P1", "--principal", "issuer|member", "--role", "member"], { kind: "human" })).toBe(EXIT.ok);
+    expect(calls[0]!.body).toEqual({ principalId: "issuer|member" });
+    calls = [];
+    expect(await cli(["project", "member", "add", "P1", "--principal", "issuer|member"])).toBe(EXIT.humanRequired);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("seeded repositories", () => {
+  it("posts seed true and prints the provider-confirmed head", async () => {
+    routes["POST /projects/P1/repositories"] = () => json(201, { id: "R1", projectId: "P1", namespace: "oc-p1", name: "canonical", targetRef: "refs/heads/main", knownHeadSha: SHA_A });
+    expect(await cli(["repo", "create", "P1", "--name", "canonical", "--seed"], { kind: "human" })).toBe(EXIT.ok);
+    expect(calls[0]!.body).toEqual({ mode: "create", name: "canonical", seed: true });
+    expect(outText).toContain(SHA_A);
+    expect(outText).toContain("seeded repository");
+    expect(outText).not.toContain("Empty repository");
+  });
+  it("refuses seed with import before sending a request", async () => {
+    expect(await cli(["repo", "create", "P1", "--name", "r", "--seed", "--import", "https://git.example.org/r.git"], { kind: "human" })).toBe(EXIT.usage);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+
+describe("agent presentation and recovery", () => {
+  it("shows the agent label with the server-authenticated delegating human", async () => {
+    routes["GET /me"] = () => json(200, { principal: { kind: "delegation", id: "D1", issuer: "https://issuer.example.invalid", sub: "alice" }, credential: { kind: "delegation", expiresAt: "2030-01-01T00:00:00Z" }, memberships: [] });
+    expect(await cli(["whoami"], { kind: "agent", delegationId: "D1", agentId: "worker-one" })).toBe(EXIT.ok);
+    expect(outText).toContain("worker-one");
+    expect(outText).toContain("Delegated by:");
+    expect(outText).toContain("https://issuer.example.invalid|alice");
+    expect(outText).not.toContain("Bearer");
+  });
+  it.each(["stale-base", "chain-base-mismatch", "already-claimed"])("adds a recovery hint for %s without discarding the problem", async code => {
+    routes["GET /tasks/T1"] = () => json(409, { code, status: 409, detail: "original refusal", requestId: "request-1" });
+    expect(await cli(["--json", "task", "show", "T1"])).toBe(EXIT.failure);
+    expect(JSON.parse(errText).error).toMatchObject({ code, status: 409, requestId: "request-1", hint: expect.stringContaining("octocove task show"), message: expect.stringContaining("original refusal") });
   });
 });

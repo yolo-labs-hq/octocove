@@ -6504,6 +6504,11 @@ components:
           pattern: ^refs/heads/.+
           description: The branch tasks land onto, and the new repository's default branch; `refs/heads/main` when
             omitted. Same rules as a registration's `targetRef`.
+        seed:
+          type: boolean
+          default: false
+          description: Create a deterministic README root commit. Supported only by the local native
+            provider, for a new repository with no head. Not accepted with import or register.
       required:
       - mode
       - name

@@ -131,7 +131,8 @@ const meta = {
 const expectedManifest = { openapiVersion: meta.openapiVersion, generator: GENERATOR, routingGenerator: ROUTING_GENERATOR };
 
 const outputs = {
-  [OUT.openapi]: HEADER + astToString(await openapiTS(source, { silent: true })),
+  // A default is applied by the server; it does not make a request field required.
+  [OUT.openapi]: HEADER + astToString(await openapiTS(source, { silent: true, defaultNonNullable: false })),
   [OUT.routing]: HEADER
     + "import type { RouteEntry } from '../routing-types.js';\n\n"
     + `export const routing = ${JSON.stringify(routes(), null, 2)} as const satisfies Record<string, RouteEntry>;\n\n`

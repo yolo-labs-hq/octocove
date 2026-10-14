@@ -17,6 +17,12 @@ export async function typeChecks(): Promise<void> {
   // @ts-expect-error -- the confirm body is typed
   await c.call('authCliConfirm', { body: { userCode: 'x', decision: 'maybe' } });
   await c.call('authLoginBinding');
+  // Server defaults do not make an optional request input mandatory.
+  await c.call('repositoryCreate', { path: { project: 'p' }, body: { mode: 'create', name: 'canonical' } });
+  await c.call('repositoryCreate', { path: { project: 'p' }, body: { mode: 'create', name: 'canonical', seed: true } });
+  // @ts-expect-error -- seed is create-only
+  await c.call('repositoryCreate', { path: { project: 'p' }, body: { mode: 'import', name: 'canonical', url: 'https://git.example.org/repo.git', seed: true } });
+
 
   // Response enums are open: a newer server's value type-checks without a cast, and exhaustive
   // handling of the known values still leaves a reachable default branch.

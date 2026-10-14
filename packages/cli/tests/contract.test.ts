@@ -127,7 +127,7 @@ describe("candidate show against recorded responses", () => {
   it("complete with a passed check shows the bound triple", async () => {
     const c = fixture("candidate-complete-checked").body.candidate;
     expect(await show("candidate-complete-checked")).toBe(EXIT.ok);
-    for (const text of [c.id, c.candidateSha, "passed", '"intentVersion":1']) expect(out).toContain(text);
+    for (const text of [c.id, c.candidateSha, "passed", 'Intent version:   1']) expect(out).toContain(text);
     expect(await show("candidate-complete-checked", "--json")).toBe(EXIT.ok);
     expect(JSON.parse(out)).toEqual(fixture("candidate-complete-checked").body);
   });
