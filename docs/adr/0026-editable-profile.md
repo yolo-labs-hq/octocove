@@ -15,23 +15,25 @@ profile and are refused by the write route.
 ## Decision
 
 **New state: the profile.** `user_profiles(issuer, sub, name, pronouns, bio, timezone, updated_at)`,
-one row per provider identity, created by the first edit. Every field is nullable; NULL means not set. It is a
-separate table rather than new `auth_users` columns, so the sign-in upsert stays exactly as it is and cannot erase
+one row per provider identity, created by the first edit. Its four editable fields are nullable; NULL means not set.
+The handle uses a separate reservation table, is non-null once assigned and cannot be cleared. The profile table is separate from `auth_users`, so the sign-in upsert stays exactly as it is and cannot erase
 an edit. The profile describes the person only: it grants nothing, and the principal id (`issuer|sub`) never
 changes.
 
 **New write route: `PATCH /v1/me/profile`** (`meProfileUpdate`, also unprefixed). The body names any of `name`,
-`pronouns`, `bio` and `timezone`. A key that is present sets the field, `null` clears it, and an absent key leaves it
-unchanged. Any other key is 400 `invalid-request`. The answer is 200 `{profile}`.
+`pronouns`, `bio`, `timezone` and `handle`. A key that is present sets the field; `null` clears one of the four
+nullable fields but is invalid for `handle`. An absent key leaves it unchanged. Any other key is 400 `invalid-request`. The answer is 200 `{profile}`.
 
-- **Validation.** Strings are trimmed, then checked, and lengths count Unicode code points:
+- **Validation.** The four nullable fields are trimmed, then checked, and lengths count Unicode code points.
+  Handles must already match the lowercase format in the Usernames section:
   - `name`: 1–80. An empty name is invalid; clear it with `null`.
   - `pronouns`: at most 40.
   - `bio`: at most 280.
   - `pronouns` and `bio` are cleared when they are empty after trimming.
   - No field may contain a control character (`\p{Cc}`: C0 including tab and newline, DEL, C1).
   - `timezone`: an IANA zone name (`Area/Location`, `UTC`) that `Intl.DateTimeFormat` accepts. Offsets such as `+01:00` are refused even though the runtime accepts them. The zone is stored as `Intl` resolves it.
-  - The first invalid field, in that order, is 400 `invalid-profile` with `details.field`, and nothing is written.
+  - `handle`: 1–39 lowercase ASCII characters in the username format, excluding reserved names; it cannot be cleared.
+  - The first invalid field, in `name`, `pronouns`, `bio`, `timezone`, `handle` order, is 400 `invalid-profile` with `details.field`, and nothing is written.
 - **Authority.** The route is for human sessions only. The gateway rule is `access: "human"`, so a delegation gets 403 `human-required`. The rule also sets `machineGrant`, so a machine grant bearer reaches the handler, which refuses it 403 `human-required`, as on `GET /me/delegations`. Cookie callers pass the session's Origin and CSRF check, which applies to every unsafe method. PATCH joins POST in `missingIdempotencyKey`, so the route needs an `Idempotency-Key`. The CORS preflight allows PATCH. A recent sign-in is not required: an edit hands out no authority.
 - **One batch.** One D1 batch does all of the following:
   - It opens with an `auth_cas` guard that re-proves the calling session and family are live. A lost session gives 401 `credential-revoked`.
@@ -50,18 +52,21 @@ reading it, not from an event. The row is evidence for operators.
 
 **Reads.**
 
-- `GET /me` adds `profile: {name, pronouns, bio, timezone}` for a human. `name` falls back to the provider's display name, so it is null only when neither exists. `principal.displayName` and `principal.email` stay the provider's values.
-- `GET /projects/{project}/members` items keep `displayName` (the provider's value) and add `name`: the profile name, falling back to `displayName`, and omitted when neither exists, like `displayName`. Clients show `name`.
-- Both additions are additive, so existing clients are unaffected.
+- `GET /me` adds `profile: {name, pronouns, bio, timezone, handle}` for a human. `name` falls back to the provider's display name, so it is null only when neither exists. `principal.displayName` and `principal.email` stay the provider's values.
+- `GET /projects/{project}/members` items keep `displayName` (the provider's value) and add `name`: the profile name, falling back to `displayName`, and omitted when neither exists, like `displayName`. Items also carry the current handle. Clients show `name` and can link by handle.
+- `GET /people/{principalId}` reads a public profile for any authenticated human, without requiring shared project
+  membership. It accepts a principal identifier or a current or retired handle and returns the stable principal
+  identifier and profile, never email or other authentication-record fields.
+- Handles are non-null once assigned and absent on older servers.
 
 ## Does not do
 
 - **No email change.** Email belongs to the identity provider and stays on `principal.email`.
-- **No avatar** or other media, and no profile URL.
-- **No profile page or lookup.** Nothing new is visible across organizations or projects. Another person sees only the `name` in the member lists they could already read. Pronouns, bio and time zone are returned only to their owner (`GET /me`).
+- **No avatar** or other media.
 - **No edit of anyone else's profile**, and no admin override.
 - **No history read.** The audit row records that fields changed, not what they were.
-- **No uniqueness.** Two people may share a name; principals stay identified by `principalId`.
+- **Display names are not unique.** Provider display names and edited `name` values may repeat. Handles are
+  globally unique; principals retain their stable `principalId`.
 - **Changes nothing about authority:** no verb, membership or session is created or changed.
 
 ## Consequences and alternatives
@@ -71,5 +76,29 @@ reading it, not from an event. The row is evidence for operators.
 - **Placement under a per-organization split.** If records are later split per organization, the profile belongs with the sign-in identity, not with any organization's record. Its `profile.updated` rows would move with it, as identity evidence beside the sign-in revocations.
 
 Affected: [API](../API.md#your-profile-patch-meprofile), `spec/openapi.yaml` (`meProfileUpdate`, `Profile`,
-`Member.name`), [COLLABORATION_RECORD §10](../COLLABORATION_RECORD.md#10-audit-log), and the client's
+`Handle`, `peopleGet`, `Member.name` and `Member.handle`), [COLLABORATION_RECORD §10](../COLLABORATION_RECORD.md#10-audit-log), and the client's
 `auth.profile.update()` (`replay: stored-result`).
+
+
+## Usernames
+
+Every human has one current lowercase username under `/people/{username}`. The format is
+`^(?=.{1,39}$)[a-z0-9](?:-?[a-z0-9])*$`. Names are globally unique without regard to case.
+The names `me`, `new`, `settings`, `admin`, `api`, `octocove`, `people`, `support` and `help` are reserved.
+
+A separate insert-if-absent assigns the first name during sign-in without changing the identity-provider
+upsert or overwriting edited profile state. Existing people are backfilled. Derive from the email local
+part, else display name, else `user`: lowercase, replace runs of other characters with a hyphen, trim
+hyphens and bound the result to 39 characters without a trailing hyphen. Conflicts and reserved names
+advance through `-2`, `-3`, and so on, shortening the stem to keep the full name within the bound.
+
+`PATCH /me/profile` accepts `handle` and returns it with the profile. Malformed, empty, null or reserved
+names are `400 invalid-profile` with field `handle`; names held by another person are `409 handle-taken`.
+A rename runs under the same session guard and atomic batch as the other profile changes. The audit
+records the field name and never its value. Old names remain reserved forever and resolve to their
+owner's current profile. Reclaiming one's own retired name is allowed.
+
+`GET /people/{principalId}` accepts either a principal reference containing `|` or a username. Username
+lookup is case-insensitive and includes retired names; the response always carries the stable principal
+identifier and current `profile.handle`. Clients redirect old links to the current name. `GET /me`, profile
+write responses and member list entries also carry the current handle. A handle never grants authority.
