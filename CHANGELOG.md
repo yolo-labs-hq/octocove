@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Automatically renew stored human bearer sessions near token expiry or after a credential-expired response, persist the replacement privately and retry once. Enforce idle and absolute sign-in limits without implicitly renewing agent delegations.
+- Serialize human session renewals per config directory and adopt a concurrent renewal instead of rotating twice.
+
 ## 0.3.2
 
 - Persist absolute paths to Node and the bundled connector for managed Git transports, so claim, fetch and push work when the CLI bin directory is absent from PATH. Preserve the external helper runtime transport contract.
