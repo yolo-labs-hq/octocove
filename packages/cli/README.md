@@ -58,6 +58,10 @@ retain their `delegationId` for renewal and self-revocation.
 
 ## Commands
 
+Use `octocove <command> --help` for that command's usage. `--help` takes precedence
+over other options, including `--json`, and missing required arguments. Help never
+reads credentials or starts network requests.
+
 | Command | API |
 | --- | --- |
 | `version [--json]`, `--version`, `-v` | Local installed package version; no configuration or API request |
