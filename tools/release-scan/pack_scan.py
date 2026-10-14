@@ -9,7 +9,7 @@ Each tarball must (a) contain exactly the expected files, as regular files under
 over every file, so no secret, account id, sandbox path, private-repository link or operator
 domain ships; (c) carry no source map and no sourceMappingURL comment; (d) for the CLI bundle,
 inline only first-party Octocove source: every input in the esbuild metafile the build writes
-(packages/cli/build-meta/) must be under packages/{cli,client,shared}/src, the metafile must
+(packages/cli/build-meta/) must be under packages/{cli,client,shared,helper}/src, the metafile must
 describe the packed bundle (same byte size), and its only external imports are node: builtins.
 No third-party code is bundled, so the tarball carries LICENSE and NOTICE but no third-party
 notices; if that changes this gate fails until the notices ship and the gate is updated
@@ -42,11 +42,11 @@ PUBLISH_CONFIG = {'access': 'public', 'provenance': True}
 PACKAGES = {
     'packages/cli': dict(
         name='@yolo-labs/octocove',
-        allowed=re.compile(r'(dist/octocove\.mjs|README\.md|package\.json|LICENSE|NOTICE)\Z'),
-        required=('dist/octocove.mjs', 'README.md', 'package.json', 'LICENSE', 'NOTICE'),
+        allowed=re.compile(r'(dist/(octocove|octocove-helper-connect|pre-receive-hook)\.mjs|README\.md|package\.json|LICENSE|NOTICE)\Z'),
+        required=('dist/octocove.mjs', 'dist/octocove-helper-connect.mjs', 'dist/pre-receive-hook.mjs', 'README.md', 'package.json', 'LICENSE', 'NOTICE'),
         # esbuild inlines only Octocove's own Apache-2.0 sources (cli, client, shared), which the
         # root NOTICE covers. A bundled third-party module would need its notices in the tarball.
-        bundles=('dist/octocove.mjs',),
+        bundles=('dist/octocove.mjs', 'dist/octocove-helper-connect.mjs', 'dist/pre-receive-hook.mjs'),
         # Written by the package's build script (esbuild --metafile); never packed.
         metafile='build-meta/octocove.mjs.json',
     ),
@@ -61,7 +61,7 @@ SOURCE_MAP_URL = re.compile(rb'[#@]\s*sourceMappingURL\s*=')
 # esbuild's per-module path comment, e.g. `// ../../node_modules/pkg/index.js`.
 BUNDLED_DEPENDENCY = re.compile(rb'^// (?:\.\./)*node_modules/', re.MULTILINE)
 # Repository-relative source roots the CLI bundle may inline (all Apache-2.0, this repository).
-FIRST_PARTY_SOURCES = ('packages/cli/src/', 'packages/client/src/', 'packages/shared/src/')
+FIRST_PARTY_SOURCES = ('packages/cli/src/', 'packages/client/src/', 'packages/shared/src/', 'packages/helper/src/')
 LOCAL_SPECIFIER = re.compile(r'^(workspace|file|link|portal|git\+file):')
 
 

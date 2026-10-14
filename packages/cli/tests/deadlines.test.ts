@@ -1,15 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
-import { stageChain } from "../src/chain-stage.js";
-
-vi.mock("../src/chain-stage.js", () => ({ stageChain: vi.fn(async () => {}) }));
 const SOURCE = "a".repeat(40), BASE = "b".repeat(40);
 const lane = { claimAttemptId: "C1", writerClaimId: "C1", baseSha: BASE, pushes: [{ pushId: "push-1", status: "delivered" }] };
 const response = (body: unknown, status = 200) => Response.json(body, { status });
 const stalled = () => new Promise<Response>(() => {});
-const git = vi.fn(async (args: string[]) => args[0] === "rev-parse" ? SOURCE : args.at(-1) === "octocove.intentVersion" ? "1" : "");
+const localGit = async (args: string[]) => args[0] === "rev-parse" ? SOURCE : args[0] === "remote" ? "ext::octocove-helper-connect %s"
+  : args.at(-1) === "octocove.intentVersion" ? "1" : args.at(-1) === "octocove.remote" ? "octocove" : "";
+const git = vi.fn(localGit);
 
-beforeEach(() => { vi.useFakeTimers(); vi.mocked(stageChain).mockReset().mockResolvedValue(); git.mockClear(); });
+beforeEach(() => { vi.useFakeTimers(); git.mockReset().mockImplementation(localGit); });
 afterEach(() => vi.useRealTimers());
 
 function command(argv: string[], fetch: Deps["fetch"], overrides: Partial<Deps> = {}) {
@@ -51,86 +50,53 @@ describe("API read deadlines", () => {
 const push = ["lane", "push", "--task", "T1", "--claim", "C1", "--source", SOURCE, "--base", BASE, "--push-id", "push-1", "--wait", "1", "--idempotency-key", "stable-push-key-123"];
 
 describe("lane push shared wait budget", () => {
-  it.each(["inspection", "enqueue", "submission"])("a never-answering %s cannot exceed the original one-second budget", async (phase) => {
-    const started = Date.now();
-    vi.mocked(stageChain).mockImplementation(async (_git, _socket, _input, options) => {
-      expect(options?.deadline).toBe(started + 1000);
-      await new Promise(resolve => setTimeout(resolve, 400));
-    });
-    const calls: string[] = [];
+  const replies = async (url: string) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith("/lane")) return response(lane);
+    if (path.endsWith("/claims/C1")) return response({ id:"C1",taskId:"T1",provisioningState:"ready",workspace:{ref:"refs/octocove/claims/C1"} });
+    if (path.endsWith("/tasks/T1")) return response({liveAttempt:{claimId:"C1",submissionId:"S1"}});
+    return response({state:"complete",candidate:{id:"K1"}});
+  };
+  it.each(["inspection", "claim", "task"])("a never-answering %s cannot exceed the original one-second budget", async phase => {
     let stalledSignal: AbortSignal | undefined;
-    const running = command(push, async (url, init) => {
+    const running = command(push, async (url,init) => {
       const path = new URL(url).pathname;
-      const name = init.method === "GET" ? "inspection" : path.endsWith("/pushes") ? "enqueue" : "submission";
-      calls.push(name);
-      if (name === phase) { stalledSignal = init.signal ?? undefined; return stalled(); }
-      return response(name === "inspection" ? lane : { pushId: "push-1", status: "remote-pending" }, name === "enqueue" ? 202 : 200);
+      const name=path.endsWith("/lane")?"inspection":path.endsWith("/claims/C1")?"claim":"task";
+      if(name===phase){stalledSignal=init.signal??undefined;return stalled();}
+      return replies(url);
     });
-    await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(999);
-    expect(stalledSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(999);expect(stalledSignal?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(await running.done).toBe(EXIT.failure);
-    expect(stalledSignal?.aborted).toBe(true);
+    expect(await running.done).toBe(EXIT.failure);expect(stalledSignal?.aborted).toBe(true);
     expect(JSON.parse(running.output().stderr).error.code).toBe("deadline-exceeded");
-    expect(Date.now() - started).toBe(1000);
-    expect(calls).toContain(phase);
   });
-
-  it("successful wait reports the latest matching delivered push rather than the enqueue answer", async () => {
-    const delivered = { ...lane, pushes: [{ pushId: "other-push", status: "remote-pending" },
-      { pushId: "push-1", status: "delivered", sourceSha: SOURCE, attempts: 2, error: null }] };
-    const running = command(push, async (url, init) => {
-      const path = new URL(url).pathname;
-      if (path.endsWith("/candidate")) return response({ state: "complete", candidate: { id: "K1" } });
-      if (init.method === "GET") return response(delivered);
-      if (path.endsWith("/pushes")) return response({ pushId: "push-1", status: "remote-pending" }, 202);
-      return response({ id: "S1" }, 201);
+  it("successful receive-pack shows its submission and candidate without enqueueing or resubmitting",async()=>{
+    const paths:string[]=[];
+    const running=command(push,async(url)=>{paths.push(new URL(url).pathname);return replies(url);});
+    await vi.advanceTimersByTimeAsync(0);expect(await running.done).toBe(EXIT.ok);
+    const {data}=JSON.parse(running.output().stdout);
+    expect(data.submission.id).toBe("S1");expect(data.candidate.state).toBe("complete");
+    expect(paths).toEqual(['/v1/tasks/T1/lane','/v1/claims/C1','/v1/tasks/T1','/v1/submissions/S1/candidate']);
+  });
+  it("a stalled local Git inspection is cancelled before any API request",async()=>{
+    let signal:AbortSignal|undefined;const fetch=vi.fn(stalled);
+    const running=command(push,fetch,{git:async(_args,options)=>{signal=options?.signal;return new Promise(()=>{});}});
+    await vi.advanceTimersByTimeAsync(1000);expect(await running.done).toBe(EXIT.failure);
+    expect(signal?.aborted).toBe(true);expect(fetch).not.toHaveBeenCalled();
+  });
+  it("a stalled receive-pack Git process is cancelled within the shared budget",async()=>{
+    let signal:AbortSignal|undefined;
+    const running=command(push,replies,{git:async(args,options)=>{
+      if(args.includes('push')){signal=options?.signal;return new Promise(()=>{});}return localGit(args);
+    }});
+    await vi.advanceTimersByTimeAsync(1000);expect(await running.done).toBe(EXIT.failure);
+    expect(signal?.aborted).toBe(true);expect(JSON.parse(running.output().stderr).error.code).toBe("deadline-exceeded");
+  });
+  it("candidate polling uses only the time left after receive-pack",async()=>{
+    const running=command(push,async(url)=>new URL(url).pathname.endsWith('/candidate')?stalled():replies(url),{
+      git:async(args)=>{if(args.includes('push'))await new Promise(resolve=>setTimeout(resolve,400));return localGit(args);}
     });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await running.done).toBe(EXIT.ok);
-    const { data } = JSON.parse(running.output().stdout);
-    expect(data.push).toMatchObject({ pushId: "push-1", status: "delivered", attempts: 2 });
-    expect(data.push.status).toBe(data.lane.pushes.find((p: { pushId: string }) => p.pushId === data.push.pushId).status);
-    expect(data.candidate.state).toBe("complete");
-    expect(running.output().stderr).toBe("");
-  });
-
-  it("a stalled delivery poll preserves pending output and exit 75 within the same budget", async () => {
-    let reads = 0;
-    const running = command(push, async (_url, init) => {
-      if (init.method === "GET") return ++reads === 1 ? response(lane) : stalled();
-      return response({ pushId: "push-1", status: "remote-pending" }, 202);
-    });
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(await running.done).toBe(EXIT.pending);
-    expect(JSON.parse(running.output().stdout).data.push.status).toBe("remote-pending");
-    expect(running.output().stderr).toBe("");
-  });
-
-  it("a stalled local Git inspection is cancelled and reported as a deadline", async () => {
-    let signal: AbortSignal | undefined;
-    const fetch = vi.fn(stalled);
-    const running = command(push, fetch, { git: async (_args, options) => { signal = options?.signal; return new Promise(() => {}); } });
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(await running.done).toBe(EXIT.failure);
-    expect(signal?.aborted).toBe(true);
-    expect(JSON.parse(running.output().stderr).error.code).toBe("deadline-exceeded");
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("submission and candidate polling share the time left after staging", async () => {
-    vi.mocked(stageChain).mockImplementation(async () => { await new Promise(resolve => setTimeout(resolve, 400)); });
-    const running = command(push, async (url, init) => {
-      const path = new URL(url).pathname;
-      if (path.endsWith("/candidate")) return stalled();
-      if (init.method === "GET") return response(lane);
-      if (path.endsWith("/pushes")) return response({ pushId: "push-1", status: "remote-pending" }, 202);
-      return response({ id: "S1" }, 201);
-    });
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(await running.done).toBe(EXIT.pending);
-    expect(JSON.parse(running.output().stdout).data.submission.id).toBe("S1");
-    expect(running.output().stderr).toBe("");
+    await vi.advanceTimersByTimeAsync(1000);expect(await running.done).toBe(EXIT.pending);
+    expect(JSON.parse(running.output().stdout).data.submission.id).toBe("S1");expect(running.output().stderr).toBe("");
   });
 });

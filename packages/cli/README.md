@@ -3,7 +3,7 @@
 One `octocove` binary with a subcommand per record API verb in [docs/API.md](../../docs/API.md). A human terminal and an
 agent sandbox run the same commands against the same API with the same semantics; only the credential differs. No
 CLI-managed background daemons: anything that waits (claim provisioning, landing) polls for a bounded time and then exits.
-Allocated claims require a protected attempt helper supplied by the trusted runtime.
+Allocated claims use a per-attempt helper bundled with the CLI, or an external runtime.
 
 The CLI is the first consumer of the [client library](../client/README.md): every request goes through the
 library's typed client (bearer transport, generated routing, retry policy, deadlines, redaction), every wait through
@@ -47,7 +47,7 @@ pnpm --filter @yolo-labs/octocove test
 | `OCTOCOVE_API_URL` | API origin including `/v1` (the origin alone is accepted too) for `login` and `auth exchange`. Default: the stored credential's origin, else `https://api.octocove.com`. Must be `https://`; `http://` only for `localhost`, `127.0.0.1` or `[::1]`. Subsequent commands use the origin stored with their credential. |
 | `OCTOCOVE_BOOTSTRAP_FILE` | Protected JSON bootstrap hand-off to import when no active credential exists. The file contains `{apiUrl, token, kind:"bootstrap"}`; no token belongs in the environment. |
 | `OCTOCOVE_CONFIG_DIR` | Root containing `credentials/cli.json` (`{apiUrl, token, kind}`, mode 0600 in a 0700 directory). Defaults to `$XDG_CONFIG_HOME/octocove` or `~/.config/octocove`. Linux and macOS; no ancestor may be a symlink (on macOS use `/private/tmp`, not `/tmp`). |
-| `OCTOCOVE_HELPER_SOCK` | Required protected per-attempt socket for allocated ref/repo and chain claims. The trusted runtime starts `AttemptHelper` from `@octocove/helper` and provides `octocove-helper-connect` on PATH. |
+| `OCTOCOVE_HELPER_SOCK` | Optional external per-attempt socket; takes precedence over the built-in same-user helper. `octocove-helper-connect` ships with the CLI. |
 | `OCTOCOVE_LOCAL_GIT_ROOT` | Explicit local-runtime filesystem Git root. Claim admits paths only below its resolved root, with `OCTOCOVE_HELPER_SOCK` and an HTTP loopback API; normal remotes remain HTTPS-only. |
 
 The active protected store takes precedence over import settings. `OCTOCOVE_TOKEN` and
@@ -83,18 +83,18 @@ reads credentials or starts network requests.
 | `task release ID [--claim ID]` | `POST /tasks/{id}/release` |
 | `task show ID` | `GET /tasks/{id}` |
 | `task claim ID [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
-| `helper status [--json]` | Local, secret-free helper configuration |
+| `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:663](src/cli.ts#L663 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:664](src/cli.ts#L664 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:665](src/cli.ts#L665 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:666](src/cli.ts#L666 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:667](src/cli.ts#L667 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:668](src/cli.ts#L668 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:669](src/cli.ts#L669 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:670](src/cli.ts#L670 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:671](src/cli.ts#L671 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:705](src/cli.ts#L705 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:706](src/cli.ts#L706 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:707](src/cli.ts#L707 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:708](src/cli.ts#L708 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:709](src/cli.ts#L709 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:710](src/cli.ts#L710 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:711](src/cli.ts#L711 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:712](src/cli.ts#L712 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:713](src/cli.ts#L713 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -102,12 +102,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1122](src/cli.ts#L1122 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1134](src/cli.ts#L1134 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1202](src/cli.ts#L1202 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1214](src/cli.ts#L1214 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1174](src/cli.ts#L1174 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1254](src/cli.ts#L1254 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:404](src/cli.ts#L404 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:412](src/cli.ts#L412 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -139,15 +139,10 @@ metadata when the credential is saved. It never emits the device code, verifier,
   upstream results), and polls `GET /claims/{id}` while provisioning is pending. When ready it points the git remote
   (default `octocove`, or an unused name when occupied, for allocated sources) at `ext::octocove-helper-connect %s` and records `octocove.{taskId,claimId,intentVersion,apiUrl,remote,ref,mappingId,topology,baseSha}`
   in the repository's local git config. `baseSha` is the HEAD at claim time. It writes no credentials into git config and
-  requires `OCTOCOVE_HELPER_SOCK` before credential import or claim creation. If unset or empty it exits 78 with
-  runtime setup instructions; it never installs `credential.helper=artifacts` or a bearer identity file.
-  There is no laptop opt-in: [ADR 0005](../../docs/adr/0005-credential-boundary.md) requires the same protected
-  helper for every allocated writing archetype. The workspace adapter, own-clone agent runtime or CI runtime must
-  start one `AttemptHelper` per attempt outside the agent domain, bind its broker grant, expose only its
-  socket to the attempt and put `octocove-helper-connect` on PATH. See the
-  [helper runtime contract](../helper/README.md#runtime-contract-the-trusted-runtime-must-provide) and
-  [runtime runbook](../../docs/runbooks/credential-boundary.md). A missing/dead socket or connector also refuses
-  Git transport; it never falls back to a direct upstream URL or credential helper.
+  starts a same-user `AttemptHelper` when `OCTOCOVE_HELPER_SOCK` is unset. The private runtime directory is
+  0700, the socket is 0600, and read leases are revoked and the helper removed on exit or signal.
+  An external socket takes precedence. Chain writes use authenticated Worker receive-pack;
+  no provider write token is exported. This runtime is not an isolated credential boundary.
   `--source-ref REF --repository ID` registers an existing canonical branch instead: it keeps the selected remote
   (default `origin`) and existing credentials, with no helper installation or allocated repository. HTTPS/SSH identity
   must match registration; all configured push URLs must match too. See [ADR 0002](../../docs/adr/0002-own-clone-source-registration.md). See the
@@ -182,9 +177,8 @@ properties:
 - **Deadlines cover requests, not just polling.** Every wait — `land --wait`, `receipt show --wait`,
   `submit --wait`, `lane push --wait`, claim provisioning (`--wait`) and `login` — bounds each request and body read
   inside it; `land --wait` and `login` bound their first request too. A wait that runs out reports the last known
-  state with exit 75 instead of hanging. A lane push deadline reached during inspection, staging, enqueue or
-  submission instead exits 1 with `deadline-exceeded`; a write's outcome may be uncertain, so retry with the
-  same idempotency key and push ID. Machine commands' `--timeout` bounds every request.
+  state with exit 75 instead of hanging. A lane push deadline reached during inspection or receive-pack
+  exits 1 with `deadline-exceeded`; inspect `task show` before retrying an uncertain push. Machine commands' `--timeout` bounds every request.
 - **Standalone API reads have a 30-second deadline.** `task list`, `task show`, `candidate show`, `log`,
   `events replay` and `lane status` bound the request, response body and network recovery within that budget.
   Expiration exits 1 with `deadline-exceeded` on stderr (`status: 0` in JSON); it never implies an API refusal.
@@ -232,20 +226,51 @@ Creation and verification also include a `nextSteps` field in JSON output.
 
 ## Claiming as an agent: runtime prerequisites
 
-A logged-in CLI alone cannot claim an allocated workspace. No trusted agent
-runtime is provisioned for the hosted service yet. A trusted workspace,
-agent or CI runtime must provision a protected per-attempt `AttemptHelper`, expose
-its socket through `OCTOCOVE_HELPER_SOCK`, and put `octocove-helper-connect` on
-`PATH`. The helper carries Git traffic without exposing reusable credentials to
-the agent. The CLI does not install or start it.
+`task claim` and `lane push` automatically start the bundled per-attempt `AttemptHelper`
+when `OCTOCOVE_HELPER_SOCK` is unset or empty. The CLI also installs the
+`octocove-helper-connect` executable. No wrapper script is required.
 
-Ask the runtime operator to provision this transport before running `task claim`.
-A missing helper socket still exits 78; JSON errors carry code `helper-required`
-and a `hint`. An unconfigured `helper status` result carries the same code and hint.
-`helper status` reports the local Git transport configuration; it does not prove
-that a helper is running. See [the helper package](../helper/README.md) and
-[the credential boundary](../../docs/runbooks/credential-boundary.md) for runtime
-setup and responsibilities.
+The built-in runtime prints `helper: same-user runtime (not an isolated credential boundary)`
+on stderr. Its private directory and socket restrict other users, but processes running as
+this same user can access the CLI's credentials and memory. Use an isolated external
+runtime when that boundary is required; an external socket always takes precedence.
+
+Each agent imports its own claim bootstrap and keeps its delegation in its own
+`OCTOCOVE_CONFIG_DIR`. The built-in runtime refuses a missing or human credential;
+it never substitutes another agent's directory or a human login. `whoami` and
+`helper status` show the scoped agent principal, project verbs and credential expiry.
+
+A ready `task claim` initializes an empty repository if needed, fetches canonical
+through the helper, verifies the immutable claim base, and checks out that base.
+Tracked local edits must be committed or stashed first; checkout refuses file collisions.
+The replacement delegation remains saved if cloning fails. Recover with `octocove lane sync`
+and check out the recorded base; no plaintext provider credential is installed.
+A missing `tasks:read` grant refuses with “this agent's grant lacks tasks:read (needed to clone)”.
+
+`octocove lane sync` and `git fetch octocove` fetch canonical refs without moving HEAD
+or changing local edits. Merge the fetched target branch locally, then push again.
+The helper uses the canonical broker read lease for HTTPS smart upload-pack, with
+an in-memory Basic header (explicit broker username/password, or the opaque Git token).
+It follows no redirects, refreshes leases before expiry, and imports only verified Git
+objects into its private mirror. Tokens never enter Git config, child argv/env, or disk.
+
+Authority comes from the live claim and broker read leases. `lane push` sends Git's
+receive-pack request to the authenticated Worker endpoint for the exact
+`refs/octocove/claims/{claimId}` from the claim workspace. The helper streams the
+Worker's report-status back to Git; the Worker creates the submission and candidate.
+The connector also starts this same runtime on demand for plain `git push octocove`.
+Claim configures its default push ref and sets local `pack.window=0` and `pack.depth=0`.
+`lane push` additionally passes `--no-thin`; delta compression is disabled so commit
+objects are available for Worker ancestry verification, including previously packed commits.
+
+On `chain-push-non-fast-forward`, fetch canonical with a read lease, merge locally
+with the original base, then run `octocove lane push` again. The helper rediscovers
+the current claim-ref tip for the next push. On `candidate-ancestry-unverifiable`,
+retry with `git -c pack.window=0 -c pack.depth=0 push octocove` or a no-delta pack.
+A 413 refusal means the push is too large. No provider write token is exported.
+The helper closes, leases are revoked and temporary state is removed on exit,
+SIGINT or SIGTERM. An external socket always takes precedence. `helper status`
+describes runtime availability; it does not prove a helper is running.
 
 ## Local workspace cache
 
@@ -416,17 +441,18 @@ when its original claim key is reused.
 
 `lane push [REF]` resolves a local commit (default HEAD); `--source` instead
 requires an exact local SHA. It compares the saved/explicit base with the lane's
-immutable base and proves ancestry before any staging. It sends a full-history
-Git bundle through `OCTOCOVE_HELPER_SOCK`, queues the exact retained SHA, waits
-for verified delivery, then posts an ordinary submission and reads its candidate.
-`--task` / `--claim` override saved IDs. A single `--wait SECONDS` budget (default
-60) starts before lane inspection and covers local Git work, bundle/socket staging, enqueue, submission,
-delivery and candidate polling. Expired requests or staging exit 1 with `deadline-exceeded`; an unfinished
-delivery or candidate poll prints its last known state and exits 75. Temporary staging refs and files are
-cleaned up after cancellation, with up to one extra second for best-effort Git ref removal. `lane status`
-shows retained jobs, and `lane retry` wakes recovery without moving their bases.
-Reuse the same push key and `--push-id` to recover uncertain outcomes; submission
-uses a derived key, so repeating the command cannot create another submission.
+immutable base and proves ancestry before pushing. Git sends a non-thin,
+non-delta pack through the helper to the Worker's authenticated receive-pack
+endpoint. Discovery accepts the current claim-ref tip or the fresh zero-OID capabilities marker
+with canonical/base hints. The HTTP service preamble is stripped; fresh empty-ref hints
+are omitted for Git native transport, producing a self-contained pack. The Worker creates the submission and candidate; the CLI reads the
+result through `task.liveAttempt.submissionId`, without enqueueing or resubmitting.
+`--task` / `--claim` override saved IDs. One `--wait SECONDS` budget (default 60)
+covers inspection, Git push, receive-pack response and candidate polling.
+A stale candidate exits 76 (`candidate-stale`) and prints the current canonical
+head with fetch, merge and push guidance. Approval refuses that candidate; it must
+be pushed again after merging the current canonical. A pending candidate exits 75; expired inspection or transport exits 1 with
+`deadline-exceeded`. Inspect `task show` before retrying an uncertain write.
 
 Lane `--json` results use `{id,type,schemaVersion:1,projectId,taskId,occurredAt,data}`.
 `type` is the client operation (`lane.push`, `lane.status`, `lane.retry`,
@@ -436,19 +462,13 @@ the record event queue; `events replay` / `events --follow` provide authoritativ
 v1 events. Saved claim metadata supplies `projectId`, or it is null for explicit
 IDs outside a claimed clone. Failures retain the CLI's problem envelope on stderr.
 
-The trusted runtime must start the ADR 0005 `AttemptHelper` with
-its broker-derived read grant and a trusted `chain: {taskId,baseSha,stage}` binding.
-The protected socket accepts `chain-stage`, a JSON header of exact identifiers,
-then Git bundle bytes. The helper rechecks live grant/expiry, independently binds
-task/attempt/base, verifies the commit and ancestry, and calls `stage` only after
-native bundle ingestion. No URL, credential or upstream write comes from the CLI.
-The `stage` callback hands the verified objects to the service's protected
-chain-push custody, which keeps them on durable storage; a remote runtime
-adapter must transfer objects to that same protected custody before resolving
-the callback. The API independently fetch-verifies the handle
-before enqueueing. An absent/unconfigured helper refuses with exit 78, never a
-provider-token fallback. See [credential boundary](../../docs/adr/0005-credential-boundary.md)
-and [helper contract](../../docs/HELPER_BROKER_CONTRACT.md).
+The CLI-managed helper uses the agent's own scoped delegation for Worker
+receive-pack. It gets a live claim and broker read leases, binds the exact claim
+ref, forwards one receive-pack command, then streams Git report-status unchanged.
+The connector starts this runtime on demand for plain `git push octocove` too.
+It tears down and revokes leases on exit or signal. An external socket takes
+precedence. This same-user adapter is not an isolated credential boundary;
+see [agent runtime setup](#claiming-as-an-agent-runtime-prerequisites).
 
 ### Headless machine grants
 

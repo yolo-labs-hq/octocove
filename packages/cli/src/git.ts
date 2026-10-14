@@ -2,7 +2,7 @@ import childProcess from "node:child_process";
 import { TransportError } from "./http.js";
 
 /** Runs `git <args>` in cwd and resolves trimmed stdout. Injected so tests can use a real temp repo or a fake. */
-export type GitRunner = (args: string[], options?: { signal?: AbortSignal }) => Promise<string>;
+export type GitRunner = (args: string[], options?: { signal?: AbortSignal; env?: NodeJS.ProcessEnv; stderr?: (text: string) => void }) => Promise<string>;
 
 /** The CLI's git runs only local commands in the user's own repository: it keeps their repo
  * layout and git config, but never inherits OCTOCOVE_* credentials or other process secrets.
@@ -16,9 +16,10 @@ export const systemGit =
   (cwd: string): GitRunner =>
   (args, options) =>
     new Promise((resolve, reject) => {
-      childProcess.execFile("git", args, { cwd, timeout: 120_000, env: gitEnv(), signal: options?.signal }, (err, stdout, stderr) =>
+      const child = childProcess.execFile("git", args, { cwd, timeout: 120_000, env: gitEnv(options?.env), signal: options?.signal }, (err, stdout, stderr) =>
         err ? reject(options?.signal?.aborted ? options.signal.reason : new Error(stderr.trim() || err.message)) : resolve(stdout.trim()),
       );
+      if (options?.stderr) child.stderr?.on("data", options.stderr);
     });
 
 export async function tryGit(git: GitRunner, args: string[]): Promise<string | undefined> {

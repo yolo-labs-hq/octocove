@@ -50,15 +50,16 @@ repository. Both are Apache-2.0, built from this repository's own sources, and
 contain no third-party code. Each tarball carries the repository `LICENSE` and
 `NOTICE`, which `prepack` copies from the repository root. Neither package
 declares runtime `dependencies`; the built JavaScript imports only Node.js
-built-in modules (`node:*`). Both packages are still `"private": true`;
-publishing follows [RELEASING.md](RELEASING.md).
+built-in modules (`node:*`). Publishing follows [RELEASING.md](RELEASING.md).
 
 **`@yolo-labs/octocove`** (`packages/cli`) contains exactly:
 
-- `dist/octocove.mjs`: one ESM file that esbuild bundles from `packages/cli/src`,
-  `packages/client/src` and `packages/shared/src`. These are all first-party
+- `dist/octocove.mjs`: an ESM executable that esbuild bundles from `packages/cli/src`,
+  `packages/client/src`, `packages/shared/src` and `packages/helper/src`. These are all first-party
   sources from this repository. The bundle contains no source map and no code
   from `node_modules`. Its only imports are Node.js built-ins.
+- `dist/octocove-helper-connect.mjs`: the bundled connector and on-demand same-user runtime.
+- `dist/pre-receive-hook.mjs`: the helper mirror hook, loaded beside the executable.
 - `package.json`, `README.md`, `LICENSE`, `NOTICE`.
 
 The CLI tarball needs no `THIRD_PARTY_NOTICES` file because nothing third-party

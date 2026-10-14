@@ -57,7 +57,7 @@ const { body } = await client.call('taskGet', { path: { id: taskId } });
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 87 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 89 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -123,7 +123,7 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 | `brokerTokenCreate` | `never` | `none` | fresh token on every call; the token ledger does not deduplicate by key |
 | `approvalGrantExchange`, `submitGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
 | `authCallback`, `authCliStart` | `callable: false` | `navigation` | browser navigation, never fetched by the library |
-| `brokerHelperPush`, `collaborationEventDelivery` | `callable: false` | `excluded` | outside the library's scope; the webhook id is typed for receivers |
+| `brokerHelperPush`, `chainLaneReceivePack`, `chainLaneReceivePackRefs`, `collaborationEventDelivery` | `callable: false` | `excluded` | outside the library's scope; the webhook id is typed for receivers |
 
 ## Journeys
 
