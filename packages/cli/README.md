@@ -69,7 +69,8 @@ reads credentials or starts network requests.
 | `logout` | `POST /auth/logout`; clear active credential after success |
 | `whoami [--json]` | `GET /me` (library `auth.me()`): the authenticated principal, credential kind and project memberships |
 | `project create SLUG --name TEXT [--json]` | `POST /projects` (library `projects.create()`): allow-listed humans create a project and become its first member; 403 `project-create-disabled` otherwise |
-| `repo create PROJECT --name NAME [--import HTTPS_URL [--branch B]] [--target-ref REF] [--json]` | `POST /projects/{project}/repositories` with `mode` `create` or `import` (library `repositories.create()`): a `project:admin` human has Octocove create an empty repository, or import a public HTTPS remote, in the project's own Artifacts namespace (ADR 0018); born verified; an import prints `importing` and claims answer 409 `repository-importing` until `repo list` shows `(import ready)`; 400 `repository-import-url-invalid` / `repository-import-refused`, 409 `canonical-exists` / `repository-taken` / `repository-creation-pending`, 503 `broker-unavailable` / `broker-provider-unavailable` (Octocove deletes nothing; the cron records the repository if it was created, so retry with the same key, or hands it to the operator) |
+| `repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF] [--json]` | `POST /projects/{project}/repositories` with `mode` `create` or `import` (library `repositories.create()`): a `project:admin` human has Octocove create an empty repository (or a README root commit with `--seed` in native mode), or import a public HTTPS remote, in the project's own Artifacts namespace (ADR 0018); born verified; an import prints `importing` and claims answer 409 `repository-importing` until `repo list` shows `(import ready)`; 400 `repository-import-url-invalid` / `repository-import-refused`, 409 `canonical-exists` / `repository-taken` / `repository-creation-pending`, 503 `broker-unavailable` / `broker-provider-unavailable` (Octocove deletes nothing; the cron records the repository if it was created, so retry with the same key, or hands it to the operator) |
+| `project member add PROJECT --principal ID [--role member\|approver] [--verbs a,b]` | `POST /projects/{project}/members`: human project administrators add a signed-in principal. `member` uses the server defaults; `approver` grants task/candidate/receipt/audit/event reads plus approval and landing, without project administration. Use `--verbs` for an explicit set; it cannot be combined with `--role`. |
 | `repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA] [--json]` | `POST /projects/{project}/repositories` (library `repositories.create()`): a `project:admin` human registers the project's canonical Artifacts repository and target ref (default `refs/heads/main`); `NS` must be the project's own namespace `oc-<project-id>`; 409 `canonical-exists` / `repository-taken` / `repository-namespace-mismatch` / `repository-creation-pending` (an open repository creation reserves that name) |
 | `repo verify PROJECT REPOSITORY [--json]` | `POST /projects/{project}/repositories/{repository}/verify` (library `repositories.verify()`): a `project:admin` human binds a registered repository once it exists in the project's own Artifacts namespace (`oc-<project-id>`, ADR 0017), so claims stop answering 409 `repository-unverified`; 409 `repository-namespace-mismatch` (registered outside that namespace), 409 `repository-remote-not-found`, 503 `broker-unavailable` (Artifacts secrets not installed) |
 | `repo list PROJECT [--json]` | `GET /projects/{project}/repositories` (library `repositories.list()`): the repository ids and target refs `task create` takes |
@@ -85,15 +86,15 @@ reads credentials or starts network requests.
 | `helper status [--json]` | Local, secret-free helper configuration |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:604](src/cli.ts#L604 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:605](src/cli.ts#L605 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:606](src/cli.ts#L606 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:607](src/cli.ts#L607 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:608](src/cli.ts#L608 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:609](src/cli.ts#L609 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:610](src/cli.ts#L610 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:611](src/cli.ts#L611 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:612](src/cli.ts#L612 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:619](src/cli.ts#L619 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:620](src/cli.ts#L620 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:621](src/cli.ts#L621 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:622](src/cli.ts#L622 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:623](src/cli.ts#L623 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:624](src/cli.ts#L624 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:625](src/cli.ts#L625 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:626](src/cli.ts#L626 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:627](src/cli.ts#L627 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -101,12 +102,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1031](src/cli.ts#L1031 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1043](src/cli.ts#L1043 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1062](src/cli.ts#L1062 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1074](src/cli.ts#L1074 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1083](src/cli.ts#L1083 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1114](src/cli.ts#L1114 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:355](src/cli.ts#L355 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:363](src/cli.ts#L363 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 `--json` (anywhere) prints the API response instead of text; thrown usage/execution errors emit exactly one
 `{"error": {...}}` on stderr. Auth/authorize/claim responses expose metadata only, with credentials kept in the
@@ -124,7 +125,7 @@ metadata when the credential is saved. It never emits the device code, verifier,
   a human to revoke. Successful logout/self-revoke erases the active secret and leaves a protected tombstone so stale
   import settings cannot reactivate credentials. Failed operations preserve the active credential.
 - **task authorize** writes a unique `credentials/bootstrap-<id>.json` (0600, inside a 0700 directory), and prints
-  its path and authorization metadata. Securely pass that file to the named job and run
+  its path and authorization metadata. The protected file also carries the agent label for `whoami`; the server remains the authority for the delegating human. Give each agent its own `OCTOCOVE_CONFIG_DIR`. Securely pass that file to the named job and run
   `octocove task claim TASK --intent-version N --bootstrap-file FILE` there. The flag and
   `OCTOCOVE_BOOTSTRAP_FILE` carry paths only. An explicit flag intentionally imports a new bootstrap; an environment
   import path never overrides an active delegation.

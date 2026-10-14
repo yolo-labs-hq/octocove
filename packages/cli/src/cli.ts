@@ -56,8 +56,9 @@ Commands:
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
   whoami                                      (authenticated principal and project memberships)
+  project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT             (allow-listed humans; you become its first member)
-  repo create PROJECT --name NAME [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
+  repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts remote)
@@ -211,9 +212,15 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof TransportError) return emit(err.code, `${err.code}: ${TRANSPORT_DETAIL[err.code] ?? err.message}`, { status: 0 }), EXIT.failure;
   if (err instanceof ApiError) {
     const nextSteps = err.code === "credential-expired"
-      ? "Run `octocove auth renew` to recover the expired session. If renewal is refused, run `octocove login` to sign in again."
-      : undefined;
-    emit(err.code, nextSteps ? `credential-expired: ${nextSteps}` : err.message,
+      ? "Run `octocove auth renew` to recover the expired credential. If a human session cannot be renewed, run `octocove login`. For an agent delegation, ask the delegating human for a new task authorization and import its bootstrap into the agent config directory."
+      : err.code === "chain-base-mismatch"
+        ? "Run `octocove task show TASK_ID` and `octocove lane status` to inspect the pinned base. Use that immutable base and a source containing it; do not rewrite the lane pin."
+        : ["stale-base", "stale-head"].includes(err.code)
+          ? "Run `octocove task show TASK_ID` to inspect the current base and replacement candidate. Obtain a fresh approval for the current candidate before landing."
+        : err.code === "already-claimed"
+          ? "Run `octocove task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to replace the claim."
+          : undefined;
+    emit(err.code, nextSteps ? err.code === "credential-expired" ? `credential-expired: ${nextSteps}` : `${err.message} ${nextSteps}` : err.message,
       { status: err.status, requestId: err.requestId, details: err.details, ...(nextSteps ? { nextSteps, hint: nextSteps } : {}) });
     if (!json && err.details) d.stderr(`details: ${JSON.stringify(err.details)}\n`);
     if (err.status === 503 && err.code === "oidc-registration-required") return EXIT.config;
@@ -232,7 +239,7 @@ async function dispatch(d: Deps) {
     const words = d.argv.filter(arg => arg !== "--help" && arg !== "--json");
     const first = words[0] === "--version" || words[0] === "-v" ? "version" : words[0];
     const command = first && GROUPS.has(first) && first !== "events"
-      ? `${first} ${words[1] ?? ""}`
+      ? first === "project" && words[1] === "member" ? `project member ${words[2] ?? ""}` : `${first} ${words[1] ?? ""}`
       : first === "events" && words[1] === "replay" ? "events replay" : first;
     if (command && COMMAND_NAMES.includes(command)) {
       const commandWords = command.split(" ");
@@ -259,12 +266,13 @@ async function dispatch(d: Deps) {
     return;
   }
   const grouped = GROUPS.has(a);
-  const command = a === "--version" || a === "-v" ? "version" : grouped ? `${a} ${b}` : a;
-  const machineArgs = grouped ? tail : b === undefined ? [] : [b, ...tail];
+  const memberCommand = a === "project" && b === "member";
+  const command = memberCommand ? `project member ${tail[0] ?? ""}` : a === "--version" || a === "-v" ? "version" : grouped ? `${a} ${b}` : a;
+  const machineArgs = memberCommand ? tail.slice(1) : grouped ? tail : b === undefined ? [] : [b, ...tail];
   if (await machineCommand(d, command, [...lead, ...machineArgs])) return;
   const handler = COMMANDS[a === "claim" ? "task claim" : command];
   if (!handler) throw new UsageError(`unknown command: ${[a, grouped ? b : undefined].filter(Boolean).join(" ")}`);
-  const args = grouped ? tail : b === undefined ? [] : [b, ...tail];
+  const args = memberCommand ? tail.slice(1) : grouped ? tail : b === undefined ? [] : [b, ...tail];
   await handler(d, [...lead, ...args]);
 }
 
@@ -408,7 +416,14 @@ const eventsFollow: Handler = async (d,args) => {
 // committed audit events: event replay/follow remains the source of record events.
 function laneOut(d: Deps, json: boolean, action: string, taskId: string, projectId: string | null, data: any, id = newIdempotencyKey()) {
   out(d, json, { id, type: `lane.${action}`, schemaVersion: 1, projectId, taskId, occurredAt: new Date().toISOString(), data },
-    () => kv(Object.entries(data)));
+    () => {
+      if (action !== "push") return kv([["Task", taskId], ...Object.entries(data)]);
+      const c = data.candidate?.candidate;
+      return kv([["Task", taskId], ["Agent", data.submission?.context?.actorType === "agent" ? data.submission.context.actorId : undefined],
+        ["Push", data.push?.pushId], ["Status", c?.status ?? data.candidate?.state ?? data.push?.status],
+        ["Submission", data.submission?.id], ["Candidate", c?.id], ["Candidate SHA", c?.candidateSha],
+        ["Base SHA", c?.baseSha ?? data.lane?.baseSha], ["Outcome", c?.outcome]]);
+    });
 }
 const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler => async (d, args) => {
   const { v, pos } = opts(args, { task: { type: "string" }, claim: { type: "string" },
@@ -584,10 +599,10 @@ const COMMANDS: Record<string, Handler> = {
 
   whoami: async (d, args) => {
     const { v } = opts(args, {}, 0);
-    const { api } = await client(d);
+    const { api, creds } = await client(d);
     const me = await api.j.auth.me(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("whoami did not return a principal"));
     out(d, v.json, me, () => [
-      kv([["Principal", me.principal.id], ["Kind", me.principal.kind], ["Name", me.principal.displayName], ["Email", me.principal.email],
+      kv([["Principal", me.principal.id], ["Kind", me.principal.kind], ["Agent", me.principal.kind === "delegation" ? creds.agentId ?? me.principal.displayName : undefined], ["Name", me.principal.displayName], ["Email", me.principal.email],
         ["Delegated by", me.principal.kind === "delegation" ? `${me.principal.issuer}|${me.principal.sub}` : undefined],
         ["Identity", me.principal.kind === "machine" ? `${me.principal.issuer}|${me.principal.sub}` : undefined],
         ["Policy version", me.principal.policyVersion],
@@ -637,6 +652,21 @@ const COMMANDS: Record<string, Handler> = {
     out(d, v.json, r, () => kv([["Project", r.id], ["Slug", r.slug], ["Name", r.name], ["Created", r.createdAt]]));
   },
 
+  "project member add": async (d, args) => {
+    const { v, pos } = opts(args, { principal: { type: "string" }, role: { type: "string" }, verbs: { type: "string" } }, 1);
+    if (v.role !== undefined && v.verbs !== undefined) throw new UsageError("use --role or --verbs, not both");
+    if (v.role !== undefined && !["member", "approver"].includes(v.role)) throw new UsageError("--role must be member or approver");
+    const principalId = need(v, "principal");
+    const verbs = v.verbs !== undefined ? v.verbs.split(",").map((x: string) => x.trim())
+      : v.role === "approver" ? ["tasks:list", "tasks:read", "candidates:read", "candidates:approve", "candidates:land", "receipts:read", "audit:read", "events:read"] : undefined;
+    if (verbs?.some((x: string) => !x)) throw new UsageError("--verbs must contain nonempty comma-separated verbs");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("project member add requires a human credential");
+    const r = (await api.j.command("memberAdd", { path: { project: pos[0]! }, body: { principalId, ...(verbs ? { verbs } : {}) } },
+      api.write(COMMAND_SECONDS, v["idempotency-key"]))).body;
+    out(d, v.json, r, () => kv([["Project", pos[0]], ["Principal", r.principalId], ["Verbs", r.verbs?.join(", ")], ["Added", r.addedAt]]));
+  },
+
   "repo add": async (d, args) => {
     const { v, pos } = opts(args, { namespace: { type: "string" }, repo: { type: "string" }, name: { type: "string" }, "target-ref": { type: "string" }, head: { type: "string" } }, 1);
     const input = { provider: "artifacts" as const, namespace: need(v, "namespace"), repoId: need(v, "repo"), name: need(v, "name"),
@@ -649,19 +679,20 @@ const COMMANDS: Record<string, Handler> = {
   },
 
   "repo create": async (d, args) => {
-    const { v, pos } = opts(args, { name: { type: "string" }, import: { type: "string" }, branch: { type: "string" }, "target-ref": { type: "string" } }, 1);
+    const { v, pos } = opts(args, { name: { type: "string" }, seed: { type: "boolean" }, import: { type: "string" }, branch: { type: "string" }, "target-ref": { type: "string" } }, 1);
+    if (v.seed && v.import !== undefined) throw new UsageError("--seed cannot be combined with --import");
     if (v.branch !== undefined && v.import === undefined) throw new UsageError("--branch needs --import");
     const name = need(v, "name"), targetRef = v["target-ref"] === undefined ? {} : { targetRef: v["target-ref"] };
-    const input = v.import === undefined ? { mode: "create" as const, name, ...targetRef }
+    const input = v.import === undefined ? { mode: "create" as const, name, ...targetRef, ...(v.seed ? { seed: true } : {}) }
       : { mode: "import" as const, name, url: v.import, ...(v.branch === undefined ? {} : { branch: v.branch }), ...targetRef };
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo create requires a human credential");
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
     const nextSteps = input.mode === "create"
-      ? "Empty repository: see " + EMPTY_REPOSITORY_GUIDE
+      ? v.seed ? "Use the seeded head as the base when creating and claiming tasks." : "Empty repository: see " + EMPTY_REPOSITORY_GUIDE
       : "Wait for `repo list` to show the import ready before claiming.";
     out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "clone URL not available yet" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "clone URL not available yet"], ["Target ref", r.targetRef],
-      ["Import", r.importState ? `${r.importState} (claims wait until \`repo list\` shows it ready)` : "none (empty repository)"], ["Next steps", nextSteps]]));
+      ["Head", r.knownHeadSha], ["Import", r.importState ? `${r.importState} (claims wait until \`repo list\` shows it ready)` : v.seed ? "none (seeded repository)" : "none (empty repository)"], ["Next steps", nextSteps]]));
   },
 
   "repo verify": async (d, args) => {
@@ -801,7 +832,7 @@ const COMMANDS: Record<string, Handler> = {
     let credentialsFile: string | undefined;
     let activeCreds = creds;
     if (delegation) {
-      activeCreds = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId };
+      activeCreds = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, ...(creds.agentId ? { agentId: creds.agentId } : {}) };
       credentialsFile = await saveCredentials(d.env, activeCreds);
     }
     let claim = granteeClaim;
@@ -886,7 +917,7 @@ const COMMANDS: Record<string, Handler> = {
     out(d, v.json, shown, () => {
       const lines = [contractText(task ? { ...task, intentVersion: claim.intentVersion } : { intent: undefined, intentVersion: claim.intentVersion }, claim.dependencyResults)];
       if (!task) lines[0] = `Claim ${claimId} for task ${taskId} (intent v${claim.intentVersion})\n\nUpstream results:\n${(claim.dependencyResults ?? []).map((r: any) => `  ${r.upstreamTaskId}  receipt ${r.receiptId}  landed ${r.landedSha}`).join("\n") || "  (none)"}`;
-      lines.push("", kv([["Claim", claimId], ["Provisioning", claim.provisioningState], ["Blocked reason", claim.blockedReason], ["Expires", claim.expiresAt], ["Remote", ws ? `${remoteName} -> ${ws.remote}` : undefined], ["Ref", ws?.ref], ["Credentials saved", credentialsFile]]));
+      lines.push("", kv([["Task", task?.key ?? taskId], ["Agent", activeCreds.agentId], ["Claim", claimId], ["Status", claim.status], ["Provisioning", claim.provisioningState], ["Blocked reason", claim.blockedReason], ["Expires", claim.expiresAt], ["Remote", ws ? `${remoteName} -> ${ws.remote}` : undefined], ["Ref", ws?.ref], ["Credentials saved", credentialsFile]]));
       if (chain) lines.push("", kv([["Chain", chain.id], ["Pointer version", lane?.pointerVersion], ["Pointer SHA", lane?.proofSha], ["Base SHA", lane?.baseSha ?? chain.baseSha]]), "", ...recipe!);
       return lines.join("\n");
     });
@@ -911,7 +942,7 @@ const COMMANDS: Record<string, Handler> = {
     // recovery, while the bootstrap is unconsumed); a refusal such as `idempotency-result-expired` is surfaced, never reissued.
     const issued = await api.j.claims.authorize(pos[0]!, input, api.write(AUTHORIZE_SECONDS, v["idempotency-key"]))
       .catch(offShapeAs("authorization did not return a bootstrap credential"));
-    const bootstrapFile = await saveBootstrap(d.env, creds.apiUrl, issued.token);
+    const bootstrapFile = await saveBootstrap(d.env, creds.apiUrl, issued.token, input.agentId);
     const metadata = { id: issued.authorizationId, claimAttemptId: issued.claimAttemptId, delegationId: issued.delegationId,
       verbs: issued.verbs, bootstrapExpiresAt: issued.expiresAt, bootstrapFile };
     out(d, v.json, metadata, () => kv([["Authorization", metadata.id], ["Claim attempt", metadata.claimAttemptId], ["Delegation", metadata.delegationId], ["Verbs", metadata.verbs?.join(",")], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile]]));
@@ -978,7 +1009,7 @@ const COMMANDS: Record<string, Handler> = {
       if (view.state === "pending") return kv([["State", view.state], ["Job", view.jobId ?? "(staged behind a landing fence)"]]);
       if (view.state === "superseded") return kv([["State", view.state], ["Superseded by", view.replacementSubmissionId]]);
       const c = view.candidate;
-      return kv([["Candidate", c.id], ["State", view.state], ["Outcome", c.outcome], ["Status", c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Check", c.latestCheck?.result], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["boundTo", c.reviewBoundTo]]);
+      return kv([["Task", c.taskId], ["Candidate", c.id], ["State", view.state], ["Outcome", c.outcome], ["Status", c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Check", c.latestCheck?.result], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["Intent version", c.reviewBoundTo?.intentVersion]]);
     });
   },
 
@@ -991,7 +1022,7 @@ const COMMANDS: Record<string, Handler> = {
     }
     const boundTo = { candidateSha: need(v, "candidate-sha"), baseSha: need(v, "base-sha"), intentVersion: intFlag(v, "intent-version") ?? (() => { throw new UsageError("--intent-version is required"); })() };
     const r = await api.j.approvals.approve(pos[0]!, boundTo, { ...api.write(COMMAND_SECONDS, v["idempotency-key"]), ...(v.note ? { note: v.note } : {}) });
-    out(d, v.json, r, () => kv([["Approval", r.id], ["Candidate", r.candidateId], ["Approved by", r.approvedBy], ["Status", r.status], ["boundTo", r.boundTo]]));
+    out(d, v.json, r, () => kv([["Task", r.taskId], ["Approval", r.id], ["Candidate SHA", r.boundTo?.candidateSha], ["Base SHA", r.boundTo?.baseSha], ["Candidate", r.candidateId], ["Approved by", r.approvedBy], ["Status", r.status], ["Intent version", r.boundTo?.intentVersion]]));
   },
 
   land: async (d, args) => {
@@ -1122,7 +1153,7 @@ async function printReceipt(d: Deps, api: Api, receiptId: string, deadline: numb
     else if (waited.pending) b = waited.pending;
   }
   out(d, json, accepted ? { landing: final && isRecord(accepted) ? { ...accepted, status: b.outcome } : accepted, receipt: b } : b, () =>
-    kv([["Receipt", b.receiptId ?? b.id ?? receiptId], ["State", final ? "final" : "pending"], ["Outcome", b.outcome], ["Task", b.taskId], ["Candidate", b.candidateSha], ["Landed SHA", b.landedSha], ["Base before", b.baseShaBefore], ["Base after", b.baseShaAfter], ["Conflicts", b.conflictFiles?.join(", ") || undefined], ["Error", b.errorDetail], ["Ancestry verified", b.ancestryVerified], ["Fence", b.fenceId], ["Integrator run", b.integratorRunId], ["Reconciled at", b.reconciledAt]]),
+    kv([["Receipt", b.receiptId ?? b.id ?? receiptId], ["State", final ? "final" : "pending"], ["Outcome", b.outcome], ["Task", b.taskId], ["Candidate", b.candidateId], ["Candidate SHA", b.candidateSha], ["Landed SHA", b.landedSha], ["Base before", b.baseShaBefore], ["Base after", b.baseShaAfter], ["Conflicts", b.conflictFiles?.join(", ") || undefined], ["Error", b.errorDetail], ["Ancestry verified", b.ancestryVerified], ["Fence", b.fenceId], ["Integrator run", b.integratorRunId], ["Reconciled at", b.reconciledAt]]),
   );
   if (!final && (deadline !== undefined || !accepted)) throw pending();
 }

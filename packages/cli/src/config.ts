@@ -10,6 +10,7 @@ export interface Credentials {
   token: string;
   kind: CredentialKind;
   delegationId?: string;
+  agentId?: string;
 }
 export class ConfigError extends Error {}
 const KINDS = new Set<string>(["human", "agent", "bootstrap", "machine"]);
@@ -23,8 +24,9 @@ function parseCredentials(raw: string): Credentials {
   try {
     const file = JSON.parse(raw);
     if (!file || typeof file.apiUrl !== "string" || !file.apiUrl || typeof file.token !== "string" || !file.token || !KINDS.has(file.kind)) throw new Error();
+    if (file.agentId !== undefined && (typeof file.agentId !== "string" || !file.agentId)) throw new Error();
     if (file.delegationId !== undefined && typeof file.delegationId !== "string") throw new Error();
-    return { apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.delegationId ? { delegationId: file.delegationId } : {}) };
+    return { apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
   } catch { throw new ConfigError("invalid credentials file"); }
 }
 
@@ -84,8 +86,8 @@ export async function saveCredentials(env: NodeJS.ProcessEnv, creds: Credentials
   return atomicSecret(activeFile(env), creds);
 }
 
-export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, token: string): Promise<string> {
-  return atomicSecret(join(configDir(env), "credentials", `bootstrap-${randomUUID()}.json`), { apiUrl, token, kind: "bootstrap" });
+export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, token: string, agentId?: string): Promise<string> {
+  return atomicSecret(join(configDir(env), "credentials", `bootstrap-${randomUUID()}.json`), { apiUrl, token, kind: "bootstrap", ...(agentId ? { agentId } : {}) });
 }
 
 export async function clearCredentials(env: NodeJS.ProcessEnv): Promise<void> {

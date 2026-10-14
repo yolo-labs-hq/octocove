@@ -152,7 +152,7 @@ describe("bootstrap hand-off", () => {
     const file = json ? JSON.parse(stdout).bootstrapFile : stdout.match(/Bootstrap file:\s+(.+)/)![1]!;
     expect(file).toContain(join(dir, "credentials", "bootstrap-"));
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ apiUrl: API, token: BOOT, kind: "bootstrap" });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "A1" });
     expect((await active()).token).toBe(SESSION);
     if (json) expect(JSON.parse(stdout)).not.toHaveProperty("bootstrapToken");
     // The receiving job imports the file without a secret in argv or environment.
@@ -163,7 +163,7 @@ describe("bootstrap hand-off", () => {
       return response({ claim: { ...claim, provisioningState: "ready" }, delegation }, 201);
     };
     expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.ok);
-    expect((await loadCredentials(env)).token).toBe(AGENT);
+    expect(await loadCredentials(env)).toMatchObject({ token: AGENT, agentId: "A1" });
     env.OCTOCOVE_CONFIG_DIR = dir;
   });
 });
@@ -522,7 +522,7 @@ describe("JSON errors and candidate display", () => {
     const body = { state: "complete", candidate: { id: "CA1", candidateSha, baseSha, outcome: "computed", latestCheck: { result: "passed" }, reviewBoundTo: { candidateSha, baseSha, intentVersion: 3 } } };
     routes["GET /v1/submissions/S1/candidate"] = () => response(body);
     expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(EXIT.ok);
-    for (const text of ["CA1", "complete", candidateSha, baseSha, "passed", '"intentVersion":3']) expect(stdout).toContain(text);
+    for (const text of ["CA1", "complete", candidateSha, baseSha, "passed", 'Intent version:   3']) expect(stdout).toContain(text);
     expect(await cli(["candidate", "show", "--submission", "S1", "--json"])).toBe(EXIT.ok);
     expect(JSON.parse(stdout)).toEqual(body);
   });

@@ -2425,6 +2425,11 @@ export interface components {
             name: string;
             /** @description The branch tasks land onto, and the new repository's default branch; `refs/heads/main` when omitted. Same rules as a registration's `targetRef`. */
             targetRef?: string;
+            /**
+             * @description Create a deterministic README root commit. Supported only by the local native provider, for a new repository with no head. Not accepted with import or register.
+             * @default false
+             */
+            seed?: boolean;
         };
         /** @description Octocove imports a public HTTPS Git remote into a new Artifacts repository in the project's namespace. Private sources are not supported. */
         RepositoryImport: {
@@ -2733,7 +2738,7 @@ export interface components {
              * @description Opt-in. When true, every exchange proof under this binding must carry a signed operation claim (approve or submit, matching the route) plus candidate_id for approval or task_id for submission, each equal to the record. When false (default), scope claims are compared only when present, as ADR 0001 describes; an operation claim, if present, must still name the route.
              * @default false
              */
-            requireScopedClaims: boolean;
+            requireScopedClaims?: boolean;
         };
         ApprovalPolicyRegistration: {
             /** @description Null is explicit target opt-in; otherwise registered principal ID. */
