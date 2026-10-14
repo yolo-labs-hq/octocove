@@ -82,10 +82,11 @@ export async function setupHelperTransport(git: GitRunner, remoteName: string, h
 
 /** Check effective URLs, including pushurl and insteadOf rewrites. The protected
  * runtime resolves the repo/ref; this connector must never accept another target. */
-export async function helperRemoteMatches(git: GitRunner, remoteName: string, connectorPath?: string) {
+export async function helperRemoteMatches(git: GitRunner, remoteName: string, connectorPath?: string, env: NodeJS.ProcessEnv = {}) {
   const fetchUrl = await git(['remote', 'get-url', remoteName]);
   const pushUrls = (await git(['remote', 'get-url', '--push', '--all', remoteName])).split('\n');
-  return [HELPER_REMOTE, managedHelperRemote(connectorPath)].includes(fetchUrl) && pushUrls.length > 0 && pushUrls.every(url => url === fetchUrl);
+  return (fetchUrl === managedHelperRemote(connectorPath) || (helperTransportActive(env) && fetchUrl === HELPER_REMOTE))
+    && pushUrls.length > 0 && pushUrls.every(url => url === fetchUrl);
 }
 
 export async function helperStatus(git: GitRunner, env: NodeJS.ProcessEnv = {}, connectorPath?: string) {
@@ -93,8 +94,10 @@ export async function helperStatus(git: GitRunner, env: NodeJS.ProcessEnv = {}, 
   if (!name) return { configured: false, runtime: 'built-in same-user (not an isolated credential boundary)', hint: HELPER_HINT };
   const url = await git(['remote', 'get-url', name]);
   // Socket-helper transport: the remote is the ext:: connector and carries no credential.
-  if ([HELPER_REMOTE, managedHelperRemote(connectorPath)].includes(url))
+  if (await helperRemoteMatches(git, name, connectorPath, env))
     return { configured: true, runtime: helperTransportActive(env) ? 'external' : 'built-in same-user (not an isolated credential boundary)', transport: 'socket-helper', helper: 'octocove-helper-connect', remote: name };
+  if (url.startsWith("ext::")) return { configured: false, runtime: helperTransportActive(env) ? "external" : "built-in same-user (not an isolated credential boundary)",
+    helper: "remote does not match this runtime; run task claim to configure the installed connector", hint: HELPER_HINT };
   const u = cleanUrl(url);
   return { configured: false, origin: u.origin, path: u.pathname.slice(1),
     helper: 'missing socket transport; run task claim to configure it', runtime: 'built-in same-user (not an isolated credential boundary)', hint: HELPER_HINT };

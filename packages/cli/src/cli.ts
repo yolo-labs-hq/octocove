@@ -548,13 +548,13 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
       if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
       return;
     }
+    const remoteName = await getConfig(d.git, "octocove.remote") ?? "octocove";
+    if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("claim first to configure the octocove helper remote");
     if (!externalSocket) {
       const boundProject = projectId ?? (await api.call("taskGet", { path })).body.projectId;
       managed = await startManagedHelper({ ...d, ...creds, taskId, claimId: claimAttemptId, projectId: boundProject, baseSha, deadline, signal: scope?.signal });
       d = { ...d, env: { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath } };
     }
-    const remoteName = await getConfig(d.git, "octocove.remote") ?? "octocove";
-    if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath)) throw new ConfigError("claim first to configure the octocove helper remote");
     try {
       await scope!.guard(originalGit(["-c", "pack.window=0", "-c", "pack.depth=0", "push", "--no-thin", "--", remoteName, `${sourceSha}:${ref}`],
         { signal: scope!.signal, env: d.env, stderr: d.stderr }));
@@ -587,7 +587,7 @@ const COMMANDS: Record<string, Handler> = {
     requireAgentCredential(creds?.kind ?? "missing");
     const [taskId,claimId,projectId,baseSha,remoteName] = await Promise.all(["taskId","claimId","projectId","baseSha","remote"].map(k => getConfig(d.git,`octocove.${k}`)));
     if (!taskId || !claimId || !projectId || !remoteName) throw new ConfigError("claim first to configure this agent's workspace");
-    if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath)) throw new ConfigError("workspace remote is not the claimed helper transport");
+    if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("workspace remote is not the claimed helper transport");
     const managed = d.env.OCTOCOVE_HELPER_SOCK ? undefined : await startManagedHelper({ ...d, ...creds!,taskId,claimId,projectId,baseSha });
     try {
       await d.git(["fetch","--no-tags","--",remoteName,"+refs/heads/*:refs/remotes/"+remoteName+"/*"],
@@ -1007,7 +1007,7 @@ const COMMANDS: Record<string, Handler> = {
         const names = await d.git(["remote"]).then(x => x.split("\n")).catch(() => [] as string[]);
         let have = names.includes(remoteName);
         requireHelperTransport(d.env);
-        if (have && !v.remote && !await helperRemoteMatches(d.git, remoteName, d.connectorPath)) {
+        if (have && !v.remote && !await helperRemoteMatches(d.git, remoteName, d.connectorPath, managed ? {} : d.env)) {
           const prefix = `octocove-${createHash("sha256").update(ws.mappingId).digest("hex").slice(0, 12)}`;
           remoteName = prefix;
           for (let suffix = 1; names.includes(remoteName); suffix++) remoteName = `${prefix}-${suffix}`;
@@ -1142,7 +1142,7 @@ const COMMANDS: Record<string, Handler> = {
           getConfig(d.git, "octocove.claimId"), getConfig(d.git, "octocove.mappingId"), getConfig(d.git, "octocove.ref"),
         ]);
         if (configuredClaim !== claim.id || mapping !== ws.mappingId || ref !== ws.ref ||
-            !await helperRemoteMatches(d.git, remoteName, d.connectorPath)) throw new ConfigError("source remote does not match the registered lane");
+            !await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("source remote does not match the registered lane");
       }
       // Publish this exact commit through the registered source transport.
       await d.git(["push", "--", remoteName, `${sourceSha}:${ws.ref}`]);

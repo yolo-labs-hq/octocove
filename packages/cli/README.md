@@ -469,7 +469,8 @@ The connector starts this runtime on demand for plain `git push octocove` too.
 Managed remotes record absolute paths to Node and the bundled connector, so they
 do not require the package bin directory on PATH. Claim checks the connector
 before creating the server-side claim. External helper runtimes keep their
-documented PATH contract.
+documented PATH contract. Managed commands refuse legacy PATH-based remotes;
+configure the installed connector through `task claim` before using those remotes.
 It tears down and revokes leases on exit or signal. An external socket takes
 precedence. This same-user adapter is not an isolated credential boundary;
 see [agent runtime setup](#claiming-as-an-agent-runtime-prerequisites).
