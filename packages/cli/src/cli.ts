@@ -352,20 +352,24 @@ const workspaceHandler = (action: string): Handler => async (d, args) => {
     ref:{type:"string"}, worktree:{type:"string"}, lane:{type:"string"}, base:{type:"string"}, head:{type:"string"},
     source:{type:"string"}, sparse:{type:"string"}, count:{type:"string"},
   }, 0);
+  const count = v.count === undefined ? 1 : Number(v.count);
+  if (!Number.isInteger(count) || count < 1 || count > 16) throw new UsageError("--count must be 1..16");
   // Deprecated alias: `workspace --lane` named a local worktree, not a record lane.
+  const warning = { code: "deprecated-option", message: "workspace --lane is deprecated; use --worktree" };
   if(v.lane !== undefined) {
     if(v.worktree !== undefined) throw new UsageError("use --worktree, not --lane");
-    const message = "workspace --lane is deprecated; use --worktree";
-    d.stderr(v.json ? JSON.stringify({ warning: { code: "deprecated-option", message } }) + "\n" : `octocove: ${message}\n`);
+    if (!v.json) d.stderr(`octocove: ${warning.message}\n`);
   }
   const result = await workspace(action, {
     canonical:need(v,"canonical"), canonicalId:v["canonical-id"],
     cache:v.cache ?? join(d.env.XDG_CACHE_HOME ?? join(homedir(),".cache"),"octocove","workspaces"),
     ref:v.ref, worktree:v.worktree ?? v.lane, base:v.base, head:v.head, source:v.source,
-    sparse:v.sparse ? v.sparse.split(",") : [], count:v.count === undefined ? 1 : Number(v.count),
+    sparse:v.sparse ? v.sparse.split(",") : [], count,
   });
   out(d, v.json, result, () => kv(Object.entries(result)));
   if(result.ok === false) throw new Emitted(new Error("workspace refresh conflict; task head retained"));
+  // On JSON failures the error reporter owns stderr: never prepend a warning document.
+  if (v.json && v.lane !== undefined) d.stderr(JSON.stringify({ warning }) + "\n");
 };
 
 const eventsFollow: Handler = async (d,args) => {
