@@ -6545,7 +6545,8 @@ components:
       type: object
       additionalProperties: false
       description: Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the
-        person set with `PATCH /me/profile` (ADR 0026); each field is null while unset. `name` falls back to the
+        person set with `PATCH /me/profile` (ADR 0026); the four nullable fields are null while unset. The handle
+        is non-null once assigned and absent on older servers. `name` falls back to the
         identity provider's display name, so it is null only when neither exists. Email is the provider's
         (`principal.email`) and is not part of the profile.
       properties:
@@ -6576,10 +6577,11 @@ components:
     ProfileUpdate:
       type: object
       additionalProperties: false
-      description: A key present sets that field and `null` clears it; an absent key leaves it unchanged. Strings are
-        trimmed before they are checked, and lengths count Unicode code points. No field may contain a control
+      description: A key present sets that field; null clears name, pronouns, bio or timezone, but handle refuses null.
+        An absent key leaves it unchanged. The four nullable fields are trimmed before they are checked, and
+        lengths count Unicode code points. Handles must already match the lowercase username format. No field may contain a control
         character (C0 including tab and newline, DEL, C1). The first invalid field, in the order `name`, `pronouns`,
-        `bio`, `timezone`, is 400 `invalid-profile` with `details.field`; any other key is 400 `invalid-request`.
+        `bio`, `timezone`, `handle`, is 400 `invalid-profile` with `details.field`; any other key is 400 `invalid-request`.
       properties:
         handle:
           $ref: '#/components/schemas/Handle'

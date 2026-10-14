@@ -2478,7 +2478,7 @@ export interface components {
         };
         /** @description A lowercase global username. Reserved names me, new, settings, admin, api, octocove, people, support and help cannot be selected. Current and retired names remain reserved to their owner. */
         Handle: string;
-        /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile` (ADR 0026); each field is null while unset. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
+        /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile` (ADR 0026); the four nullable fields are null while unset. The handle is non-null once assigned and absent on older servers. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
         Profile: {
             handle?: components["schemas"]["Handle"];
             name: string | null;
@@ -2487,7 +2487,7 @@ export interface components {
             /** @description An IANA time zone name, e.g. `Europe/London`. */
             timezone: string | null;
         };
-        /** @description A key present sets that field and `null` clears it; an absent key leaves it unchanged. Strings are trimmed before they are checked, and lengths count Unicode code points. No field may contain a control character (C0 including tab and newline, DEL, C1). The first invalid field, in the order `name`, `pronouns`, `bio`, `timezone`, is 400 `invalid-profile` with `details.field`; any other key is 400 `invalid-request`. */
+        /** @description A key present sets that field; null clears name, pronouns, bio or timezone, but handle refuses null. An absent key leaves it unchanged. The four nullable fields are trimmed before they are checked, and lengths count Unicode code points. Handles must already match the lowercase username format. No field may contain a control character (C0 including tab and newline, DEL, C1). The first invalid field, in the order `name`, `pronouns`, `bio`, `timezone`, `handle`, is 400 `invalid-profile` with `details.field`; any other key is 400 `invalid-request`. */
         ProfileUpdate: {
             handle?: components["schemas"]["Handle"];
             /** @description 1-80 code points after trimming (an empty name is invalid; clear it with null). */
