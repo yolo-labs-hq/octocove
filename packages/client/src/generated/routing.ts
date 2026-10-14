@@ -3960,6 +3960,54 @@ export const routing = {
       "replay": null
     }
   },
+  "peopleGet": {
+    "operationId": "peopleGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/people/{principalId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "principalId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "projectCreate": {
     "operationId": "projectCreate",
     "kind": "path",

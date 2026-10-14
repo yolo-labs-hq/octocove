@@ -1,7 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { Miniflare } from 'miniflare';
 import { exportJWK, generateKeyPair } from 'jose';
+import { MachineAuthService } from '../src/machine-auth';
 import { AuthService, bindingName, cookieName, hash, random } from '../src/auth';
 import { createApp, type Env } from '../src/index';
 import { mockIssuer } from './fixtures/oidc';
@@ -253,5 +254,54 @@ describe('GET /v1/projects/{project}/members', () => {
         for (const item of items)
             for (const field of ['pronouns', 'bio', 'timezone', 'profile'])
                 expect(item).not.toHaveProperty(field);
+    });
+});
+describe('GET /v1/people/:principalId', () => {
+    const person = (id: string, token?: string, prefix = '/v1') => app.request(`${api}${prefix}/people/${encodeURIComponent(id)}`, { headers: token ? bearer(token) : {} }, env);
+    it('reads another human profile without shared membership and exposes only public fields', async () => {
+        const viewer = await signIn(), target = await signIn('Provider Name');
+        const profile = { name: 'Chosen', pronouns: 'they/them', bio: 'Hello', timezone: 'UTC' };
+        expect((await patch(target, profile)).status).toBe(200);
+        const response = await person(target.id, viewer.sessionToken);
+        expect(response.status).toBe(200);
+        const body = await response.json();
+        expect(body).toEqual({ principalId: target.id, profile });
+        expect(JSON.stringify(body)).not.toContain(`${target.sub}@example.invalid`);
+        expect((await person(target.id, viewer.sessionToken, '')).status).toBe(200);
+    });
+    it('falls back to the provider name and keeps missing fields null', async () => {
+        const viewer = await signIn(), target = await signIn('Provider Name');
+        const response = await person(target.id, viewer.sessionToken);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toEqual({ principalId: target.id, profile: { ...empty, name: 'Provider Name' } });
+        const nameless = await signIn();
+        expect(await (await person(nameless.id, viewer.sessionToken)).json()).toEqual({ principalId: nameless.id, profile: empty });
+    });
+    it('returns not-found for unknown or malformed identities and requires authentication', async () => {
+        const viewer = await signIn();
+        for (const id of ['unknown', '|sub', 'issuer|', `${issuer.issuer}|unknown`, 'a\u0000|b', 'x'.repeat(1025)])
+            await problem(await person(id, viewer.sessionToken), 404, 'not-found');
+        await problem(await person(viewer.id), 401, 'unauthenticated');
+    });
+    it('refuses valid machine grants as human-required and invalid grants as unauthenticated', async () => {
+        const viewer = await signIn();
+        const spy = vi.spyOn(MachineAuthService.prototype, 'grantIdentity');
+        try {
+            spy.mockResolvedValue({ principalId: 'machine', policyVersion: '1', expiresAt: new Date(Date.now() + 600000).toISOString(), issuer: issuer.issuer, sub: viewer.sub });
+            for (const prefix of ['ocg', 'ocsg'] as const)
+                await problem(await person(viewer.id, syntheticToken(prefix, random())), 403, 'human-required');
+            spy.mockRejectedValue(new (await import('../src/auth')).AuthError('unauthenticated'));
+            await problem(await person(viewer.id, syntheticToken('ocg', random())), 401, 'unauthenticated');
+        }
+        finally {
+            spy.mockRestore();
+        }
+    });
+    it('resolves pipe-containing subjects without decoding the segment twice', async () => {
+        const viewer = await signIn(), sub = `subject|${random()}%2F`;
+        await env.DB.prepare('INSERT INTO auth_users(issuer,sub,email,display_name) VALUES(?,?,?,?)')
+            .bind(issuer.issuer, sub, 'hidden@example.invalid', 'Pipe Subject').run();
+        const principalId = `${issuer.issuer}|${sub}`;
+        expect(await (await person(principalId, viewer.sessionToken)).json()).toEqual({ principalId, profile: { ...empty, name: 'Pipe Subject' } });
     });
 });

@@ -85,6 +85,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{principalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a person's public profile
+         * @description Human session only; agent delegations and machine grants receive 403 human-required. Returns only the principal identifier and profile fields, never email or authentication records. A missing person returns 404 not-found. The response is not cached.
+         */
+        get: operations["peopleGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -262,7 +282,7 @@ export interface paths {
         };
         /**
          * Compare two commits in the canonical repository
-         * @description Requires tasks:read membership; agent delegations are limited to their own project. Uses server-side canonical repository credentials. Machine grants are refused. Invalid query parameters return 400. Provider failures return sanitized errors. Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 trees, 100000 entries or depth 64 returns 413. Commit messages are subjects.
+         * @description Requires tasks:read membership; agent delegations are limited to their own project. Uses server-side canonical repository credentials. Machine grants are refused. Invalid query parameters return 400. Provider failures return sanitized errors. Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 unique trees, 100000 unique entries, 100000 work units (walk visits plus expanded entries, including cached subtrees) or depth 64 returns 413. Commit messages are subjects.
          */
         get: operations["codeCompareGet"];
         put?: never;
@@ -2450,6 +2470,11 @@ export interface components {
             capabilities: components["schemas"]["MeCapabilities"];
             profile?: components["schemas"]["Profile"];
         };
+        Person: {
+            /** @description The person's issuer|sub identifier. */
+            principalId: string;
+            profile: components["schemas"]["Profile"];
+        };
         /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile` (ADR 0026); each field is null while unset. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
         Profile: {
             name: string | null;
@@ -3239,6 +3264,34 @@ export interface operations {
             413: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    peopleGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The person's issuer|sub identifier, percent-encoded as one path segment. */
+                principalId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person's profile. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Person"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     meGet: {

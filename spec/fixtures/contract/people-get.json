@@ -1,0 +1,14 @@
+{
+  "path": "/people/{principalId}",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "principalId": "https://issuer.example.invalid|person",
+    "profile": {
+      "name": "Example Author",
+      "pronouns": null,
+      "bio": null,
+      "timezone": null
+    }
+  }
+}

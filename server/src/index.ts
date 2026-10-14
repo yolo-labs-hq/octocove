@@ -31,9 +31,10 @@ import { listLandings } from "./landings";
 import { me, meProjects } from "./me";
 import { createProject, type ProjectEnv } from "./projects";
 import { addMember, listMembers, removeMember } from "./members";
-import { updateProfile } from "./profile";
+import { getPerson, updateProfile } from "./profile";
 import { createRepository, listRepositories, verifyRepository } from "./repositories";
 import { cacheControl, readBlob, readTree } from "./code-view";
+import { readCompare, readCommits } from "./code-compare";
 import { projectNotifications } from "./notifications";
 import { getNotificationPreferences, listNotifications, markNotificationsRead, putNotificationPreferences } from "./notification-routes";
 import { inspectWebhookDeliveries, redriveWebhookDelivery, rotateWebhookSecret, armWebhookDelivery, createWebhook, deliverDue, disableWebhook, enqueueWebhookReplay, reactivateWebhook, type WebhookEnv } from "./webhooks";
@@ -132,6 +133,7 @@ export function createApp(authorizeAudit?: AuthorizeAudit) {
         });
         app.get(`${prefix}/me/notification-preferences`, async (c) => c.json(await getNotificationPreferences(c.req.raw, c.env)));
         app.put(`${prefix}/me/notification-preferences`, async (c) => c.json(await putNotificationPreferences(c.req.raw, c.env)));
+        app.get(`${prefix}/people/:principalId`, async (c) => c.json(await getPerson(c.req.raw, c.env, c.req.param("principalId"))));
         app.patch(`${prefix}/me/profile`, async (c) => c.json(await updateProfile(c.req.raw, c.env)));
         app.post(`${prefix}/projects`, async (c) => c.json(await createProject(c.req.raw, c.env), 201));
         app.post(`${prefix}/projects/:project/repositories`, async (c) => c.json(await createRepository(c.req.raw, c.env, c.req.param("project")), 201));
@@ -148,6 +150,15 @@ export function createApp(authorizeAudit?: AuthorizeAudit) {
             app.get(`${prefix}/projects/:project/${route}`, async (c) => {
                 c.header("X-Content-Type-Options", "nosniff");
                 const { body, sha } = await read(c.req.raw, c.env, c.req.param("project"), { ref: c.req.query("ref"), path: c.req.query("path") });
+                c.header("Cache-Control", cacheControl(sha));
+                return c.json(body);
+            });
+        for (const [route, read] of [["compare", readCompare], ["commits", readCommits]] as const)
+            app.get(`${prefix}/projects/:project/${route}`, async (c) => {
+                c.header("X-Content-Type-Options", "nosniff");
+                const { body, sha } = await read(c.req.raw, c.env, c.req.param("project"), {
+                    base: c.req.query("base"), head: c.req.query("head"), ref: c.req.query("ref"), limit: c.req.query("limit"),
+                });
                 c.header("Cache-Control", cacheControl(sha));
                 return c.json(body);
             });

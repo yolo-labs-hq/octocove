@@ -214,6 +214,14 @@ export const transportCases: Case[] = [
     ]);
     for (const call of calls) equal(call.headers.authorization, `Bearer ${TOKEN}`);
   }),
+  test('person profile reads encode the complete principal as one segment', async () => {
+    const principalId = 'https://issuer.example.invalid|person/one';
+    const { fetch, calls } = scriptedFetch(json(200, { principalId, profile: { name: null, pronouns: null, bio: null, timezone: null } }));
+    await client(fetch).call('peopleGet', { path: { principalId } });
+    equal(calls[0]!.url, `${BASE}/v1/people/${encodeURIComponent(principalId)}`);
+    equal(calls[0]!.method, 'GET');
+    equal(calls[0]!.headers.authorization, `Bearer ${TOKEN}`);
+  }),
   test('navigation and excluded operations are not callable', async () => {
     const c = client(scriptedFetch().fetch);
     for (const id of ['authCallback', 'authCliStart', 'brokerHelperPush', 'collaborationEventDelivery']) {

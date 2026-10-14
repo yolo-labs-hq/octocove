@@ -309,6 +309,43 @@ paths:
                 - repositoryId
                 - targetRef
                 - key
+  /people/{principalId}:
+    get:
+      operationId: peopleGet
+      summary: Read a person's public profile
+      description: >-
+        Human session only; agent delegations and machine grants receive 403 human-required.
+        Returns only the principal identifier and profile fields, never email or authentication records.
+        A missing person returns 404 not-found. The response is not cached.
+      tags: [Auth]
+      security:
+      - HumanSession: []
+      - HumanCliSession: []
+      parameters:
+      - name: principalId
+        in: path
+        required: true
+        description: The person's issuer|sub identifier, percent-encoded as one path segment.
+        schema: {type: string}
+      responses:
+        '200':
+          description: The person's profile.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Person'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+      x-authoritative-handler: profile.getPerson
   /me:
     get:
       operationId: meGet
@@ -843,7 +880,7 @@ paths:
         Requires tasks:read membership; agent delegations are limited to their own project.
         Uses server-side canonical repository credentials. Machine grants are refused.
         Invalid query parameters return 400. Provider failures return sanitized errors.
-        Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 trees, 100000 entries or depth 64 returns 413. Commit messages are subjects.
+        Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 unique trees, 100000 unique entries, 100000 work units (walk visits plus expanded entries, including cached subtrees) or depth 64 returns 413. Commit messages are subjects.
       tags: [Projects]
       security:
       - HumanSession: []
@@ -6481,6 +6518,16 @@ components:
       - credential
       - memberships
       - capabilities
+    Person:
+      type: object
+      additionalProperties: false
+      required: [principalId, profile]
+      properties:
+        principalId:
+          type: string
+          description: The person's issuer|sub identifier.
+        profile:
+          $ref: '#/components/schemas/Profile'
     Profile:
       type: object
       additionalProperties: false
