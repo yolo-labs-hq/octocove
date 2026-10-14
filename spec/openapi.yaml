@@ -5357,6 +5357,12 @@ components:
           anyOf:
           - $ref: '#/components/schemas/Sha'
           - type: 'null'
+        currentHead:
+          description: Known canonical head when the candidate is stale
+          anyOf:
+          - type: string
+            pattern: '^[0-9a-f]{40}$'
+          - type: 'null'
         candidateRef:
           anyOf:
           - type: string

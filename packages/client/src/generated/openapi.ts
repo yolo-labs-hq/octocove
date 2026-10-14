@@ -2021,6 +2021,8 @@ export interface components {
             /** @enum {string} */
             status: "active" | "fenced" | "landed" | "raced" | "failed" | "superseded" | "stale" | "withdrawn" | "rejected";
             candidateSha: components["schemas"]["Sha"] | null;
+            /** @description Known canonical head when the candidate is stale */
+            currentHead?: string | null;
             candidateRef: string | null;
             baseSha: components["schemas"]["Sha"];
             checkIdentity: string | null;

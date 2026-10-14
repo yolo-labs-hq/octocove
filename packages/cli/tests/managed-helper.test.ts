@@ -327,3 +327,21 @@ it('existing Worker advertisement preserves own-tip CAS through a real second Gi
   expect(await run({...f.deps,fetch,argv:['lane','push']}),f.output).toBe(0);
   expect(f.staged.toString()).toContain(`${f.baseSha} ${source} refs/octocove/claims/C1`);
 });
+
+it('claim refuses to overwrite ignored local files and preserves their bytes',async()=>{
+  const f=await fixture();
+  await f.git(['rm','README.md']);
+  await f.git(['-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','local workspace']);
+  const head=await f.git(['rev-parse','HEAD']);
+  const exclude=join(f.dir,'.git/info/exclude');
+  await writeFile(exclude,(await readFile(exclude,'utf8'))+'\nREADME.md\n');
+  const local=Buffer.from('local uncommitted work\n');
+  await writeFile(join(f.dir,'README.md'),local);
+  await f.git(['diff','--quiet']);await f.git(['diff','--cached','--quiet']);
+  expect(await run({...f.deps,argv:['task','claim','T1','--intent-version','1']})).toBe(EXIT.config);
+  expect(await readFile(join(f.dir,'README.md'))).toEqual(local);
+  expect(await f.git(['rev-parse','HEAD'])).toBe(head);
+  expect(f.output).toContain('including ignored files');
+  expect(f.output).toContain('move them aside');
+  expect(f.revoked).toEqual(['L1','L2']);
+});

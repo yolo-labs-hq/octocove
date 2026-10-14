@@ -1015,7 +1015,12 @@ const COMMANDS: Record<string, Handler> = {
         try {
           await d.git(["fetch","--no-tags","--",remoteName,`+refs/heads/*:refs/remotes/${remoteName}/*`],{signal:d.signal,stderr:d.stderr});
           await d.git(["cat-file","-e",`${base}^{commit}`]);
-          await d.git(["checkout","--detach",base],{signal:d.signal,stderr:d.stderr});
+          await d.git(["checkout","--no-overwrite-ignore","--detach",base],{signal:d.signal,stderr:d.stderr}).catch(error=>{
+            if (error instanceof Error && /would be overwritten by checkout/.test(error.message)) {
+              throw new ConfigError("workspace has local files (including ignored files) that would be overwritten; move them aside before preparing the claim base");
+            }
+            throw error;
+          });
         }catch(error){throw managed.failure ?? error;}
         await conf("octocove.baseSha",base);
       }
