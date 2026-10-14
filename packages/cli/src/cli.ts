@@ -1,5 +1,6 @@
 import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
+import { stageChain } from "./chain-stage.js";
 import { startManagedHelper, requireAgentCredential } from "./managed-helper.mjs";
 import { followEvents } from './event-follow.js';
 import { workspace } from "./workspace.mjs";
@@ -524,14 +525,32 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
     if (!Number.isInteger(intentVersion) || intentVersion < 1) throw new UsageError("claim first to record the intent version");
     const key = v["idempotency-key"] ?? newIdempotencyKey();
     const pushId = v["push-id"] ?? `push-${createHash("sha256").update(taskId + "\0" + claimAttemptId + "\0" + key).digest("hex")}`;
-    if (!d.env.OCTOCOVE_HELPER_SOCK) {
+    const externalSocket = d.env.OCTOCOVE_HELPER_SOCK;
+    const claim = claimOf((await api.call("claimGet", { path: { id: claimAttemptId }, deadline })).body);
+    const ref = claim.workspace?.ref;
+    if (claim.id !== claimAttemptId || claim.taskId !== taskId || !ref) throw new ConfigError("claim workspace does not match this attempt");
+    if (ref !== `refs/octocove/claims/${claimAttemptId}`) {
+      requireHelperTransport(d.env);
+      if (ref !== await getConfig(d.git, "octocove.ref")) throw new ConfigError("claim workspace does not match the configured lane");
+      await stageChain(originalGit, externalSocket, { taskId, claimId: claimAttemptId, pushId, sourceSha, baseSha }, { deadline, signal: d.signal });
+      const queued = (await api.j.command("chainLanePush", { path, body: { claimAttemptId, pushId, sourceSha } }, { ...api.until(deadline!), idempotencyKey: key })).body;
+      const delivery = await api.j.chain.waitForDelivery(taskId, pushId, api.until(deadline!));
+      if (delivery.state !== "delivered") {
+        laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane ?? lane }, key);
+        throw new Emitted(new PendingError("lane push is remote-pending; inspect lane status and retry"));
+      }
+      const submission = await api.j.submissions.create(taskId, { claimAttemptId, sourceSha, baseSha, intentVersion },
+        { ...api.until(deadline!), idempotencyKey: `submission-${createHash("sha256").update(key).digest("hex")}` });
+      const candidate = candidateBody(await api.j.candidates.waitFor(submission.id, api.until(deadline!)));
+      laneOut(d, v.json, action, taskId, projectId, { push: { ...queued, ...delivery.lane.pushes.find(push => push.pushId === pushId) }, lane: delivery.lane, submission, candidate }, key);
+      if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
+      return;
+    }
+    if (!externalSocket) {
       const boundProject = projectId ?? (await api.call("taskGet", { path })).body.projectId;
       managed = await startManagedHelper({ ...d, ...creds, taskId, claimId: claimAttemptId, projectId: boundProject, baseSha, deadline, signal: scope?.signal });
       d = { ...d, env: { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath } };
     }
-    const claim = claimOf((await api.call("claimGet", { path: { id: claimAttemptId }, deadline })).body);
-    const ref = claim.workspace?.ref;
-    if (claim.taskId !== taskId || ref !== `refs/octocove/claims/${claimAttemptId}`) throw new ConfigError("claim workspace does not match this attempt");
     const remoteName = await getConfig(d.git, "octocove.remote") ?? "octocove";
     if (!await helperRemoteMatches(d.git, remoteName)) throw new ConfigError("claim first to configure the octocove helper remote");
     try {
@@ -954,6 +973,7 @@ const COMMANDS: Record<string, Handler> = {
     }
     const ws = claim.workspace;
     if (claim.provisioningState === "ready" && ws && ws.credentialSource?.kind !== "external" && !d.env.OCTOCOVE_HELPER_SOCK) {
+      if (ws.ref !== `refs/octocove/claims/${claimId}`) throw new HelperRequiredError();
       if (!task) task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } }).catch(error => {
         if (error instanceof ApiError && error.status===403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
         throw error;
