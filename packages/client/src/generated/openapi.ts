@@ -85,6 +85,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{principalId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a person's public profile
+         * @description Human session only; agent delegations and machine grants receive 403 human-required. Returns only the principal identifier and profile fields, never email or authentication records. A missing person returns 404 not-found. The response is not cached.
+         */
+        get: operations["peopleGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me": {
         parameters: {
             query?: never;
@@ -245,6 +265,46 @@ export interface paths {
          * @description Any member holding `tasks:read` (an agent delegation only for its own project; machine grants are not admitted). Reads the project's canonical repository through the Artifacts REST content reads with the control plane's own Artifacts credentials; the answer never carries a credential, remote URL, Artifacts id or account id. The repository must be eligible exactly as the claim path requires - 409 `repository-namespace-mismatch`, `repository-unverified`, `repository-importing` or `repository-import-failed` otherwise (an `importing` one is first reconciled, as `repositoriesList` does). 404 `not-found` - no canonical repository, or no such path or commit; 409 `repository-provider-unsupported` - a GitHub or Forgejo canonical repository; 422 `invalid-request` with `details.parameter` `ref` or `path`; 503 `broker-unavailable` (the Artifacts secrets are not installed) or `broker-provider-unavailable` (any Artifacts failure or unusable answer, never echoed). A request whose `ref` is a commit SHA is cacheable (`private, max-age=86400, immutable`); one resolved from a branch is `no-store` and always echoes the `commitSha` it read. The content is data - always `application/json` with `X-Content-Type-Options` `nosniff`, whatever the file holds; there is no raw passthrough. `binary` (content null) when the first 8 KiB hold a NUL byte or the answered chunk is not UTF-8; `truncated` when the file is larger than 512 KiB, with its first chunk (cut at a character boundary). A symlink answers its target path; a directory or submodule is 404.
          */
         get: operations["codeBlobGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project}/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare two commits in the canonical repository
+         * @description Requires tasks:read membership; agent delegations are limited to their own project. Uses server-side canonical repository credentials. Machine grants are refused. Invalid query parameters return 400. Provider failures return sanitized errors. Compares immutable commit SHAs, skipping identical subtrees. Lists at most 300 changed files, with omittedFiles counting the remainder. Text hunks are bounded to 512 KiB per file and 8 MiB total input; binary, oversized and unavailable files carry omission flags. Traversal exceeding 256 unique trees, 100000 unique entries, 100000 work units (walk visits plus expanded entries, including cached subtrees) or depth 64 returns 413. Commit messages are subjects.
+         */
+        get: operations["codeCompareGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project}/commits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read canonical repository commit history
+         * @description Requires tasks:read membership; agent delegations are limited to their own project. Uses server-side canonical repository credentials. Machine grants are refused. Invalid query parameters return 400. Provider failures return sanitized errors. Returns full commit messages and available author metadata. Named refs use no-store; SHA refs use private immutable caching. An empty canonical target returns null commitSha and an empty list.
+         */
+        get: operations["codeCommitsGet"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2410,6 +2470,11 @@ export interface components {
             capabilities: components["schemas"]["MeCapabilities"];
             profile?: components["schemas"]["Profile"];
         };
+        Person: {
+            /** @description The person's issuer|sub identifier. */
+            principalId: string;
+            profile: components["schemas"]["Profile"];
+        };
         /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile` (ADR 0026); each field is null while unset. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
         Profile: {
             name: string | null;
@@ -2590,6 +2655,41 @@ export interface components {
             items: components["schemas"]["RepositoryListItem"][];
             /** @description The project's open repository creations, oldest first (empty when none). Not repositories - nothing here can be claimed or targeted. */
             creations: components["schemas"]["RepositoryCreation"][];
+        };
+        CodeCommit: {
+            sha: components["schemas"]["Sha"];
+            message: string;
+            authorName: string | null;
+            /** Format: date-time */
+            authoredAt: string | null;
+            parents: components["schemas"]["Sha"][];
+        };
+        CodeDiffHunk: {
+            oldStart: number;
+            newStart: number;
+            lines: string[];
+        };
+        CodeDiffFile: {
+            path: string;
+            /** @enum {string} */
+            status: "added" | "modified" | "deleted";
+            added: number;
+            removed: number;
+            hunks?: components["schemas"]["CodeDiffHunk"][];
+            /** @enum {string} */
+            omitted?: "binary" | "too-large" | "unavailable";
+            error?: string;
+        };
+        CodeCompare: {
+            files: components["schemas"]["CodeDiffFile"][];
+            commits: components["schemas"]["CodeCommit"][];
+            omittedFiles: number;
+        };
+        CodeCommits: {
+            repositoryId: components["schemas"]["Id"];
+            ref: string;
+            commitSha: components["schemas"]["Sha"] | null;
+            commits: components["schemas"]["CodeCommit"][];
         };
         /** @description One directory of the canonical repository at a ref. */
         CodeTree: {
@@ -3166,6 +3266,34 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    peopleGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The person's issuer|sub identifier, percent-encoded as one path segment. */
+                principalId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person's profile. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Person"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
     meGet: {
         parameters: {
             query?: never;
@@ -3466,6 +3594,78 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    codeCompareGet: {
+        parameters: {
+            query: {
+                base: string;
+                head: string;
+            };
+            header?: never;
+            path: {
+                /** @description The project id (`GET /me` memberships). */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canonical repository data. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["CodeCacheControl"];
+                    "X-Content-Type-Options": components["headers"]["NoSniff"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeCompare"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    codeCommitsGet: {
+        parameters: {
+            query?: {
+                /** @description Full branch ref or commit SHA; defaults to the canonical target ref. */
+                ref?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The project id (`GET /me` memberships). */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canonical repository data. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["CodeCacheControl"];
+                    "X-Content-Type-Options": components["headers"]["NoSniff"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CodeCommits"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

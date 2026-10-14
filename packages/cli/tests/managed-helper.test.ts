@@ -407,7 +407,7 @@ it('absolute installed CLI claims, fetches and pushes without its bin directory 
   // Fake Artifacts transport; Git itself and both installed executables are real.
   const preload=join(f.dir,'fake-artifacts.mjs');
   await writeFile(preload,`const original=globalThis.fetch;globalThis.fetch=(url,init)=>{const u=new URL(url);return original(u.hostname==='git.example.invalid'?${JSON.stringify(origin)}+'/artifacts'+u.pathname+u.search:url,init)};`);
-  const cfg=join(f.dir,'agent-installed');
+  const cfg=join(f.dir,'installed-delegation');
   await saveCredentials({OCTOCOVE_CONFIG_DIR:cfg},{apiUrl:origin+'/v1',token:'credential-secret',kind:'agent'});
   const env={...process.env,PATH:'/usr/bin:/bin',OCTOCOVE_CONFIG_DIR:cfg,OCTOCOVE_API_URL:'',OCTOCOVE_HELPER_SOCK:'',NODE_OPTIONS:`--import=${preload}`};
   const execute=(binary:string,args:string[])=>new Promise<{code:number|null,output:string}>(resolve=>{

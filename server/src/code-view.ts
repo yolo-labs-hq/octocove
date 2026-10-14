@@ -12,11 +12,12 @@ const PATH_LIMIT = 4096, DEPTH_LIMIT = 64, REF_LIMIT = 255;
 const commitHash = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const IMMUTABLE = 'private, max-age=86400, immutable';
 export type EntryType = 'file' | 'dir' | 'symlink' | 'submodule';
-interface Entry {
+export interface Entry {
     name: string;
     type: EntryType;
     hash: string;
     size?: number;
+    mode?: string;
 }
 interface Canonical {
     id: string;
@@ -65,12 +66,12 @@ export class ArtifactsContent {
         }
         return response;
     }
-    private async json(response: Response) {
+    private async json(response: Response, limit = JSON_BODY_LIMIT) {
         if (!response.ok) {
             await response.body?.cancel();
             throw new AuthError('broker-provider-unavailable', 503);
         }
-        const { bytes } = await readBounded(response, JSON_BODY_LIMIT, JSON_BODY_LIMIT, true);
+        const { bytes } = await readBounded(response, limit, limit, true);
         let data: any;
         try {
             data = JSON.parse(new TextDecoder().decode(bytes));
@@ -95,6 +96,17 @@ export class ArtifactsContent {
         if (!commits.length)
             return null;
         return objectId(commits[0]) ?? fail();
+    }
+    async log(ref: string, limit: number): Promise<CommitSummary[]> {
+        const response = await this.get(`log?ref=${encodeURIComponent(ref)}&limit=${limit}`);
+        if (response.status === 404) {
+            await response.body?.cancel();
+            return [];
+        }
+        const result = await this.json(response, 4 * 1024 * 1024), rows = Array.isArray(result) ? result : result?.commits;
+        if (!Array.isArray(rows))
+            fail();
+        return rows.slice(0, limit).map(commitSummary);
     }
     async rootTree(commit: string): Promise<string | null> {
         const response = await this.get(`commit/${commit}`);
@@ -124,8 +136,34 @@ export class ArtifactsContent {
         const length = Number(response.headers.get('Content-Length'));
         const size = knownSize ?? (Number.isSafeInteger(length) && length >= 0 && response.headers.has('Content-Length') ? length : undefined);
         const read = await readBounded(response, keep, size === undefined ? BLOB_COUNT_LIMIT : keep);
-        return { bytes: read.bytes, size: size ?? read.seen };
+        return { bytes: read.bytes, size: Math.max(size ?? 0, read.seen) };
     }
+}
+export interface CommitSummary {
+    sha: string;
+    message: string;
+    authorName: string | null;
+    authoredAt: string | null;
+    parents: string[];
+}
+function commitSummary(raw: any): CommitSummary {
+    const sha = objectId(raw) ?? fail();
+    const author = raw?.author ?? raw?.commit?.author;
+    const authorName = typeof author === 'string' ? author : author?.name ?? raw?.author_name;
+    const time = author?.date ?? author?.timestamp ?? author?.time ?? raw?.author_time ?? raw?.timestamp ?? raw?.date;
+    let authoredAt: string | null = null;
+    if (typeof time === 'string' || typeof time === 'number') {
+        const numeric = typeof time === 'number' || /^\d+$/.test(time);
+        const milliseconds = numeric ? Number(time) * (Number(time) < 1e12 ? 1000 : 1) : Date.parse(time as string);
+        if (Number.isFinite(milliseconds) && Math.abs(milliseconds) <= 8.64e15)
+            authoredAt = new Date(milliseconds).toISOString();
+    }
+    const parents = raw?.parents ?? [];
+    if (!Array.isArray(parents))
+        fail();
+    return { sha, message: typeof raw?.message === 'string' ? raw.message : '',
+        authorName: typeof authorName === 'string' ? authorName : null, authoredAt,
+        parents: parents.map((parent: unknown) => objectId(parent) ?? fail()) };
 }
 const fail = (): never => { throw new AuthError('broker-provider-unavailable', 503); };
 function objectId(value: any): string | undefined {
@@ -150,7 +188,7 @@ function entry(raw: any): Entry {
     if (!type || !hash)
         fail();
     const size = Number.isSafeInteger(raw.size) && raw.size >= 0 ? raw.size as number : undefined;
-    return { name, type: type!, hash: hash!, ...(size !== undefined && type !== 'dir' && type !== 'submodule' ? { size } : {}) };
+    return { name, type: type!, hash: hash!, ...(mode ? { mode } : {}), ...(size !== undefined && type !== 'dir' && type !== 'submodule' ? { size } : {}) };
 }
 async function readBounded(response: Response, keep: number, count: number, strict = false) {
     const chunks: Uint8Array[] = [];
@@ -199,7 +237,7 @@ export function decodeText(bytes: Uint8Array, truncated: boolean): string | null
     }
 }
 const sortEntries = (a: Entry, b: Entry) => (a.type === 'dir' ? 0 : 1) - (b.type === 'dir' ? 0 : 1) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-async function canonicalFor(request: Request, env: BrokerEnv, projectId: string) {
+export async function canonicalFor(request: Request, env: BrokerEnv, projectId: string) {
     const auth = new AuthService(env), p = await auth.authenticate(request);
     await auth.authorize(request, projectId, p.type === 'agent' ? p.taskId : undefined, 'tasks:read');
     const repo = await env.DB.prepare(`SELECT r.id,r.provider,r.provider_namespace,r.name,t.ref_name FROM repositories r

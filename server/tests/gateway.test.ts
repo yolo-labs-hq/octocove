@@ -87,9 +87,9 @@ describe('route × principal allow-list', () => {
         expect(await call('anonymous', claim, bearer(syntheticToken('ocb', 'x')))).toBe(200);
         expect(await call('anonymous', { method: 'POST', path: '/tasks/:id/land' }, bearer(syntheticToken('ocb', 'x')))).toBe(401);
     });
-    it('lets a machine grant bearer through to GET /me and the human /me reads and writes only, where the handler authenticates it', async () => {
+    it('lets a machine grant bearer through to GET /me and human profile reads and writes only, where the handler authenticates it', async () => {
         expect(routeRules.filter((r) => r.machineGrant).map((r) => `${r.method} ${r.path}`)).toEqual(['GET /me', 'GET /me/projects', 'GET /me/delegations',
-            'GET /me/notifications', 'POST /me/notifications/read', 'GET /me/notification-preferences', 'PUT /me/notification-preferences', 'PATCH /me/profile']);
+            'GET /me/notifications', 'POST /me/notifications/read', 'GET /me/notification-preferences', 'PUT /me/notification-preferences', 'GET /people/:principalId', 'PATCH /me/profile']);
         for (const prefix of ['ocg', 'ocsg'] as const) {
             expect(await call('anonymous', { method: 'GET', path: '/me' }, bearer(syntheticToken(prefix, 'x')))).toBe(200);
             expect(await call('anonymous', { method: 'GET', path: '/me/delegations' }, bearer(syntheticToken(prefix, 'x')))).toBe(200);

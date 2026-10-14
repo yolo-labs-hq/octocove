@@ -1,0 +1,37 @@
+{
+  "path": "/projects/{project}/compare",
+  "method": "get",
+  "status": 200,
+  "body": {
+    "files": [
+      {
+        "path": "hello.txt",
+        "status": "modified",
+        "added": 1,
+        "removed": 1,
+        "hunks": [
+          {
+            "oldStart": 1,
+            "newStart": 1,
+            "lines": [
+              "-Hello",
+              "+Hello world"
+            ]
+          }
+        ]
+      }
+    ],
+    "commits": [
+      {
+        "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "message": "Update greeting",
+        "authorName": "Example Author",
+        "authoredAt": "2026-01-01T00:00:00.000Z",
+        "parents": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ]
+      }
+    ],
+    "omittedFiles": 0
+  }
+}

@@ -112,7 +112,8 @@ private `OCTOCOVE_CONFIG_DIR`, such as `$(mktemp -d)`, to isolate credentials.
 
 CI runs `pnpm --filter @octocove/server test`: selected collaboration and
 security-boundary cases from native push, native landing, lifecycle landing
-and authentication. The single-worker suite covers two-agent push/approval/
+and authentication, plus fast comparison traversal-budget and response-schema
+checks. The single-worker suite covers two-agent push/approval/
 landing, canonical head advancement, races and ambiguous read-back, token
 cleanup, approval binding, scoped authority, PKCE and CSRF. It has a two-minute
 process-group bound and five seconds for forced cleanup, using GNU `timeout`

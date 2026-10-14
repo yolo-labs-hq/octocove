@@ -30,6 +30,7 @@ function statements(sql: string) {
 interface Store {
     refs: Record<string, string>;
     commits: Record<string, string>;
+    logs?: Record<string, any[]>;
     trees: Record<string, any[]>;
     blobs: Record<string, Uint8Array>;
 }
@@ -99,7 +100,12 @@ const artifacts = vi.fn(async (url: string, init?: RequestInit) => {
         return notFound();
     const ok = (result: unknown) => Response.json({ success: true, result, errors: [], messages: [] });
     if (kind === 'log') {
-        expect(parsed.searchParams.get('limit')).toBe('1');
+        const limit = Number(parsed.searchParams.get('limit'));
+        const logged = store.logs?.[parsed.searchParams.get('ref')!];
+        if (logged)
+            return ok(logged.slice(0, limit));
+        if (limit !== 1)
+            return ok([]);
         const head = store.refs[parsed.searchParams.get('ref')!];
         return ok(head ? [{ sha: head, message: 'm' }] : []);
     }
@@ -170,7 +176,7 @@ async function project(state: 'verified' | 'unverified' | 'mismatch' | 'importin
     stores[`${namespace}/${name}`] = store;
     return { projectId, repositoryId, store };
 }
-const read = (route: 'tree' | 'blob', projectId: string, query: Record<string, string> = {}, token = owner) => app.request(`${api}/v1/projects/${encodeURIComponent(projectId)}/${route}?${new URLSearchParams(query)}`, { headers: bearer(token) }, env);
+const read = (route: 'tree' | 'blob' | 'compare' | 'commits', projectId: string, query: Record<string, string> = {}, token = owner) => app.request(`${api}/v1/projects/${encodeURIComponent(projectId)}/${route}?${new URLSearchParams(query)}`, { headers: bearer(token) }, env);
 async function clean(response: Response) {
     const text = await response.clone().text();
     for (const secret of [ACCOUNT, TOKEN, 'api.cloudflare.com', 'client/v4', 'oc-', 'rid-', 'File not found', '10200', 'Bearer'])
@@ -385,6 +391,93 @@ describe('refusals', () => {
         delete bare.ARTIFACTS_API_TOKEN;
         const response = await app.request(`${api}/v1/projects/${projectId}/tree`, { headers: bearer(owner) }, bare as Env);
         await problem(response, 503, 'broker-unavailable');
+        expect(calls).toEqual([]);
+    });
+});
+describe('canonical compare and commits', () => {
+    it('skips identical tree hashes and returns immutable empty diffs', async () => {
+        const { projectId, store } = await project();
+        const base = commit(store, { nested: { 'same.txt': 'same\n' } }), head = commit(store, { nested: { 'same.txt': 'same\n' } });
+        const response = await read('compare', projectId, { base, head });
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toContain('immutable');
+        expect(await response.json()).toEqual({ files: [], commits: [], omittedFiles: 0 });
+        expect(calls).not.toContain('tree');
+        expect(calls).not.toContain('blob');
+    });
+    it('adds, modifies and deletes text with context, preserving nested paths and newline changes', async () => {
+        const { projectId, store } = await project();
+        const base = commit(store, { 'gone.txt': 'gone\n', nested: { 'edit.txt': 'before\n' }, unchanged: { 'large.txt': 'same' } });
+        const head = commit(store, { 'new.txt': 'new\n', nested: { 'edit.txt': 'after' }, unchanged: { 'large.txt': 'same' } });
+        store.logs = { [head]: [{ sha: head, message: 'New change\n\nDetails', author: { name: 'Writer', timestamp: 1700000000 }, parents: [base] }, { sha: base, message: 'Base' }] };
+        const response = await clean(await read('compare', projectId, { base, head }));
+        expect(response.status).toBe(200);
+        const body = await response.json() as any;
+        expect(body.omittedFiles).toBe(0);
+        expect(body.files.map((f: any) => [f.path, f.status])).toEqual([['gone.txt', 'deleted'], ['nested/edit.txt', 'modified'], ['new.txt', 'added']]);
+        expect(body.files[1]).toMatchObject({ added: 1, removed: 1, hunks: [{ oldStart: 1, newStart: 1, lines: ['-before', '+after', '\\ No newline at end of file'] }] });
+        expect(body.commits).toEqual([{ sha: head, message: 'New change', authorName: 'Writer', authoredAt: '2023-11-14T22:13:20.000Z', parents: [base] }]);
+        expect(calls.filter(c => c === 'tree')).toHaveLength(4);
+    });
+    it('reports file/directory and symlink-mode changes without following symlinks', async () => {
+        const { projectId, store } = await project();
+        const base = commit(store, { item: 'same', oldDir: { child: 'old' } }), head = commit(store, { item: { symlink: 'same' }, oldDir: 'new' });
+        const response = await read('compare', projectId, { base, head });
+        expect(response.status).toBe(200);
+        const files = (await response.json() as any).files;
+        expect(files.map((f: any) => [f.path, f.status])).toEqual([['item', 'modified'], ['oldDir', 'added'], ['oldDir/child', 'deleted']]);
+        expect(files[0].hunks).toEqual([]);
+    });
+    it('flags binary and oversized blobs, including unknown-size streams', async () => {
+        const { projectId, store } = await project();
+        const base = commit(store, {});
+        const head = commit(store, { 'binary.bin': new Uint8Array([0, 1, 2]), 'big.txt': 'x'.repeat(BLOB_CONTENT_LIMIT + 1), 'unknown.txt': 'y'.repeat(BLOB_CONTENT_LIMIT + 1) });
+        delete store.trees[store.commits[head]!]!.find(e => e.name === 'unknown.txt').size;
+        const response = await read('compare', projectId, { base, head });
+        expect(response.status).toBe(200);
+        const body = await response.json() as any;
+        expect(Object.fromEntries(body.files.map((f: any) => [f.path, f.omitted]))).toEqual({ 'big.txt': 'too-large', 'binary.bin': 'binary', 'unknown.txt': 'too-large' });
+        expect(calls.filter(c => c === 'blob')).toHaveLength(2);
+    });
+    it('counts omitted files beyond 300 without reading their blobs', async () => {
+        const { projectId, store } = await project();
+        const base = commit(store, {});
+        const head = commit(store, Object.fromEntries(Array.from({ length: 303 }, (_, i) => [`file${String(i).padStart(3, '0')}`, new Uint8Array([0])])));
+        const response = await read('compare', projectId, { base, head });
+        expect(response.status).toBe(200);
+        const body = await response.json() as any;
+        expect(body.files).toHaveLength(300);
+        expect(body.omittedFiles).toBe(3);
+        expect(calls.filter(c => c === 'blob')).toHaveLength(300);
+    });
+    it.each([{ base: 'main', head: 'a'.repeat(40) }, { base: 'a'.repeat(40), head: '../bad' }, { head: 'a'.repeat(40) }])('refuses malformed compare SHAs with400 before provider reads: %j', async (query) => {
+        const { projectId } = await project();
+        await problem(await read('compare', projectId, query), 400, 'invalid-request');
+        expect(calls).toEqual([]);
+    });
+    it('lists bounded commits with metadata, nullable omitted author data, and ref-sensitive caching', async () => {
+        const { projectId, store } = await project();
+        const head = commit(store, { 'file': 'x' });
+        const rows = [{ sha: head, message: 'Subject\n\nBody', author: { name: 'Writer', date: '2026-10-14T00:00:00Z' }, parents: [{ sha: 'a'.repeat(40) }] }, { sha: 'a'.repeat(40), message: 'Parent' }];
+        store.logs = { [head]: rows, 'refs/heads/main': rows };
+        const response = await clean(await read('commits', projectId, { limit: '1' }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toBe('no-store');
+        expect(await response.json()).toMatchObject({ commitSha: head, commits: [{ sha: head, message: 'Subject\n\nBody', authorName: 'Writer', authoredAt: '2026-10-14T00:00:00.000Z', parents: ['a'.repeat(40)] }] });
+        const pinned = await read('commits', projectId, { ref: head, limit: '100' });
+        expect(pinned.headers.get('Cache-Control')).toContain('immutable');
+        expect((await pinned.json() as any).commits[1]).toMatchObject({ authorName: null, authoredAt: null, parents: [] });
+    });
+    it.each([{ ref: 'bad' }, { limit: '101' }, { limit: '0' }, { limit: '1.5' }])('refuses invalid commit queries before provider reads: %j', async (query) => {
+        const { projectId } = await project();
+        await problem(await read('commits', projectId, query), 400, 'invalid-request');
+        expect(calls).toEqual([]);
+    });
+    it('returns403 for foreign project members without Artifacts access on both routes', async () => {
+        const { projectId, store } = await project();
+        const sha = commit(store, {}), foreign = await signIn('foreign-compare-user');
+        for (const route of ['compare', 'commits'] as const)
+            await problem(await read(route, projectId, { base: sha, head: sha }, foreign), 403, 'forbidden');
         expect(calls).toEqual([]);
     });
 });

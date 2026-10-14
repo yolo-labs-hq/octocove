@@ -66,6 +66,30 @@ const read = (env: AuthEnv, issuer: string, sub: string) => env.DB.prepare(`SELE
     WHERE u.issuer=? AND u.sub=?`).bind(issuer, sub).first<ProfileRow & {
     display_name: string | null;
 }>();
+export async function getPerson(request: Request, env: AuthEnv, principalId: string): Promise<{
+    principalId: string;
+    profile: Profile;
+}> {
+    if (machineGrantBearer.test(request.headers.get('authorization') ?? '')) {
+        await new MachineAuthService(env).grantIdentity(request);
+        throw new AuthError('human-required', 403);
+    }
+    await new AuthService(env).human(request);
+    if (principalId.length > 1024 || control.test(principalId))
+        throw new AuthError('not-found', 404);
+    const identities = await env.DB.prepare("SELECT issuer,sub FROM auth_users WHERE issuer || '|' || sub = ? LIMIT 2")
+        .bind(principalId).all<{
+        issuer: string;
+        sub: string;
+    }>();
+    const identity = identities.results[0];
+    if (identities.results.length !== 1 || !identity?.issuer || !identity.sub)
+        throw new AuthError('not-found', 404);
+    const row = await read(env, identity.issuer, identity.sub);
+    if (!row)
+        throw new AuthError('not-found', 404);
+    return { principalId, profile: profileOf(row, row.display_name) };
+}
 export async function updateProfile(request: Request, env: AuthEnv, retry = true): Promise<{
     profile: Profile;
 }> {
