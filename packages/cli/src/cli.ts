@@ -82,6 +82,7 @@ Commands:
   task publish ID
   task release ID [--claim ID]
   claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]
+  lane sync                                   (fetch authenticated canonical refs; preserve local edits)
   lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
   lane status|retry|retire [--task ID] [--claim ID]
   task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]
@@ -559,6 +560,20 @@ const COMMANDS: Record<string, Handler> = {
     const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     out(d, v.json, { version }, () => `octocove ${version}`);
   },
+  "lane sync": async (d, args) => {
+    const { v } = opts(args, {}, 0);
+    const creds = d.credentials ?? await activeCredentials(d.env);
+    requireAgentCredential(creds?.kind ?? "missing");
+    const [taskId,claimId,projectId,baseSha,remoteName] = await Promise.all(["taskId","claimId","projectId","baseSha","remote"].map(k => getConfig(d.git,`octocove.${k}`)));
+    if (!taskId || !claimId || !projectId || !remoteName) throw new ConfigError("claim first to configure this agent's workspace");
+    if (!await helperRemoteMatches(d.git, remoteName)) throw new ConfigError("workspace remote is not the claimed helper transport");
+    const managed = d.env.OCTOCOVE_HELPER_SOCK ? undefined : await startManagedHelper({ ...d, ...creds!,taskId,claimId,projectId,baseSha });
+    try {
+      await d.git(["fetch","--no-tags","--",remoteName,"+refs/heads/*:refs/remotes/"+remoteName+"/*"],
+        {env:{...d.env,...(managed ? {OCTOCOVE_HELPER_SOCK:managed.socketPath} : {})},signal:d.signal,stderr:d.stderr});
+      out(d,v.json,{taskId,claimId,remote:remoteName,synced:true},()=>`Fetched canonical through ${remoteName}. Merge its current target branch locally, then run octocove lane push.`);
+    }catch(error){throw managed?.failure ?? error;}finally{await managed?.close();}
+  },
   "lane status": laneHandler("status"),
   "lane push": laneHandler("push"),
   "lane retry": laneHandler("retry"),
@@ -931,12 +946,18 @@ const COMMANDS: Record<string, Handler> = {
     if (delegation && claim.provisioningState === "ready") {
       // The bootstrap cannot read tasks. Its saved replacement delegation can read
       // this scoped task, whose project binding the helper needs for agent pushes.
-      task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } })).body;
+      task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } }).catch(error => {
+        if (error instanceof ApiError && error.status===403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
+        throw error;
+      })).body;
       if (typeof task?.projectId !== "string" || !task.projectId) throw new ConfigError("claimed task has no project binding; run octocove task show to inspect it");
     }
     const ws = claim.workspace;
     if (claim.provisioningState === "ready" && ws && ws.credentialSource?.kind !== "external" && !d.env.OCTOCOVE_HELPER_SOCK) {
-      if (!task) task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } })).body;
+      if (!task) task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } }).catch(error => {
+        if (error instanceof ApiError && error.status===403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
+        throw error;
+      })).body;
       managed = await startManagedHelper({ ...d, ...activeCreds, taskId, claimId, projectId: task.projectId, baseSha: claim.lane?.baseSha ?? chain?.baseSha });
       const env = { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath };
       const git = d.git;
@@ -946,6 +967,7 @@ const COMMANDS: Record<string, Handler> = {
     // Validate allocated remotes before git mutations, even if helper metadata is absent.
     if (ws && !external) await validateClaimRemote(ws.remote, d.env, creds.apiUrl);
 
+    if (managed && await d.git(["rev-parse","--is-inside-work-tree"]).catch(() => "false") !== "true") await d.git(["init"]);
     const conf = async (k: string, val: string | number) => void (await d.git(["config", "--local", k, String(val)]));
     await conf("octocove.taskId", taskId);
     await conf("octocove.claimId", claimId);
@@ -985,13 +1007,25 @@ const COMMANDS: Record<string, Handler> = {
       const head = await d.git(["rev-parse", "--verify", "HEAD"]).catch(() => undefined);
       const initialBase = claim.lane?.baseSha ?? chain?.baseSha ?? (external ? task?.canonicalHeadSha ?? head : head);
       if (initialBase) await conf("octocove.baseSha", initialBase);
+      if (managed) {
+        const base = claim.lane?.baseSha ?? chain?.baseSha ?? initialBase;
+        if (!base || !/^[a-f0-9]{40}$/.test(base)) throw new ConfigError("claim has no exact base for workspace preparation");
+        await d.git(["diff","--quiet"]).catch(() => { throw new ConfigError("workspace has local edits; commit or stash them before preparing the claim base"); });
+        await d.git(["diff","--cached","--quiet"]).catch(() => { throw new ConfigError("workspace has staged edits; commit or stash them before preparing the claim base"); });
+        try {
+          await d.git(["fetch","--no-tags","--",remoteName,`+refs/heads/*:refs/remotes/${remoteName}/*`],{signal:d.signal,stderr:d.stderr});
+          await d.git(["cat-file","-e",`${base}^{commit}`]);
+          await d.git(["checkout","--detach",base],{signal:d.signal,stderr:d.stderr});
+        }catch(error){throw managed.failure ?? error;}
+        await conf("octocove.baseSha",base);
+      }
     }
 
     const lane = claim.lane;
     const canonical = v.canonical ?? task?.repository?.remote ?? task?.canonicalRemote;
     if (canonical) await validateClaimRemote(canonical, d.env, creds.apiUrl);
     const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-    const recipe = chain ? [
+    const recipe = chain && managed ? ["octocove lane sync", "git merge " + remoteName + "/" + (task?.targetRef ?? "refs/heads/main").replace(/^refs\/heads\//, "")] : chain ? [
       `octocove workspace prepare --canonical ${canonical ? quote(canonical) : "<canonical-url>"} --ref ${quote(task?.targetRef ?? "refs/heads/main")}`,
       `octocove workspace open --canonical ${canonical ? quote(canonical) : "<canonical-url>"} --ref ${quote(task?.targetRef ?? "refs/heads/main")} --worktree ${quote(chain.id)} --base ${quote(lane?.baseSha ?? chain.baseSha)}`,
     ] : undefined;

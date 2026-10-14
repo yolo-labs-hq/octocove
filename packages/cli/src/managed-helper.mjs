@@ -1,3 +1,6 @@
+import { receiveAdvertisement } from './receive-advertisement.mjs';
+import { seedCanonical } from './managed-read.mjs';
+import { credentialedRemote } from '../../helper/src/git-config.mjs';
 import { ApiError } from '../../client/src/errors.js';
 import { CallScope } from '../../client/src/scope.js';
 import { checkBaseUrl } from '../../client/src/client.js';
@@ -40,6 +43,7 @@ export async function startManagedHelper({ apiUrl, token, kind, fetch, taskId, c
       const response = await scope.guard(fetch(`${apiUrl}${path}`, { method, redirect:'manual', signal:scope.signal,
         headers:headers(body ? {'Content-Type':'application/json'} : {}),
         ...(body ? {body:JSON.stringify(body)} : {}) }));
+      if (response.status===403 && path==='/broker/token')throw new Error("helper: this agent's grant lacks tasks:read (needed to clone)");
       if (!response.ok) throw new Error(response.status === 401 || response.status === 403
         ? 'helper: agent credential refused; check its scope and expiry or obtain a new scoped bootstrap'
         : `helper: request refused (${response.status}); inspect the claim and retry`);
@@ -74,16 +78,31 @@ export async function startManagedHelper({ apiUrl, token, kind, fetch, taskId, c
   try {
     stderr('helper: same-user runtime (not an isolated credential boundary)\n');
     const c = await claim(), l = await lease();
+    const canonical = credentialedRemote(c.workspace.remote);
+    let currentLease = l;
     const grant = {tenant:'octocove',project:projectId,attempt:claimId,repo:l.repo,ref:c.workspace.ref,
       operation:'read',policyVersion:String(c.intentVersion),expiresAt:Date.parse(l.expiresAt)};
     dir=await mkdtemp(join(tmpdir(),'octocove-helper-'));await chmod(dir,0o700);
     helper=new AttemptHelper({grant,runtimeDir:dir,signal:stopped.signal,peer:{authenticate:async()=>{}},authority:{
       live:async()=>{
         const current=await claim(),next=await lease();
-        if(next.repo!==grant.repo || current.workspace.ref!==grant.ref || String(current.intentVersion)!==grant.policyVersion)throw new Error('helper: authority changed');
+        if(next.repo!==grant.repo || current.workspace.ref!==grant.ref || String(current.intentVersion)!==grant.policyVersion || current.workspace.remote!==canonical)throw new Error('helper: authority changed');
+        currentLease = next;
         return grant;
       },
-      seed:async()=>{throw new Error('helper: fetch canonical using its registered transport');},
+      seed:async({mirrorDir,git})=>{
+        const scope = new CallScope([stopped.signal],[deadline ?? Date.now()+120000]);
+        try {
+          if(Date.parse(currentLease.expiresAt)<=Date.now()+10000)currentLease=await lease();
+          if(currentLease.repo!==grant.repo)throw new Error('helper: canonical read binding changed');
+          await seedCanonical({remote:canonical,lease:async()=>{
+            if(Date.parse(currentLease.expiresAt)<=Date.now()+10000)currentLease=await lease();
+            if(currentLease.repo!==grant.repo)throw new Error('helper: canonical read binding changed');
+            return currentLease;
+          },mirrorDir,git,fetch,scope});
+        }catch(error){failure=scope.ended ?? new Error(error.message?.startsWith('helper:')?error.message:'helper: canonical read failed');throw failure;}
+        finally{scope.dispose();}
+      },
       deliver:async()=>{throw new Error('helper: provider writes require server admission');},
       receivePack:async({socket,leftover,ref})=>{
         const scope=new CallScope([stopped.signal],[deadline ?? Date.now()+120000]);
@@ -93,8 +112,8 @@ export async function startManagedHelper({ apiUrl, token, kind, fetch, taskId, c
             redirect:'manual',signal:scope.signal,headers:headers({Accept:'application/x-git-receive-pack-advertisement'})}));
           if(!advertisement.ok)throw new Error(`helper: ref discovery refused (${advertisement.status}); inspect the claim and retry`);
           const advertised=Buffer.from(await scope.guard(advertisement.arrayBuffer()));
-          if(advertised.length>65536 || !advertised.includes(Buffer.from(ref)))throw new Error('helper: invalid claim advertisement');
-          socket.write(advertised);
+          const discovery = receiveAdvertisement(advertised,ref);
+          socket.write(discovery.bytes);
           const chunks=leftover.length?[leftover]:[];let bytes=leftover.length;
           await scope.guard(new Promise((resolve,reject)=>{
             const cancel=()=>{socket.destroy();reject(scope.ended);};
@@ -106,7 +125,7 @@ export async function startManagedHelper({ apiUrl, token, kind, fetch, taskId, c
           const body=Buffer.concat(chunks);
           // Bind the one receive-pack command before sending any authenticated bytes.
           const length=parseInt(body.subarray(0,4).toString(),16), command=body.subarray(4,length).toString().split('\0')[0].trim().split(' ');
-          if(!Number.isInteger(length)||length<4||length>body.length||command.length!==3||command[2]!==ref||
+          if(!Number.isInteger(length)||length<4||length>body.length||command.length!==3||command[2]!==ref||command[0]!==discovery.oldSha||
             !command.slice(0,2).every(sha=>/^[a-f0-9]{40}$/.test(sha))||command[1]===zero||body.subarray(length,length+4).toString()!=='0000')
             throw new Error('helper: only the exact claim ref may be pushed');
           const response=await scope.guard(fetch(`${apiUrl}/tasks/${encodeURIComponent(taskId)}/lane/receive-pack`,{
