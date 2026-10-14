@@ -1917,7 +1917,15 @@ export interface components {
             claim: components["schemas"]["Claim"];
             delegation?: components["schemas"]["DelegationCredential"];
         };
+        /** @description Immutable submission work identity, distinct from its approver and landing requester. Omitted on historical records without a snapshot. delegatedBy is the authorizing human issuer|sub for delegated agent work. */
+        WorkAttribution: {
+            /** @enum {string} */
+            kind: "human" | "agent" | "integrator" | "system" | "policy_bot" | "workload";
+            id: string;
+            delegatedBy?: string;
+        };
         SubmissionContext: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             intentVersion: number;
             intentTitle: string;
             acceptanceCriteria: string[];
@@ -1932,6 +1940,7 @@ export interface components {
             snapshotAt: string;
         };
         Submission: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             id: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
             claimId: components["schemas"]["Id"];
@@ -1989,11 +1998,13 @@ export interface components {
             reviewBoundTo: components["schemas"]["BoundTo"] | null;
         };
         CandidateReady: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             /** @enum {string} */
             state: "complete";
             candidate: components["schemas"]["Candidate"];
         };
         CandidateSuperseded: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             /** @enum {string} */
             state: "superseded";
             submissionId: components["schemas"]["Id"];
@@ -2001,6 +2012,7 @@ export interface components {
         };
         CandidateResult: components["schemas"]["CandidateReady"] | components["schemas"]["CandidateSuperseded"];
         CandidatePending: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             /** @enum {string} */
             state: "pending";
             submissionId: components["schemas"]["Id"];
@@ -2048,6 +2060,7 @@ export interface components {
         };
         /** @description A landed receipt (`GET /receipts/{receiptId}`) with its approval and requesting actor. */
         Landing: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             receiptId: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
             landedSha: components["schemas"]["Sha"];
@@ -2073,6 +2086,7 @@ export interface components {
         };
         /** @description Immutable; landed requires landedSha, fetched-object ancestryVerified=true, and baseShaAfter=reconciledAgainstSha. raced requires baseShaBefore != baseShaAfter. */
         Receipt: {
+            workAttribution?: components["schemas"]["WorkAttribution"];
             approverKind?: components["schemas"]["ApproverKind"];
             id: components["schemas"]["Id"];
             fenceId: components["schemas"]["Id"];

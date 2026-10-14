@@ -5120,10 +5120,25 @@ components:
       - claim
       description: delegation is present only on successful bootstrap issuance; exact retry may replay it while
         valid. GET claim never emits credentials.
+    WorkAttribution:
+      type: object
+      additionalProperties: false
+      description: Immutable submission work identity, distinct from its approver and landing requester. Omitted on historical records without a snapshot. delegatedBy is the authorizing human issuer|sub for delegated agent work.
+      properties:
+        kind:
+          type: string
+          enum: [human, agent, integrator, system, policy_bot, workload]
+        id:
+          type: string
+        delegatedBy:
+          type: string
+      required: [kind, id]
     SubmissionContext:
       type: object
       additionalProperties: false
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         intentVersion:
           type: integer
           minimum: 1
@@ -5170,6 +5185,8 @@ components:
       type: object
       additionalProperties: false
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         id:
           $ref: '#/components/schemas/Id'
         taskId:
@@ -5361,6 +5378,8 @@ components:
       type: object
       additionalProperties: false
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         state:
           type: string
           enum:
@@ -5374,6 +5393,8 @@ components:
       type: object
       additionalProperties: false
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         state:
           type: string
           enum:
@@ -5394,6 +5415,8 @@ components:
       type: object
       additionalProperties: false
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         state:
           type: string
           enum:
@@ -5527,6 +5550,8 @@ components:
       additionalProperties: false
       description: A landed receipt (`GET /receipts/{receiptId}`) with its approval and requesting actor.
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         receiptId:
           $ref: '#/components/schemas/Id'
         taskId:
@@ -5589,6 +5614,8 @@ components:
       type: object
       additionalProperties: false
       properties:
+        workAttribution:
+          $ref: '#/components/schemas/WorkAttribution'
         approverKind:
           $ref: "#/components/schemas/ApproverKind"
         id:
