@@ -104,36 +104,15 @@ it.each([false, true])('rejects a secret-bearing remote before passing it to git
   expect(argv).toEqual([]);
 });
 
-// Even a bootstrap-file import must not write a bearer when the runtime is absent.
-it.each([undefined, ''])('claim refuses without a helper socket (%s) before API, git or credential writes', async (socket) => {
-  const dir = await temp(), repo = join(dir, 'work'), cfg = join(dir, 'cfg');
-  execFileSync('git', ['init', '-q', repo]);
-  const before = await readFile(join(repo, '.git', 'config'), 'utf8');
-  const api = vi.fn(async () => Response.json({ claim: { id: 'c', provisioningState: 'ready',
-    workspace: { remote, credentialSource: source } }, delegation: { accessToken: secret } }));
-  const git = vi.fn(systemGit(repo));
-  for (const command of [['task', 'claim', 't'], ['claim', 't'], ['claim', 't', '--lane', 'chain']]) {
-    for (const json of [false, true]) {
-      let output = '';
-      const code = await run({ argv: [...command, '--intent-version', '1', '--bootstrap-file', join(dir, 'unread-bootstrap.json'), ...(json ? ['--json'] : [])],
-        env: { OCTOCOVE_CONFIG_DIR: cfg, OCTOCOVE_HELPER_SOCK: socket },
-        credentials: { apiUrl: 'https://api.example/v1', token: secret, kind: 'agent' }, git, fetch: api,
-        stdout: s => { output += s; }, stderr: s => { output += s; }, stdin: async () => '' });
-      expect(code).toBe(EXIT.config);
-      expect(output).toContain('OCTOCOVE_HELPER_SOCK is required');
-      expect(output).toContain('AttemptHelper');
-      expect(output).toContain('octocove-helper-connect on PATH');
-      expect(output).not.toContain(secret);
-      expect(output).toContain('A logged-in CLI alone cannot claim');
-      expect(output).toContain('No trusted agent runtime is provisioned for the hosted service yet');
-      expect(output).toContain('#claiming-as-an-agent-runtime-prerequisites');
-      if (json) expect(JSON.parse(output).error).toMatchObject({ code: 'helper-required', hint: expect.stringContaining('trusted runtime') });
-    }
-  }
-  expect(api).not.toHaveBeenCalled();
-  expect(git).not.toHaveBeenCalled();
-  expect(await readFile(join(repo, '.git', 'config'), 'utf8')).toBe(before);
-  expect(await readdir(dir)).toEqual(['work']);
+it.each([undefined, ''])('claim without an external socket validates the bootstrap file (%s)', async socket => {
+  const dir = await temp();
+  const fetch = vi.fn(); let output = '';
+  expect(await run({ argv: ['task','claim','t','--intent-version','1','--bootstrap-file',join(dir,'missing.json')],
+    env: { OCTOCOVE_HELPER_SOCK: socket }, git: vi.fn(), fetch,
+    stdout: s => { output += s; }, stderr: s => { output += s; }, stdin: async () => '' })).toBe(EXIT.config);
+  expect(output).toContain('bootstrap file is unreadable');
+  expect(output).not.toContain('OCTOCOVE_HELPER_SOCK is required');
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it('helper status refuses to report a bearer credential helper as configured', async () => {
@@ -166,12 +145,10 @@ it.each([false, true])('unconfigured helper status gives runtime guidance in JSO
     expect(await run({ argv: ['helper', 'status', ...(jsonMode ? ['--json'] : [])], env: {}, git, fetch,
       stdout: s => { output += s; }, stderr: s => { error += s; }, stdin: async () => '' })).toBe(0);
     expect(error).toBe('');
-    expect(output).toContain('helper-required');
-    expect(output).toContain('A logged-in CLI alone cannot claim');
-      expect(output).toContain('No trusted agent runtime is provisioned for the hosted service yet');
-    expect(output).toContain('trusted runtime');
-    expect(output).toContain('#claiming-as-an-agent-runtime-prerequisites');
-    if (jsonMode) expect(JSON.parse(output)).toMatchObject({ configured: false, code: 'helper-required', hint: expect.any(String) });
+    expect(output).toContain('same-user');
+    expect(output).toContain('not an isolated credential boundary');
+    expect(output).toContain('automatically');
+    if (jsonMode) expect(JSON.parse(output)).toMatchObject({ configured: false, hint: expect.any(String) });
     expect(fetch).not.toHaveBeenCalled();
   }
 });

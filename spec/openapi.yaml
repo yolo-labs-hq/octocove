@@ -1703,6 +1703,60 @@ paths:
         '401': {$ref: '#/components/responses/Problem'}
         '403': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/receive-pack/refs:
+    get:
+      operationId: chainLaneReceivePackRefs
+      summary: Discover the authenticated claim ref for Worker receive-pack
+      description: Exact agent claim authority. Receive-pack v1 advertisement contains refs/octocove/claims/{claimId} at its current tip (zero when absent), and .have lines for the original claim base and current canonical head. The helper forwards this advertisement to Git; the credential is never returned.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      responses:
+        '200':
+          description: Receive-pack v1 advertisement.
+          content:
+            application/x-git-receive-pack-advertisement:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/receive-pack:
+    post:
+      operationId: chainLaneReceivePack
+      summary: Push Git objects to the authenticated claim ref and compute its candidate
+      description: Exact scoped agent claimant with submissions:create. One command targets refs/octocove/claims/{claimId}; old SHA must equal its current tip (zero on the first push). Send a non-thin pack with delta compression disabled so the Worker can verify commit ancestry. The Worker creates the submission and candidate and streams report-status unchanged. Candidate base is the current canonical head when source descends from it. Otherwise the candidate is stale and approval refuses it; fetch and merge the current canonical locally, then push again. No integrator, staging endpoint or provider write credential is involved.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      requestBody:
+        required: true
+        content:
+          application/x-git-receive-pack-request:
+            schema: {type: string, format: binary}
+      responses:
+        '200':
+          description: Upstream report-status; discover the created submission through task.liveAttempt and read its candidate.
+          content:
+            application/x-git-receive-pack-result:
+              schema: {type: string, format: binary}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409':
+          description: chain-push-non-fast-forward; fetch canonical with a read lease, merge locally with the original base, then push again.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '422':
+          description: candidate-ancestry-unverifiable; retry with pack.window=0 or a no-delta pack.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
   /tasks/{id}/lane/pushes:
     post:
       operationId: chainLanePush

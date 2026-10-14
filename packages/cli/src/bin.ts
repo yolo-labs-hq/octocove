@@ -1,7 +1,14 @@
+#!/usr/bin/env node
 import { run } from "./cli.js";
 import { systemGit } from "./git.js";
 
+const controller = new AbortController();
+let interrupted = 0;
+const interrupt = (signal: NodeJS.Signals) => { interrupted = signal === "SIGINT" ? 130 : 143; controller.abort(); };
+process.on("SIGINT", interrupt);
+process.on("SIGTERM", interrupt);
 const code = await run({
+  signal: controller.signal,
   argv: process.argv.slice(2),
   env: process.env,
   fetch: (url, init) => fetch(url, init),
@@ -21,4 +28,6 @@ const code = await run({
     } finally { signal?.removeEventListener("abort",abort); }
   },
 });
-process.exitCode = code;
+process.removeListener("SIGINT", interrupt);
+process.removeListener("SIGTERM", interrupt);
+process.exitCode = interrupted || code;

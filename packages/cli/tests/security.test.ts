@@ -169,15 +169,14 @@ describe("bootstrap hand-off", () => {
 });
 
 describe("protected credential imports", () => {
-  it("refuses an allocated claim without a helper before importing the bootstrap or making requests", async () => {
+  it("imports the bootstrap without requiring an external helper before claiming", async () => {
     const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
-    expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(78);
-    expect(stderr).toContain("OCTOCOVE_HELPER_SOCK is required");
-    expect(stderr).toContain("trusted runtime provision the helper");
-    expect(stderr).toContain("put octocove-helper-connect on PATH");
-    expect(calls).toHaveLength(0);
+    routes["POST /v1/tasks/T1/claim"] = () => response({ code: "claim-held" }, 409);
+    expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.failure);
+    expect(stderr).toContain("claim-held");
+    expect(calls.map(c => c.route)).toEqual(["POST /v1/tasks/T1/claim"]);
     expect(gitArgs).toHaveLength(0);
-    await expect(stat(activeFile())).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await active()).token).toBe(BOOT);
   });
 
   it("saved credentials win over a stale bootstrap import and OCTOCOVE_TOKEN env tokens are discarded", async () => {

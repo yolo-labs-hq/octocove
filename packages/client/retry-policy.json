@@ -141,6 +141,14 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "chainLaneReceivePack": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "chainLaneReceivePackRefs": {
+    "callable": false,
+    "reason": "excluded"
+  },
   "chainLanePush": {
     "callable": true,
     "autoRetry": "network-only",

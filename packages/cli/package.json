@@ -1,7 +1,7 @@
 {
   "name": "@yolo-labs/octocove",
   "license": "Apache-2.0",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The octocove command-line client for the Octocove API: login, projects, repositories, tasks, claims and candidates.",
   "type": "module",
   "repository": {
@@ -17,7 +17,8 @@
     "node": ">=20"
   },
   "bin": {
-    "octocove": "dist/octocove.mjs"
+    "octocove": "dist/octocove.mjs",
+    "octocove-helper-connect": "dist/octocove-helper-connect.mjs"
   },
   "files": [
     "dist",
@@ -30,10 +31,10 @@
     "provenance": true
   },
   "scripts": {
-    "build": "esbuild src/bin.ts --bundle --platform=node --target=node20 --format=esm --banner:js='#!/usr/bin/env node' --outfile=dist/octocove.mjs --metafile=build-meta/octocove.mjs.json",
+    "build": "node build.mjs",
     "prepack": "cp ../../LICENSE ../../NOTICE .",
     "typecheck": "timeout 300 tsc -p tsconfig.json",
-    "test": "CI=1 timeout 300 vitest run --maxWorkers=1 < /dev/null"
+    "test": "CI=1 timeout 300 vitest run --maxWorkers=1 --minWorkers=1 --no-file-parallelism < /dev/null"
   },
   "devDependencies": {
     "@types/node": "26.6.4",
