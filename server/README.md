@@ -110,7 +110,23 @@ private `OCTOCOVE_CONFIG_DIR`, such as `$(mktemp -d)`, to isolate credentials.
 
 ## Core checks
 
-Run tests separately with one worker, from the repository root:
+CI runs `pnpm --filter @octocove/server test`: selected collaboration and
+security-boundary cases from native push, native landing, lifecycle landing
+and authentication. The single-worker suite covers two-agent push/approval/
+landing, canonical head advancement, races and ambiguous read-back, token
+cleanup, approval binding, scoped authority, PKCE and CSRF. It has a two-minute
+process-group bound and five seconds for forced cleanup, using GNU `timeout`
+on Linux. Other cases in these files and gateway/code-view checks remain in
+`test:all`.
+
+Run the complete server suite, including code-view/tree coverage, explicitly:
+
+```sh
+pnpm --filter @octocove/server test:all
+```
+
+`test:all` keeps one worker and has no whole-suite deadline. For smaller local
+checks, run tests separately with one worker, from the repository root:
 
 ```sh
 pnpm --filter @octocove/server exec vitest run tests/lifecycle-landing.test.ts --maxWorkers=1 --no-file-parallelism
