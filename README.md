@@ -104,7 +104,7 @@ concurrency, dependencies and merge recovery.
 
 ## Run the server yourself
 
-The Worker engine lives in `server/`. Use the repository's Node/pnpm versions for
+The Worker engine lives in `server/`; see [the server setup guide](server/README.md) for binding and authentication details. Use the repository's Node/pnpm versions for
 source development. Its API needs local D1 state and a configured Cloudflare
 Artifacts binding; the hosted web app is a separate client, not a local UI server.
 

@@ -1,7 +1,7 @@
 # 0023: Sensitive human actions need a sign-in from the last hour
 Status: accepted
 
-**Status update (2026-10-14).** Recent-sign-in enforcement is an
+**Deployment policy.** Recent-sign-in enforcement is an
 optional deployment policy controlled by `AUTH_REQUIRE_RECENT_SIGN_IN`, default
 off. When enabled, the decision below defines the freshness window, sensitive
 actions, refusals and re-authentication flow. Authentication and authorization
