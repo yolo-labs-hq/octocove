@@ -70,3 +70,15 @@ describe("deprecated workspace option in JSON mode", () => {
     expect(result.stderr).toBe("octocove: workspace --lane is deprecated; use --worktree\noctocove: workspace cache unavailable\n");
   });
 });
+
+describe("workspace refresh conflict output", () => {
+  it.each(["--worktree", "--lane"])("%s: conflict JSON goes to stdout with exit 1 and empty stderr", async flag => {
+    const conflict = { ok: false, path: "content-merge", head: "a".repeat(40), canonicalHead: "b".repeat(40), conflicts: ["src/file.ts"] };
+    vi.mocked(workspace).mockResolvedValue(conflict);
+    const result = await invoke("refresh", ["--canonical", "/unused/repository", flag, "W1", "--json"]);
+    expect(result.code).toBe(EXIT.failure);
+    expect(JSON.parse(result.stdout)).toEqual(conflict);
+    expect(result.stderr).toBe("");
+    expect(workspace).toHaveBeenCalledWith("refresh", expect.objectContaining({ worktree: "W1" }));
+  });
+});
