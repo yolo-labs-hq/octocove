@@ -108,7 +108,7 @@ reads credentials or starts network requests.
 
 Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:338](src/cli.ts#L338 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
-`--json` (anywhere) prints the API response instead of text; errors emit exactly one
+`--json` (anywhere) prints the API response instead of text; thrown usage/execution errors emit exactly one
 `{"error": {...}}` on stderr. Auth/authorize/claim responses expose metadata only, with credentials kept in the
 protected store. `login --json` emits two JSON lines: browser consent metadata immediately, then completion
 metadata when the credential is saved. It never emits the device code, verifier, CSRF token or session bearer.
@@ -245,9 +245,9 @@ octocove workspace retire --canonical /repos/project.git --canonical-id project-
 it is client state, not a record lane. `--lane` is accepted as a deprecated
 alias with a warning, and caches in the older layout (`pool`, `lanes`,
 `refs/octocove/lanes/*`) are migrated on first use.
-In `--json` mode, the alias warning is emitted only after success; errors produce
-one JSON error object on stderr. An invalid `--count` exits 2 (`usage`) before
-workspace execution.
+In `--json` mode, the alias warning is emitted only after success; thrown usage
+and execution errors produce one JSON error object on stderr. An invalid
+`--count` exits 2 (`usage`) before workspace execution.
 `--ref` defaults to `refs/heads/main`; use the same target on every invocation.
 `--cache` defaults to `$XDG_CACHE_HOME/octocove/workspaces` or
 `~/.cache/octocove/workspaces`. `--canonical-id` defaults to the URL/path. One
@@ -272,7 +272,9 @@ previous HEAD and index until reopened; repeated refreshes compose on the pinned
 head. Reopen before further editing. Task commits must already exist in the
 mirror or be imported using `--head SHA --source /path/to/own-clone`. Conflicts
 return `ok:false`, conflicting paths and the preserved task head, with exit 1;
-no pin advances. Uncommitted/untracked files block open, refresh and retire.
+in `--json` mode this result is written to stdout and stderr stays empty, including
+when using the deprecated `--lane` alias. No pin advances. Uncommitted/untracked
+files block open, refresh and retire.
 Reopen also refuses to discard committed task work that has not been refreshed.
 The canonical source must have shared full history; unrelated/tree-only history
 requires the existing graft/anchor contract before using this helper.
