@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Restore chain staging, queued delivery and submission for non-native claims using an externally managed helper, while preserving Worker-native receive-pack transport. Verify the live workspace ref matches the saved lane binding before staging.
+- Require an external helper for non-native workspace preparation.
+
 ## 0.3.0
 
 ### CLI
