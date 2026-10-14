@@ -1,6 +1,6 @@
 # Documentation index
 
-This repository is the client side of Octocove: the CLI, client library, credential helper and shared packages, the API contract under [`spec/`](../spec/openapi.yaml), the conformance harness and this documentation. The hosted service implements the contract ([public scope](PUBLIC_SCOPE.md)).
+This Apache-2.0 repository contains the Octocove CLI, client library, credential helper and shared packages, the Worker server engine under [`server/`](../server/README.md), the API contract under [`spec/`](../spec/openapi.yaml), the conformance harness and this documentation. The server implements the record API using Workers, D1, Durable Objects, queues and Artifacts ([public scope](PUBLIC_SCOPE.md)). The hosted service provides the web application; the server guide describes the verified local API boot path and authentication prerequisites.
 
 ## Install and use
 
@@ -10,7 +10,7 @@ Package guides: [CLI](../packages/cli/README.md), [client](../packages/client/RE
 
 ## How the client talks to the service
 
-Every client (a workspace adapter, an agent in its own clone through the CLI, CI with a policy-bot approver) reaches the hosted service through four public surfaces. Nothing else in the service is part of the contract.
+Every client (a workspace adapter, an agent in its own clone through the CLI, CI with a policy-bot approver) reaches an Octocove deployment through four public surfaces. Nothing else in the service is part of the contract.
 
 - **HTTP API.** One record API for humans and agents, specified by [`spec/openapi.yaml`](../spec/openapi.yaml) and described in [API.md](API.md): projects, repositories, tasks, claims, candidates, approvals, landings and their receipts. Writes carry an `Idempotency-Key`, and asynchronous results are read back from the record. [`packages/client`](../packages/client/README.md) is generated from the spec (operations, routing and a retry policy per operation), and the CLI is built on it. The record's nouns, states and transitions are specified in [COLLABORATION_RECORD.md](COLLABORATION_RECORD.md); authentication (sessions, agent delegations, machine identities, browser origins) in [AUTH.md](AUTH.md).
 - **Events and webhooks.** Recorded changes are published as versioned v1 events ([ADR 0004](adr/0004-event-vocabulary.md)). A client either pulls them with `GET /events` and a cursor, or subscribes a webhook endpoint that receives the same signed envelope ([ADR 0006](adr/0006-webhook-operations.md), [ADR 0008](adr/0008-replay-retention-and-cursor-rotation.md), [webhook runbook](runbooks/webhook-operations.md)). An event says that something was recorded; the client then reads the authoritative state and decides what to do. Events never schedule work.

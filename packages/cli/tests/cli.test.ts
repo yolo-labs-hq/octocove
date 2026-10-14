@@ -866,10 +866,10 @@ describe('chain claim options', () => {
     const cfg = join(repo, '..', 'chain-agent');
     const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap', agentId: 'worker-one' });
     routes['POST /tasks/T1/claim'] = () => json(201, { ...ready(SHA_A), delegation: {
-      delegationId: 'D1', accessToken: 'PRIVATE-AGENT', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
+      delegationId: 'D1', accessToken: 'testAgentCredential', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
     } });
     routes['GET /tasks/T1'] = c => {
-      expect(c.headers.authorization).toBe('Bearer PRIVATE-AGENT');
+      expect(c.headers.authorization).toBe('Bearer testAgentCredential');
       expect(JSON.parse(readFileSync(join(cfg, 'credentials', 'cli.json'), 'utf8')).kind).toBe('agent');
       return json(200, task);
     };
@@ -879,7 +879,7 @@ describe('chain claim options', () => {
     expect(git('config', '--local', 'octocove.projectId')).toBe('P1');
     expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: cfg })).toMatchObject({ kind: 'agent', agentId: 'worker-one', delegationId: 'D1' });
     expect(git('config', '--local', 'octocove.baseSha')).toBe(SHA_A);
-    expect(outText + errText).not.toContain('PRIVATE-AGENT');
+    expect(outText + errText).not.toContain('testAgentCredential');
   });
 
   it('explicit ref overrides a chain declaration and retains the existing request shape', async () => {
