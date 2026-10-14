@@ -85,15 +85,15 @@ reads credentials or starts network requests.
 | `helper status [--json]` | Local, secret-free helper configuration |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:571](src/cli.ts#L571 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:572](src/cli.ts#L572 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:573](src/cli.ts#L573 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:574](src/cli.ts#L574 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:575](src/cli.ts#L575 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:576](src/cli.ts#L576 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:577](src/cli.ts#L577 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:578](src/cli.ts#L578 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:579](src/cli.ts#L579 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:583](src/cli.ts#L583 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:584](src/cli.ts#L584 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:585](src/cli.ts#L585 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:586](src/cli.ts#L586 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:587](src/cli.ts#L587 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:588](src/cli.ts#L588 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:589](src/cli.ts#L589 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:590](src/cli.ts#L590 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:591](src/cli.ts#L591 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -101,12 +101,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:987](src/cli.ts#L987 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:999](src/cli.ts#L999 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:999](src/cli.ts#L999 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1011](src/cli.ts#L1011 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1039](src/cli.ts#L1039 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1051](src/cli.ts#L1051 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:334](src/cli.ts#L334 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:338](src/cli.ts#L338 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 `--json` (anywhere) prints the API response instead of text; errors emit exactly one
 `{"error": {...}}` on stderr. Auth/authorize/claim responses expose metadata only, with credentials kept in the
@@ -177,7 +177,12 @@ properties:
 - **Deadlines cover requests, not just polling.** Every wait — `land --wait`, `receipt show --wait`,
   `submit --wait`, `lane push --wait`, claim provisioning (`--wait`) and `login` — bounds each request and body read
   inside it; `land --wait` and `login` bound their first request too. A wait that runs out reports the last known
-  state with exit 75 instead of hanging. Machine commands' `--timeout` bounds every request.
+  state with exit 75 instead of hanging. A lane push deadline reached during inspection, staging, enqueue or
+  submission instead exits 1 with `deadline-exceeded`; a write's outcome may be uncertain, so retry with the
+  same idempotency key and push ID. Machine commands' `--timeout` bounds every request.
+- **Standalone API reads have a 30-second deadline.** `task list`, `task show`, `candidate show`, `log`,
+  `events replay` and `lane status` bound the request, response body and network recovery within that budget.
+  Expiration exits 1 with `deadline-exceeded` on stderr (`status: 0` in JSON); it never implies an API refusal.
 - **Waits ride out lost answers.** A provisioning, candidate, delivery or receipt poll that gets no answer, or a
   `429`, is polled again inside the deadline instead of failing the command. `login` polls through the library's
   CLI login journey: a lost exchange answer is recovered under the same exchange key, and the next poll follows
@@ -376,7 +381,10 @@ immutable base and proves ancestry before any staging. It sends a full-history
 Git bundle through `OCTOCOVE_HELPER_SOCK`, queues the exact retained SHA, waits
 for verified delivery, then posts an ordinary submission and reads its candidate.
 `--task` / `--claim` override saved IDs. A single `--wait SECONDS` budget (default
-60) covers delivery and candidate polling. Pending work exits 75; `lane status`
+60) starts before lane inspection and covers local Git work, bundle/socket staging, enqueue, submission,
+delivery and candidate polling. Expired requests or staging exit 1 with `deadline-exceeded`; an unfinished
+delivery or candidate poll prints its last known state and exits 75. Temporary staging refs and files are
+cleaned up after cancellation, with up to one extra second for best-effort Git ref removal. `lane status`
 shows retained jobs, and `lane retry` wakes recovery without moving their bases.
 Reuse the same push key and `--push-id` to recover uncertain outcomes; submission
 uses a derived key, so repeating the command cannot create another submission.
