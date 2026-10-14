@@ -1231,7 +1231,7 @@ export interface paths {
         put?: never;
         /**
          * Revoke one of the caller's own sign-in sessions
-         * @description Human session only; Origin and CSRF are checked for cookie callers like every cookie POST. Revokes the sign-in, every session token of it, and the bootstraps and delegations authorized through it, in one D1 batch with one `auth_family_revocations` row. Revoking the current sign-in is logout, including the cookie-expiring `Set-Cookie` headers. Another principal's sign-in and an unknown id both answer the same 404 `not-found`. An already-revoked sign-in of the caller answers 204 from state; the same session and key replay the original 204 for two minutes, even after that session was revoked by the request; the same key with another id is `409 idempotency-conflict`.
+         * @description Human session only; Origin and CSRF are checked for cookie callers like every cookie POST. Revokes the sign-in, every session token of it, and the bootstraps and delegations authorized through it, in one D1 batch with one `auth_family_revocations` row. Revoking the current sign-in is logout, including the cookie-expiring `Set-Cookie` headers. Revoking a sign-in other than the current one requires recent sign-in only when `AUTH_REQUIRE_RECENT_SIGN_IN` is enabled; revoking the current one is exempt. Another principal's sign-in and an unknown id both answer the same 404 `not-found`. An already-revoked sign-in of the caller answers 204 from state; the same session and key replay the original 204 for two minutes, even after that session was revoked by the request; the same key with another id is `409 idempotency-conflict`.
          */
         post: operations["meSessionRevoke"];
         delete?: never;
@@ -2673,7 +2673,7 @@ export interface components {
             fenceId?: components["schemas"]["Id"];
             restartCursor?: string;
             registrationRequest?: components["schemas"]["RegistrationRequest"];
-            /** @description `reauth-required` - when the caller's sign-in last authenticated with the identity provider; null when unknown. */
+            /** @description `reauth-required`, when the optional recent-sign-in policy is enabled - when the caller's sign-in last authenticated with the identity provider; null when unknown. */
             authenticatedAt?: string | null;
             /** @description `reauth-required` - a path on this API, `/v1/auth/login?reauth=1&return_path=...`. POST it `{mode: "browser"}` with the pre-login binding cookie, the session cookie and an allowed Origin, as for a browser login; the issuer is asked for a fresh authentication and the same sign-in is refreshed. */
             reauthUrl?: string;
@@ -2821,7 +2821,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description Structured error, as `Problem`. On this operation (`x-recent-sign-in`) a human session whose sign-in last authenticated with the identity provider more than the recent sign-in window ago (default one hour) also gets 403 `reauth-required`, with `details.authenticatedAt` (that time) and `details.reauthUrl` (the browser login start that re-authenticates the same sign-in; docs/AUTH.md "Recent sign-in"). Agent delegations and machine callers are never refused this way. ADR 0023. */
+        /** @description Structured error, as `Problem`. Only when the optional deployment policy `AUTH_REQUIRE_RECENT_SIGN_IN` is enabled (default off), a human session on an operation marked `x-recent-sign-in` gets 403 `reauth-required` when its authentication time is unknown or older than the recent-sign-in window (default one hour). `details.authenticatedAt` is that time, or null when unknown; `details.reauthUrl` is the browser login start that re-authenticates the same sign-in (docs/AUTH.md "Recent sign-in"). Agent delegations and machine callers are never refused this way. ADR 0023. */
         ReauthRequiredProblem: {
             headers: {
                 "X-Request-Id": components["headers"]["RequestId"];
