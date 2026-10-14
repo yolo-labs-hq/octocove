@@ -1,5 +1,7 @@
 import { isAbsolute, sep } from 'node:path';
-import { realpath } from 'node:fs/promises';
+import { realpath, access, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { ConfigError } from './config.js';
 import { getConfig, type GitRunner } from './git.js';
 
@@ -49,10 +51,30 @@ export function requireHelperTransport(env: NodeJS.ProcessEnv) {
   if (!helperTransportActive(env)) throw new HelperRequiredError();
 }
 
-export async function setupHelperTransport(git: GitRunner, remoteName: string, haveRemote: boolean) {
+export function managedHelperRemote(connectorPath = fileURLToPath(new URL('./octocove-helper-connect.mjs', import.meta.url))) {
+  // remote-ext splits arguments itself; percent escapes are not shell quoting.
+  const argument = (path: string) => {
+    if (!isAbsolute(path) || /[\r\n\t\0]/.test(path)) throw new ConfigError('invalid bundled connector path');
+    return path.replace(/%/g, '%%').replace(/ /g, '% ');
+  };
+  return `ext::${argument(process.execPath)} ${argument(connectorPath)} %s`;
+}
+
+export async function preflightConnector(connectorPath = fileURLToPath(new URL('./octocove-helper-connect.mjs', import.meta.url))) {
+  managedHelperRemote(connectorPath);
+  try {
+    if (!(await stat(connectorPath)).isFile()) throw new Error('not a file');
+    await access(connectorPath, constants.R_OK);
+    await access(process.execPath, constants.X_OK);
+  } catch {
+    throw new ConfigError('bundled helper connector is missing or unreadable; reinstall the CLI before claiming a task');
+  }
+}
+
+export async function setupHelperTransport(git: GitRunner, remoteName: string, haveRemote: boolean, remote = HELPER_REMOTE) {
   // The remote is the ext:: connector, not the upstream URL: the helper resolves the exact
   // registered repo/ref itself. No credential material is placed anywhere the lane can read.
-  await git(['remote', haveRemote ? 'set-url' : 'add', remoteName, HELPER_REMOTE]);
+  await git(['remote', haveRemote ? 'set-url' : 'add', remoteName, remote]);
   // `user`, not `always`: the user's own `git push` may use ext::, but git-initiated transports
   // (submodule URLs from .gitmodules) may not, so a cloned repo cannot run commands through it.
   await git(['config', '--local', 'protocol.ext.allow', 'user']);
@@ -60,18 +82,18 @@ export async function setupHelperTransport(git: GitRunner, remoteName: string, h
 
 /** Check effective URLs, including pushurl and insteadOf rewrites. The protected
  * runtime resolves the repo/ref; this connector must never accept another target. */
-export async function helperRemoteMatches(git: GitRunner, remoteName: string) {
+export async function helperRemoteMatches(git: GitRunner, remoteName: string, connectorPath?: string) {
   const fetchUrl = await git(['remote', 'get-url', remoteName]);
   const pushUrls = (await git(['remote', 'get-url', '--push', '--all', remoteName])).split('\n');
-  return fetchUrl === HELPER_REMOTE && pushUrls.length > 0 && pushUrls.every(url => url === HELPER_REMOTE);
+  return [HELPER_REMOTE, managedHelperRemote(connectorPath)].includes(fetchUrl) && pushUrls.length > 0 && pushUrls.every(url => url === fetchUrl);
 }
 
-export async function helperStatus(git: GitRunner, env: NodeJS.ProcessEnv = {}) {
+export async function helperStatus(git: GitRunner, env: NodeJS.ProcessEnv = {}, connectorPath?: string) {
   const name = await getConfig(git, 'octocove.remote');
   if (!name) return { configured: false, runtime: 'built-in same-user (not an isolated credential boundary)', hint: HELPER_HINT };
   const url = await git(['remote', 'get-url', name]);
   // Socket-helper transport: the remote is the ext:: connector and carries no credential.
-  if (/^ext::octocove-helper-connect\b/.test(url))
+  if ([HELPER_REMOTE, managedHelperRemote(connectorPath)].includes(url))
     return { configured: true, runtime: helperTransportActive(env) ? 'external' : 'built-in same-user (not an isolated credential boundary)', transport: 'socket-helper', helper: 'octocove-helper-connect', remote: name };
   const u = cleanUrl(url);
   return { configured: false, origin: u.origin, path: u.pathname.slice(1),

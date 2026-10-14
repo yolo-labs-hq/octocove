@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Persist absolute paths to Node and the bundled connector for managed Git transports, so claim, fetch and push work when the CLI bin directory is absent from PATH. Preserve the external helper runtime transport contract.
+- Refuse a missing or unreadable bundled connector before creating a server-side claim.
+
 ## 0.3.1
 
 - Restore chain staging, queued delivery and submission for non-native claims using an externally managed helper, while preserving Worker-native receive-pack transport. Verify the live workspace ref matches the saved lane binding before staging.

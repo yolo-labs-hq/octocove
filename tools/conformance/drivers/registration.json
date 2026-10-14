@@ -20,9 +20,9 @@
     "pinnedDriver": {
       "kind": "cli-bundle",
       "package": "packages/cli/package.json",
-      "cliVersion": "0.3.1",
+      "cliVersion": "0.3.2",
       "bundle": "packages/cli/dist/octocove.mjs",
-      "bundleSha256": "c953c0bee67ab02ac2f23177a25a5f583abd666f3e4b420be4c6a70b7414983f"
+      "bundleSha256": "e0b7a98033e636ab4d74470ebafe5fb73618ef4640c3f6f6993bcc1b38407f83"
     }
   },
   "c": {
