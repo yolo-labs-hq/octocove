@@ -325,7 +325,7 @@ paths:
       - name: principalId
         in: path
         required: true
-        description: The person's issuer|sub identifier, percent-encoded as one path segment.
+        description: The person's issuer|sub identifier or current or retired username, percent-encoded as one path segment. Username lookup is case-insensitive; profile.handle always names the current username.
         schema: {type: string}
       responses:
         '200':
@@ -408,6 +408,9 @@ paths:
         calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes
         nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer;
         the same key with another body is 409 `idempotency-conflict`.
+        A handle edit is atomic with the profile write. A current or retired name owned by another person
+        returns 409 `handle-taken`; reselecting an owned retired name is allowed. Malformed, empty, null
+        and reserved handles return 400 `invalid-profile` with details.field handle.
       tags:
       - Auth
       security:
@@ -6252,6 +6255,8 @@ components:
       additionalProperties: false
       description: One project membership. Profile fields describe the person only; authority is `verbs`.
       properties:
+        handle:
+          $ref: '#/components/schemas/Handle'
         principalId:
           type: string
           description: The member's `issuer|sub`, the format of `GET /me` `principal.id`.
@@ -6528,6 +6533,14 @@ components:
           description: The person's issuer|sub identifier.
         profile:
           $ref: '#/components/schemas/Profile'
+    Handle:
+      type: string
+      minLength: 1
+      maxLength: 39
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$'
+      description: >-
+        A lowercase global username. Reserved names me, new, settings, admin, api, octocove, people,
+        support and help cannot be selected. Current and retired names remain reserved to their owner.
     Profile:
       type: object
       additionalProperties: false
@@ -6536,6 +6549,8 @@ components:
         identity provider's display name, so it is null only when neither exists. Email is the provider's
         (`principal.email`) and is not part of the profile.
       properties:
+        handle:
+          $ref: '#/components/schemas/Handle'
         name:
           type:
           - string
@@ -6566,6 +6581,8 @@ components:
         character (C0 including tab and newline, DEL, C1). The first invalid field, in the order `name`, `pronouns`,
         `bio`, `timezone`, is 400 `invalid-profile` with `details.field`; any other key is 400 `invalid-request`.
       properties:
+        handle:
+          $ref: '#/components/schemas/Handle'
         name:
           type:
           - string

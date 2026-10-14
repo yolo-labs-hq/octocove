@@ -73,3 +73,27 @@ reading it, not from an event. The row is evidence for operators.
 Affected: [API](../API.md#your-profile-patch-meprofile), `spec/openapi.yaml` (`meProfileUpdate`, `Profile`,
 `Member.name`), [COLLABORATION_RECORD §10](../COLLABORATION_RECORD.md#10-audit-log), and the client's
 `auth.profile.update()` (`replay: stored-result`).
+
+
+## Usernames
+
+Every human has one current lowercase username under `/people/{username}`. The format is
+`^(?=.{1,39}$)[a-z0-9](?:-?[a-z0-9])*$`. Names are globally unique without regard to case.
+The names `me`, `new`, `settings`, `admin`, `api`, `octocove`, `people`, `support` and `help` are reserved.
+
+A separate insert-if-absent assigns the first name during sign-in without changing the identity-provider
+upsert or overwriting edited profile state. Existing people are backfilled. Derive from the email local
+part, else display name, else `user`: lowercase, replace runs of other characters with a hyphen, trim
+hyphens and bound the result to 39 characters without a trailing hyphen. Conflicts and reserved names
+advance through `-2`, `-3`, and so on, shortening the stem to keep the full name within the bound.
+
+`PATCH /me/profile` accepts `handle` and returns it with the profile. Malformed, empty, null or reserved
+names are `400 invalid-profile` with field `handle`; names held by another person are `409 handle-taken`.
+A rename runs under the same session guard and atomic batch as the other profile changes. The audit
+records the field name and never its value. Old names remain reserved forever and resolve to their
+owner's current profile. Reclaiming one's own retired name is allowed.
+
+`GET /people/{principalId}` accepts either a principal reference containing `|` or a username. Username
+lookup is case-insensitive and includes retired names; the response always carries the stable principal
+identifier and current `profile.handle`. Clients redirect old links to the current name. `GET /me`, profile
+write responses and member list entries also carry the current handle. A handle never grants authority.

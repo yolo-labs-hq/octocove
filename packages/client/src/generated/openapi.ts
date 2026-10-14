@@ -140,7 +140,7 @@ export interface paths {
         head?: never;
         /**
          * Edit the caller's own profile
-         * @description Human session only; agent delegations get 403 `human-required` and a valid machine grant bearer 403 `human-required` from the handler (an unknown one 401). Origin and CSRF are checked for cookie callers, as on every cookie POST. Sets the named fields of the caller's profile (ADR 0026); email stays the identity provider's and the principal id never changes. The profile is stored apart from the sign-in record, so signing in again never erases it. One D1 batch upserts the named fields and appends one `profile.updated` audit row (no project, so it is in neither `GET /audit` nor `GET /events`; refs the principal id and the names of the fields set, never their values) and the idempotency ledger row, behind an in-transaction recheck of the calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`.
+         * @description Human session only; agent delegations get 403 `human-required` and a valid machine grant bearer 403 `human-required` from the handler (an unknown one 401). Origin and CSRF are checked for cookie callers, as on every cookie POST. Sets the named fields of the caller's profile (ADR 0026); email stays the identity provider's and the principal id never changes. The profile is stored apart from the sign-in record, so signing in again never erases it. One D1 batch upserts the named fields and appends one `profile.updated` audit row (no project, so it is in neither `GET /audit` nor `GET /events`; refs the principal id and the names of the fields set, never their values) and the idempotency ledger row, behind an in-transaction recheck of the calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`. A handle edit is atomic with the profile write. A current or retired name owned by another person returns 409 `handle-taken`; reselecting an owned retired name is allowed. Malformed, empty, null and reserved handles return 400 `invalid-profile` with details.field handle.
          */
         patch: operations["meProfileUpdate"];
         trace?: never;
@@ -2361,6 +2361,7 @@ export interface components {
         };
         /** @description One project membership. Profile fields describe the person only; authority is `verbs`. */
         Member: {
+            handle?: components["schemas"]["Handle"];
             /** @description The member's `issuer|sub`, the format of `GET /me` `principal.id`. */
             principalId: string;
             /** @description From the identity provider at sign-in; omitted when not stored. */
@@ -2475,8 +2476,11 @@ export interface components {
             principalId: string;
             profile: components["schemas"]["Profile"];
         };
+        /** @description A lowercase global username. Reserved names me, new, settings, admin, api, octocove, people, support and help cannot be selected. Current and retired names remain reserved to their owner. */
+        Handle: string;
         /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile` (ADR 0026); each field is null while unset. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
         Profile: {
+            handle?: components["schemas"]["Handle"];
             name: string | null;
             pronouns: string | null;
             bio: string | null;
@@ -2485,6 +2489,7 @@ export interface components {
         };
         /** @description A key present sets that field and `null` clears it; an absent key leaves it unchanged. Strings are trimmed before they are checked, and lengths count Unicode code points. No field may contain a control character (C0 including tab and newline, DEL, C1). The first invalid field, in the order `name`, `pronouns`, `bio`, `timezone`, is 400 `invalid-profile` with `details.field`; any other key is 400 `invalid-request`. */
         ProfileUpdate: {
+            handle?: components["schemas"]["Handle"];
             /** @description 1-80 code points after trimming (an empty name is invalid; clear it with null). */
             name?: string | null;
             /** @description At most 40 code points after trimming; empty clears it. */
@@ -3271,7 +3276,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The person's issuer|sub identifier, percent-encoded as one path segment. */
+                /** @description The person's issuer|sub identifier or current or retired username, percent-encoded as one path segment. Username lookup is case-insensitive; profile.handle always names the current username. */
                 principalId: string;
             };
             cookie?: never;
