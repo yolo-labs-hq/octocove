@@ -6586,6 +6586,9 @@ components:
       type: object
       additionalProperties: false
       properties:
+        cloneUrl:
+          type: string
+          description: Credential-free canonical clone URL, absent when unknown.
         id:
           $ref: '#/components/schemas/Id'
         projectId:
@@ -6631,6 +6634,9 @@ components:
       additionalProperties: false
       description: A `Repository` as `GET /projects/{project}/repositories` lists it, with its verification state.
       properties:
+        cloneUrl:
+          type: string
+          description: Credential-free canonical clone URL, absent when unknown.
         id:
           $ref: '#/components/schemas/Id'
         projectId:
@@ -6704,6 +6710,9 @@ components:
       type: object
       additionalProperties: false
       properties:
+        cloneUrl:
+          type: string
+          description: Credential-free canonical clone URL, absent when unknown.
         id:
           $ref: '#/components/schemas/Id'
         projectId:

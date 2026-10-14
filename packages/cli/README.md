@@ -85,15 +85,15 @@ reads credentials or starts network requests.
 | `helper status [--json]` | Local, secret-free helper configuration |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:587](src/cli.ts#L587 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:588](src/cli.ts#L588 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:589](src/cli.ts#L589 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:590](src/cli.ts#L590 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:591](src/cli.ts#L591 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:592](src/cli.ts#L592 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:593](src/cli.ts#L593 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:594](src/cli.ts#L594 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:595](src/cli.ts#L595 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:590](src/cli.ts#L590 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:591](src/cli.ts#L591 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:592](src/cli.ts#L592 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:593](src/cli.ts#L593 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:594](src/cli.ts#L594 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:595](src/cli.ts#L595 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:596](src/cli.ts#L596 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:597](src/cli.ts#L597 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:598](src/cli.ts#L598 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -101,12 +101,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1003](src/cli.ts#L1003 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1015](src/cli.ts#L1015 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1010](src/cli.ts#L1010 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1022](src/cli.ts#L1022 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1055](src/cli.ts#L1055 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1062](src/cli.ts#L1062 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:338](src/cli.ts#L338 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:341](src/cli.ts#L341 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 `--json` (anywhere) prints the API response instead of text; thrown usage/execution errors emit exactly one
 `{"error": {...}}` on stderr. Auth/authorize/claim responses expose metadata only, with credentials kept in the
@@ -212,6 +212,35 @@ properties:
   bearer values in error text are masked too.
 
 Exit codes: 0 ok, 1 failure, 2 usage, 75 still pending, 77 human credential required, 78 configuration.
+
+## Starting from an empty repository
+
+`repo create` without `--import` creates an empty repository. There is no public
+CLI route for its first commit: an operator with authority at the repository host
+must seed the first commit on `main`. Until then tasks have no canonical head and
+claims cannot select a base. Creation or verification alone does not seed a commit.
+
+Repository create, verify and list output includes the credential-free canonical
+`cloneUrl` when the API knows it. When absent, human output says "clone URL not
+available yet"; JSON carries `cloneUrl: null` and the same text in `cloneUrlHint`.
+Creation and verification also include a `nextSteps` field in JSON output.
+
+## Claiming as an agent: runtime prerequisites
+
+A logged-in CLI alone cannot claim an allocated workspace. No trusted agent
+runtime is provisioned for the hosted service yet. A trusted workspace,
+agent or CI runtime must provision a protected per-attempt `AttemptHelper`, expose
+its socket through `OCTOCOVE_HELPER_SOCK`, and put `octocove-helper-connect` on
+`PATH`. The helper carries Git traffic without exposing reusable credentials to
+the agent. The CLI does not install or start it.
+
+Ask the runtime operator to provision this transport before running `task claim`.
+A missing helper socket still exits 78; JSON errors carry code `helper-required`
+and a `hint`. An unconfigured `helper status` result carries the same code and hint.
+`helper status` reports the local Git transport configuration; it does not prove
+that a helper is running. See [the helper package](../helper/README.md) and
+[the credential boundary](../../docs/runbooks/credential-boundary.md) for runtime
+setup and responsibilities.
 
 ## Local workspace cache
 
