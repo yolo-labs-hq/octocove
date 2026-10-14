@@ -2460,6 +2460,8 @@ export interface components {
             knownHeadSha?: string;
         };
         Repository: {
+            /** @description Credential-free canonical clone URL, absent when unknown. */
+            cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
             /** @enum {string} */
@@ -2479,6 +2481,8 @@ export interface components {
         };
         /** @description A `Repository` as `GET /projects/{project}/repositories` lists it, with its verification state. */
         RepositoryListItem: {
+            /** @description Credential-free canonical clone URL, absent when unknown. */
+            cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
             /** @enum {string} */
@@ -2501,6 +2505,8 @@ export interface components {
             importState: ("importing" | "ready" | "failed") | null;
         };
         RepositoryVerification: {
+            /** @description Credential-free canonical clone URL, absent when unknown. */
+            cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
             /** @enum {string} */

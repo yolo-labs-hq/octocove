@@ -199,6 +199,40 @@ describe("repo add / verify / list", () => {
     expect(calls).toEqual([]);
   });
 
+  it.each([false, true])("repository setup guidance in JSON=%s", async (jsonMode) => {
+    const flags = jsonMode ? ["--json"] : [];
+    for (const cloneUrl of [undefined, "https://git.example.org/team/canonical.git"]) {
+      for (const command of ["create", "verify", "list"]) {
+        const response = { ...repository, ...(cloneUrl ? { cloneUrl } : {}), binding: "trusted", verifiedAt: null };
+        routes[`${command === "list" ? "GET" : "POST"} /projects/${PROJECT}/repositories${command === "verify" ? "/" + repository.id + "/verify" : ""}`] =
+          () => json(command === "create" ? 201 : 200, command === "list" ? { items: [response] } : response);
+        const args = command === "create" ? ["--name", "canonical"] : command === "verify" ? [repository.id] : [];
+        expect(await cli(["repo", command, PROJECT, ...args, ...flags], { kind: "human" })).toBe(0);
+        expect(errText).toBe("");
+        expect(outText).toContain(cloneUrl ?? "clone URL not available yet");
+        if (jsonMode) {
+          const result = command === "list" ? JSON.parse(outText).items[0] : JSON.parse(outText);
+          expect(result.cloneUrl).toBe(cloneUrl ?? null);
+          if (!cloneUrl) expect(result.cloneUrlHint).toBe("clone URL not available yet");
+        }
+        if (command !== "list") {
+          const guidance = jsonMode ? JSON.parse(outText).nextSteps : outText;
+          expect(guidance).toContain("#starting-from-an-empty-repository");
+          expect(guidance.toLowerCase()).toContain("empty");
+        }
+      }
+    }
+  });
+
+  it.each([false, true])("preserves the server's invalid slug message in JSON=%s", async (jsonMode) => {
+    const message = "Repository slug must contain only lowercase letters, digits and hyphens.";
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(400, { code: "usage", status: 400, detail: message });
+    expect(await cli(["repo", "create", PROJECT, "--name", "Invalid Slug", ...(jsonMode ? ["--json"] : [])], { kind: "human" })).toBe(EXIT.usage);
+    expect(outText).toBe("");
+    if (jsonMode) expect(JSON.parse(errText).error.message).toBe("usage: " + message);
+    else expect(errText).toContain(message);
+  });
+
   it("repo create posts mode create, or mode import with --import/--branch, under an Idempotency-Key", async () => {
     routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, repository);
     expect(await cli(["repo", "create", PROJECT, "--name", "canonical"], { kind: "human" })).toBe(0);
@@ -236,7 +270,7 @@ describe("repo add / verify / list", () => {
     expect(outText).toContain("2026-10-10T00:00:00.000Z");
     expect(await cli(["--json", "repo", "verify", PROJECT, repository.id, "--idempotency-key", "k".repeat(20)], { kind: "human" })).toBe(0);
     expect(calls[1]!.headers["idempotency-key"]).toBe("k".repeat(20));
-    expect(JSON.parse(outText)).toEqual(verified);
+    expect(JSON.parse(outText)).toMatchObject({ ...verified, nextSteps: expect.stringContaining("#starting-from-an-empty-repository") });
     for (const [status, code] of [[409, "repository-remote-not-found"], [503, "broker-unavailable"], [403, "forbidden"], [409, "repository-namespace-mismatch"], [409, "repository-provider-unsupported"],
       [503, "broker-provider-unavailable"], [404, "not-found"]] as const) {
       routes[path] = () => problem(status, code);
@@ -257,7 +291,7 @@ describe("repo add / verify / list", () => {
     expect(outText).toContain("refs/heads/main");
     expect(outText).toContain("ns/repo-1");
     expect(await cli(["--json", "repo", "list", PROJECT])).toBe(0);
-    expect(JSON.parse(outText)).toEqual({ items: [repository] });
+    expect(JSON.parse(outText)).toEqual({ items: [{ ...repository, cloneUrl: null, cloneUrlHint: "clone URL not available yet" }] });
     routes[`GET /projects/${PROJECT}/repositories`] = () => json(200, { items: [] });
     expect(await cli(["repo", "list", PROJECT])).toBe(0);
     expect(outText).toContain("(no repositories)");

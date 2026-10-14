@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { Api, ApiError, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type CandidateWaitResult, type ClaimBootstrap, type CommandOptions, type FetchLike, type Journeys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
-import { validateClaimRemote, requireHelperTransport, setupHelperTransport, helperStatus, helperRemoteMatches } from "./helper.js";
+import { HelperRequiredError, validateClaimRemote, requireHelperTransport, setupHelperTransport, helperStatus, helperRemoteMatches } from "./helper.js";
 import { getConfig, type GitRunner } from "./git.js";
 
 type ChainClaim = components["schemas"]["ChainClaim"];
@@ -181,6 +181,8 @@ class Emitted extends Error {
   constructor(readonly inner: unknown) { super("already reported"); }
 }
 
+const EMPTY_REPOSITORY_GUIDE = "https://github.com/yolo-labs-hq/octocove/blob/main/packages/cli/README.md#starting-from-an-empty-repository";
+
 function report(d: Deps, err: unknown, json: boolean): number {
   const quiet = err instanceof Emitted;
   if (err instanceof Emitted) err = err.inner;
@@ -192,6 +194,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
     return EXIT.usage;
   }
   if (err instanceof HumanRequiredError) return emit("human-required", err.message), EXIT.humanRequired;
+  if (err instanceof HelperRequiredError) return emit(err.code, err.message, { hint: err.hint }), EXIT.config;
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
   // No server answer: a client-side failure, reported in the CLI's own wording.
@@ -640,8 +643,11 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo create requires a human credential");
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Target ref", r.targetRef],
-      ["Import", r.importState ? `${r.importState} (claims wait until \`repo list\` shows it ready)` : "none (empty repository)"]]));
+    const nextSteps = input.mode === "create"
+      ? "Empty repository: see " + EMPTY_REPOSITORY_GUIDE
+      : "Wait for `repo list` to show the import ready before claiming.";
+    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "clone URL not available yet" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "clone URL not available yet"], ["Target ref", r.targetRef],
+      ["Import", r.importState ? `${r.importState} (claims wait until \`repo list\` shows it ready)` : "none (empty repository)"], ["Next steps", nextSteps]]));
   },
 
   "repo verify": async (d, args) => {
@@ -649,15 +655,16 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo verify requires a human credential");
     const r = await api.j.repositories.verify(pos[0]!, pos[1]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Binding", r.binding],
-      ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"]]));
+    const nextSteps = "If the repository is empty, see " + EMPTY_REPOSITORY_GUIDE;
+    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "clone URL not available yet" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "clone URL not available yet"], ["Binding", r.binding],
+      ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"], ["Next steps", nextSteps]]));
   },
 
   "repo list": async (d, args) => {
     const { v, pos } = opts(args, {}, 1);
     const { api } = await client(d);
     const items = await api.j.repositories.list(pos[0]!, api.until(Date.now() + READ_SECONDS * 1000));
-    out(d, v.json, { items }, () => items.map((r) => `${r.id}  ${r.targetRef}  ${r.knownHeadSha ?? "(head unavailable)"}  ${r.namespace}/${r.repoId}  ${r.name}${r.importState ? `  (import ${r.importState})` : ""}`).join("\n") || "(no repositories)");
+    out(d, v.json, { items: items.map(r => ({ ...r, cloneUrl: r.cloneUrl ?? null, cloneUrlHint: r.cloneUrl ? undefined : "clone URL not available yet" })) }, () => items.map((r) => `${r.id}  ${r.targetRef}  ${r.knownHeadSha ?? "(head unavailable)"}  ${r.namespace}/${r.repoId}  ${r.name}${r.importState ? `  (import ${r.importState})` : ""}  ${r.cloneUrl ?? "clone URL not available yet"}`).join("\n") || "(no repositories)");
   },
 
   "task create": async (d, args) => {

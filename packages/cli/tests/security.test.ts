@@ -169,7 +169,7 @@ describe("protected credential imports", () => {
     const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
     expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(78);
     expect(stderr).toContain("OCTOCOVE_HELPER_SOCK is required");
-    expect(stderr).toContain("start a protected per-attempt AttemptHelper");
+    expect(stderr).toContain("trusted runtime provision the helper");
     expect(stderr).toContain("put octocove-helper-connect on PATH");
     expect(calls).toHaveLength(0);
     expect(gitArgs).toHaveLength(0);
