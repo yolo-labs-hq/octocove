@@ -64,7 +64,7 @@ describe("CLI API origin", () => {
     const c = cli(["login"]);
     expect(await c.code).toBe(EXIT.ok);
     expect(c.calls.map(x => new URL(x.url).origin)).toEqual([DEFAULT_API_ORIGIN, DEFAULT_API_ORIGIN]);
-    expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: dir })).toEqual({ apiUrl: DEFAULT_API_ORIGIN, token: TOKEN, kind: "human" });
+    expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: dir })).toEqual({ apiUrl: DEFAULT_API_ORIGIN, token: TOKEN, kind: "human", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z", issuedAt: expect.any(String) });
   });
   it("logs in again against the stored credential's origin, and OCTOCOVE_API_URL overrides it", async () => {
     await saveCredentials({ OCTOCOVE_CONFIG_DIR: dir }, { apiUrl: STORED, token: "old", kind: "human" });

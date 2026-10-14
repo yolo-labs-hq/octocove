@@ -275,7 +275,7 @@ describe("auth verbs", () => {
     const output = stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(output[0]).toMatchObject({ userCode: "CONSENT", verificationUrl: "https://api.example.invalid/auth/cli/start?userCode=CONSENT" });
     expect(output[1]).toMatchObject({ authenticated: true });
-    expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human" });
+    expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z", issuedAt: expect.any(String) });
     const keys = calls.filter((c) => c.route.endsWith("exchange")).map((c) => (c.init.headers as any)["idempotency-key"]);
     expect(new Set(keys).size).toBe(1);
     expect(keys[0]).toMatch(/^[\x21-\x7e]{16,128}$/);
@@ -293,7 +293,7 @@ describe("auth verbs", () => {
     expect(exchanges).toBe(4);
     const keys = calls.filter((c) => c.route.endsWith("exchange")).map((c) => (c.init.headers as any)["idempotency-key"]);
     expect(new Set(keys).size).toBe(1);
-    expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human" });
+    expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z", issuedAt: expect.any(String) });
   });
 
   describe("login --idempotency-key (prepared, persisted start)", () => {
@@ -318,7 +318,7 @@ describe("auth verbs", () => {
       expect(await cli(["login", "--json", "--idempotency-key", KEY])).toBe(EXIT.ok);
       expect(logins()).toHaveLength(1);
       expect((logins()[0]!.init.headers as any)["idempotency-key"]).toBe(KEY);
-      expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human" });
+      expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z", issuedAt: expect.any(String) });
     });
 
     it("repeating the same key after a completed login refuses it and never opens a second transaction", async () => {
@@ -393,7 +393,7 @@ describe("auth verbs", () => {
       expect(logins()).toHaveLength(1);
       expect(opened.size).toBe(1);
       expect(new Set(exchangedDevices())).toEqual(new Set([`${DEVICE}-1`]));
-      expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human" });
+      expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z", issuedAt: expect.any(String) });
     });
 
     it("a retry with the same key after a lost login answer re-sends the same challenge and recovers the same transaction", async () => {
@@ -407,7 +407,7 @@ describe("auth verbs", () => {
       expect(opened.size).toBe(1);
       expect(new Set(logins().map((c) => `${JSON.parse(c.init.body as string).cliChallenge}|${(c.init.headers as any)["idempotency-key"]}`)).size).toBe(1);
       expect(exchangedDevices()).toEqual([`${DEVICE}-1`]);
-      expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human" });
+      expect(await active()).toEqual({ apiUrl: API, token: SESSION, kind: "human", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z", issuedAt: expect.any(String) });
     });
   });
 
