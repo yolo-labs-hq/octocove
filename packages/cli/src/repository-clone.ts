@@ -1,3 +1,4 @@
+import { cloneProblem } from './clone-errors.js';
 import { resolve } from 'node:path';
 import { lstat, readdir } from 'node:fs/promises';
 import { ConfigError } from './config.js';
@@ -13,9 +14,9 @@ export interface CloneBinding {
   configDirectory: string;
 }
 /** Only public binding metadata is persisted. Every transport obtains authority anew. */
-export async function cloneWorkspace({ git, binding, directory, helperPath, signal, stderr }: {
+export async function cloneWorkspace({ git, binding, directory, helperPath, signal, stderr, preflight }: {
   git: GitRunner; binding: CloneBinding; directory: string; helperPath?: string;
-  signal?: AbortSignal; stderr: (text: string) => void;
+  signal?: AbortSignal; stderr: (text: string) => void; preflight?: () => Promise<void>;
 }) {
   const target = resolve(directory), branch = binding.targetRef.slice('refs/heads/'.length);
   if (!binding.targetRef.startsWith('refs/heads/')) throw new ConfigError('The repository target must be a branch under refs/heads/.');
@@ -31,6 +32,7 @@ export async function cloneWorkspace({ git, binding, directory, helperPath, sign
   }
   const url=canonicalReadUrl(binding.apiUrl,binding.projectId,binding.repositoryId);
   const configuration=await humanGitConfig(url,binding.configDirectory,helperPath);
+  await preflight?.();
   const metadata = Object.fromEntries(configuration);
   if (Object.values(metadata).some(v => /[\r\n\0]/.test(v))) throw new ConfigError('Invalid repository clone binding.');
   // Do not execute a global URL rewrite, credential helper or template hook during initial setup.
@@ -45,7 +47,9 @@ export async function cloneWorkspace({ git, binding, directory, helperPath, sign
     '--',url,target];
   stderr('Cloning repository…\n');
   try { await git(args, { env, signal }); }
-  catch {
+  catch (error) {
+    const status = /(?:requested URL returned error:|HTTP[^\d]*)\s*(401|403|404|405|429)\b/i.exec(error instanceof Error ? error.message : "")?.[1];
+    if(status)throw cloneProblem(Number(status),`clone-http-${status}`,true);
     // A remote's error text can echo auth data. Never surface raw transport output.
     throw new Error(`Repository clone failed. Check your sign-in and project read access with octocove whoami; run octocove login in the same config directory if needed. Inspect ${target} before retrying. Existing destination files are preserved.`);
   }

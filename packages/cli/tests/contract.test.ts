@@ -44,7 +44,7 @@ describe("task claim against recorded responses", () => {
   it("ready ClaimResponse: records the claim and workspace in git config", async () => {
     const { claim } = fixture("claim-post-ready").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-ready");
-    expect(await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1"])).toBe(EXIT.ok);
+    expect(await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.ok);
     expect(JSON.parse(out).claim.id).toBe(claim.id);
     expect(git("config", "--local", "octocove.claimId")).toBe(claim.id);
     expect(git("config", "--local", "octocove.mappingId")).toBe(claim.workspace.mappingId);
@@ -58,7 +58,7 @@ describe("task claim against recorded responses", () => {
     let polls = 0;
     routes[`POST /tasks/${pending.taskId}/claim`] = () => recorded("claim-post-pending");
     routes[`GET /claims/${pending.id}`] = () => (++polls < 2 ? recorded("claim-get-pending") : reply(200, ready));
-    expect(await cli(["task", "claim", pending.taskId, "--intent-version", "1"])).toBe(EXIT.ok);
+    expect(await cli(["task", "claim", pending.taskId, "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.ok);
     expect(polls).toBe(2);
     expect(git("config", "--local", "octocove.ref")).toBe(ready.workspace.ref);
   });
@@ -67,14 +67,14 @@ describe("task claim against recorded responses", () => {
     const pending = fixture("claim-get-pending").body;
     routes[`POST /tasks/${pending.taskId}/claim`] = () => recorded("claim-post-pending");
     routes[`GET /claims/${pending.id}`] = () => recorded("claim-get-pending");
-    expect(await cli(["task", "claim", pending.taskId, "--intent-version", "1", "--wait", "1"])).toBe(EXIT.pending);
+    expect(await cli(["task", "claim", pending.taskId, "--intent-version", "1", "--wait", "1", "--lane", "ref"])).toBe(EXIT.pending);
     expect(git("config", "--local", "octocove.claimId")).toBe(pending.id);
   });
 
   it("a blocked POST snapshot fails with the reason", async () => {
     const { claim } = fixture("claim-post-blocked").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-blocked");
-    expect(await cli(["task", "claim", claim.taskId, "--intent-version", "1"])).toBe(EXIT.failure);
+    expect(await cli(["task", "claim", claim.taskId, "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.failure);
     expect(err).toContain("provisioner-unconfigured");
   });
 
@@ -82,7 +82,7 @@ describe("task claim against recorded responses", () => {
     const { claim } = fixture("claim-post-bootstrap").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-bootstrap");
     routes[`GET /claims/${claim.id}`] = () => recorded("claim-get-pending");
-    await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1", "--wait", "1"], { kind: "bootstrap", token: "boot" });
+    await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1", "--wait", "1", "--lane", "ref"], { kind: "bootstrap", token: "boot" });
     expect(out + err).not.toContain("fixture-access-token");
     expect(JSON.parse(readFileSync(join(cfg, "credentials", "cli.json"), "utf8"))).toMatchObject({ token: "fixture-access-token", kind: "agent" });
   });
@@ -91,7 +91,7 @@ describe("task claim against recorded responses", () => {
     const task = fixture("task-fresh").body, { claim } = fixture("claim-post-ready").body;
     routes[`GET /tasks/${task.id}`] = () => recorded("task-fresh");
     routes[`POST /tasks/${task.id}/claim`] = () => recorded("claim-post-ready");
-    await cli(["task", "claim", task.id]);
+    await cli(["task", "claim", task.id, "--lane", "ref"]);
     expect(calls).toEqual([`GET /tasks/${task.id}`, `POST /tasks/${task.id}/claim`]);
     expect(git("config", "--local", "octocove.intentVersion")).toBe(String(claim.intentVersion));
   });
@@ -106,7 +106,7 @@ describe("task claim against recorded responses", () => {
 
   it("rejects a malformed claim response instead of reading undefined ids", async () => {
     routes["POST /tasks/T1/claim"] = () => reply(201, { id: "C1", provisioningState: "ready" });
-    expect(await cli(["task", "claim", "T1", "--intent-version", "1"])).toBe(EXIT.config);
+    expect(await cli(["task", "claim", "T1", "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.config);
   });
 });
 

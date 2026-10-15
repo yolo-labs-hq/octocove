@@ -31,7 +31,7 @@ async function fixture({empty=false,multiple=false,member=true,kind='human'}={})
   const url=new URL(req.url!,'http://localhost');calls.push(`${req.method} ${url.pathname}`);
   const isGit=url.pathname.startsWith('/v1/projects/P1/repositories/R1/git/');
   const expected=isGit?'Basic '+Buffer.from('octocove:'+session).toString('base64'):'Bearer '+session;
-  if(req.headers['authorization']!==expected){res.writeHead(401,{'WWW-Authenticate':'Basic realm="octocove"'});res.end();return;}
+  if(req.headers['authorization']!==expected && !(isGit && req.headers['authorization']==='Bearer '+session)){res.writeHead(401,{'WWW-Authenticate':'Basic realm="octocove"'});res.end();return;}
   if(url.pathname==='/v1/me'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({principal:{id:'reader',kind},credential:{kind:'session',expiresAt:'2099-01-01T00:00:00Z'},memberships:member?[project]:[],capabilities:{createProjects:false}}));return;}
   if(url.pathname==='/v1/projects/P1/repositories'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({items:multiple?[repository,{...repository,id:'R2',name:'second',repoId:'second'}]:[repository],creations:[]}));return;}
   if(isGit){received++;const env={...process.env,GIT_PROTOCOL:req.headers['git-protocol'] as string??''};
@@ -118,3 +118,37 @@ it('does not report an empty success when a recorded canonical head disappears u
  const f=await fixture();git(f.canonical,'update-ref','-d','refs/heads/trunk');
  expect(await run(f.deps)).toBe(78);expect(f.output).toContain('canonical target branch was not advertised');expect(f.output).not.toContain(session);
 },30000);
+
+it.each([
+ [401,'sign-in-required',77,'Sign-in required'],
+ [403,'insufficient-scope',78,'tasks:read'],
+ [403,'not-a-member',78,'not a member'],
+ [404,'not-found',69,"doesn't support member clone yet"],
+ [405,'method-not-allowed',69,"doesn't support member clone yet"],
+ [429,'rate-limited',75,'rate limited'],
+] as const)('reports Git discovery HTTP %i with safe wording and its problem code',async(status,code,exit,message)=>{
+ const f=await fixture();
+ const fetch:typeof f.deps.fetch=async(url,init)=>url.includes('/git/info/refs')
+   ? Response.json({code,detail:'echo '+session},{status,headers:{'X-Request-Id':session}}):f.deps.fetch(url,init);
+ expect(await run({...f.deps,fetch,argv:['repo','clone','tools','--json']})).toBe(exit);
+ expect(JSON.parse(f.stderr).error).toMatchObject({code,status});expect(f.stderr).toContain(message);expect(f.output).not.toContain(session);
+ await expect(access(join(f.root,'tools'))).rejects.toThrow();
+});
+it('distinguishes metadata 404 from an unsupported Git endpoint',async()=>{
+ const f=await fixture();const fetch:typeof f.deps.fetch=async(url,init)=>url.endsWith('/repositories')
+   ?Response.json({code:'repository-not-found',detail:'echo '+session},{status:404}):f.deps.fetch(url,init);
+ expect(await run({...f.deps,fetch,argv:['repo','clone','tools','--json']})).toBe(66);
+ expect(JSON.parse(f.stderr).error).toMatchObject({code:'repository-not-found',status:404});expect(f.output).toContain('Unknown project or repository');expect(f.output).not.toContain(session);
+});
+it.each([401,403,404,405,429])('maps a later Git HTTP %i without echoing remote output',async status=>{
+ const f=await fixture();const git=async(args:string[])=>{if(args.includes('clone'))throw new Error(`fatal: requested URL returned error: ${status} echo ${session}`);return systemGit(f.root)(args);};
+ expect(await run({...f.deps,git,argv:['repo','clone','tools','--json']})).toBe(({401:77,403:78,404:69,405:69,429:75} as Record<number,number>)[status]);
+ expect(JSON.parse(f.stderr).error).toMatchObject({code:`clone-http-${status}`,status});expect(f.output).not.toContain(session);
+});
+
+it('preserves a non-vocabulary server code in JSON while discarding echoed credentials',async()=>{
+ const f=await fixture(),code='Custom code / 🐙';
+ const fetch:typeof f.deps.fetch=async(url,init)=>url.includes('/git/info/refs')?Response.json({code,detail:session},{status:429}):f.deps.fetch(url,init);
+ expect(await run({...f.deps,fetch,argv:['repo','clone','tools','--json']})).toBe(75);
+ expect(JSON.parse(f.stderr).error.code).toBe(code);expect(f.output).not.toContain(session);
+});

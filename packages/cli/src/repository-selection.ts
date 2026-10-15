@@ -1,3 +1,4 @@
+import { CloneError, cloneProblem } from './clone-errors.js';
 import type { components } from '../../client/src/generated/openapi.js';
 import type { Journeys } from './http.js';
 import { ConfigError } from './config.js';
@@ -10,8 +11,8 @@ export function cloneProject(memberships: readonly Membership[], selector: strin
   // Match the server's project segment rule: UUIDs are IDs; other segments prefer a slug.
   const project = uuid.test(selector) ? memberships.find(p => p.projectId === selector)
     : memberships.find(p => p.slug === selector) ?? memberships.find(p => p.projectId === selector);
-  if (!project) throw new ConfigError('You are not a member of this project. Check the project name or ask a project admin to add you.');
-  if (!project.verbs.includes('tasks:read')) throw new ConfigError('Reading this repository requires tasks:read. Ask a project admin for read access.');
+  if (!project) throw cloneProblem(403,'project-not-member');
+  if (!project.verbs.includes('tasks:read')) throw cloneProblem(403,'insufficient-scope');
   return project;
 }
 
@@ -20,9 +21,8 @@ export function cloneRepositorySelection(repositories: readonly Repository[], pr
   const matches = selector === undefined ? items : items.filter(r => r.id === selector || r.name === selector || r.repoId === selector);
   if (matches.length !== 1) {
     const choices = items.map(r => `${r.id} (${r.name}, ${r.targetRef})`).join('; ');
-    throw new ConfigError(!items.length ? 'This project has no canonical repository. Ask a project admin to create one first.'
-      : !matches.length ? `Repository not found in this project. Available repositories: ${choices}`
-      : `Choose a repository explicitly: octocove repo clone PROJECT REPOSITORY [DIR]. Available repositories: ${choices}`);
+    if(!items.length || !matches.length) throw new CloneError(404, 'repository-not-found', !items.length ? 'This project has no canonical repository. Ask a project admin to create one first.' : `Repository not found in this project. Available repositories: ${choices}`, 66);
+    throw new ConfigError(`Choose a repository explicitly: octocove repo clone PROJECT REPOSITORY [DIR]. Available repositories: ${choices}`);
   }
   const r = matches[0]!;
   if (r.verification !== 'verified') throw new ConfigError('This repository is not verified. Ask a project admin to verify it before cloning.');
