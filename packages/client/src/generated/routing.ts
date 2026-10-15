@@ -4077,6 +4077,170 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "projectRepositoryGitRefsGet": {
+    "operationId": "projectRepositoryGitRefsGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/projects/{project}/repositories/{repository}/git/info/refs",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "project",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "service",
+          "required": true
+        }
+      ],
+      "header": [
+        {
+          "name": "Git-Protocol",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/x-git-upload-pack-advertisement"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "415": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "504": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanGitCredentials"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "projectRepositoryGitUploadPack": {
+    "operationId": "projectRepositoryGitUploadPack",
+    "kind": "path",
+    "method": "POST",
+    "path": "/projects/{project}/repositories/{repository}/git/git-upload-pack",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "project",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Git-Protocol",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/x-git-upload-pack-request"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/x-git-upload-pack-result"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "415": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "504": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanGitCredentials"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
   "receiptGet": {
     "operationId": "receiptGet",
     "kind": "path",
