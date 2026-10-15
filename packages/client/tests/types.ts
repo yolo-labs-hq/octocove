@@ -1,5 +1,5 @@
 // Compile-time checks only (covered by `tsc -p tsconfig.json`; never executed).
-import { bearer, createClient, journeys } from '../src/index.js';
+import { bearer, createClient, journeys, type CallableOperationId } from '../src/index.js';
 
 export async function typeChecks(): Promise<void> {
   const c = createClient({ baseUrl: 'https://cp.octocove.test', transport: bearer({ token: 'session-fixture' }) });
@@ -14,6 +14,11 @@ export async function typeChecks(): Promise<void> {
   await c.call('authCallback');
   // @ts-expect-error -- excluded operations are not callable
   await c.call('brokerHelperPush', { path: { taskId: 't' } });
+  // @ts-expect-error -- raw human Git advertisement is excluded from CallableOperationId
+  const rawRefs: CallableOperationId = 'projectRepositoryGitRefsGet';
+  // @ts-expect-error -- raw human upload-pack is excluded from CallableOperationId
+  const rawPack: CallableOperationId = 'projectRepositoryGitUploadPack';
+  void rawRefs; void rawPack;
   // @ts-expect-error -- the confirm body is typed
   await c.call('authCliConfirm', { body: { userCode: 'x', decision: 'maybe' } });
   await c.call('authLoginBinding');

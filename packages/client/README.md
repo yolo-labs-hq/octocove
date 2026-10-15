@@ -91,7 +91,7 @@ the now-revoked predecessor credential is accepted for that one operation).
 - `null`: reads; nothing to replay.
 
 File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "replay": …}`;
-`{"callable": false, "reason": "navigation" | "excluded"}` for the four uncallable ids; and for
+`{"callable": false, "reason": "navigation" | "excluded"}` for the eight uncallable ids; and for
 `taskClaim` one entry `{"callable": true, "selector": "credential", "variants": {"human": {…},
 "bootstrap": {…}}}` chosen by the credential type the caller presents.
 
@@ -99,8 +99,6 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `projectRepositoryGitRefsGet` | `network-only` | `null` | human canonical read; every request is audited, including retries |
-| `projectRepositoryGitUploadPack` | `never` | `none` | raw stateless Git read; use a new Git negotiation after a failed transfer; every request is audited |
 | `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `chainLaneGet`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet` | `network-only` | `null` | safe reads (`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `repositoryCreate`, `repositoryVerify`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `claimReplace`, `taskClaim` (**human** variant), `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation and repository registration and verification, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); human claim replays its saved HTTP snapshot; `candidateLand` replays its committed `409 stale-base` too |
@@ -125,7 +123,7 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 | `brokerTokenCreate` | `never` | `none` | fresh token on every call; the token ledger does not deduplicate by key |
 | `approvalGrantExchange`, `submitGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
 | `authCallback`, `authCliStart` | `callable: false` | `navigation` | browser navigation, never fetched by the library |
-| `brokerHelperPush`, `chainLaneReceivePack`, `chainLaneReceivePackRefs`, `collaborationEventDelivery` | `callable: false` | `excluded` | outside the library's scope; the webhook id is typed for receivers |
+| `brokerHelperPush`, `chainLaneReceivePack`, `chainLaneReceivePackRefs`, `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery` | `callable: false` | `excluded` | raw Git transports are outside the JSON client; the webhook id is typed for receivers |
 
 ## Journeys
 

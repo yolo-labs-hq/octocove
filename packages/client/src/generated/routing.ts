@@ -4155,9 +4155,8 @@ export const routing = {
       "HumanGitCredentials"
     ],
     "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": null
+      "callable": false,
+      "reason": "excluded"
     }
   },
   "projectRepositoryGitUploadPack": {
@@ -4238,9 +4237,8 @@ export const routing = {
       "HumanGitCredentials"
     ],
     "policy": {
-      "callable": true,
-      "autoRetry": "never",
-      "replay": "none"
+      "callable": false,
+      "reason": "excluded"
     }
   },
   "receiptGet": {

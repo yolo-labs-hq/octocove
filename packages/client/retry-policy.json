@@ -309,14 +309,12 @@
     "replay": "stored-result"
   },
   "projectRepositoryGitRefsGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
+    "callable": false,
+    "reason": "excluded"
   },
   "projectRepositoryGitUploadPack": {
-    "callable": true,
-    "autoRetry": "never",
-    "replay": "none"
+    "callable": false,
+    "reason": "excluded"
   },
   "receiptGet": {
     "callable": true,
