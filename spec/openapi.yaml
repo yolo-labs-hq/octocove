@@ -7052,6 +7052,12 @@ components:
       additionalProperties: false
       required: [sha, message, authorName, authoredAt, parents]
       properties:
+        landingId:
+          type: string
+          description: Accepted landing receipt ID for this exact landed SHA in this repository, when known. No provenance is inferred from ancestry.
+        taskId:
+          type: string
+          description: Task associated with landingId, when known.
         sha: {$ref: '#/components/schemas/Sha'}
         message: {type: string}
         authorName: {type: [string, 'null']}
@@ -7135,6 +7141,14 @@ components:
           maxItems: 5000
           items:
             $ref: '#/components/schemas/CodeTreeEntry'
+        sizeTruncated:
+          type: boolean
+          description: True when a file or symlink size is omitted because the metadata lookup budget was exhausted or size metadata was unavailable. Blob bodies are not downloaded to determine listing sizes. Optional on older servers.
+        lastCommitTruncated:
+          type: boolean
+          description: True when any listed entry lacks lastCommit because a history, entry or tree-read budget was reached. False for an empty directory. Optional on older servers.
+        readme:
+          $ref: '#/components/schemas/CodeReadme'
         truncated:
           type: boolean
           description: The directory holds more than `entries` lists.
@@ -7145,6 +7159,31 @@ components:
       - path
       - entries
       - truncated
+    CodeEntryCommit:
+      type: object
+      additionalProperties: false
+      required: [sha, message, committedAt, author]
+      description: Most recent change on the selected commit's first-parent history, within bounded history and tree-read budgets. Omitted when it cannot be established within those budgets.
+      properties:
+        sha: {$ref: '#/components/schemas/Sha'}
+        message: {type: string, description: First line of the commit message.}
+        committedAt: {type: [string, 'null'], format: date-time, description: Committer time when available.}
+        author:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name: {type: [string, 'null']}
+    CodeReadme:
+      type: object
+      additionalProperties: false
+      required: [path, size, encoding, content]
+      description: Complete UTF-8 text of the first regular file named README.md, README or readme.md, in that order, in the listed directory. Omitted when absent, binary or larger than 256 KiB. Fetch other files with the blob operation at the returned commitSha and entry path.
+      properties:
+        path: {type: string}
+        size: {type: integer, minimum: 0, maximum: 262144}
+        encoding: {type: string, const: utf-8}
+        content: {type: string}
     CodeTreeEntry:
       type: object
       additionalProperties: false
@@ -7161,6 +7200,8 @@ components:
           - dir
           - symlink
           - submodule
+        lastCommit:
+          $ref: '#/components/schemas/CodeEntryCommit'
         size:
           type: integer
           minimum: 0

@@ -2662,6 +2662,10 @@ export interface components {
             creations: components["schemas"]["RepositoryCreation"][];
         };
         CodeCommit: {
+            /** @description Accepted landing receipt ID for this exact landed SHA in this repository, when known. No provenance is inferred from ancestry. */
+            landingId?: string;
+            /** @description Task associated with landingId, when known. */
+            taskId?: string;
             sha: components["schemas"]["Sha"];
             message: string;
             authorName: string | null;
@@ -2706,8 +2710,35 @@ export interface components {
             /** @description The normalised directory path, `""` for the root. */
             path: string;
             entries: components["schemas"]["CodeTreeEntry"][];
+            /** @description True when a file or symlink size is omitted because the metadata lookup budget was exhausted or size metadata was unavailable. Blob bodies are not downloaded to determine listing sizes. Optional on older servers. */
+            sizeTruncated?: boolean;
+            /** @description True when any listed entry lacks lastCommit because a history, entry or tree-read budget was reached. False for an empty directory. Optional on older servers. */
+            lastCommitTruncated?: boolean;
+            readme?: components["schemas"]["CodeReadme"];
             /** @description The directory holds more than `entries` lists. */
             truncated: boolean;
+        };
+        /** @description Most recent change on the selected commit's first-parent history, within bounded history and tree-read budgets. Omitted when it cannot be established within those budgets. */
+        CodeEntryCommit: {
+            sha: components["schemas"]["Sha"];
+            /** @description First line of the commit message. */
+            message: string;
+            /**
+             * Format: date-time
+             * @description Committer time when available.
+             */
+            committedAt: string | null;
+            author: {
+                name: string | null;
+            };
+        };
+        /** @description Complete UTF-8 text of the first regular file named README.md, README or readme.md, in that order, in the listed directory. Omitted when absent, binary or larger than 256 KiB. Fetch other files with the blob operation at the returned commitSha and entry path. */
+        CodeReadme: {
+            path: string;
+            size: number;
+            /** @constant */
+            encoding: "utf-8";
+            content: string;
         };
         CodeTreeEntry: {
             name: string;
@@ -2715,6 +2746,7 @@ export interface components {
             path: string;
             /** @enum {string} */
             type: "file" | "dir" | "symlink" | "submodule";
+            lastCommit?: components["schemas"]["CodeEntryCommit"];
             /** @description Bytes, for a file or symlink when Artifacts reports it. */
             size?: number;
         };
