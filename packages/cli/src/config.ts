@@ -15,6 +15,7 @@ export interface Credentials {
   expiresAt?: string;
   idleExpiresAt?: string;
   absoluteExpiresAt?: string;
+  claimExpiresAt?: string;
 }
 export class ConfigError extends Error {}
 const KINDS = new Set<string>(["human", "agent", "bootstrap", "machine"]);
@@ -31,7 +32,7 @@ function parseCredentials(raw: string): Credentials {
     if (file.agentId !== undefined && (typeof file.agentId !== "string" || !file.agentId)) throw new Error();
     if (file.delegationId !== undefined && typeof file.delegationId !== "string") throw new Error();
     const lifetime: Partial<Credentials> = {};
-    for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt"] as const) {
+    for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt", "claimExpiresAt"] as const) {
       if (file[key] !== undefined) {
         if (typeof file[key] !== "string" || !Number.isFinite(Date.parse(file[key]))) throw new Error();
         lifetime[key] = file[key];
@@ -97,8 +98,8 @@ export async function saveCredentials(env: NodeJS.ProcessEnv, creds: Credentials
   return atomicSecret(activeFile(env), creds);
 }
 
-export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, token: string, agentId?: string): Promise<string> {
-  return atomicSecret(join(configDir(env), "credentials", `bootstrap-${randomUUID()}.json`), { apiUrl, token, kind: "bootstrap", ...(agentId ? { agentId } : {}) });
+export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, token: string, agentId?: string, lifetime: Pick<Credentials, "expiresAt" | "absoluteExpiresAt"> = {}): Promise<string> {
+  return atomicSecret(join(configDir(env), "credentials", `bootstrap-${randomUUID()}.json`), { ...lifetime, apiUrl, token, kind: "bootstrap", ...(agentId ? { agentId } : {}) });
 }
 
 export async function clearCredentials(env: NodeJS.ProcessEnv): Promise<void> {

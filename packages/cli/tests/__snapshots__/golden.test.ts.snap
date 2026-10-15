@@ -280,7 +280,7 @@ Commands:
   approval withdraw ID --expected-status S --intent-version N
   candidate withdraw ID --expected-status S --intent-version N
   candidate reject ID --expected-status landed --intent-version N
-  task authorize ID --agent ID --verbs a,b --expires-at TIME
+  task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
   submit [REF] [--task ID] [--source SHA] [--base SHA] [--intent-version N] [--claim ID] [--wait SECONDS]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
@@ -303,6 +303,7 @@ Global options:
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
   --version, -v          print the installed package version
+  --json, --verbose, --idempotency-key and --help may precede or follow command words.
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.

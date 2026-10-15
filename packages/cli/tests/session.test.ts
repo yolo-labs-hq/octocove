@@ -1,7 +1,7 @@
 import { build } from 'esbuild';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -50,9 +50,9 @@ it('a server-side idle or absolute limit refuses renewal and asks for sign-in',a
   const f=await fixture(),fetch=f.deps.fetch;f.deps.fetch=(url,init)=>new URL(url).pathname.endsWith('/renew')?Promise.resolve(Response.json({code:'credential-expired'},{status:401})):fetch(url,init);
   expect(await run(f.deps)).toBe(1);expect(f.output).toContain('sign in again');expect((await loadCredentials(f.env)).token).toBe('old-session');
 });
-it('agent delegations are never implicitly renewed',async()=>{
+it('agents never enter the human session renewal route',async()=>{
   const f=await fixture({kind:'agent',expiresAt:future(-1000)});expect(await run(f.deps)).toBe(1);
-  expect(f.rotations).toBe(0);expect(f.calls).toHaveLength(1);
+  expect(f.rotations).toBe(0);expect(f.calls.filter(c=>c.path.endsWith('/auth/session/renew'))).toHaveLength(0);
 });
 it('revocation does not trigger a rotation',async()=>{
   const f=await fixture();f.deps.fetch=async()=>Response.json({code:'credential-revoked'},{status:401});
@@ -134,4 +134,52 @@ it('legitimate grant credential issuance survives renewal response scrubbing',as
   const headers=new Headers();headers.set('authorization','Bearer '+'old-session');
   const response=await wrapped('https://api.example.invalid/v1/auth/approval-grants',{method:'POST',headers});
   expect(response.status).toBe(201);expect(await response.json()).toMatchObject({token:'issued-grant-credential'});expect(f.rotations).toBe(1);
+});
+it.each(['near-expiry','expired-response'])('all stored-human command paths renew for %s, including authorize and repo list',async(mode)=>{
+ for (const command of ['authorize','repo list']) {
+  const f=await fixture(mode==='near-expiry'?{expiresAt:future(30000)}:{}), raw=f.deps.fetch;
+  f.deps.argv=command==='authorize'?['task','authorize','T1','--agent','worker','--verbs','tasks:claim','--expires-at','2030-01-01T00:00:00Z','--json']:['repo','list','P1','--json'];
+  const protectedTokens:string[]=[];
+  f.deps.fetch=async(url,init)=>{
+   if(url.endsWith('/auth/session/renew'))return raw(url,init);
+   const token=new Headers(init.headers).get('authorization');protectedTokens.push(token!);
+   if(token==='Bearer old-session')return Response.json({code:'credential-expired'},{status:401});
+   expect((await loadCredentials(f.env)).token).toBe('new-session');
+   if(command==='repo list')return Response.json({items:[],nextCursor:null});
+   return Response.json({id:'A1',taskId:'T1',projectId:'P1',claimAttemptId:'C1',delegationId:'D1',bootstrapToken:'issued-bootstrap',bootstrapExpiresAt:future(300000),authorizationExpiresAt:future(3600000),verbs:['tasks:claim']},{status:201});
+  };
+  expect(await run(f.deps),f.output).toBe(0);expect(f.rotations).toBe(1);
+  expect(protectedTokens).toEqual(mode==='near-expiry'?['Bearer new-session']:['Bearer old-session','Bearer new-session']);
+  expect(f.output).not.toContain('new-session');expect(f.output).not.toContain('issued-bootstrap');
+ }
+});
+it('a shared human wrapper renews a newly selected stored replacement instead of bypassing it',async()=>{
+ const f=await fixture(), initial=await loadCredentials(f.env);let rotations=0;
+ const fetch=humanSessionFetch(f.env,initial,async(url,init)=>{
+  expect(new Headers(init.headers).get('authorization')).toBe('Bearer '+(url.endsWith('/renew')?'concurrent-session':'third-session'));
+  if(url.endsWith('/renew')){rotations++;return Response.json({sessionToken:'third-session',principalId:'human',expiresAt:future(1800000),absoluteExpiresAt:future(86400000)});}
+  return Response.json({items:[]});
+ });
+ await saveCredentials(f.env,{...initial,token:'concurrent-session',expiresAt:future(30000)});
+ const selected=humanSessionFetch(f.env,await loadCredentials(f.env),fetch),headers=new Headers();headers.set('authorization','Bearer '+'concurrent-session');
+ expect((await selected(initial.apiUrl+'/tasks',{headers})).status).toBe(200);expect(rotations).toBe(1);expect((await loadCredentials(f.env)).token).toBe('third-session');
+});
+
+it('human grant administration renews even when the credential was just migrated from the protected legacy store',async()=>{
+ const f=await fixture({expiresAt:future(30000)}),initial=await loadCredentials(f.env),raw=f.deps.fetch;
+ await writeFile(join(f.dir,'credentials.json'),JSON.stringify(initial),{mode:0o600});await rm(join(f.dir,'credentials','cli.json'));
+ f.deps.argv=['auth','revoke','--grant','G1','--json'];
+ f.deps.fetch=async(url,init)=>{
+  if(url.endsWith('/auth/session/renew'))return raw(url,init);
+  expect(new Headers(init.headers).get('authorization')).toBe('Bearer new-session');
+  expect((await loadCredentials(f.env)).token).toBe('new-session');return new Response(null,{status:204});
+ };
+ expect(await run(f.deps),f.output).toBe(0);expect(f.rotations).toBe(1);expect(JSON.parse(f.output)).toEqual({id:'G1',revoked:true});
+});
+it('long-running human connections renew a later expiring token without looping within either request',async()=>{
+ const f=await fixture({expiresAt:future(30000)}),headers=new Headers();headers.set('authorization','Bearer '+'old-session');
+ const fetch=humanSessionFetch(f.env,await loadCredentials(f.env),f.deps.fetch);
+ expect((await fetch('https://api.example.invalid/v1/tasks',{headers})).status).toBe(200);
+ await saveCredentials(f.env,{...await loadCredentials(f.env),expiresAt:future(30000)});
+ expect((await fetch('https://api.example.invalid/v1/tasks',{headers})).status).toBe(200);expect(f.rotations).toBe(2);
 });

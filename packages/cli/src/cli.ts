@@ -1,10 +1,12 @@
+import { reserveBootstrap } from './bootstrap-output.js';
+import { globalOptions } from './globals.js';
 import { commandHelp } from "./command-help.js";
 import { CloneError, cloneProblem, checkCloneEndpoint } from "./clone-errors.js";
 import { canonicalReadUrl } from "./human-git.js";
 import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
-import { humanSessionFetch, renewHuman } from "./session.js";
+import { humanSessionFetch, renewHuman, agentSessionFetch, renewAgent } from "./session.js";
 import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
 import { stageChain } from "./chain-stage.js";
@@ -118,7 +120,7 @@ Commands:
   approval withdraw ID --expected-status S --intent-version N
   candidate withdraw ID --expected-status S --intent-version N
   candidate reject ID --expected-status landed --intent-version N
-  task authorize ID --agent ID --verbs a,b --expires-at TIME
+  task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
   submit [REF] [--task ID] [--source SHA] [--base SHA] [--intent-version N] [--claim ID] [--wait SECONDS]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
@@ -141,6 +143,7 @@ Global options:
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
   --version, -v          print the installed package version
+  --json, --verbose, --idempotency-key and --help may precede or follow command words.
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else ${DEFAULT_API_ORIGIN}; other commands use the origin stored with their credential.
@@ -269,9 +272,10 @@ function report(d: Deps, err: unknown, json: boolean): number {
 const GROUPS = new Set(["project", "repo", "task", "candidate", "receipt", "events", "webhook", "helper", "auth", "approval", "workspace", "lane"]);
 
 async function dispatch(d: Deps) {
+  const globals = globalOptions(d.argv);
   // Help wins before parsing required arguments or entering any execution path.
-  if (d.argv.includes("--help")) {
-    const words = d.argv.filter(arg => arg !== "--help" && arg !== "--json" && arg !== "--verbose");
+  if (globals.help) {
+    const words = globals.argv;
     const first = words[0] === "--version" || words[0] === "-v" ? "version" : words[0];
     const command = first && GROUPS.has(first) && first !== "events"
       ? first === "project" && words[1] === "member" ? `project member ${words[2] ?? ""}` : `${first} ${words[1] ?? ""}`
@@ -291,14 +295,12 @@ async function dispatch(d: Deps) {
     }
     return;
   }
-  // Global flags may lead; command words follow, then the command's own flags.
-  const lead: string[] = [];
-  let argv = d.argv;
-  while (argv[0] === "--json" || argv[0] === "--verbose") lead.push(argv[0]), (argv = argv.slice(1));
+  const lead = globals.flags;
+  const argv = globals.argv;
   const [a = "", b, ...tail] = argv;
   if (!d.credentials && !["version", "--version", "-v", "login", "workspace"].includes(a)) {
     const stored = await activeCredentials(d.env);
-    if (stored?.kind === "human") d = { ...d, fetch: humanSessionFetch(d.env, stored, d.fetch) };
+    if (stored?.kind === "human" || stored?.kind === "agent") d = { ...d, fetch: (stored.kind === "human" ? humanSessionFetch : agentSessionFetch)(d.env, stored, d.fetch) };
   }
   if (a === "events" && b?.startsWith("--")) {
     await eventsFollow(d, [...lead,b,...tail]);
@@ -318,7 +320,9 @@ async function dispatch(d: Deps) {
 const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
   d.stdout(json ? JSON.stringify(body, null, 2) + "\n" : text() + "\n");
 
-const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: creds.kind === "human" && !d.credentials ? humanSessionFetch(d.env, creds, d.fetch) : d.fetch, sleep: d.sleep, signal: d.signal });
+const credentialFetch = (d: Deps, creds: Credentials) => !d.credentials && (creds.kind === "human" || creds.kind === "agent")
+  ? (creds.kind === "human" ? humanSessionFetch : agentSessionFetch)(d.env, creds, d.fetch) : d.fetch;
+const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: credentialFetch(d, creds), sleep: d.sleep, signal: d.signal });
 async function client(d: Deps) {
   const creds = d.credentials ?? (await loadCredentials(d.env));
   return { creds, api: connect(d, creds) };
@@ -487,7 +491,7 @@ const eventsFollow: Handler = async (d,args) => {
   process.on('SIGINT',abort);
   d.signal?.addEventListener('abort',abort,{once:true});
   if (d.signal?.aborted) abort();
-  try { await followEvents({ creds,env:d.env,projectId,taskId:v.task,from:v.from,checkpoint:v.checkpoint,limit,signal:controller.signal,fetch:d.fetch,stdout:d.stdout,sleep:d.sleep }); }
+  try { await followEvents({ creds,env:d.env,projectId,taskId:v.task,from:v.from,checkpoint:v.checkpoint,limit,signal:controller.signal,fetch:credentialFetch(d,creds),stdout:d.stdout,sleep:d.sleep }); }
   finally { process.removeListener('SIGINT',abort); d.signal?.removeEventListener('abort',abort); }
 };
 
@@ -579,7 +583,7 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
     if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("claim first to configure the octocove helper remote");
     if (!externalSocket) {
       const boundProject = projectId ?? (await api.call("taskGet", { path })).body.projectId;
-      managed = await startManagedHelper({ ...d, ...creds, taskId, claimId: claimAttemptId, projectId: boundProject, baseSha, deadline, signal: scope?.signal });
+      managed = await startManagedHelper({ ...d, ...creds, fetch: credentialFetch(d, creds), taskId, claimId: claimAttemptId, projectId: boundProject, baseSha, deadline, signal: scope?.signal });
       d = { ...d, env: { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath } };
     }
     try {
@@ -615,7 +619,7 @@ const COMMANDS: Record<string, Handler> = {
     const [taskId,claimId,projectId,baseSha,remoteName] = await Promise.all(["taskId","claimId","projectId","baseSha","remote"].map(k => getConfig(d.git,`octocove.${k}`)));
     if (!taskId || !claimId || !projectId || !remoteName) throw new ConfigError("claim first to configure this agent's workspace");
     if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("workspace remote is not the claimed helper transport");
-    const managed = d.env.OCTOCOVE_HELPER_SOCK ? undefined : await startManagedHelper({ ...d, ...creds!,taskId,claimId,projectId,baseSha });
+    const managed = d.env.OCTOCOVE_HELPER_SOCK ? undefined : await startManagedHelper({ ...d, ...creds!,fetch: credentialFetch(d, creds!),taskId,claimId,projectId,baseSha });
     try {
       await d.git(["fetch","--no-tags","--",remoteName,"+refs/heads/*:refs/remotes/"+remoteName+"/*"],
         {env:{...d.env,...(managed ? {OCTOCOVE_HELPER_SOCK:managed.socketPath} : {})},signal:d.signal,stderr:d.stderr});
@@ -708,9 +712,9 @@ const COMMANDS: Record<string, Handler> = {
     // The renewal journeys pin the predecessor credential and the key: an answer lost after the server
     // committed (predecessor revoked, replacement issued) is recovered within the server's window, never
     // renewed afresh under a new key. The replacement is saved before anything else happens.
-    if (creds.kind === "human" && !d.credentials) {
-      const renewed = await renewHuman(d.env, creds, d.fetch, { signal: d.signal, idempotencyKey: v["idempotency-key"] });
-      out(d, v.json, { renewed: true, kind: creds.kind, expiresAt: renewed.expiresAt, credentialsFile: join(configDir(d.env), "credentials", "cli.json") }, () => "Credential renewed and saved privately.");
+    if (!d.credentials) {
+      const renewed = await (creds.kind === "human" ? renewHuman : renewAgent)(d.env, creds, d.fetch, { signal: d.signal, idempotencyKey: v["idempotency-key"] });
+      out(d, v.json, { renewed: true, kind: creds.kind, ...(creds.kind === "agent" ? { delegationId: creds.delegationId } : {}), expiresAt: renewed.expiresAt, credentialsFile: join(configDir(d.env), "credentials", "cli.json") }, () => "Credential renewed and saved privately.");
       return;
     }
     const options = api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]);
@@ -719,7 +723,7 @@ const COMMANDS: Record<string, Handler> = {
       .catch(offShapeAs("renewal did not return a credential"));
     const token = renewed.kind === "agent-delegation" ? renewed.token : renewed.transport === "bearer" ? renewed.token : undefined;
     if (typeof token !== "string" || !token) throw new ConfigError("renewal did not return a credential");
-    const credentialsFile = await saveCredentials(d.env, { ...creds, token });
+    const credentialsFile = await saveCredentials(d.env, { ...creds, token, expiresAt: renewed.expiresAt, issuedAt: new Date().toISOString() });
     out(d, v.json, { renewed: true, kind: creds.kind, delegationId: creds.delegationId, expiresAt: renewed.expiresAt, credentialsFile }, () => "Credential renewed and saved privately.");
   },
 
@@ -1032,8 +1036,9 @@ const COMMANDS: Record<string, Handler> = {
     let credentialsFile: string | undefined;
     let activeCreds = creds;
     if (delegation) {
-      activeCreds = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, ...(creds.agentId ? { agentId: creds.agentId } : {}) };
+      activeCreds = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt, issuedAt: new Date().toISOString(), ...(creds.absoluteExpiresAt ? { absoluteExpiresAt: creds.absoluteExpiresAt } : {}), ...(granteeClaim.expiresAt ? { claimExpiresAt: granteeClaim.expiresAt } : {}), ...(creds.agentId ? { agentId: creds.agentId } : {}) };
       credentialsFile = await saveCredentials(d.env, activeCreds);
+      if (!d.credentials) d = { ...d, fetch: agentSessionFetch(d.env, activeCreds, d.fetch) };
     }
     let claim = granteeClaim;
     if (claim.provisioningState === "pending") {
@@ -1058,7 +1063,7 @@ const COMMANDS: Record<string, Handler> = {
         if (error instanceof ApiError && error.status===403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
         throw error;
       })).body;
-      managed = await startManagedHelper({ ...d, ...activeCreds, taskId, claimId, projectId: task.projectId, baseSha: claim.lane?.baseSha ?? chain?.baseSha });
+      managed = await startManagedHelper({ ...d, ...activeCreds, fetch: credentialFetch(d, activeCreds), taskId, claimId, projectId: task.projectId, baseSha: claim.lane?.baseSha ?? chain?.baseSha });
       const env = { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath };
       const git = d.git;
       d = { ...d, env, git: (args, options) => git(args, { ...options, env }) };
@@ -1171,19 +1176,24 @@ const COMMANDS: Record<string, Handler> = {
   },
 
   "task authorize": async (d, args) => {
-    const { v, pos } = opts(args, { agent: { type: "string" }, verbs: { type: "string" }, "expires-at": { type: "string" } }, 1);
+    const { v, pos } = opts(args, { agent: { type: "string" }, verbs: { type: "string" }, "expires-at": { type: "string" }, "bootstrap-out": { type: "string" } }, 1);
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("task authorize requires a human credential");
     // Verbs are sent as typed; the server refuses unknown ones.
     const input = { agentId: need(v, "agent"), verbs: need(v, "verbs").split(",").map((x: string) => x.trim()) as never[], expiresAt: need(v, "expires-at") };
     // The claim-authorize journey recovers an issuance whose answer was lost under the same key (bounded
     // recovery, while the bootstrap is unconsumed); a refusal such as `idempotency-result-expired` is surfaced, never reissued.
-    const issued = await api.j.claims.authorize(pos[0]!, input, api.write(AUTHORIZE_SECONDS, v["idempotency-key"]))
-      .catch(offShapeAs("authorization did not return a bootstrap credential"));
-    const bootstrapFile = await saveBootstrap(d.env, creds.apiUrl, issued.token, input.agentId);
-    const metadata = { id: issued.authorizationId, claimAttemptId: issued.claimAttemptId, delegationId: issued.delegationId,
-      verbs: issued.verbs, bootstrapExpiresAt: issued.expiresAt, bootstrapFile };
-    out(d, v.json, metadata, () => kv([["Authorization", metadata.id], ["Claim attempt", metadata.claimAttemptId], ["Delegation", metadata.delegationId], ["Verbs", metadata.verbs?.join(",")], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile]]));
+    const output = v["bootstrap-out"] !== undefined ? await reserveBootstrap(need(v, "bootstrap-out")) : undefined;
+    try {
+      const issued = await api.j.claims.authorize(pos[0]!, input, api.write(AUTHORIZE_SECONDS, v["idempotency-key"]))
+        .catch(offShapeAs("authorization did not return a bootstrap credential"));
+      const lifetime = { expiresAt: issued.expiresAt, absoluteExpiresAt: issued.authorizationExpiresAt };
+      const bootstrapFile = output ? output.path : await saveBootstrap(d.env, creds.apiUrl, issued.token, input.agentId, lifetime);
+      if (output) await output.write({ apiUrl: creds.apiUrl, token: issued.token, kind: "bootstrap", agentId: input.agentId, ...lifetime });
+      const metadata = { id: issued.authorizationId, claimAttemptId: issued.claimAttemptId, delegationId: issued.delegationId,
+        verbs: issued.verbs, bootstrapExpiresAt: issued.expiresAt, bootstrapFile };
+      out(d, v.json, metadata, () => kv([["Authorization", metadata.id], ["Claim attempt", metadata.claimAttemptId], ["Delegation", metadata.delegationId], ["Verbs", metadata.verbs?.join(",")], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile]]));
+    } finally { await output?.close(); }
   },
 
   submit: async (d, args) => {

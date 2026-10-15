@@ -85,6 +85,24 @@ describe("bootstrap hand-off", () => {
     };
   });
 
+  it("carries the authorization ceiling and claim lease into the saved delegation", async () => {
+    await saveCredentials(env, { apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "worker", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" });
+    routes["POST /v1/tasks/T1/claim"] = () => response({ claim: { ...claim, provisioningState: "ready", expiresAt: "2030-01-01T12:00:00Z" }, delegation }, 201);
+    expect(await cli([...claimArgs, "--json"])).toBe(EXIT.ok);
+    expect(await active()).toMatchObject({ kind: "agent", agentId: "worker", token: AGENT, expiresAt: delegation.expiresAt, absoluteExpiresAt: "2030-01-02T00:00:00Z", claimExpiresAt: "2030-01-01T12:00:00Z" });
+  });
+
+  it("explicitly imports a fresh bootstrap over an old agent credential", async () => {
+    await saved("agent", "old-agent-credential", "old-delegation");
+    const file = await atomicSecret(join(dir, "credentials", "fresh.json"), { apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "new-worker" });
+    routes["POST /v1/tasks/T1/claim"] = init => {
+      expect((init.headers as any).authorization).toBe(`Bearer ${BOOT}`);
+      return response({ claim: { ...claim, provisioningState: "ready" }, delegation }, 201);
+    };
+    expect(await cli([...claimArgs, "--bootstrap-file", file, "--json"]), stderr).toBe(EXIT.ok);
+    expect(await active()).toMatchObject({ kind: "agent", agentId: "new-worker", delegationId: "D1", token: AGENT });
+  });
+
   it("persists a 202 delegation before polling with it and uses it on the next invocation", async () => {
     const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
     env.OCTOCOVE_BOOTSTRAP_FILE = file;
@@ -93,7 +111,7 @@ describe("bootstrap hand-off", () => {
       return response({ claim, delegation }, 202);
     };
     routes["GET /v1/claims/C1"] = async (init) => {
-      expect(await active()).toEqual({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1" });
+      expect(await active()).toMatchObject({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1", expiresAt: delegation.expiresAt, issuedAt: expect.any(String) });
       expect((init.headers as any).authorization).toBe(`Bearer ${AGENT}`);
       return response({ ...claim, provisioningState: "ready" });
     };
@@ -118,7 +136,7 @@ describe("bootstrap hand-off", () => {
     expect(keys).toHaveLength(2);
     expect(new Set(keys).size).toBe(1);
     if (key) expect(keys[0]).toBe(key);
-    expect(await active()).toEqual({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1" });
+    expect(await active()).toMatchObject({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1", expiresAt: delegation.expiresAt, issuedAt: expect.any(String) });
     expect(JSON.parse(stdout).claim.id).toBe("C1");
   });
 
@@ -152,7 +170,7 @@ describe("bootstrap hand-off", () => {
     const file = json ? JSON.parse(stdout).bootstrapFile : stdout.match(/Bootstrap file:\s+(.+)/)![1]!;
     expect(file).toContain(join(dir, "credentials", "bootstrap-"));
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "A1" });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "A1", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-01T00:00:00Z" });
     expect((await active()).token).toBe(SESSION);
     if (json) expect(JSON.parse(stdout)).not.toHaveProperty("bootstrapToken");
     // The receiving job imports the file without a secret in argv or environment.

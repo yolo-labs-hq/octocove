@@ -38,7 +38,7 @@ or once after a `credential-expired` response, and save the replacement with mod
 0600 in the same config directory. Concurrent CLI processes share a renewal lock
 and adopt the saved replacement. An idle or absolute session limit, or revocation,
 requires `octocove login`. A crashed renewal lock is not stolen automatically.
-Agent delegations continue to require explicit `octocove auth renew`.
+Agent delegation tokens also renew automatically within their authorization ceiling and live claim lease, using only that agent's scoped credential. `octocove auth renew` remains available explicitly. Revoked or ended agent grants require a new human authorization.
 
 ## Install
 
@@ -116,16 +116,16 @@ reads credentials or starts network requests.
 | `task claim ID [--lane chain|ref] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
-| `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:766](src/cli.ts#L766 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:767](src/cli.ts#L767 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:768](src/cli.ts#L768 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:769](src/cli.ts#L769 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:770](src/cli.ts#L770 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:771](src/cli.ts#L771 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:772](src/cli.ts#L772 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:773](src/cli.ts#L773 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:774](src/cli.ts#L774 "\"candidate reject\": governance")) |
+| `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:770](src/cli.ts#L770 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:771](src/cli.ts#L771 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:772](src/cli.ts#L772 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:773](src/cli.ts#L773 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:774](src/cli.ts#L774 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:775](src/cli.ts#L775 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:776](src/cli.ts#L776 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:777](src/cli.ts#L777 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:778](src/cli.ts#L778 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -133,12 +133,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1304](src/cli.ts#L1304 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1316](src/cli.ts#L1316 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1314](src/cli.ts#L1314 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1326](src/cli.ts#L1326 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1356](src/cli.ts#L1356 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1366](src/cli.ts#L1366 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:442](src/cli.ts#L442 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:446](src/cli.ts#L446 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -159,7 +159,7 @@ metadata when the credential is saved. It never emits the device code, verifier,
   human session family; **auth revoke** defaults to the active agent delegation, or accepts a named delegation for
   a human to revoke. Successful logout/self-revoke erases the active secret and leaves a protected tombstone so stale
   import settings cannot reactivate credentials. Failed operations preserve the active credential.
-- **task authorize** writes a unique `credentials/bootstrap-<id>.json` (0600, inside a 0700 directory), and prints
+- **task authorize --bootstrap-out PATH** writes directly to a new file with mode 0600 in a private parent with mode 0700. Missing parent directories are created privately; existing files and symlinks are refused before the authorization request. Choose a path outside every working tree, hand it only to the named agent, and keep each agent config separate. Only the path and metadata are printed, never the token. Without this option, **task authorize** writes a unique `credentials/bootstrap-<id>.json` (0600, inside a 0700 directory), and prints
   its path and authorization metadata. The protected file also carries the agent label for `whoami`; the server remains the authority for the delegating human. Give each agent its own `OCTOCOVE_CONFIG_DIR`. Securely pass that file to the named job and run
   `octocove task claim TASK --intent-version N --base EXACT_SHA --bootstrap-file FILE` there. The flag and
   `OCTOCOVE_BOOTSTRAP_FILE` carry paths only. An explicit flag intentionally imports a new bootstrap; an environment
@@ -527,7 +527,7 @@ Canonical self-approval is refused by the authoritative server.
 
 Run `octocove COMMAND --help` for argument and flag descriptions without reading credentials or calling the API. Task acceptance is one JSON array of strings, for example `--acceptance '["Tests pass", "No credentials in output"]'`.
 
-For a complete agent workflow, grant `tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read` explicitly. `task authorize --help` explains each permission. `--agent` is a human-chosen, nonempty opaque agent ID of at most 128 characters; it does not require registration or select a human login. Give each worker its own config directory and bootstrap file. The bootstrap must be claimed within about five minutes of authorization. `--expires-at` controls the delegation's longer expiry, bounded by server policy and the delegating human's live session. It does not extend the bootstrap window.
+For a complete agent workflow, grant `tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read` explicitly. `task authorize --help` explains each permission. `--agent` is a human-chosen, nonempty opaque agent ID of at most 128 characters; it does not require registration or select a human login. Give each worker its own config directory and bootstrap file. The bootstrap must be claimed within about five minutes of authorization. `--expires-at` controls the delegation renewal ceiling, bounded by server policy, the claim lease and the delegating human's live session. It does not extend the bootstrap window.
 
 A bootstrap claim defaults to chain and needs `--intent-version` and the exact `--base`, because the bootstrap cannot read a task before claiming. Human JSON publish responses are unchanged; text output explains when publication is waiting on upstream tasks to land.
 
@@ -544,3 +544,29 @@ A bootstrap claim defaults to chain and needs `--intent-version` and the exact `
 | 429 | Rate limited; wait before retrying | 75 |
 
 Changes still go through tasks and lanes; a human clone is read-only.
+
+## Global flags and private agent hand-offs
+
+Global `--json`, `--verbose`, `--idempotency-key KEY` and `--help` work before or after the command, including between command words. For example:
+
+```sh
+octocove --json --idempotency-key create-example project create example --name Example
+octocove task --verbose show TASK
+```
+
+Scoped agent delegations renew automatically within about two minutes of their 15-minute token expiry, or once after a specific expired-token response. The authorization's `--expires-at` ceiling and the live claim lease still apply; renewal never extends either. Each rotation uses the agent's own config directory, the existing idempotent renewal journey and the same private lock as human sessions. A replacement is atomically saved before the command continues; concurrent processes adopt that replacement. Managed Git connectors use this renewal path too. A revoked or ended grant requires a new human authorization, with no human-login fallback. `auth renew` remains available explicitly.
+
+Write agent hand-offs outside all repositories:
+
+```sh
+octocove task authorize TASK --agent worker-one \
+  --verbs tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read \
+  --expires-at YYYY-MM-DDTHH:mm:ssZ --bootstrap-out "$HOME/.config/octocove-handoffs/worker-one/bootstrap.json"
+```
+
+The bootstrap still expires in about five minutes. Claiming exchanges it for the renewable delegation; `--expires-at` is the delegation's ceiling, not its individual token lifetime.
+
+
+`candidate show --help` and `task show --help` explain the generated client's separate response state, task status, candidate status and compute outcome fields, with a next action for every value. In particular, `pending` is a compute response state, `approved`/`landing` are task states, and `conflict` is a compute outcome whose candidate status is `failed`. “Reviewable” describes an `active` candidate whose checks and bindings permit review; it is not an additional API status.
+
+Human renewal applies to authenticated commands including `task authorize`, `repo list`, event polling, grant administration and the human Git credential helper. It also adopts a concurrently stored replacement before sending the next request. Each original request may recover once; a long-running connection can renew a later token on a later request, while idle/absolute limits and revocation still require signing in again.

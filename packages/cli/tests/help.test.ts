@@ -92,3 +92,9 @@ it("workspace and claim help cover flags omitted by the root summary",async()=>{
  for(const flag of ["--chain-id","--previous-task","--base","--bootstrap-file"]) expect(claim).toContain(flag);
  expect(claim).toContain("chain (default)");
 });
+it.each(['candidate show','task show'])('%s explains typed state/status/outcome vocabulary and next actions',async command=>{
+ const text=await help([...command.split(' '),'--help']);
+ for(const value of ['pending','complete','active','approved','landing','landed','stale','fenced','superseded','conflict','failed','draft','ready','claimed','submitted','rejected','raced','withdrawn','computed','stale-base','stale-head','error'])expect(text).toContain(value);
+ expect(text).toContain('Task status:');expect(text).toContain('Candidate status:');expect(text).toContain('Candidate compute outcome:');
+ expect(text).toContain('Next: wait');expect(text).toContain('push again');expect(text).toContain('stop');expect(text).toContain('"reviewable" describes active, not another status');
+});
