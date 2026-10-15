@@ -1,11 +1,11 @@
 # octocove CLI
 
-One `octocove` binary with a subcommand per record API verb in [docs/API.md](../../docs/API.md). A human terminal and an
+One `octocove` binary with a subcommand per record API verb in [docs/API.md](https://github.com/yolo-labs-hq/octocove/blob/main/docs/API.md). A human terminal and an
 agent sandbox run the same commands against the same API with the same semantics; only the credential differs. No
 CLI-managed background daemons: anything that waits (claim provisioning, landing) polls for a bounded time and then exits.
 Allocated claims use a per-attempt helper bundled with the CLI, or an external runtime.
 
-The CLI is the first consumer of the [client library](../client/README.md): record requests go through the
+The CLI is the first consumer of the [client library](https://github.com/yolo-labs-hq/octocove/blob/main/packages/client/README.md): record requests go through the
 library's typed client (bearer transport, generated routing, retry policy, deadlines, redaction), every wait through
 its journeys, and credentials through its protected store. The CLI keeps argument parsing, output, Git and helper
 orchestration, direct human claims, human-only claim replacement and candidate withdraw/reject.
@@ -113,19 +113,19 @@ reads credentials or starts network requests.
 | `task publish ID` | `POST /tasks/{id}/publish` |
 | `task release ID [--claim ID]` | `POST /tasks/{id}/release` |
 | `task show ID` | `GET /tasks/{id}` |
-| `task claim ID [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
+| `task claim ID [--lane chain|ref] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:760](src/cli.ts#L760 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:761](src/cli.ts#L761 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:762](src/cli.ts#L762 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:763](src/cli.ts#L763 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:764](src/cli.ts#L764 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:765](src/cli.ts#L765 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:766](src/cli.ts#L766 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:767](src/cli.ts#L767 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:768](src/cli.ts#L768 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:766](src/cli.ts#L766 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:767](src/cli.ts#L767 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:768](src/cli.ts#L768 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:769](src/cli.ts#L769 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:770](src/cli.ts#L770 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:771](src/cli.ts#L771 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:772](src/cli.ts#L772 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:773](src/cli.ts#L773 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:774](src/cli.ts#L774 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -133,12 +133,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1282](src/cli.ts#L1282 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1294](src/cli.ts#L1294 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1304](src/cli.ts#L1304 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1316](src/cli.ts#L1316 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1334](src/cli.ts#L1334 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1356](src/cli.ts#L1356 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:436](src/cli.ts#L436 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:442](src/cli.ts#L442 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -161,23 +161,23 @@ metadata when the credential is saved. It never emits the device code, verifier,
   import settings cannot reactivate credentials. Failed operations preserve the active credential.
 - **task authorize** writes a unique `credentials/bootstrap-<id>.json` (0600, inside a 0700 directory), and prints
   its path and authorization metadata. The protected file also carries the agent label for `whoami`; the server remains the authority for the delegating human. Give each agent its own `OCTOCOVE_CONFIG_DIR`. Securely pass that file to the named job and run
-  `octocove task claim TASK --intent-version N --bootstrap-file FILE` there. The flag and
+  `octocove task claim TASK --intent-version N --base EXACT_SHA --bootstrap-file FILE` there. The flag and
   `OCTOCOVE_BOOTSTRAP_FILE` carry paths only. An explicit flag intentionally imports a new bootstrap; an environment
   import path never overrides an active delegation.
 
 - **claim** reads the task to learn the current `intentVersion` (a bootstrap credential can only reach the claim route, so
-  pass `--intent-version`), claims at that version, prints the intent contract (title, description, acceptance, version,
+  pass `--intent-version` and `--base` for the default chain lane), claims at that version, prints the intent contract (title, description, acceptance, version,
   upstream results), and polls `GET /claims/{id}` while provisioning is pending. When ready it points the git remote
   (default `octocove`, or an unused name when occupied, for allocated sources) at `ext::octocove-helper-connect %s` and records `octocove.{taskId,claimId,intentVersion,apiUrl,remote,ref,mappingId,topology,baseSha}`
-  in the repository's local git config. `baseSha` is the HEAD at claim time. It writes no credentials into git config and
+  in the repository's local git config. For chain claims, `baseSha` is the pinned canonical/receipt base; for ref claims it is the local HEAD at claim time. It writes no credentials into git config and
   starts a same-user `AttemptHelper` when `OCTOCOVE_HELPER_SOCK` is unset. The private runtime directory is
   0700, the socket is 0600, and read leases are revoked and the helper removed on exit or signal.
   An external socket takes precedence. Chain writes use authenticated Worker receive-pack;
   no provider write token is exported. This runtime is not an isolated credential boundary.
   `--source-ref REF --repository ID` registers an existing canonical branch instead: it keeps the selected remote
   (default `origin`) and existing credentials, with no helper installation or allocated repository. HTTPS/SSH identity
-  must match registration; all configured push URLs must match too. See [ADR 0002](../../docs/adr/0002-own-clone-source-registration.md). See the
-  [helper contract](../../docs/HELPER_BROKER_CONTRACT.md) for the helper transport and the password exchange.
+  must match registration; all configured push URLs must match too. See [ADR 0002](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0002-own-clone-source-registration.md). See the
+  [helper contract](https://github.com/yolo-labs-hq/octocove/blob/main/docs/HELPER_BROKER_CONTRACT.md) for the helper transport and the password exchange.
   This explicit external-writer path is outside ADR 0005 isolation qualification; independent provider
   credentials must stay outside the untrusted agent sandbox.
   A delegation returned to a bootstrap claim is stored in `credentials/cli.json`
@@ -189,7 +189,7 @@ metadata when the credential is saved. It never emits the device code, verifier,
   External source admission fetch-verifies the SHA with a broker canonical read grant. The stated base is preserved, even if stale.
 - **candidate show** preserves the candidate envelope and exits 74 for a completed conflict,
   computation error or failed candidate, with recovery guidance on stderr. See the
-  [agent playbook](../../docs/examples/agent-playbook.md).
+  [agent playbook](https://github.com/yolo-labs-hq/octocove/blob/main/docs/examples/agent-playbook.md).
 - **approve** refuses locally (exit 77, nothing sent) unless the credential is a human one, and sends exactly the
   `boundTo` triple you give it. A 409 `approval-mismatch` prints the server's current tuple; re-read the candidate and decide again.
 - **land** prints the receipt. A pending receipt is not a landing: use `--wait` (or `receipt show --wait`); exit 75 means it did not finalize in time.
@@ -198,7 +198,7 @@ metadata when the credential is saved. It never emits the device code, verifier,
   re-lands; resume with
   `receipt show ID --wait`.
 - Writes carry a random `Idempotency-Key`. A request that got no answer is resent under the same key only when the
-  library's [retry policy](../client/retry-policy.json) marks the operation `network-only` (at most twice);
+  library's [retry policy](https://github.com/yolo-labs-hq/octocove/blob/main/packages/client/retry-policy.json) marks the operation `network-only` (at most twice);
   `never` operations — `webhook disable`, delegation `auth revoke`, the grant exchanges — are sent exactly once. Pass
   `--idempotency-key` to recover an earlier attempt.
 
@@ -312,7 +312,7 @@ describes runtime availability; it does not prove a helper is running.
 by allocated repositories, external-ref sources and chain lanes. It makes no API
 calls, allocates no remote repository, pushes nothing, and never changes a
 caller's `origin`. Claims, source admission, submissions and landing authority
-remain the existing commands and [ADR 0002](../../docs/adr/0002-own-clone-source-registration.md).
+remain the existing commands and [ADR 0002](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0002-own-clone-source-registration.md).
 Use trusted setup's credential-free canonical URL and stable repository identity;
 Git uses the user's existing credential helper/SSH configuration.
 
@@ -437,12 +437,12 @@ CI can store an ADR 0009 machine signed assertion as a protected CLI credential 
 `kind: "machine"`. Use audience `<API origin>/auth/event-authority`, project-scoped
 `events:read`, and refresh the assertion before its five-minute expiry. The stored
 cursor survives assertion rotation for the same principal. Machine subscription
-management is separately authorized by [ADR 0009](../../docs/adr/0009-machine-event-authority.md).
+management is separately authorized by [ADR 0009](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0009-machine-event-authority.md).
 
 ## Chain lane lifecycle
 
-[ADR 0003](../../docs/adr/0003-chain-mode-repo-lanes.md) and
-[API chain lanes](../../docs/API.md#chain-mode-allocated-repo-lanes-adr-0003) define the record and
+[ADR 0003](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0003-chain-mode-repo-lanes.md) and
+[API chain lanes](https://github.com/yolo-labs-hq/octocove/blob/main/docs/API.md) define the record and
 retention rules. `claim` is an alias of `task claim`:
 
 ```sh
@@ -453,11 +453,11 @@ octocove lane retry --idempotency-key RETRY_KEY
 octocove lane retire --idempotency-key RETIRE_KEY  # human project admin
 ```
 
-Claim uses the task's declared `lane.strategy` / `topology.strategy` when present
-in its projection. Older v1 tasks have no declaration and retain their existing
-allocation default; select `--lane chain` explicitly for them. `--lane ref`
-preserves the existing allocated/external-ref path, including `--source-ref`.
-An explicit intent version bypasses task discovery unless chain is selected;
+Claim defaults to `--lane chain`, including tasks whose projection has no topology.
+Use `--lane ref` explicitly for classic per-task allocation. The existing
+`--source-ref` flag selects the external-ref path unless `--lane` is explicit;
+`--lane chain` and `--source-ref` cannot be combined.
+An explicit intent version bypasses task discovery for ref claims;
 bootstrap callers must supply their intent version and exact chain base.
 Chain and external-ref inputs are mutually exclusive.
 
@@ -514,7 +514,7 @@ and submits the delivered source for candidate computation.
 
 ### Headless machine grants
 
-See [machine client registration and commands](../../docs/examples/machine-clients.md).
+See [machine client registration and commands](https://github.com/yolo-labs-hq/octocove/blob/main/docs/examples/machine-clients.md).
 `auth exchange --as PRINCIPAL --scope JSON` reads a workload assertion from
 `OCTOCOVE_WORKLOAD_TOKEN` or `--token-stdin`, saves the returned bearer privately,
 and prints a token-free JSON descriptor. Use `--purpose submit` for the independent
@@ -522,3 +522,25 @@ submit credential. `approve --grant ID` (also `auth approve`) and
 `submit --grant ID` send the stored exact scope. Machine API requests default
 to a 30-second deadline. `auth revoke --grant ID` requires a human administrator.
 Canonical self-approval is refused by the authoritative server.
+
+## Command help and agent hand-off
+
+Run `octocove COMMAND --help` for argument and flag descriptions without reading credentials or calling the API. Task acceptance is one JSON array of strings, for example `--acceptance '["Tests pass", "No credentials in output"]'`.
+
+For a complete agent workflow, grant `tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read` explicitly. `task authorize --help` explains each permission. `--agent` is a human-chosen, nonempty opaque agent ID of at most 128 characters; it does not require registration or select a human login. Give each worker its own config directory and bootstrap file. The bootstrap must be claimed within about five minutes of authorization. `--expires-at` controls the delegation's longer expiry, bounded by server policy and the delegating human's live session. It does not extend the bootstrap window.
+
+A bootstrap claim defaults to chain and needs `--intent-version` and the exact `--base`, because the bootstrap cannot read a task before claiming. Human JSON publish responses are unchanged; text output explains when publication is waiting on upstream tasks to land.
+
+### Clone errors
+
+`repo clone` preserves the server's problem `code` and HTTP `status` in JSON stderr while using fixed, credential-safe messages. The Git discovery preflight distinguishes an unknown metadata record from an unsupported Git endpoint. A later Git refusal exposes only its recognized HTTP status, never raw remote diagnostics; when Git supplies no problem body, the code is `clone-http-STATUS`.
+
+| HTTP status | Meaning | Exit |
+| --- | --- | --- |
+| 401 | Sign in again in the selected config directory | 77 |
+| 403 | Project membership or `tasks:read` is missing | 78 |
+| 404 on metadata | Unknown project or repository | 66 |
+| 404/405 on Git discovery | Server does not support member clone yet | 69 |
+| 429 | Rate limited; wait before retrying | 75 |
+
+Changes still go through tasks and lanes; a human clone is read-only.

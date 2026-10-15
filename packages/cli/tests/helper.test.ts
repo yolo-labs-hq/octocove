@@ -58,7 +58,7 @@ it('claim installs the documented config with no secret in git config, remote, l
     git: async (args: string[]) => { spawnArgs.push(args); return git(args); },
     fetch: async (url: string) => new URL(url).pathname.endsWith("/tasks/t") ? Response.json({ id: "t", projectId: "p", intentVersion: 1 }) : Response.json({ claim, delegation: { delegationId: 'd', accessToken: secret, tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r' } }, { status: 201 }),
     stdout: (s: string) => { output += s; }, stderr: (s: string) => { output += s; }, stdin: async () => '' };
-  expect(await run({ ...deps, argv: ['task', 'claim', 't', '--intent-version', '1', '--json'] })).toBe(EXIT.ok);
+  expect(await run({ ...deps, argv: ['task', 'claim', 't', '--intent-version', '1', '--json', "--lane", "ref"] })).toBe(EXIT.ok);
   const config = await readFile(join(repo, '.git', 'config'), 'utf8');
   expect(spawnSpy.mock.calls.length).toBeGreaterThan(0);
   for (const call of spawnSpy.mock.calls) {
@@ -83,13 +83,13 @@ it('claim installs the documented config with no secret in git config, remote, l
   expect(await run({ ...deps, argv: ['helper', 'status', '--json'] })).toBe(0);
   expect(JSON.parse(output)).toMatchObject({ configured: true, transport: 'socket-helper', helper: 'octocove-helper-connect' });
   expect(output).not.toContain(secret);
-  expect(await run({ ...deps, argv: ['task', 'claim', 't', '--intent-version', '1'] })).toBe(0);
+  expect(await run({ ...deps, argv: ['task', 'claim', 't', '--intent-version', '1', "--lane", "ref"] })).toBe(0);
   expect(await git(['remote'])).toBe('octocove');
 });
 
 it.each([false, true])('rejects a secret-bearing remote before passing it to git or printing it (origin exists=%s)', async (hasOrigin) => {
   const dir = await temp(); let output = ''; const argv: string[][] = [];
-  const code = await run({ argv: ['task', 'claim', 't', '--intent-version', '1'], env: { XDG_CONFIG_HOME: dir, OCTOCOVE_HELPER_SOCK: join(dir, 'attempt.sock') },
+  const code = await run({ argv: ['task', 'claim', 't', '--intent-version', '1', "--lane", "ref"], env: { XDG_CONFIG_HOME: dir, OCTOCOVE_HELPER_SOCK: join(dir, 'attempt.sock') },
     credentials: { apiUrl: 'https://api.example/v1', token: secret, kind: 'agent' },
     git: async (a) => {
       argv.push(a);
@@ -107,7 +107,7 @@ it.each([false, true])('rejects a secret-bearing remote before passing it to git
 it.each([undefined, ''])('claim without an external socket validates the bootstrap file (%s)', async socket => {
   const dir = await temp();
   const fetch = vi.fn(); let output = '';
-  expect(await run({ argv: ['task','claim','t','--intent-version','1','--bootstrap-file',join(dir,'missing.json')],
+  expect(await run({ argv: ['task','claim','t','--intent-version','1','--bootstrap-file',join(dir,'missing.json'), "--lane", "ref"],
     env: { OCTOCOVE_HELPER_SOCK: socket }, git: vi.fn(), fetch,
     stdout: s => { output += s; }, stderr: s => { output += s; }, stdin: async () => '' })).toBe(EXIT.config);
   expect(output).toContain('bootstrap file is unreadable');

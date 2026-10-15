@@ -62,7 +62,7 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
 }
 const claim = { id: "C1", taskId: "T1", intentVersion: 1, provisioningState: "pending", workspace: null };
 const delegation = { delegationId: "D1", accessToken: AGENT, tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1" };
-const claimArgs = ["task", "claim", "T1", "--intent-version", "1"];
+const claimArgs = ["task", "claim", "T1", "--intent-version", "1", "--lane", "ref"];
 
 describe("bootstrap hand-off", () => {
   beforeEach(async () => {

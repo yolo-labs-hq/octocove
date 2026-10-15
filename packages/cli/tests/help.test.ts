@@ -71,3 +71,24 @@ it.each(["claim", "task claim"])("%s help advertises canonical and wait options"
 it("lane push help advertises exact source selection", async () => {
   expect(await help(["lane", "push", "--help"])).toContain("--source SHA");
 });
+
+
+it.each(["task create", "task edit"])("%s describes the acceptance JSON value", async command => {
+  const text=await help([...command.split(" "),"--help"]);
+  expect(text).toContain("JSON array of strings");
+  expect(text).toContain('--acceptance \'["Tests pass", "No credentials in output"]\'');
+  expect(text).toContain("Short human-readable task title");
+});
+
+it("authorize help distinguishes each scope, agent label, bootstrap window and delegation expiry",async()=>{
+ const text=await help(["task","authorize","--help"]);
+ for(const verb of ["tasks:list","tasks:read","tasks:claim","claims:read","submissions:create","candidates:read","receipts:read"]) expect(text).toContain(verb);
+ for(const part of ["at most 128", "No agent registration", "5 minutes", "--expires-at controls", "human alone approves"]) expect(text).toContain(part);
+});
+it("workspace and claim help cover flags omitted by the root summary",async()=>{
+ const workspace=await help(["workspace","open","--help"]);
+ for(const flag of ["--canonical-id","--ref","--source","--count","--sparse","--worktree"]) expect(workspace).toContain(flag);
+ const claim=await help(["task","claim","--help"]);
+ for(const flag of ["--chain-id","--previous-task","--base","--bootstrap-file"]) expect(claim).toContain(flag);
+ expect(claim).toContain("chain (default)");
+});

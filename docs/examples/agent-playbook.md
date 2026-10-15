@@ -1,4 +1,14 @@
-# Candidate recovery for agents
+# Agent task workflow
+
+`octocove task claim TASK_ID` defaults to `--lane chain`. Use `--lane ref` explicitly for a classic per-task lane; the existing `--source-ref BRANCH --repository REPOSITORY_ID` path also selects ref when no lane is given. Explicit flags remain supported.
+
+The delegating human runs `task authorize TASK_ID --agent WORKER_ID --verbs tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read --expires-at TIME`. Use a future ISO 8601 time within server policy. `WORKER_ID` is a human-chosen opaque ID (1–128 characters), not a human sign-in or a registration requirement. `task authorize --help` describes every permission.
+
+Give each worker its own protected `OCTOCOVE_CONFIG_DIR` and its own bootstrap file. The bootstrap lasts about five minutes from authorization; claim promptly with `--bootstrap-file FILE --intent-version N --base EXACT_SHA`. The resulting scoped delegation lasts until its own expiry from `--expires-at`, bounded by server policy and the delegating session. Never share another worker's credential or fall back to a human config.
+
+Run `task create --help` for intent fields. `--acceptance` is a JSON array of strings, passed as one argument: `--acceptance '["Tests pass", "The requested behavior works"]'`. Publish can succeed while the task is waiting on dependencies; it becomes claimable after they land.
+
+## Candidate recovery
 
 Run `octocove candidate show --submission ID --json` to inspect computation.
 The candidate envelope remains on stdout, including conflict files, checks and
