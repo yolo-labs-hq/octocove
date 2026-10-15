@@ -5,10 +5,31 @@ agent sandbox run the same commands against the same API with the same semantics
 CLI-managed background daemons: anything that waits (claim provisioning, landing) polls for a bounded time and then exits.
 Allocated claims use a per-attempt helper bundled with the CLI, or an external runtime.
 
-The CLI is the first consumer of the [client library](../client/README.md): every request goes through the
+The CLI is the first consumer of the [client library](../client/README.md): record requests go through the
 library's typed client (bearer transport, generated routing, retry policy, deadlines, redaction), every wait through
 its journeys, and credentials through its protected store. The CLI keeps argument parsing, output, Git and helper
 orchestration, direct human claims, human-only claim replacement and candidate withdraw/reject.
+
+## Clone a repository as a human
+
+Sign in, then clone the project's canonical repository:
+
+```sh
+npx --yes @yolo-labs/octocove@latest login
+npx --yes @yolo-labs/octocove@latest repo clone my-project
+```
+
+`PROJECT` is your project slug or ID. The directory defaults to the repository name. To choose a repository and destination explicitly:
+
+```sh
+npx --yes @yolo-labs/octocove@latest repo clone my-project REPOSITORY_ID ./my-copy
+```
+
+If several canonicals are available, the CLI lists their IDs and refuses to guess. It checks out the canonical target branch, including a non-default branch. An empty repository produces an empty working tree on that target branch. Use `--json` for a structured result with the project, repository, directory, branch and empty status.
+
+The credential-free `origin` points to Octocove's authenticated, read-only Git proxy. Its URL-scoped `octocove-human-credential` helper reads only the human config directory selected at clone time, checks the session and automatically renews it when possible. A later `git pull` uses that same directory even when the config environment variable is absent. Inherited credential helpers are cleared for this remote, redirects are disabled, and no token is saved in the URL, Git config, command arguments or normal output. The human session crosses only Git's private credential pipe; the server keeps provider credentials private. `store` and `erase` never persist credentials.
+
+Agent delegations are refused here; their scoped workspaces are prepared by `task claim`. Changes go through tasks and lanes, not a direct push to this read-only origin. Existing agent helper transports are unchanged. If cloning fails, check your sign-in and read membership, then inspect the destination before retrying; existing files are preserved.
 
 ## Human session renewal
 
@@ -22,7 +43,7 @@ Agent delegations continue to require explicit `octocove auth renew`.
 ## Install
 
 The npm package is `@yolo-labs/octocove`; you can also build from source (below). One
-self-contained ESM file with no runtime dependencies; Node.js 20 or newer, Linux or macOS.
+self-contained CLI bundle and bundled helpers with no runtime dependencies; Node.js 20 or newer, Linux or macOS.
 
 ```sh
 npm i -g @yolo-labs/octocove
@@ -82,6 +103,7 @@ reads credentials or starts network requests.
 | `project member add PROJECT --principal ID [--role member\|approver] [--verbs a,b]` | `POST /projects/{project}/members`: human project administrators add a signed-in principal. `member` uses the server defaults; `approver` grants task/candidate/receipt/audit/event reads plus approval and landing, without project administration. Use `--verbs` for an explicit set; it cannot be combined with `--role`. |
 | `repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA] [--json]` | `POST /projects/{project}/repositories` (library `repositories.create()`): a `project:admin` human registers the project's canonical Artifacts repository and target ref (default `refs/heads/main`); `NS` must be the project's own namespace `oc-<project-id>`; 409 `canonical-exists` / `repository-taken` / `repository-namespace-mismatch` / `repository-creation-pending` (an open repository creation reserves that name) |
 | `repo verify PROJECT REPOSITORY [--json]` | `POST /projects/{project}/repositories/{repository}/verify` (library `repositories.verify()`): a `project:admin` human binds a registered repository once it exists in the project's own Artifacts namespace (`oc-<project-id>`, ADR 0017), so claims stop answering 409 `repository-unverified`; 409 `repository-namespace-mismatch` (registered outside that namespace), 409 `repository-remote-not-found`, 503 `broker-unavailable` (Artifacts secrets not installed) |
+| `repo clone PROJECT [REPOSITORY] [DIR] [--json]` | Human member: resolve the canonical, then Git smart-HTTP `GET /projects/{project}/repositories/{repository}/git/info/refs?service=git-upload-pack` and `POST /projects/{project}/repositories/{repository}/git/git-upload-pack`; persist a credential-free read-only origin and a URL-scoped human credential helper |
 | `repo list PROJECT [--json]` | `GET /projects/{project}/repositories` (library `repositories.list()`): the repository ids and target refs `task create` takes |
 | `auth renew` | `POST /auth/session/renew` or `POST /delegations/{id}/renew`, according to the active credential |
 | `auth revoke [DELEGATION_ID]` | `POST /delegations/{id}/revoke`; clear the credential on successful self-revocation |
@@ -95,15 +117,15 @@ reads credentials or starts network requests.
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:753](src/cli.ts#L753 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:754](src/cli.ts#L754 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:755](src/cli.ts#L755 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:756](src/cli.ts#L756 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:757](src/cli.ts#L757 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:758](src/cli.ts#L758 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:759](src/cli.ts#L759 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:760](src/cli.ts#L760 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:761](src/cli.ts#L761 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:760](src/cli.ts#L760 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:761](src/cli.ts#L761 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:762](src/cli.ts#L762 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:763](src/cli.ts#L763 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:764](src/cli.ts#L764 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:765](src/cli.ts#L765 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:766](src/cli.ts#L766 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:767](src/cli.ts#L767 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:768](src/cli.ts#L768 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -111,12 +133,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1254](src/cli.ts#L1254 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1266](src/cli.ts#L1266 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1282](src/cli.ts#L1282 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1294](src/cli.ts#L1294 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1306](src/cli.ts#L1306 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1334](src/cli.ts#L1334 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:429](src/cli.ts#L429 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:436](src/cli.ts#L436 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 

@@ -249,6 +249,7 @@ Commands:
   project create SLUG --name TEXT             (allow-listed humans; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
+  repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts remote)
   auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]

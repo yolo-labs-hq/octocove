@@ -22,7 +22,7 @@
       "package": "packages/cli/package.json",
       "cliVersion": "0.3.4",
       "bundle": "packages/cli/dist/octocove.mjs",
-      "bundleSha256": "986bac60f3f8e34e9d5b455b9055cb1b1af3c8930a85756143240625fe0e5876"
+      "bundleSha256": "f4baa2a32313950c8fe3e1f6a4632fbb0f10b42f8e09075b96a85d25275e2111"
     }
   },
   "c": {

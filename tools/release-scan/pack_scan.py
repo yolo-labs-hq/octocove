@@ -42,11 +42,11 @@ PUBLISH_CONFIG = {'access': 'public', 'provenance': True}
 PACKAGES = {
     'packages/cli': dict(
         name='@yolo-labs/octocove',
-        allowed=re.compile(r'(dist/(octocove|octocove-helper-connect|pre-receive-hook)\.mjs|README\.md|package\.json|LICENSE|NOTICE)\Z'),
-        required=('dist/octocove.mjs', 'dist/octocove-helper-connect.mjs', 'dist/pre-receive-hook.mjs', 'README.md', 'package.json', 'LICENSE', 'NOTICE'),
+        allowed=re.compile(r'(dist/(octocove|octocove-helper-connect|octocove-human-credential|pre-receive-hook)\.mjs|README\.md|package\.json|LICENSE|NOTICE)\Z'),
+        required=('dist/octocove.mjs', 'dist/octocove-helper-connect.mjs', 'dist/octocove-human-credential.mjs', 'dist/pre-receive-hook.mjs', 'README.md', 'package.json', 'LICENSE', 'NOTICE'),
         # esbuild inlines only Octocove's own Apache-2.0 sources (cli, client, shared), which the
         # root NOTICE covers. A bundled third-party module would need its notices in the tarball.
-        bundles=('dist/octocove.mjs', 'dist/octocove-helper-connect.mjs', 'dist/pre-receive-hook.mjs'),
+        bundles=('dist/octocove.mjs', 'dist/octocove-helper-connect.mjs', 'dist/octocove-human-credential.mjs', 'dist/pre-receive-hook.mjs'),
         # Written by the package's build script (esbuild --metafile); never packed.
         metafile='build-meta/octocove.mjs.json',
     ),

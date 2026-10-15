@@ -1,3 +1,6 @@
+import { cloneWorkspace } from "./repository-clone.js";
+import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
+import { resolve } from "node:path";
 import { humanSessionFetch, renewHuman } from "./session.js";
 import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
@@ -34,6 +37,9 @@ export interface Deps {
   signal?: AbortSignal;
   /** Overrides credential loading (tests). */
   credentials?: Credentials;
+  /** Working directory and human Git helper overrides for isolated clone tests. */
+  cwd?: string;
+  humanCredentialPath?: string;
   /** Bundled connector location override for source-level tests. */
   connectorPath?: string;
 }
@@ -78,6 +84,7 @@ Commands:
   project create SLUG --name TEXT             (allow-listed humans; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
+  repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts remote)
   auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]
@@ -851,6 +858,27 @@ const COMMANDS: Record<string, Handler> = {
     const nextSteps = "If the repository is empty, see " + EMPTY_REPOSITORY_GUIDE;
     out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Binding", r.binding],
       ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"], ["Next steps", nextSteps]]));
+  },
+
+  "repo clone": async (d, args) => {
+    const { v, pos } = opts(args, {}, 3, 1);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agent workspaces are prepared by task claim; no human credential fallback is used.");
+    const me = await api.j.auth.me(api.until(Date.now() + READ_SECONDS * 1000));
+    if (me.principal.kind !== "human") throw new HumanRequiredError("repo clone requires a human session.");
+    const project = cloneProject(me.memberships, pos[0]!);
+    const items = await api.j.repositories.list(project.projectId, api.until(Date.now() + READ_SECONDS * 1000));
+    const repository = cloneRepositorySelection(items, project.projectId, pos[1]);
+    const defaultName = [repository.name, project.slug, repository.id].find(value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(value));
+    if (!pos[2] && !defaultName) throw new ConfigError("Specify DIR explicitly: this repository has no safe default directory name.");
+    const directory = resolve(d.cwd ?? process.cwd(), pos[2] ?? defaultName!);
+    const result = await cloneWorkspace({ git:d.git, binding:{projectId:project.projectId,repositoryId:repository.id,targetRef:repository.targetRef,knownHeadSha:repository.knownHeadSha,
+      apiUrl:resolveApiOrigin(d.env,creds,"credential"),configDirectory:configDir(d.env)},directory,helperPath:d.humanCredentialPath,signal:d.signal,
+      stderr:text=>{ if(!v.json)d.stderr(text); } });
+    out(d,v.json,{projectId:project.projectId,projectSlug:project.slug,repositoryId:repository.id,...result,
+      nextSteps:"Changes go through tasks and lanes, not a direct push."},()=>kv([["Cloned to",result.directory],["Branch",result.branch],
+      ["Repository",repository.id],["Remote","origin (authenticated read-only)"],["Empty",result.empty ? "yes; no commits yet" : undefined],
+      ["Next steps","Changes go through tasks and lanes, not a direct push."]]));
   },
 
   "repo list": async (d, args) => {
