@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, afterAll, afterEach, expect, it } from 'vitest';
 import { run } from '../src/cli.js';
 import { systemGit } from '../src/git.js';
-import { saveCredentials } from '../src/config.js';
+import { saveCredentials, loadCredentials } from '../src/config.js';
 let helperDir:string;
 beforeAll(async()=>{
  helperDir=await mkdtemp(join(tmpdir(),'octocove-human-bin-'));
@@ -151,4 +151,23 @@ it('preserves a non-vocabulary server code in JSON while discarding echoed crede
  const fetch:typeof f.deps.fetch=async(url,init)=>url.includes('/git/info/refs')?Response.json({code,detail:session},{status:429}):f.deps.fetch(url,init);
  expect(await run({...f.deps,fetch,argv:['repo','clone','tools','--json']})).toBe(75);
  expect(JSON.parse(f.stderr).error.code).toBe(code);expect(f.output).not.toContain(session);
+});
+
+it.each([[false,false],[false,true],[true,false],[true,true]])('sanitizes a rejected clone preflight (renewal=%s, json=%s)',async(renew,json)=>{
+ const f=await fixture(),replacement='replacement-live';let rotations=0,preflightAuth:string|null=null;
+ if(renew)await saveCredentials(f.deps.env,{apiUrl:f.apiUrl,token:session,kind:'human',expiresAt:new Date(Date.now()-1000).toISOString(),absoluteExpiresAt:new Date(Date.now()+86400000).toISOString()});
+ const fetch:typeof f.deps.fetch=async(url,init)=>{
+   const path=new URL(url).pathname,headers=new Headers(init?.headers);
+   if(path.endsWith('/auth/session/renew')) { rotations++;return Response.json({sessionToken:replacement,principalId:'reader',expiresAt:new Date(Date.now()+1800000).toISOString(),absoluteExpiresAt:new Date(Date.now()+86400000).toISOString()}); }
+   if(path.endsWith('/git/info/refs')) { preflightAuth=headers.get('authorization');throw new Error(`echo ${session} and ${replacement}`); }
+   if(headers.get('authorization')==='Bearer '+replacement)headers.set('authorization','Bearer '+session);
+   return f.deps.fetch(url,{...init,headers});
+ };
+ expect(await run({...f.deps,fetch,argv:[...(json?['--json']:[]),'repo','clone','tools']})).toBe(1);
+ expect(preflightAuth).toBe('Bearer '+(renew?replacement:session));expect(rotations).toBe(renew?1:0);
+ expect((await loadCredentials(f.deps.env)).token).toBe(renew?replacement:session);
+ expect(f.output).not.toContain(session);expect(f.output).not.toContain(replacement);
+ expect(f.stderr).toContain('Repository clone transport failed.');
+ if(json)expect(JSON.parse(f.stderr).error).toMatchObject({code:'clone-transport-error',status:0});
+ expect(f.received).toBe(0);
 });

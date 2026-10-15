@@ -17,6 +17,7 @@ export function cloneProblem(status:number, code:string, gitEndpoint=false) {
 
 /** Authenticate/read admission before Git, preserving server problem codes without echoing diagnostics. */
 export async function checkCloneEndpoint(url:string, token:string, fetch:typeof globalThis.fetch, signal?:AbortSignal) {
+  try {
   const headers=new Headers({'Git-Protocol':'version=2'});
   headers.set('Authorization','Bearer '+token);
   const response=await fetch(url+'/info/refs?service=git-upload-pack',{
@@ -32,4 +33,8 @@ export async function checkCloneEndpoint(url:string, token:string, fetch:typeof 
     }catch{}finally{await reader?.cancel().catch(()=>{});}
   } else {await response.body?.cancel();throw new CloneError(200,'member-clone-unsupported',"This server doesn't support member clone yet: it did not return a Git advertisement.",69);}
   throw cloneProblem(response.status,code,true);
+  } catch(error) {
+    if(error instanceof CloneError)throw error;
+    throw new CloneError(0,'clone-transport-error','Repository clone transport failed. Check your network and API availability, then retry.',1);
+  }
 }
