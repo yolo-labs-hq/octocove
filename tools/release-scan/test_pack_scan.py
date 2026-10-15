@@ -14,7 +14,7 @@ import pack_scan  # noqa: E402
 MANIFEST = {
     'name': '@yolo-labs/octocove', 'version': '0.1.0', 'engines': {'node': '>=20'},
     'repository': {'type': 'git', 'url': pack_scan.REPOSITORY, 'directory': 'packages/cli'},
-    'bin': {'octocove': 'dist/octocove.mjs', 'octocove-helper-connect': 'dist/octocove-helper-connect.mjs'}, 'publishConfig': dict(pack_scan.PUBLISH_CONFIG),
+    'bin': {'octocove': 'dist/octocove.mjs', 'octocove-helper-connect': 'dist/octocove-helper-connect.mjs', 'octocove-human-credential': 'dist/octocove-human-credential.mjs'}, 'publishConfig': dict(pack_scan.PUBLISH_CONFIG),
 }
 # Detector-shaped values are assembled at runtime so this file itself stays scan-clean.
 TOKEN = 'gh' + 'p_' + 'A1b2' * 9
@@ -28,6 +28,7 @@ def files(overrides=None):
         'NOTICE': b'Octocove\n',
         'dist/octocove.mjs': b'#!/usr/bin/env node\nconsole.log(1);\n',
         'dist/octocove-helper-connect.mjs': b'#!/usr/bin/env node\nconsole.log(2);\n',
+        'dist/octocove-human-credential.mjs': b'#!/usr/bin/env node\nconsole.log(4);\n',
         'dist/pre-receive-hook.mjs': b'#!/usr/bin/env node\nconsole.log(3);\n',
     }
     base.update(overrides or {})
@@ -80,6 +81,7 @@ class PackScanTest(unittest.TestCase):
         self.assertRejected(files({'src/cli.ts': b'x'}), 'unexpected file: src/cli.ts')
         self.assertRejected(files({'NOTICE': None}), 'missing file: NOTICE')
         self.assertRejected(files({'dist/octocove-helper-connect.mjs': None}), 'missing file: dist/octocove-helper-connect.mjs')
+        self.assertRejected(files({'dist/octocove-human-credential.mjs': None}), 'missing file: dist/octocove-human-credential.mjs')
         self.assertRejected(files({'dist/pre-receive-hook.mjs': None}), 'missing file: dist/pre-receive-hook.mjs')
         self.assertRejected(files(), 'not a regular file', symlink='dist/link.mjs')
 

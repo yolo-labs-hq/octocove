@@ -18,7 +18,8 @@
   },
   "bin": {
     "octocove": "dist/octocove.mjs",
-    "octocove-helper-connect": "dist/octocove-helper-connect.mjs"
+    "octocove-helper-connect": "dist/octocove-helper-connect.mjs",
+    "octocove-human-credential": "dist/octocove-human-credential.mjs"
   },
   "files": [
     "dist",
