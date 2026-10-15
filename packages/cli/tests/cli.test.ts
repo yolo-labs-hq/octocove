@@ -347,7 +347,7 @@ describe("task claim", () => {
   it("claims at the current intent version, prints the contract and writes git config", async () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(201, ready);
-    expect(await cli(["task", "claim", "T1"])).toBe(0);
+    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(0);
     const post = calls.find((c) => c.method === "POST")!;
     expect(post.body).toEqual({ intentVersion: 3 });
     expect(post.headers["idempotency-key"]).toMatch(/^oc-[0-9a-f]{32}$/);
@@ -370,7 +370,7 @@ describe("task claim", () => {
     git("remote", "add", "origin", "https://old.example.invalid/x.git");
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(201, ready);
-    await cli(["task", "claim", "T1"]);
+    await cli(["task", "claim", "T1", "--lane", "ref"]);
     expect(git("remote", "get-url", "octocove")).toBe("ext::octocove-helper-connect %s");
     expect(git("remote", "get-url", "origin")).toBe("https://old.example.invalid/x.git");
   });
@@ -380,7 +380,7 @@ describe("task claim", () => {
     routes["POST /tasks/T1/claim"] = () => json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } }, { "retry-after": "1" });
     let polls = 0;
     routes["GET /claims/C1"] = () => (++polls < 2 ? json(202, { ...ready.claim, provisioningState: "pending", workspace: null }) : json(200, ready.claim));
-    expect(await cli(["task", "claim", "T1"])).toBe(0);
+    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(0);
     expect(polls).toBe(2);
     expect(git("remote", "get-url", "octocove")).toBe("ext::octocove-helper-connect %s");
   });
@@ -389,7 +389,7 @@ describe("task claim", () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } });
     routes["GET /claims/C1"] = () => json(202, { ...ready.claim, provisioningState: "pending", workspace: null });
-    expect(await cli(["task", "claim", "T1", "--wait", "1"], {}, {})).toBe(EXIT.pending);
+    expect(await cli(["task", "claim", "T1", "--wait", "1", "--lane", "ref"], {}, {})).toBe(EXIT.pending);
     expect(git("config", "--local", "octocove.claimId")).toBe("C1");
     expect(() => git("remote", "get-url", "origin")).toThrow();
   });
@@ -397,7 +397,7 @@ describe("task claim", () => {
   it("--json emits exactly one envelope when provisioning is blocked", async () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(201, { claim: { ...ready.claim, provisioningState: "blocked", workspace: null, blockedReason: "adapter unconfigured" } });
-    expect(await cli(["--json", "task", "claim", "T1"])).toBe(EXIT.failure);
+    expect(await cli(["--json", "task", "claim", "T1", "--lane", "ref"])).toBe(EXIT.failure);
     expect(errText).toBe("");
     const env = JSON.parse(outText);
     expect(env.claim.provisioningState).toBe("blocked");
@@ -409,7 +409,7 @@ describe("task claim", () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } });
     routes["GET /claims/C1"] = () => json(202, { ...ready.claim, provisioningState: "pending", workspace: null });
-    expect(await cli(["--json", "task", "claim", "T1", "--wait", "1"])).toBe(EXIT.pending);
+    expect(await cli(["--json", "task", "claim", "T1", "--wait", "1", "--lane", "ref"])).toBe(EXIT.pending);
     expect(errText).toBe("");
     const env = JSON.parse(outText);
     expect(env.claim.provisioningState).toBe("pending");
@@ -421,7 +421,7 @@ describe("task claim", () => {
     let out = "", err = "";
     const started = Date.now();
     const code = await run({
-      argv: ["task", "claim", "T1", "--wait", "1"],
+      argv: ["task", "claim", "T1", "--wait", "1", "--lane", "ref"],
       env: { OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-stall"), OCTOCOVE_HELPER_SOCK: join(repo, "..", "attempt.sock") },
       credentials: { apiUrl: API, token: "tok", kind: "agent" },
       git: systemGit(repo),
@@ -444,21 +444,21 @@ describe("task claim", () => {
   it("fails on blocked provisioning", async () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(201, { claim: { ...ready.claim, provisioningState: "blocked", workspace: null, blockedReason: "adapter unconfigured" } });
-    expect(await cli(["task", "claim", "T1"])).toBe(EXIT.failure);
+    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(EXIT.failure);
     expect(errText).toContain("adapter unconfigured");
   });
 
   it("reports a refused claim and leaves git untouched", async () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(409, { code: "dependency-unlanded", status: 409, detail: "blocked", details: { claimResult: "refused-dependency-unlanded" } });
-    expect(await cli(["task", "claim", "T1"])).toBe(EXIT.failure);
+    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(EXIT.failure);
     expect(errText).toContain("dependency-unlanded");
     expect(() => git("config", "--local", "octocove.taskId")).toThrow();
   });
 
   it("reuses an explicit idempotency key", async () => {
     routes["POST /tasks/T1/claim"] = () => json(201, ready);
-    await cli(["task", "claim", "T1", "--intent-version", "3", "--idempotency-key", "k".repeat(20)]);
+    await cli(["task", "claim", "T1", "--intent-version", "3", "--idempotency-key", "k".repeat(20), "--lane", "ref"]);
     expect(calls.map((c) => c.method)).toEqual(["POST"]);
     expect(calls[0]!.headers["idempotency-key"]).toBe("k".repeat(20));
   });
@@ -467,7 +467,7 @@ describe("task claim", () => {
     routes["GET /tasks/T1"] = () => json(200, task);
     routes["POST /tasks/T1/claim"] = () => json(201, { ...ready, delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
     const cfg = join(repo, "..", "cfg-bootstrap");
-    expect(await cli(["--json", "task", "claim", "T1", "--intent-version", "3"], { kind: "bootstrap", token: "boot" }, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(0);
+    expect(await cli(["--json", "task", "claim", "T1", "--intent-version", "3", "--lane", "ref"], { kind: "bootstrap", token: "boot" }, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(0);
     expect(outText).not.toContain("SECRET-JWT");
     expect(errText).not.toContain("SECRET-JWT");
     const file = join(cfg, "credentials", "cli.json");
@@ -477,7 +477,7 @@ describe("task claim", () => {
   });
 
   it("a bootstrap cannot read the task, so it requires --intent-version", async () => {
-    expect(await cli(["task", "claim", "T1"], { kind: "bootstrap" })).toBe(EXIT.usage);
+    expect(await cli(["task", "claim", "T1", "--lane", "ref"], { kind: "bootstrap" })).toBe(EXIT.usage);
     expect(calls).toHaveLength(0);
   });
 });
@@ -674,7 +674,7 @@ describe("transport", () => {
     outText = "";
     const keys: string[] = [];
     const code = await run({
-      argv: ["task", "claim", "T1", "--intent-version", "3"],
+      argv: ["task", "claim", "T1", "--intent-version", "3", "--lane", "ref"],
       env: { OCTOCOVE_HELPER_SOCK: join(repo, "..", "attempt.sock") }, credentials: { apiUrl: API, token: "t", kind: "agent" }, git: systemGit(repo),
       fetch: async (_u, init) => {
         keys.push((init.headers as any)["idempotency-key"]);
@@ -751,7 +751,7 @@ describe("task governance and webhook reactivation", () => {
   });
 
   it("publishes, releases the saved claim, and reactivates with JSON and stable write keys", async () => {
-    routes["POST /tasks/T1/publish"] = c => { expect(c.body).toEqual({}); return json(200, { id: "T1", published: true }); };
+    routes["POST /tasks/T1/publish"] = c => { expect(c.body).toEqual({}); return json(200, { id: "T1", status: "ready" }); };
     routes["POST /tasks/T1/release"] = c => { expect(c.body).toEqual({ claimAttemptId: "C1" }); return json(200, { claimId: "C1", status: "released" }); };
     routes["POST /webhooks/W1/reactivate"] = c => { expect(c.body).toBeUndefined(); return json(200, { id: "W1", status: "active" }); };
     git("config", "octocove.claimId", "C1");
@@ -812,7 +812,7 @@ it("chooses an unused allocated-source remote without replacing existing names",
   routes["GET /tasks/T1"] = () => json(200, task);
   routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id: "C1", intentVersion: 3, provisioningState: "ready",
     workspace: { mappingId: "M1", kind: "task-repo", remote: "https://git.example.invalid/task.git", ref: "refs/heads/task", credentialSource: {} } } });
-  expect(await cli(["task", "claim", "T1"])).toBe(0);
+  expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(0);
   expect(git("remote", "get-url", "origin")).toBe("https://owned.example.invalid/clone.git");
   expect(git("remote", "get-url", "octocove")).toBe("https://owned.example.invalid/another.git");
   const selected = git("config", "octocove.remote"); expect(selected).toMatch(/^octocove-[a-f0-9]{12}$/);
@@ -1136,5 +1136,43 @@ describe("presenter output", () => {
       expect(outText).toBe(JSON.stringify(body, null, 2) + "\n");
       expect(calls).toHaveLength(1);
     }
+  });
+});
+
+
+describe("default chain and publication guidance", () => {
+  it.each([["task", "claim"], ["claim"]])("defaults %j to chain without topology", async (...command) => {
+    routes["GET /tasks/T1"] = () => json(200, task);
+    routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id:"C1",taskId:"T1",intentVersion:3,provisioningState:"ready",workspace:null } });
+    expect(await cli([...command,"T1","--intent-version","3"])).toBe(0);
+    expect(calls.find(c=>c.method==="POST")!.body).toEqual({intentVersion:3,chain:{id:"T1",baseSha:SHA_A}});
+  });
+  it("bootstrap defaults to chain without reading under bootstrap authority", async () => {
+    routes["POST /tasks/T1/claim"] = c => { expect(c.body.chain).toEqual({id:"T1",baseSha:SHA_A}); return json(201,{claim:{id:"C1",taskId:"T1",intentVersion:3,provisioningState:"ready",workspace:null},delegation:{delegationId:"D1",accessToken:"replacement",tokenType:"Bearer",expiresAt:"2030-01-01T00:00:00Z",revocationId:"r"}}); };
+    routes["GET /tasks/T1"] = c => { expect(c.headers.authorization).toBe("Bearer replacement"); return json(200,task); };
+    expect(await cli(["task","claim","T1","--intent-version","3","--base",SHA_A],{kind:"bootstrap",token:"bootstrap"})).toBe(0);
+    expect(calls[0]!.method).toBe("POST");
+  });
+  it("recognizes lane-chain-required and keeps the server problem in JSON", async () => {
+    routes["GET /tasks/T1"] = () => json(200,task);
+    routes["POST /tasks/T1/claim"] = () => json(409,{code:"lane-chain-required",detail:"chain only"});
+    expect(await cli(["task","claim","T1","--lane","ref","--json"])).toBe(1);
+    expect(JSON.parse(errText).error).toMatchObject({code:"lane-chain-required",status:409});
+    expect(errText).toContain("--lane chain");
+  });
+  it("explains dependency-blocked publication without changing JSON", async () => {
+    routes["POST /tasks/T1/publish"] = () => json(200,{id:"T1",status:"draft"});
+    routes["GET /tasks/T1"] = () => json(200,{...task,dependencies:[{upstreamTaskId:"A",status:"ready",acceptedResult:null},{upstreamTaskId:"B",status:"claimed",acceptedResult:null},...task.dependencies]});
+    expect(await cli(["task","publish","T1"],{kind:"human"})).toBe(0);
+    expect(outText).toContain("Published; waiting on dependencies (A, B). It becomes claimable when they land.");
+    calls=[];
+    expect(await cli(["task","publish","T1","--json"],{kind:"human"})).toBe(0);
+    expect(JSON.parse(outText)).toEqual({id:"T1",status:"draft"});expect(calls).toHaveLength(1);
+  });
+  it("does not mask committed publication when the explanatory read fails", async () => {
+    routes["POST /tasks/T1/publish"] = () => json(200,{id:"T1",status:"draft"});
+    routes["GET /tasks/T1"] = () => json(403,{code:"forbidden"});
+    expect(await cli(["task","publish","T1"],{kind:"human"})).toBe(0);
+    expect(outText).toContain("waiting on dependencies");expect(errText).toBe("");
   });
 });

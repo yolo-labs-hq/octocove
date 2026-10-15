@@ -52,7 +52,7 @@ async function fixture() {
     }
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer credential-secret');
     if (path === '/v1/tasks/T1/claim') return Response.json({claim},{status:201});
-    if (path === '/v1/tasks/T1') return Response.json({id:'T1',projectId:'P1',intentVersion:1,liveAttempt:{claimId:'C1',submissionId:'S1'}});
+    if (path === '/v1/tasks/T1') return Response.json({id:'T1',projectId:'P1',intentVersion:1,canonicalHeadSha:baseSha,targetRef:'refs/heads/main',liveAttempt:{claimId:'C1',submissionId:'S1'}});
     if (path === '/v1/claims/C1') return Response.json(claim);
     if (path === '/v1/broker/token') {
       expect(JSON.parse(init.body as string)).toEqual({taskId:'T1',scope:'read'});
@@ -204,7 +204,7 @@ it('bootstrap claim saves this agent delegation before helper leases use it', as
     expect(await loadCredentials(env)).toMatchObject({kind:'agent',token:'credential-secret',agentId:'agent-one'});
     return f.deps.fetch(url,init);
   };
-  expect(await run({...f.deps,env,credentials:undefined,fetch,argv:['task','claim','T1','--intent-version','1','--bootstrap-file',file]}),f.output).toBe(0);
+  expect(await run({...f.deps,env,credentials:undefined,fetch,argv:['task','claim','T1','--intent-version','1','--bootstrap-file',file,'--base',f.baseSha]}),f.output).toBe(0);
   expect(f.revoked).toEqual(['L1','L2']);expect(f.output).not.toContain('bootstrap-secret');
 });
 it('plain git push starts its connector from the saved agent credential and cleans up', async () => {

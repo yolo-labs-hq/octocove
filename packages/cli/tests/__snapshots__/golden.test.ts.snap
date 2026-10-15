@@ -265,11 +265,11 @@ Commands:
   task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]
   task publish ID
   task release ID [--claim ID]
-  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]
+  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]  (default lane: chain)
   lane sync                                   (fetch authenticated canonical refs; preserve local edits)
   lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
   lane status|retry|retire [--task ID] [--claim ID]
-  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]
+  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
   task dependency-add ID --upstream ID --expected-status S --intent-version N
@@ -306,7 +306,7 @@ Global options:
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.
-Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 75 still pending, 77 human credential required, 78 config.
+Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 76 stale, 77 sign-in or human credential required, 78 config or read access denied.
 ",
 }
 `;
@@ -1011,7 +1011,8 @@ exports[`task publish 1`] = `
   ],
   "stderr": "",
   "stdout": "Task:             T1
-Published:        true
+Status:           ready
+Published; ready to claim.
 ",
 }
 `;

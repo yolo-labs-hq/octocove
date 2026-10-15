@@ -1,3 +1,6 @@
+import { commandHelp } from "./command-help.js";
+import { CloneError, cloneProblem, checkCloneEndpoint } from "./clone-errors.js";
+import { canonicalReadUrl } from "./human-git.js";
 import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
@@ -100,11 +103,11 @@ Commands:
   task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]
   task publish ID
   task release ID [--claim ID]
-  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]
+  claim ID [--lane chain|ref] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]  (default lane: chain)
   lane sync                                   (fetch authenticated canonical refs; preserve local edits)
   lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
   lane status|retry|retire [--task ID] [--claim ID]
-  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]
+  task claim ID [--lane chain|ref] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
   task dependency-add ID --upstream ID --expected-status S --intent-version N
@@ -141,7 +144,7 @@ Global options:
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else ${DEFAULT_API_ORIGIN}; other commands use the origin stored with their credential.
-Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 75 still pending, 77 human credential required, 78 config.
+Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 76 stale, 77 sign-in or human credential required, 78 config or read access denied.
 `;
 
 const GLOBAL = { verbose: { type: "boolean" }, json: { type: "boolean" }, "idempotency-key": { type: "string" }, help: { type: "boolean" } } as const;
@@ -231,6 +234,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
     if (!json) d.stderr("Run `octocove --help` for usage.\n");
     return EXIT.usage;
   }
+  if (err instanceof CloneError) return emit(err.code, err.message, { status: err.status }), err.exitCode;
   if (err instanceof HumanRequiredError) return emit("human-required", err.message), EXIT.humanRequired;
   if (err instanceof HelperRequiredError) return emit(err.code, err.message, { hint: err.hint }), EXIT.config;
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
@@ -242,6 +246,8 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof ApiError) {
     const nextSteps = err.code === "credential-expired"
       ? "Run `octocove auth renew` to recover the expired credential. If a human session cannot be renewed, run `octocove login`. For an agent delegation, ask the delegating human for a new task authorization and import its bootstrap into the agent config directory."
+      : err.code === "lane-chain-required"
+        ? "This task requires a chain lane; retry with --lane chain: octocove task claim TASK_ID --lane chain."
       : err.code === "chain-base-mismatch"
         ? "Run `octocove task show TASK_ID` and `octocove lane status` to inspect the pinned base. Use that immutable base and a source containing it; do not rewrite the lane pin."
         : ["stale-base", "stale-head"].includes(err.code)
@@ -279,7 +285,7 @@ async function dispatch(d: Deps) {
       if (!entry) throw new Error(`missing help for command: ${command}`);
       const [signature, description] = entry.trim().split(/\s{2,}/);
       const usage = [...commandWords, ...signature!.split(" ").slice(commandWords.length)].join(" ");
-      d.stdout(`octocove — Git hosting for humans and agents\n\nUsage: octocove ${usage}\n${description ? `\n${description}\n` : ""}\n${HELP.slice(HELP.indexOf("Global options:"))}`);
+      d.stdout(`octocove — Git hosting for humans and agents\n\n${commandHelp(command, usage, description)}\n${HELP.slice(HELP.indexOf("Global options:"))}`);
     } else {
       d.stdout(HELP);
     }
@@ -861,6 +867,7 @@ const COMMANDS: Record<string, Handler> = {
   },
 
   "repo clone": async (d, args) => {
+    try {
     const { v, pos } = opts(args, {}, 3, 1);
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agent workspaces are prepared by task claim; no human credential fallback is used.");
@@ -872,13 +879,14 @@ const COMMANDS: Record<string, Handler> = {
     const defaultName = [repository.name, project.slug, repository.id].find(value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(value));
     if (!pos[2] && !defaultName) throw new ConfigError("Specify DIR explicitly: this repository has no safe default directory name.");
     const directory = resolve(d.cwd ?? process.cwd(), pos[2] ?? defaultName!);
-    const result = await cloneWorkspace({ git:d.git, binding:{projectId:project.projectId,repositoryId:repository.id,targetRef:repository.targetRef,knownHeadSha:repository.knownHeadSha,
+    const result = await cloneWorkspace({ git:d.git, preflight:()=>checkCloneEndpoint(canonicalReadUrl(creds.apiUrl,project.projectId,repository.id),creds.token, humanSessionFetch(d.env,creds,d.fetch) as typeof globalThis.fetch,d.signal), binding:{projectId:project.projectId,repositoryId:repository.id,targetRef:repository.targetRef,knownHeadSha:repository.knownHeadSha,
       apiUrl:resolveApiOrigin(d.env,creds,"credential"),configDirectory:configDir(d.env)},directory,helperPath:d.humanCredentialPath,signal:d.signal,
       stderr:text=>{ if(!v.json)d.stderr(text); } });
     out(d,v.json,{projectId:project.projectId,projectSlug:project.slug,repositoryId:repository.id,...result,
       nextSteps:"Changes go through tasks and lanes, not a direct push."},()=>kv([["Cloned to",result.directory],["Branch",result.branch],
       ["Repository",repository.id],["Remote","origin (authenticated read-only)"],["Empty",result.empty ? "yes; no commits yet" : undefined],
       ["Next steps","Changes go through tasks and lanes, not a direct push."]]));
+    } catch(error) { if(error instanceof ApiError) throw cloneProblem(error.status,error.code); throw error; }
   },
 
   "repo list": async (d, args) => {
@@ -909,7 +917,15 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("task publish requires a human credential");
     const r: any = await api.j.tasks.publish(pos[0]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Task", pos[0]], ["Published", r.published]]));
+    let waiting: string[] = [];
+    if (!v.json && r.status === "draft") {
+      try { const task = (await api.call("taskGet", { path:{id:pos[0]!} })).body;
+        waiting = (task.dependencies ?? []).filter((dep:any)=>!dep.acceptedResult || dep.status!=="landed").map((dep:any)=>dep.upstreamTaskId);
+      } catch { /* Publication committed; a failed explanatory read must not mask it. */ }
+    }
+    out(d, v.json, r, () => kv([["Task", pos[0]], ["Status", r.status]]) + "\n" + (r.status === "draft"
+      ? `Published; waiting on dependencies${waiting.length ? ` (${waiting.join(", ")})` : ""}. It becomes claimable when they land.`
+      : "Published; ready to claim."));
   },
 
   "task release": async (d, args) => {
@@ -937,18 +953,24 @@ const COMMANDS: Record<string, Handler> = {
     if (v.canonical) await validateClaimRemote(v.canonical, d.env, creds.apiUrl);
     const waitSeconds = intFlag(v, "wait") ?? 60;
 
+    const readTask = async () => {
+      try { return (await api.call("taskGet", { path:{id:taskId} })).body; }
+      catch(error) {
+        if(creds.kind === "agent" && error instanceof ApiError && error.status === 403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
+        throw error;
+      }
+    };
     let task: any;
     let intentVersion = intFlag(v, "intent-version");
     if (intentVersion === undefined) {
       // A claim bootstrap only reaches the claim route, so it cannot read the task to learn the version.
       if (creds.kind === "bootstrap") throw new UsageError("--intent-version is required with a claim bootstrap credential");
-      task = (await api.call("taskGet", { path: { id: taskId } })).body;
+      task = await readTask();
       intentVersion = task.intentVersion as number;
     }
 
-    // A task projection without topology keeps the default (ref) allocation.
-    if (!task && creds.kind !== "bootstrap" && v.lane === "chain") task = (await api.call("taskGet", { path: { id: taskId } })).body;
-    const strategy = v.lane ?? task?.lane?.strategy ?? task?.topology?.strategy ?? (task?.topology === "chain" ? "chain" : "ref");
+    const strategy = v.lane ?? (v["source-ref"] ? "ref" : "chain");
+    if (!task && creds.kind !== "bootstrap" && strategy === "chain") task = await readTask();
     if (strategy === "chain" && v["source-ref"]) throw new UsageError("chain cannot use --source-ref; pass --lane ref");
     if (strategy !== "chain" && (v["chain-id"] || v["previous-task"])) throw new UsageError("chain options require --lane chain");
     let chain: ChainClaim | undefined;
