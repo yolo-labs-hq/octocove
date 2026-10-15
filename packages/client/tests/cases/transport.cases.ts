@@ -223,10 +223,12 @@ export const transportCases: Case[] = [
     equal(calls[0]!.headers.authorization, `Bearer ${TOKEN}`);
   }),
   test('navigation and excluded operations are not callable', async () => {
-    const c = client(scriptedFetch().fetch);
-    for (const id of ['authCallback', 'authCliStart', 'brokerHelperPush', 'collaborationEventDelivery']) {
+    const io = scriptedFetch();
+    const c = client(io.fetch);
+    for (const id of ['authCallback', 'authCliStart', 'brokerHelperPush', 'projectRepositoryGitRefsGet', 'projectRepositoryGitUploadPack', 'collaborationEventDelivery']) {
       await rejects(() => (c.call as (id: string) => Promise<unknown>)(id), TypeError, id);
     }
+    equal(io.calls.length, 0);
   }),
   test('a path-prefixed base keeps its prefix; a base ending in /v1 is refused', async () => {
     const { fetch, calls } = scriptedFetch(json(200, { loginEndpoint: '/auth/login' }));

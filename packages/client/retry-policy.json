@@ -141,6 +141,11 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "chainLanePush": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
   "chainLaneReceivePack": {
     "callable": false,
     "reason": "excluded"
@@ -148,11 +153,6 @@
   "chainLaneReceivePackRefs": {
     "callable": false,
     "reason": "excluded"
-  },
-  "chainLanePush": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
   },
   "chainLaneRetire": {
     "callable": true,
@@ -233,25 +233,15 @@
     "autoRetry": "network-only",
     "replay": null
   },
-  "meGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
   "meDelegationsList": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
   },
-  "meNotificationsList": {
+  "meGet": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
-  },
-  "meNotificationsMarkRead": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "state"
   },
   "meNotificationPreferencesGet": {
     "callable": true,
@@ -263,20 +253,30 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
-  "meSessionRevoke": {
+  "meNotificationsList": {
     "callable": true,
     "autoRetry": "network-only",
-    "replay": "bounded-recovery"
+    "replay": null
+  },
+  "meNotificationsMarkRead": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "meProfileUpdate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
   },
   "meProjectsList": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
   },
-  "meProfileUpdate": {
+  "meSessionRevoke": {
     "callable": true,
     "autoRetry": "network-only",
-    "replay": "stored-result"
+    "replay": "bounded-recovery"
   },
   "meSessionsList": {
     "callable": true,
@@ -307,6 +307,14 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
+  },
+  "projectRepositoryGitRefsGet": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "projectRepositoryGitUploadPack": {
+    "callable": false,
+    "reason": "excluded"
   },
   "receiptGet": {
     "callable": true,

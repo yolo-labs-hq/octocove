@@ -233,6 +233,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{project}/repositories/{repository}/git/info/refs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Advertise the canonical repository for human clone or fetch
+         * @description Human canonical repository read, without a task, claim or grant. A live human CLI session and current project membership with tasks:read are required on every request. Agent delegations and machine grants are refused with 403 human-required; there is no fallback to a human credential. The repository must belong to the path project, be canonical, non-deleted, eligible and import-complete. Initially Artifacts repositories only. Provider credentials remain server-side and are repository-scoped READ tokens, never write tokens. Every admitted or authenticated refused read is durably audited; no credentials or Git body content are logged. Each principal is limited to 60 requests per minute and 4 simultaneous transfers; each repository to 120 requests per minute and 8 simultaneous transfers. 429 rate-limited includes Retry-After. Responses are no-store. Advertised candidate and audit refs are part of repository read access; this is not branch-filtered access. The upstream is derived only from stored repository metadata, with HTTPS confinement and no redirects. Membership revocation blocks subsequent requests; an admitted transfer is bounded to 120 seconds. No receive-pack or other Git service is exposed. Git clients use a dedicated human credential helper; no token belongs in Git config, URLs, command arguments or normal command output.
+         */
+        get: operations["projectRepositoryGitRefsGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{project}/repositories/{repository}/git/git-upload-pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read canonical Git objects as a human project member
+         * @description Human canonical repository read, without a task, claim or grant. A live human CLI session and current project membership with tasks:read are required on every request. Agent delegations and machine grants are refused with 403 human-required; there is no fallback to a human credential. The repository must belong to the path project, be canonical, non-deleted, eligible and import-complete. Initially Artifacts repositories only. Provider credentials remain server-side and are repository-scoped READ tokens, never write tokens. Every admitted or authenticated refused read is durably audited; no credentials or Git body content are logged. Each principal is limited to 60 requests per minute and 4 simultaneous transfers; each repository to 120 requests per minute and 8 simultaneous transfers. 429 rate-limited includes Retry-After. Responses are no-store. Advertised candidate and audit refs are part of repository read access; this is not branch-filtered access. The upstream is derived only from stored repository metadata, with HTTPS confinement and no redirects. Membership revocation blocks subsequent requests; an admitted transfer is bounded to 120 seconds. No receive-pack or other Git service is exposed. Git clients use a dedicated human credential helper; no token belongs in Git config, URLs, command arguments or normal command output.
+         */
+        post: operations["projectRepositoryGitUploadPack"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{project}/tree": {
         parameters: {
             query?: never;
@@ -3558,6 +3598,85 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    projectRepositoryGitRefsGet: {
+        parameters: {
+            query: {
+                service: "git-upload-pack";
+            };
+            header?: {
+                "Git-Protocol"?: "version=1" | "version=2";
+            };
+            path: {
+                project: components["schemas"]["Id"];
+                repository: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Raw Git bytes, streamed without buffering a pack in memory. Advertisement at most 1 MiB; at most 120 seconds. Disconnection or a midstream limit aborts the transfer, never a successful partial pack. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-git-upload-pack-advertisement": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            415: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            504: components["responses"]["Problem"];
+        };
+    };
+    projectRepositoryGitUploadPack: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Git-Protocol"?: "version=1" | "version=2";
+            };
+            path: {
+                project: components["schemas"]["Id"];
+                repository: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** @description Raw stateless Git upload-pack bytes, at most 1 MiB, received within 10 seconds. This read transport does not accept JSON and does not require Idempotency-Key. */
+        requestBody: {
+            content: {
+                "application/x-git-upload-pack-request": string;
+            };
+        };
+        responses: {
+            /** @description Raw Git bytes, streamed without buffering a pack in memory. Transfer at most 1 GiB; at most 120 seconds. Disconnection or a midstream limit aborts the transfer, never a successful partial pack. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-git-upload-pack-result": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            415: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            504: components["responses"]["Problem"];
         };
     };
     codeTreeGet: {
