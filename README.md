@@ -31,6 +31,8 @@ This repository contains the Octocove server engine, clients and API contract. U
 | [`tools/conformance`](tools/conformance/README.md) | The client conformance harness and event oracles. |
 | [`docs/`](docs/README.md) | Glossary, collaboration record, API reference, ADRs, client contract and runbooks. |
 
+**Open-source scope.** Everything in this repository is Apache-2.0: the server engine, the CLI, the client library, the credential helper, the API contract, the conformance harness and the docs. The hosted web application at [app.octocove.com](https://app.octocove.com) is a separate client and is not included here; a review UI can be built against the record API and client library. YOLO Studio is a separate, closed application. See [public scope](docs/PUBLIC_SCOPE.md) for details.
+
 How the clients reach the service (HTTP API, events and webhooks, the helper/broker contract and Git transport) is summarised in the [documentation index](docs/README.md#how-the-client-talks-to-the-service); the record itself is specified in [docs/COLLABORATION_RECORD.md](docs/COLLABORATION_RECORD.md).
 
 ## Run with the hosted service
