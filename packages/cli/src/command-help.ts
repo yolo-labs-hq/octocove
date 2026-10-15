@@ -1,3 +1,4 @@
+import { statusHelp } from './status-help.js';
 /** Command-specific help is pure data: no config, Git, network or credential reads. */
 const FLAGS: Record<string,string> = {
   acceptance: 'JSON array of strings, for example \'["Tests pass", "Help describes every flag"]\'. Quote the array as one shell argument.',
@@ -18,6 +19,7 @@ const FLAGS: Record<string,string> = {
   canonical: 'Credential-free canonical repository URL/path. Workspace cache commands support HTTPS, SSH, file and local paths.',
   'source-ref': 'Existing local branch to claim through a registered external repository; implies ref unless --lane is specified.',
   remote: 'Git remote name; defaults to octocove for allocated lanes or origin for --source-ref.',
+  'bootstrap-out': 'Write the bootstrap directly to this new file (0600, parent 0700). Existing files and symlinks are refused before authorization. Choose a private path outside all working trees; only the path is printed.',
   'bootstrap-file': 'Protected authorization hand-off file. Claim it within about 5 minutes of authorization; it is replaced by the scoped agent delegation.',
   wait: 'Bounded wait in seconds (claim and lane push default 60); land/receipt --wait is a boolean that waits for a receipt.',
   source: 'Exact source commit SHA for submission/push, or credential-free source clone URL/path for workspace commands.',
@@ -58,7 +60,7 @@ const MINIMUM_VERBS = `Minimum agent workflow permissions (pass all seven explic
 Example: --verbs tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read
 
 The bootstrap expires about 5 minutes after authorization. Use its file to claim promptly.
---expires-at controls the longer-lived delegation expiry, not the bootstrap window.
+--expires-at controls the longer-lived delegation expiry ceiling, not the bootstrap window. Delegation tokens last about 15 minutes and renew automatically within that ceiling and the claim lease.
 The human alone approves; do not grant approval authority to a worker.`;
 
 export function commandHelp(command: string, originalUsage: string, description = '') {
@@ -66,6 +68,7 @@ export function commandHelp(command: string, originalUsage: string, description 
   if (command === 'task claim' || command === 'claim') usage = `${command} ID [--lane chain|ref] [--chain-id ID] [--base SHA] [--previous-task ID] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]`;
   if (command.startsWith('workspace ')) usage = `${command} --canonical URL [--canonical-id ID] [--ref REF] [--cache DIR] [--worktree ID] [--lane ID] [--base SHA] [--head SHA] [--source URL] [--sparse PATHS] [--count N]`;
   if (command === 'auth revoke') usage = 'auth revoke [DELEGATION_ID] [--grant ID --purpose submit|approve --timeout SECONDS]';
+  if (command === 'auth renew') description = 'Rotate the active credential explicitly. Stored human and agent tokens also renew automatically near expiry; agent renewal stays within its authorization ceiling and claim lease. Revoked or ended grants require a new authorization.';
   if (command === 'auth exchange') usage += ' [--timeout SECONDS]';
   if (['approve','submit'].includes(command)) usage += ' [--grant ID --as ID --timeout SECONDS]';
   if (command === 'auth approve') usage = 'auth approve --grant ID [--as ID] [--timeout SECONDS]';
@@ -82,5 +85,5 @@ export function commandHelp(command: string, originalUsage: string, description 
   });
   const positionalUsage=usage.slice(command.length).replace(/--[a-z-]+(?: [A-Z][A-Z_]*| [a-z]+(?:\|[a-z]+)+| a,b)?/g,'');
   const args=[...new Set(positionalUsage.match(/\b[A-Z][A-Z_]*\b/g)??[])].map(name=>`  ${name.padEnd(28)} ${POSITIONALS[name] ?? (command==='task claim-status'?'Claim ID (not a task ID).':command.startsWith('receipt ')?'Receipt ID.':command.startsWith('webhook ')?'Webhook subscription ID.':command.startsWith('project ')?'Project ID.':command==='approve'?'Candidate ID to approve.':'Task ID for this command.')}`);
-  return `Usage: octocove ${usage}\n${description?`\n${description}\n`:''}${args.length?`\nArguments:\n${args.join('\n')}\n`:''}\nOptions:\n${options.join('\n') || '  This command has no command-specific flags.'}\n${command==='task authorize'?`\n${MINIMUM_VERBS}\n`:''}${['approve','submit'].includes(command)?'\nWith --grant, use only ID, --grant, --as, --timeout and global JSON/idempotency options. The protected grant supplies the exact target and source/approval fields.\n':''}${['task create','task edit'].includes(command)?`\nExample acceptance: --acceptance '["Tests pass", "No credentials in output"]'\n`:''}${['task claim','claim'].includes(command)?'\nChain is the default. Bootstrap claims need --intent-version and --base because a bootstrap cannot read the task. Use --lane ref for classic per-task allocation.\n':''}`;
+  return `Usage: octocove ${usage}\n${description?`\n${description}\n`:''}${args.length?`\nArguments:\n${args.join('\n')}\n`:''}\nOptions:\n${options.join('\n') || '  This command has no command-specific flags.'}\n${command==='task authorize'?`\n${MINIMUM_VERBS}\n`:''}${['candidate show','task show'].includes(command)?`\n${statusHelp()}\n`:''}${['approve','submit'].includes(command)?'\nWith --grant, use only ID, --grant, --as, --timeout and global JSON/idempotency options. The protected grant supplies the exact target and source/approval fields.\n':''}${['task create','task edit'].includes(command)?`\nExample acceptance: --acceptance '["Tests pass", "No credentials in output"]'\n`:''}${['task claim','claim'].includes(command)?'\nChain is the default. Bootstrap claims need --intent-version and --base because a bootstrap cannot read the task. Use --lane ref for classic per-task allocation.\n':''}`;
 }

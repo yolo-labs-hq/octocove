@@ -1,3 +1,4 @@
+import { humanSessionFetch } from './session.js';
 import { parseArgs } from 'node:util';
 import { join } from 'node:path';
 import { Api, ApiError, type ApprovalGrant, type ApprovalGrantScope, type SubmitGrant, type SubmitGrantScope } from './http.js';
@@ -17,13 +18,13 @@ export async function machineCommand(d: Deps, command: string, args: string[]): 
   if (command !== 'auth exchange' && !(args.includes('--grant') && ['approve','auth approve','submit','auth revoke'].includes(command))) return false;
   let parsed;
   try { parsed = parseArgs({ args, allowPositionals:true, options:Object.fromEntries([
-    ...flags.map(k => [k,{type:'string'}]), ['json',{type:'boolean'}], ['token-stdin',{type:'boolean'}],
+    ...flags.map(k => [k,{type:'string'}]), ['json',{type:'boolean'}], ['verbose',{type:'boolean'}], ['token-stdin',{type:'boolean'}],
   ]) as any }); } catch { return fail('usage','invalid machine command options'); }
   const v = parsed.values as Record<string, any>, pos = parsed.positionals;
   const seconds = v.timeout === undefined ? 30 : Number(v.timeout);
   if (!Number.isInteger(seconds) || seconds < 1 || seconds > 300) fail('usage','--timeout must be 1–300 seconds');
   const deadline = Date.now() + seconds * 1000;
-  const api = (apiUrl: string, credential?: { token: string; kind: 'human' }) => new Api({ apiUrl,credential,fetch:d.fetch,sleep:d.sleep,deadline,signal:d.signal });
+  const api = (apiUrl: string, credential?: { token: string; kind: 'human' }) => new Api({ apiUrl,credential,fetch:credential && !d.credentials ? humanSessionFetch(d.env,{...credential,apiUrl},d.fetch) : d.fetch,sleep:d.sleep,deadline,signal:d.signal });
   const secrets: string[] = [];
   const output = (value: unknown) => {
     const text = JSON.stringify(value);
