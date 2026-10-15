@@ -57,7 +57,7 @@ const { body } = await client.call('taskGet', { path: { id: taskId } });
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 92 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 94 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -99,6 +99,8 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
+| `projectRepositoryGitRefsGet` | `network-only` | `null` | human canonical read; every request is audited, including retries |
+| `projectRepositoryGitUploadPack` | `never` | `none` | raw stateless Git read; use a new Git negotiation after a failed transfer; every request is audited |
 | `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `chainLaneGet`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet` | `network-only` | `null` | safe reads (`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `repositoryCreate`, `repositoryVerify`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `claimReplace`, `taskClaim` (**human** variant), `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation and repository registration and verification, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); human claim replays its saved HTTP snapshot; `candidateLand` replays its committed `409 stale-base` too |

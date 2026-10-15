@@ -762,6 +762,125 @@ paths:
         '503':
           $ref: '#/components/responses/Problem'
       x-authoritative-handler: repositories.verifyRepository
+  /projects/{project}/repositories/{repository}/git/info/refs:
+    get:
+      operationId: projectRepositoryGitRefsGet
+      summary: Advertise the canonical repository for human clone or fetch
+      description: Human canonical repository read, without a task, claim or grant. A live human CLI session
+        and current project membership with tasks:read are required on every request. Agent delegations and
+        machine grants are refused with 403 human-required; there is no fallback to a human credential.
+        The repository must belong to the path project, be canonical, non-deleted, eligible and import-complete.
+        Initially Artifacts repositories only. Provider credentials remain server-side and are repository-scoped
+        READ tokens, never write tokens. Every admitted or authenticated refused read is durably audited;
+        no credentials or Git body content are logged. Each principal is limited to 60 requests per minute
+        and 4 simultaneous transfers; each repository to 120 requests per minute and 8 simultaneous transfers.
+        429 rate-limited includes Retry-After. Responses are no-store. Advertised candidate and audit refs are
+        part of repository read access; this is not branch-filtered access. The upstream is derived only from
+        stored repository metadata, with HTTPS confinement and no redirects. Membership revocation blocks
+        subsequent requests; an admitted transfer is bounded to 120 seconds. No receive-pack or other Git
+        service is exposed. Git clients use a dedicated human credential helper; no token belongs in Git
+        config, URLs, command arguments or normal command output.
+      tags: [Projects]
+      security: [{HumanCliSession: []}, {HumanGitCredentials: []}]
+      parameters:
+      - {name: project, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - {name: repository, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - name: Git-Protocol
+        in: header
+        required: false
+        schema: {type: string, enum: ['version=1', 'version=2']}
+      - {name: service, in: query, required: true, schema: {type: string, const: git-upload-pack}}
+      responses:
+        '200':
+          description: Raw Git bytes, streamed without buffering a pack in memory. Advertisement at most 1 MiB; at most 120 seconds. Disconnection or a midstream limit aborts the transfer, never a successful partial pack.
+          headers:
+            Cache-Control: {schema: {type: string, const: no-store}}
+          content:
+            application/x-git-upload-pack-advertisement:
+              schema: {type: string, format: binary}
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '504':
+          $ref: '#/components/responses/Problem'
+      x-authoritative-handler: human-canonical-read.read
+  /projects/{project}/repositories/{repository}/git/git-upload-pack:
+    post:
+      operationId: projectRepositoryGitUploadPack
+      summary: Read canonical Git objects as a human project member
+      description: Human canonical repository read, without a task, claim or grant. A live human CLI session
+        and current project membership with tasks:read are required on every request. Agent delegations and
+        machine grants are refused with 403 human-required; there is no fallback to a human credential.
+        The repository must belong to the path project, be canonical, non-deleted, eligible and import-complete.
+        Initially Artifacts repositories only. Provider credentials remain server-side and are repository-scoped
+        READ tokens, never write tokens. Every admitted or authenticated refused read is durably audited;
+        no credentials or Git body content are logged. Each principal is limited to 60 requests per minute
+        and 4 simultaneous transfers; each repository to 120 requests per minute and 8 simultaneous transfers.
+        429 rate-limited includes Retry-After. Responses are no-store. Advertised candidate and audit refs are
+        part of repository read access; this is not branch-filtered access. The upstream is derived only from
+        stored repository metadata, with HTTPS confinement and no redirects. Membership revocation blocks
+        subsequent requests; an admitted transfer is bounded to 120 seconds. No receive-pack or other Git
+        service is exposed. Git clients use a dedicated human credential helper; no token belongs in Git
+        config, URLs, command arguments or normal command output.
+      tags: [Projects]
+      security: [{HumanCliSession: []}, {HumanGitCredentials: []}]
+      parameters:
+      - {name: project, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - {name: repository, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - name: Git-Protocol
+        in: header
+        required: false
+        schema: {type: string, enum: ['version=1', 'version=2']}
+      requestBody:
+        required: true
+        description: Raw stateless Git upload-pack bytes, at most 1 MiB, received within 10 seconds. This read transport does not accept JSON and does not require Idempotency-Key.
+        content:
+          application/x-git-upload-pack-request:
+            schema: {type: string, format: binary, maxLength: 1048576}
+      responses:
+        '200':
+          description: Raw Git bytes, streamed without buffering a pack in memory. Transfer at most 1 GiB; at most 120 seconds. Disconnection or a midstream limit aborts the transfer, never a successful partial pack.
+          headers:
+            Cache-Control: {schema: {type: string, const: no-store}}
+          content:
+            application/x-git-upload-pack-result:
+              schema: {type: string, format: binary}
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '415':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '504':
+          $ref: '#/components/responses/Problem'
+      x-authoritative-handler: human-canonical-read.read
   /projects/{project}/tree:
     get:
       operationId: codeTreeGet
@@ -4442,6 +4561,10 @@ components:
       in: cookie
       name: __Host-octocove_session
       description: Octocove-issued opaque human session; Origin and CSRF protection mandatory on POST.
+    HumanGitCredentials:
+      type: http
+      scheme: basic
+      description: Accepted only by the human canonical Git read routes. Username must be exactly octocove; password is the same opaque human CLI session accepted as Bearer by HumanCliSession. This is transport wrapping, not a provider credential or a second login mechanism. Delegations and machine grants are refused. A dedicated credential helper supplies it through Git's credential pipe, never persisted in Git config or printed by normal commands. Cookie authentication is not accepted on these routes.
     HumanCliSession:
       type: http
       scheme: bearer
