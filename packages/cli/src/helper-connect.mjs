@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { runConnector } from '../../helper/src/connect.mjs';
+import { agentSessionFetch } from './session.js';
 import { activeCredentials } from './config.js';
 import { getConfig, systemGit } from './git.js';
 import { startManagedHelper, requireAgentCredential } from './managed-helper.mjs';
@@ -21,7 +22,7 @@ try {
     const [taskId,claimId,projectId,baseSha] = await Promise.all(['taskId','claimId','projectId','baseSha'].map(key=>getConfig(git,`octocove.${key}`)));
     if (!taskId || !claimId || !projectId) throw new Error('claim first to bind this repository to the agent');
     managed = await startManagedHelper({...credential,taskId,claimId,projectId,baseSha,
-      fetch:(url,init)=>fetch(url,init),signal:controller.signal,stderr:text=>process.stderr.write(text)});
+      fetch:agentSessionFetch(process.env,credential,(url,init)=>fetch(url,init)),signal:controller.signal,stderr:text=>process.stderr.write(text)});
     socketPath=managed.socketPath;
   }
   const code = await new Promise(resolve=>runConnector({service:process.argv[2],socketPath,gitProtocol:process.env.GIT_PROTOCOL??'',

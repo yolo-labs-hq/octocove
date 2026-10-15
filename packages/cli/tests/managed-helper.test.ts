@@ -207,26 +207,37 @@ it('bootstrap claim saves this agent delegation before helper leases use it', as
   expect(await run({...f.deps,env,credentials:undefined,fetch,argv:['task','claim','T1','--intent-version','1','--bootstrap-file',file,'--base',f.baseSha]}),f.output).toBe(0);
   expect(f.revoked).toEqual(['L1','L2']);expect(f.output).not.toContain('bootstrap-secret');
 });
-it('plain git push starts its connector from the saved agent credential and cleans up', async () => {
+it.each([false,true])('plain git push starts its saved agent connector, renews when needed and cleans up (renew=%s)', async renew => {
   const f=await fixture();await bind(f);
   await f.git(['config','remote.octocove.push','HEAD:refs/octocove/claims/C1']);
   await f.git(['config','pack.window','0']);await f.git(['config','pack.depth','0']);
+  let rotations=0; const seen: string[]=[];
   const server=createServer(async(request,response)=>{
     const chunks:Buffer[]=[];for await(const chunk of request)chunks.push(chunk);
     const body=Buffer.concat(chunks);
+    if(request.url==='/v1/delegations/D1/renew'){
+      rotations++;expect(request.headers.authorization).toBe('Bearer credential-secret');
+      response.writeHead(200,{'content-type':'application/json'});
+      response.end(JSON.stringify({accessToken:'replacement-agent-value',delegationId:'D1',revocationId:'R1',expiresAt:new Date(Date.now()+900000).toISOString(),tokenType:'Bearer'}));return;
+    }
+    seen.push(request.headers.authorization ?? '');
+    const headers=new Headers(request.headers as Record<string,string>);headers.set('authorization','Bearer '+'credential-secret');
     const result=await f.deps.fetch(`http://127.0.0.1${request.url}`,{method:request.method,
-      headers:request.headers as Record<string,string>,...(body.length?{body}: {})});
+      headers:Object.fromEntries(headers),...(body.length?{body}: {})});
     response.writeHead(result.status,Object.fromEntries(result.headers));response.end(Buffer.from(await result.arrayBuffer()));
   });
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const address=server.address() as import('node:net').AddressInfo;
   const cfg=join(f.dir,'agent'),runtime=join(f.dir,'runtime');await mkdir(runtime);
-  await saveCredentials({OCTOCOVE_CONFIG_DIR:cfg},{apiUrl:`http://127.0.0.1:${address.port}/v1`,token:'credential-secret',kind:'agent'});
+  await saveCredentials({OCTOCOVE_CONFIG_DIR:cfg},{apiUrl:`http://127.0.0.1:${address.port}/v1`,token:'credential-secret',kind:'agent',delegationId:'D1',...(renew?{expiresAt:new Date(Date.now()+30000).toISOString()}: {})});
   const child=spawn('git',['push','--no-thin','octocove'],{cwd:f.dir,env:{...process.env,...f.deps.env,OCTOCOVE_CONFIG_DIR:cfg,OCTOCOVE_HELPER_SOCK:'',TMPDIR:runtime},stdio:['ignore','pipe','pipe']});
   let output='';child.stderr.on('data',b=>{output+=b;});
   try{
     const code=await new Promise(resolve=>child.once('exit',resolve));
-    expect(code,output).toBe(0);expect(output).toContain('same-user runtime');
+    expect(code,output).toBe(0);expect(rotations).toBe(renew?1:0);
+    expect(seen.length).toBeGreaterThan(0);expect(seen.every(value=>value==='Bearer '+(renew?'replacement-agent-value':'credential-secret'))).toBe(true);
+    expect((await loadCredentials({OCTOCOVE_CONFIG_DIR:cfg})).token).toBe(renew?'replacement-agent-value':'credential-secret');
+    expect(output).not.toContain('replacement-agent-value');expect(await readFile(join(f.dir,'.git','config'),'utf8')).not.toContain('replacement-agent-value');expect(output).toContain('same-user runtime');
     expect(f.staged.includes(Buffer.from('PACK'))).toBe(true);expect(f.revoked).toEqual(['L1','L2']);
     expect(await readdir(runtime)).toEqual([]);
   }finally{child.kill('SIGKILL');await new Promise<void>(resolve=>server.close(()=>resolve()));}

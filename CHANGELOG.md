@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Renew scoped agent delegation tokens automatically within their authorization ceiling and claim lease, sharing the protected rotation lock and persisting replacements before retry. Preserve streaming Git transports and keep human and agent identities separate.
+- Explain task/candidate states and next actions in command help using exhaustive client-typed vocabulary. Apply human session renewal across authenticated commands, migrated grant administration and later requests on long-running connections.
+- Accept global flags before or after command words. Add `task authorize --bootstrap-out PATH` for exclusive, private hand-off files outside working trees, with no token output.
+
 - Default task claims to chain lanes, expand command-specific help and agent hand-off guidance, explain dependency-blocked publication, and report safe, actionable repository clone errors. Link npm documentation to the public repository.
 
 ## 0.3.5
