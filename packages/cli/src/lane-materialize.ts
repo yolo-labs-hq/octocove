@@ -317,8 +317,8 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
           // Edited, replaced by something else, or deleted locally: the agent decides (keep local = its file or its deletion).
           await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null };
         }
-      } else if (old?.deleted) {
-        // A kept deletion of a submodule: still decided while upstream leaves it alone; a moved submodule asks again.
+      } else if (old && (old.deleted || await occupied(dir, e.path))) {
+        // The agent replaced or deleted a submodule: still decided while upstream leaves it alone; a moved submodule asks again.
         if (old.sha === e.sha) files[e.path] = old;
         else { await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null }; }
       }
@@ -339,7 +339,9 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
     }
     // Edited means: content, mode or type differs from what this lane wrote; something exists where nothing was
     // written; the file was removed locally; or a kept local file blocks the upstream path.
-    const edited = !!blocked || taken || (l ? !old || l.digest !== old.digest || l.mode !== old.mode : !!old);
+    // A submodule is never on disk, so its absence is not a local deletion unless the agent recorded one.
+    const untouchedSubmodule = old?.mode === '160000' && !old.deleted && !l && !taken;
+    const edited = !!blocked || taken || (l ? !old || l.digest !== old.digest || l.mode !== old.mode : !!old && !untouchedSubmodule);
     if (!edited) { await writeEntry(dir, e.path, e.mode, content); (old ? updated : added).push(e.path); continue; }
     await dropIncoming(e.path);
     conflicts[e.path] = { kind: 'modified-upstream', incoming: await writeIncoming(dir, e.path, e.mode, content) };
