@@ -1,5 +1,5 @@
 /**
- * Materialized lanes (ADR 0030 preview): the client journey over a plain directory, no `.git`.
+ * Materialized lanes (preview): the client journey over a plain directory, no `.git`.
  *
  * `materialize` writes the open generation's files beside a `.octocove/lane.json` sidecar that records the
  * generation, its pinned base, the granted scope and one digest per file. `status` compares the directory with

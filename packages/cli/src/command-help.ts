@@ -12,7 +12,7 @@ const FLAGS: Record<string,string> = {
   'expires-at': 'Delegation/claim expiry as an absolute ISO 8601 timestamp, for example YYYY-MM-DDTHH:mm:ssZ; choose a future time within server policy.',
   agent: 'Opaque agent ID chosen by the delegating human: nonempty, at most 128 characters. No agent registration or human login is required for this label. Use a separate agent config directory and its own bootstrap; this does not change the signed-in human.',
   verbs: 'Comma-separated permission names. The human must hold every permission granted; no permissions are implied.',
-  lane: 'Lane strategy: chain (default), ref (classic per-task lane) or materialized (ADR 0030 preview: files without a clone). --source-ref selects the existing external ref path unless --lane is explicit.',
+  lane: 'Lane strategy: chain (default), ref (classic per-task lane) or materialized (preview: files without a clone). --source-ref selects the existing external ref path unless --lane is explicit.',
   read: 'Materialized lane read scope: comma-separated repository path prefixes (a directory prefix ends with /).',
   write: 'Materialized lane write scope: comma-separated prefixes, each inside a read prefix.',
   message: 'Commit message body for the submitted change; the server appends its own trailers.',

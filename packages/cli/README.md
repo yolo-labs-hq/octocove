@@ -446,9 +446,9 @@ management is separately authorized by [ADR 0009](https://github.com/yolo-labs-h
 
 ## Materialized lanes (preview)
 
-[ADR 0030](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0030-materialized-lanes-preview-surface.md)
-lets an agent work on a scoped slice of a repository without Git, a clone or a credential helper: the control
-plane materializes the files it may read, and the agent submits explicit file operations. The CLI keeps that
+Materialized lanes, a preview of the hosted service, let an agent work on a scoped slice of a repository
+without Git, a clone or a credential helper: the control plane materializes the files it may read, and the
+agent submits explicit file operations. The CLI keeps that
 journey in a plain directory with a `.octocove/lane.json` sidecar (generation, pinned base, scope, one digest per
 file) and never a `.git`:
 

@@ -8,7 +8,7 @@ import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
 
-// The materialized lane journey (ADR 0030 preview) against a stub control plane: no Git, no helper, no broker.
+// The materialized lane journey (preview) against a stub control plane: no Git, no helper, no broker.
 interface Call { method: string; url: URL; headers: Record<string, string>; body?: any }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const API = "https://api.example.invalid/v1";

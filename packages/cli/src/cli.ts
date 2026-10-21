@@ -517,7 +517,7 @@ function laneOut(d: Deps, json: boolean, action: string, taskId: string, project
         ["Base SHA", c?.baseSha ?? data.lane?.baseSha], ["Outcome", c?.outcome]]);
     });
 }
-/** Materialized lanes (ADR 0030 preview) live in a plain directory with a sidecar; no Git, helper or broker is involved. */
+/** Materialized lanes (preview) live in a plain directory with a sidecar; no Git, helper or broker is involved. */
 const materializedLane = (action: "materialize" | "status" | "refresh" | "resolve" | "submit"): Handler => async (d, args) => {
   const spec: Record<string, { type: "string" }> = action === "resolve" ? { keep: { type: "string" as const } } : action === "submit" ? { message: { type: "string" as const }, wait: { type: "string" as const } } : action === "status" ? {} : { wait: { type: "string" as const } };
   const { v, pos } = opts(args, spec, action === "materialize" ? 2 : action === "status" ? 1 : 1 + (action === "resolve" ? 1 : 0), action === "materialize" || action === "resolve" ? 1 : 0);
@@ -657,7 +657,7 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
   } finally { await managed?.close(); scope?.dispose(); }
 };
 
-/** A materialized claim (ADR 0030 preview): the scope travels with the claim; nothing is cloned and no helper starts. */
+/** A materialized claim (preview): the scope travels with the claim; nothing is cloned and no helper starts. */
 async function claimMaterialized(d: Deps, taskId: string, v: Record<string, any>) {
   for (const flag of ["source-ref", "repository", "chain-id", "previous-task", "base", "canonical", "remote"]) if (v[flag]) throw new UsageError(`--${flag} cannot be combined with --lane materialized`);
   const list = (flag: string) => String(v[flag] ?? "").split(",").map(s => s.trim()).filter(Boolean);
