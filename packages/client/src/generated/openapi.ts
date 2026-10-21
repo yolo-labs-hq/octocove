@@ -224,7 +224,7 @@ export interface paths {
         put?: never;
         /**
          * Verify a registered repository against Artifacts so claims and credentials accept it
-         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Any project admin may verify. What verification proves - the repository exists in this project's own Artifacts namespace (`Project.artifactsNamespace`, `oc-<projectId>`) in this deployment's Artifacts account, with an https remote. That is ownership by construction under one assumption - no one outside Octocove's control plane and the operator holds a token that can create repositories in `oc-*` namespaces (users and agents only receive repo-scoped Git tokens, which cannot cross repositories or namespaces). When it holds, one D1 batch sets `repository_verifications.verified_at` and `verified_by` (the caller's principal), appends a `repository.verified` audit row and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). Octocove does not check which holder of such a token created the Artifacts repository, what it contains, or that the target ref exists. The target ref head is not read here; the remote sweep records it as an `ls-remote` observation once the binding is verified. Refusals - 404 `not-found` (no live repository with that id in the project); 409 `repository-provider-unsupported` (GitHub and Forgejo repositories are bound by the operator's provider-binding path and are never unverified); 409 `repository-namespace-mismatch` (an Artifacts repository outside the project's namespace (ADR 0017), whether registered there, made by a trusted path, unverified, trusted or verified - it is never eligible; checked before the already-verified and trusted answers and before any Artifacts call, and its verification history is kept); 503 `broker-unavailable` (the Artifacts secrets are not installed); 409 `repository-remote-not-found` (Artifacts has no repository at that name in the project's namespace); 503 `broker-provider-unavailable` (any other Artifacts failure). An already verified repository, or one a trusted path created (`binding` `trusted`), in the project's namespace answers 200 with its current state and writes nothing. A replay with the same Idempotency-Key returns the committed 200 before any refusal; the same key for another repository is 409 `idempotency-conflict`.
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Any project admin may verify. What verification proves - the repository exists in this project's own Artifacts namespace (`Project.artifactsNamespace`, `oc-<projectId>`) in this deployment's Artifacts account, with an https remote. That is ownership by construction under one assumption - no one outside Octocove's control plane and the operator holds a token that can create repositories in `oc-*` namespaces (users and agents only receive repo-scoped Git tokens, which cannot cross repositories or namespaces). When it holds, one D1 batch sets `repository_verifications.verified_at` and `verified_by` (the caller's principal), appends a `repository.verified` audit row and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). Octocove does not check which holder of such a token created the Artifacts repository, what it contains, or that the target ref exists. The target ref head is not read here; the remote sweep records it as an `ls-remote` observation once the binding is verified. For a GitHub or Forgejo repository bound under ADR 0010 (ADR 0030), verification instead asks the credential authority for a read credential, reads the repository through the provider API, and requires the target branch to exist; a missing target branch is created once at the current head of the default branch and never moved by this route. Success records `verified_at` and `verified_by` the same way. Refusals - 404 `not-found` (no live repository with that id in the project); 409 `credential-unavailable` (a GitHub or Forgejo repository bound under ADR 0010 whose credential authority has no usable credential for the binding); 409 `provider-restricted` (a bound repository whose target branch is protected or whose provider refused the one-time branch creation); 409 `repository-namespace-mismatch` (an Artifacts repository outside the project's namespace (ADR 0017), whether registered there, made by a trusted path, unverified, trusted or verified - it is never eligible; checked before the already-verified and trusted answers and before any Artifacts call, and its verification history is kept); 503 `broker-unavailable` (the Artifacts secrets are not installed); 409 `repository-remote-not-found` (Artifacts has no repository at that name in the project's namespace); 503 `broker-provider-unavailable` (any other Artifacts failure). An already verified repository, or one a trusted path created (`binding` `trusted`), in the project's namespace answers 200 with its current state and writes nothing. A replay with the same Idempotency-Key returns the committed 200 before any refusal; the same key for another repository is 409 `idempotency-conflict`.
          */
         post: operations["repositoryVerify"];
         delete?: never;
@@ -788,6 +788,166 @@ export interface paths {
          * @description Human contributor or one-use bootstrap. Agent tasks:claim may only recover its existing attempt, never create another. Admission and dependency receipts checked atomically; authenticated refusals persisted. Ready returns remote and credential source; pending provisioning does not expose a broker write grant. Never returns raw Artifacts credentials. Optional external-ref source registers an existing non-target branch in the task canonical on Artifacts or BYO, skips allocation and issues no claimant Git grant. Remote identity is verified from registration (HTTPS or Git SSH transport); arbitrary URLs are refused. Optional chain input allocates one shared task-repo per chain and is mutually exclusive with source. Claim returns immediately with remote pending; exact native proof precedes the D1 pointer flip.
          */
         post: operations["taskClaim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/executions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Begin a new execution attempt for a materialized claim (preview)
+         * @description ADR 0030. The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope. 409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown.
+         */
+        post: operations["laneExecutionBegin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/materializations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a new materialization generation (preview)
+         * @description ADR 0030. scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded.
+         */
+        post: operations["laneGenerationCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/materializations/{generation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a generation's manifest (preview)
+         * @description ADR 0030. The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim).
+         */
+        get: operations["laneManifestGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/blob": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one blob inside the generation's read scope (preview)
+         * @description ADR 0030. A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content.
+         */
+        get: operations["laneBlobGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/scope-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a wider scope (preview)
+         * @description ADR 0030. Records the request; nothing changes until a project member grants a new scope version and the agent requests a scope-expanded generation.
+         */
+        post: operations["laneScopeRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grant a new scope version (preview)
+         * @description ADR 0030. A project member with tasks:edit records the next scope version for the claim, optionally deciding a pending request. The grant takes effect only when the agent requests a scope-expanded generation.
+         */
+        post: operations["laneScopeGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/blobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload content for a later changes submission (preview)
+         * @description ADR 0030. The claim's agent stages content before naming it in a changes submission. The id is the sha256 of the bytes, so the same content uploads once per claim and a repeat answers the same id; content above the lane limit is 413 blob-too-large. Staged content lives with the execution and is discarded when it ends; it is not a Git object until a changes submission names it.
+         */
+        post: operations["laneBlobUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit explicit file operations against a generation (preview)
+         * @description ADR 0030. The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet.
+         */
+        post: operations["laneChangesSubmit"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1936,6 +2096,8 @@ export interface components {
             canonicalHeadSha: components["schemas"]["Sha"] | null;
             dependencies: components["schemas"]["DependencyState"][];
             acceptedReceiptId: components["schemas"]["Id"] | null;
+            /** @description Preview (ADR 0030). Present when the task's active claim is a materialized lane. */
+            lane?: components["schemas"]["MaterializedLane"];
             liveAttempt: {
                 claimId: components["schemas"]["Id"] | null;
                 submissionId: components["schemas"]["Id"] | null;
@@ -2031,7 +2193,7 @@ export interface components {
             expiresAt: string;
             revocationId: string;
         };
-        /** @description workspace is non-null iff provisioningState is ready; blockedReason is non-null iff blocked. Grant exists before provisioning; broker cannot issue a write credential until ready. */
+        /** @description workspace is non-null iff provisioningState is ready, except for a materialized lane (preview), whose surface is the generation manifest and whose workspace stays null; blockedReason is non-null iff blocked. Grant exists before provisioning; broker cannot issue a write credential until ready. */
         Claim: {
             id: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
@@ -2042,7 +2204,8 @@ export interface components {
             expiresAt: string;
             /** @description Chain remote URL or literal pending. */
             remote?: string;
-            lane?: components["schemas"]["ChainLane"];
+            /** @description A chain lane's pointer state, or (preview, ADR 0030) a materialized lane's execution and generation. */
+            lane?: components["schemas"]["ChainLane"] | components["schemas"]["MaterializedLane"];
             dependencyResults: components["schemas"]["DependencyResult"][];
             /**
              * @description Ready requires a fetched exact lane ref/commit containing the persisted base pin; external registration also verifies its expected SHA. Platform hints and acceleration subscriptions do not establish readiness.
@@ -2680,8 +2843,11 @@ export interface components {
             cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
-            /** @enum {string} */
-            provider: "artifacts";
+            /**
+             * @description For `github` and `forgejo` the repository is bound under ADR 0010 and `cloneUrl` is the binding's remote.
+             * @enum {string}
+             */
+            provider: "artifacts" | "github" | "forgejo";
             namespace: string;
             repoId: string;
             name: string;
@@ -3020,6 +3186,142 @@ export interface components {
             id: string;
             baseSha: string;
             previousTaskId?: components["schemas"]["Id"];
+        };
+        /** @description Preview (ADR 0030). Path prefixes relative to the repository root; every write prefix lies within a read prefix. */
+        LaneScope: {
+            read: string[];
+            write: string[];
+        };
+        /** @description Preview (ADR 0030). The state of a materialized lane; null identifiers mean no open execution or generation. */
+        MaterializedLane: {
+            /** @enum {string} */
+            kind: "materialized";
+            claimAttemptId?: components["schemas"]["Id"];
+            executionId?: components["schemas"]["Id"] | null;
+            executionNumber?: number | null;
+            executionEnded?: string | null;
+            generation?: number | null;
+            generationKind?: ("initial" | "scope-expanded" | "base-refreshed") | null;
+            baseSha?: components["schemas"]["Sha"] | null;
+            scopeVersion?: number | null;
+            superseded?: string | null;
+            scope?: components["schemas"]["LaneScope"] | null;
+        };
+        /** @description Preview (ADR 0030). One materialization generation of one execution attempt. */
+        LaneGeneration: {
+            claimAttemptId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            executionNumber?: number;
+            generation: number;
+            /** @enum {string} */
+            kind: "initial" | "scope-expanded" | "base-refreshed";
+            baseSha: components["schemas"]["Sha"];
+            scopeVersion: number;
+            previousGeneration?: number;
+            scope?: components["schemas"]["LaneScope"];
+        };
+        LaneManifestEntry: {
+            path: string;
+            /** @enum {string} */
+            mode: "100644" | "100755" | "120000" | "160000";
+            /** @enum {string} */
+            type: "file" | "symlink" | "submodule";
+            sha: components["schemas"]["Sha"];
+            size?: number;
+        };
+        /** @description Preview (ADR 0030). Entries of the generation's base commit inside the read scope, sorted by path. truncated is true when the server's entry or tree-read limits were reached. changedSincePrevious is non-null only for a base-refreshed generation. */
+        LaneManifest: {
+            taskId: components["schemas"]["Id"];
+            claimId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            generation: number;
+            /** @enum {string} */
+            kind: "initial" | "scope-expanded" | "base-refreshed";
+            baseSha: components["schemas"]["Sha"];
+            scopeVersion: number;
+            scope: components["schemas"]["LaneScope"];
+            entries: components["schemas"]["LaneManifestEntry"][];
+            truncated: boolean;
+            changedSincePrevious: {
+                added: string[];
+                modified: string[];
+                removed: string[];
+            } | null;
+        };
+        /** @description Preview (ADR 0030). One entry's content at the generation's base; submodule entries have encoding none and null content. */
+        LaneBlob: {
+            path: string;
+            /** @enum {string} */
+            mode: "100644" | "100755" | "120000" | "160000";
+            /** @enum {string} */
+            type: "file" | "symlink" | "submodule";
+            sha: components["schemas"]["Sha"];
+            size: number;
+            /** @enum {string} */
+            encoding: "base64" | "none";
+            content: string | null;
+        };
+        LaneScopeRequest: {
+            read: string[];
+            write: string[];
+            reason?: string;
+        };
+        LaneScopeGrant: {
+            claimAttemptId: components["schemas"]["Id"];
+            read: string[];
+            write: string[];
+            requestId?: components["schemas"]["Id"];
+        };
+        /** @description Preview (ADR 0030). Content to stage for a changes submission; base64 is the only encoding. */
+        LaneBlobUpload: {
+            /** @description Base64 of the bytes (at most the lane blob limit once decoded). */
+            content: string;
+            /** @enum {string} */
+            encoding?: "base64";
+        };
+        /** @description Preview (ADR 0030). One file operation. Paths are repository-relative, without leading slash, dot segments or backslashes. */
+        LaneChangeOperation: components["schemas"]["LaneChangePut"] | components["schemas"]["LaneChangeDelete"];
+        /** @description Writes an uploaded blob at the path; mode defaults to 100644 (120000 makes a symlink whose target is the blob's content). */
+        LaneChangePut: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "put";
+            path: string;
+            blobId: string;
+            /** @enum {string} */
+            mode?: "100644" | "100755" | "120000";
+        };
+        /** @description Removes the path; carries nothing else. */
+        LaneChangeDelete: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "delete";
+            path: string;
+        };
+        /** @description Preview (ADR 0030). The operations of one submission against the named open generation; at most 2000, unique by path. */
+        LaneChanges: {
+            generation: number;
+            operations: components["schemas"]["LaneChangeOperation"][];
+            /** @description Optional commit message body; the server appends its trailers. */
+            message?: string;
+        };
+        /** @description Preview (ADR 0030). The submission and candidate recorded for a changes submission. staged is always false; a materialized lane never stages behind a fence, it refuses with 409 fenced instead. */
+        LaneChangeResult: {
+            id: components["schemas"]["Id"];
+            seq: number;
+            candidateId: components["schemas"]["Id"];
+            candidateSha: components["schemas"]["Sha"];
+            baseSha: components["schemas"]["Sha"];
+            /** @description refs/octocove/contributions/<id>, create-only. */
+            contributionRef: string;
+            /** @enum {string} */
+            candidateStatus: "active" | "stale";
+            /** @enum {boolean} */
+            staged: false;
         };
         ChainLane: {
             chainId: components["schemas"]["Id"];
@@ -4815,6 +5117,12 @@ export interface operations {
                     chain?: components["schemas"]["ChainClaim"];
                     source?: components["schemas"]["ExternalRefSource"];
                     intentVersion: number;
+                    /**
+                     * @description Preview (ADR 0030). Request a materialized lane instead of a Git remote; the repository's lane policy must admit it (409 lane-kind-not-admitted), a public repository must have declared public-on-submit (409 publication-undeclared), the target ref must have a pinned head (409 base-unknown), and the claimant must be an agent with a delegation. Mutually exclusive with chain and source.
+                     * @enum {string}
+                     */
+                    laneKind?: "materialized";
+                    scope?: components["schemas"]["LaneScope"];
                 };
             };
         };
@@ -4850,6 +5158,296 @@ export interface operations {
             409: components["responses"]["Problem"];
             413: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneExecutionBegin: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description The new execution and its initial generation. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneGeneration"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    laneGenerationCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    kind: "scope-expanded" | "base-refreshed";
+                };
+            };
+        };
+        responses: {
+            /** @description The new generation. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneGeneration"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    laneManifestGet: {
+        parameters: {
+            query?: {
+                claim?: components["schemas"]["Id"];
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                generation: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manifest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneManifest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneBlobGet: {
+        parameters: {
+            query: {
+                generation: number;
+                path: string;
+                claim?: components["schemas"]["Id"];
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The blob. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneBlob"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneScopeRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneScopeRequest"];
+            };
+        };
+        responses: {
+            /** @description The pending request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        claimAttemptId: components["schemas"]["Id"];
+                        requestId: components["schemas"]["Id"];
+                        scope: components["schemas"]["LaneScope"];
+                        /** @enum {string} */
+                        status: "pending";
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    laneScopeGrant: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneScopeGrant"];
+            };
+        };
+        responses: {
+            /** @description The granted scope version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        claimAttemptId: components["schemas"]["Id"];
+                        scopeVersion: number;
+                        scope: components["schemas"]["LaneScope"];
+                        requestId?: components["schemas"]["Id"];
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    laneBlobUpload: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneBlobUpload"];
+            };
+        };
+        responses: {
+            /** @description The content-addressed id. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        claimAttemptId: components["schemas"]["Id"];
+                        blobId: string;
+                        size: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+        };
+    };
+    laneChangesSubmit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneChanges"];
+            };
+        };
+        responses: {
+            /** @description The recorded submission and candidate. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneChangeResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };
