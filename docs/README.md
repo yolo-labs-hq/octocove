@@ -21,6 +21,7 @@ A client reaches an Octocove deployment through four surfaces:
 
 - [Multi-agent walkthrough](DEMO.md)
 - [Helper/broker contract](HELPER_BROKER_CONTRACT.md)
+- [Materialized lane walkthrough (preview)](examples/materialized-lane.md)
 - Examples: [machine clients](examples/machine-clients.md), [GitHub Actions approver](examples/github-machine-approve.yml), [Workers Cron approver](examples/workers-machine-approve.mjs)
 - [Releasing the CLI and client](RELEASING.md), [release scope](RELEASE_SCOPE.md)
 - [Decisions: licence and contribution provenance](DECISIONS.md), [public scope](PUBLIC_SCOPE.md)

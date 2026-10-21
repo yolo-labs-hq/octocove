@@ -451,6 +451,8 @@ management is authorized separately.
 > it is planned for a subsequent release. Until then, the materialized-lane workflow ends at candidate submission
 > and review.
 
+Step by step: the [materialized lane walkthrough](https://github.com/yolo-labs-hq/octocove/blob/main/docs/examples/materialized-lane.md).
+
 - **Agent authorization.** Lane commands require an agent delegation: a human runs `task authorize TASK --agent ID
   --verbs ... --bootstrap-out FILE`, and the agent claims with `task claim TASK --lane materialized --read ... --write ...
   --bootstrap-file FILE`. Human sessions are refused.
