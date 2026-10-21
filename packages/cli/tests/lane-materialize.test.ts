@@ -310,6 +310,20 @@ describe("octocove lane (materialized)", () => {
       expect(read("src/run.sh/x")).toBe("x\n");
     });
 
+    it("an edited file that upstream replaces with a submodule is a conflict, and stays in the next submission", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/b.txt"), "bravo local\n");
+      const m2 = manifest(2, base2, gen1);
+      m2.entries = m2.entries.map((e: any) => e.path === "src/b.txt" ? { path: "src/b.txt", mode: "160000", type: "submodule", sha: SHA("sub") } : e);
+      routes["GET /tasks/T1/lane/materializations/2"] = () => json(200, m2);
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).conflicts).toEqual(["src/b.txt"]);
+      expect(read("src/b.txt")).toBe("bravo local\n");
+      expect(await cli(["lane", "resolve", "src/b.txt", "--keep", "local"])).toBe(EXIT.ok);
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).modified).toEqual(["src/b.txt"]);
+    });
+
     it("never writes through a leaf symlink planted after the check", async () => {
       expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
       const victim = join(work, "victim.txt"); writeFileSync(victim, "untouched\n");

@@ -239,8 +239,8 @@ export async function status(dir: string): Promise<LaneStatus> {
   const sc = await load(dir);
   const modified: string[] = [], deleted: string[] = [];
   for (const [path, file] of Object.entries(sc.files)) {
-    if (file.mode === '160000') continue;
     const l = await local(dir, path);
+    if (file.mode === '160000') { if (l) modified.push(path); continue; }   // a file where the base has a submodule
     if (!l) deleted.push(path);
     else if (l.digest !== file.digest || l.mode !== file.mode) modified.push(path);
   }
@@ -303,7 +303,17 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
   }
   for (const e of m.entries) {
     const old = has(sc.files, e.path) ? sc.files[e.path] : undefined;
-    if (e.type === 'submodule') { files[e.path] = { mode: '160000', sha: e.sha, digest: null }; continue; }
+    if (e.type === 'submodule') {
+      files[e.path] = { mode: '160000', sha: e.sha, digest: null };
+      // Upstream replaced a file with a submodule (which a lane cannot materialize): a clean file goes, an edited one
+      // (or anything else the agent put there) is a conflict, never silently dropped from the next submission.
+      if (old && old.mode !== '160000') {
+        const l = await local(dir, e.path);
+        if (l && l.digest === old.digest && l.mode === old.mode) await rm(await safeJoin(dir, e.path), { force: true });
+        else if (l || await occupied(dir, e.path)) { await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null }; }
+      }
+      continue;
+    }
     if (old && old.sha === e.sha && old.mode === e.mode) { files[e.path] = old; continue; }
     const content = contents.get(e.path)!;
     files[e.path] = { mode: e.mode, sha: e.sha, digest: sha256(content) };
