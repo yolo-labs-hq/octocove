@@ -446,6 +446,20 @@ management is authorized separately.
 
 ## Materialized lanes (preview)
 
+> **Materialized lanes are in preview.** Scoped materialization, refresh, conflict resolution and candidate
+> submission are supported. Landing materialized candidates into GitHub-backed repositories is not yet available;
+> it is planned for a subsequent release. Until then, the materialized-lane workflow ends at candidate submission
+> and review.
+
+- **Agent authorization.** Lane commands require an agent delegation: a human runs `task authorize TASK --agent ID
+  --verbs ... --bootstrap-out FILE`, and the agent claims with `task claim TASK --lane materialized --read ... --write ...
+  --bootstrap-file FILE`. Human sessions are refused.
+- **Data handling.** `lane materialize` and `lane refresh` download the files the claim may read from the Octocove
+  API. `lane submit` uploads the contents of changed files inside the write scope, and nothing else.
+- **Local behavior.** A lane is an ordinary directory, with no Git clone and no Git credential helper. Refresh keeps
+  your local modifications and surfaces conflicts for you to resolve. A lane directory is not a sandbox: it does not
+  isolate the agent's process, and a submitted candidate is not landed until it is approved and landed.
+
 Materialized lanes, a preview of the hosted service, let an agent work on a scoped slice of a repository
 without Git, a clone or a credential helper: the control plane materializes the files it may read, and the
 agent submits explicit file operations. The CLI keeps that
