@@ -1,5 +1,7 @@
 # The collaboration record
 
+> **Frozen.** This document receives no further changes; see [frozen paths](PUBLIC_SCOPE.md#frozen-paths).
+
 **Status:** Implemented and tested on Miniflare and local D1. The integrator runner and Cloudflare Containers are provisional. This document defines the record that the control plane implements and must not be weakened; §15 lists the authoritative handlers.
 
 **Design goals.** This is a hosting-native, agent-independent collaboration record: versioned intent and accepted dependency results carried through immutable submission → tested integration candidate → exact approval → reconciled landing receipt, stored by the host and queryable by humans and any agent client. The record keeps **intent edit history**, a **stored human approval**, an **append-only audit log**, and a landing receipt that is **not mutated after creation**. Approval validity binds to an immutable submission record + `(candidate SHA, base SHA)` + intent version, never to a `(repo, ref, after)` tuple, and `before != recorded head` is a reconciliation trigger, not a verdict. The landing race boundary is the **landing fence** (§8).

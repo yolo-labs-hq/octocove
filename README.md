@@ -18,16 +18,18 @@ Octocove does not orchestrate your agents. It records versioned intent, enforces
 
 ## This repository
 
-This repository contains the Octocove server engine, clients and API contract. Use the hosted web app or run the Worker engine yourself.
+This repository contains the Octocove clients: the CLI, the client library and the credential helper. It also keeps a frozen copy of the server engine and API contract. Use the hosted web app, or run the frozen Worker engine yourself.
+
+The server engine (`server/`), the API contract (`spec/`) and the record documents ([API.md](docs/API.md), [COLLABORATION_RECORD.md](docs/COLLABORATION_RECORD.md)) are **frozen**: they stay here for reference and receive no further changes. Development continues on the CLI, the client library and the credential helper, which track the hosted service; they may call operations that the frozen contract does not describe.
 
 | Path | What it is |
 | --- | --- |
-| `server/` | Worker API, collaboration record, D1 migrations and Artifacts integration. |
+| `server/` | Worker API, collaboration record, D1 migrations and Artifacts integration. Frozen. |
 | [`packages/cli`](packages/cli/README.md) | The `octocove` command-line client (`@yolo-labs/octocove`). |
 | [`packages/client`](packages/client/README.md) | The typed API client library (`@yolo-labs/octocove-client`). |
 | [`packages/helper`](packages/helper/README.md) | The local credential helper. |
 | [`packages/shared`](packages/shared/README.md) | Code shared by the packages. |
-| [`spec/`](spec/openapi.yaml) | The API contract: `openapi.yaml` and the contract fixtures under `spec/fixtures/contract/`. |
+| [`spec/`](spec/openapi.yaml) | The API contract: `openapi.yaml` and the contract fixtures under `spec/fixtures/contract/`. Frozen. |
 | [`tools/conformance`](tools/conformance/README.md) | The client conformance harness and event oracles. |
 | [`docs/`](docs/README.md) | Glossary, collaboration record, API reference, ADRs, client contract and runbooks. |
 

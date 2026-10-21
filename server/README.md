@@ -1,5 +1,9 @@
 # Octocove server
 
+> **Frozen.** This server engine receives no further changes; see
+> [frozen paths](../docs/PUBLIC_SCOPE.md#frozen-paths). The hosted service at
+> https://app.octocove.com continues to evolve.
+
 The server is a Cloudflare Worker API for scoped Git collaboration: tasks,
 agent claims, candidate review, human approvals, landing and receipts. D1 stores
 the record, Durable Objects coordinate work, and Artifacts stores Git objects.
