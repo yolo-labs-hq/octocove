@@ -479,6 +479,7 @@ Event types and the transition each marks:
 | `webhook.attempt_started`, `webhook.attempt_recorded` | transport lease and durable outcome; excluded from live/replay webhook fanout |
 | `claim.attempted`, `claim.granted`, `claim.released`, `claim.revoked`, `claim.superseded`, `claim.completed` | every claim attempt (refusals are `claim.attempted` with `refs.result`), every status change |
 | `mapping.created`, `mapping.retired` | |
+| `lane.execution_started`, `lane.generation_created`, `lane.scope_requested`, `lane.scope_granted` | materialized lanes (preview, [ADR 0030](adr/0030-materialized-lanes-preview-surface.md)): each execution attempt, each materialization generation (`refs.generation`, `refs.kind`, the base and scope version), each scope request and each granted scope version. Scopes, executions and generations are append-only evidence; the audit row is the fact, the lane rows are its detail. |
 | `observation.recorded`, `observation.flagged` | |
 | `submission.created`, `submission.staged` | |
 | `candidate.computed`, `candidate.blocked`, `candidate.check_recorded`, `candidate.superseded`, `candidate.stale`, `candidate.withdrawn`, `candidate.rejected` | |
