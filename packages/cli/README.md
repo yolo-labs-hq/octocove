@@ -113,19 +113,24 @@ reads credentials or starts network requests.
 | `task publish ID` | `POST /tasks/{id}/publish` |
 | `task release ID [--claim ID]` | `POST /tasks/{id}/release` |
 | `task show ID` | `GET /tasks/{id}` |
-| `task claim ID [--lane chain|ref] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
+| `task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
+| `lane materialize TASK [DIR] [--wait SECONDS]` | `GET /tasks/{id}`, `POST /tasks/{id}/lane/executions` when no execution is open, `GET /tasks/{id}/lane/materializations/{generation}`, `GET /tasks/{id}/lane/blob` per entry (materialized lanes, preview) |
+| `lane status [DIR]` | local only in a materialized directory (`.octocove/lane.json`); otherwise `GET /tasks/{id}/lane` |
+| `lane refresh [DIR] [--wait SECONDS]` | `POST /tasks/{id}/lane/materializations` (`base-refreshed`), then the manifest and changed blobs |
+| `lane resolve PATH --keep local|incoming [DIR]` | local only |
+| `lane submit [DIR] [--message TEXT] [--wait SECONDS]` | `POST /tasks/{id}/lane/blobs` per changed file, then `POST /tasks/{id}/lane/changes` |
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:770](src/cli.ts#L770 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:771](src/cli.ts#L771 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:772](src/cli.ts#L772 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:773](src/cli.ts#L773 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:774](src/cli.ts#L774 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:775](src/cli.ts#L775 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:776](src/cli.ts#L776 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:777](src/cli.ts#L777 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:778](src/cli.ts#L778 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:872](src/cli.ts#L872 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:873](src/cli.ts#L873 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:874](src/cli.ts#L874 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:875](src/cli.ts#L875 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:876](src/cli.ts#L876 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:877](src/cli.ts#L877 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:878](src/cli.ts#L878 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:879](src/cli.ts#L879 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:880](src/cli.ts#L880 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -133,12 +138,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1314](src/cli.ts#L1314 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1326](src/cli.ts#L1326 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1418](src/cli.ts#L1418 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1430](src/cli.ts#L1430 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1366](src/cli.ts#L1366 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1470](src/cli.ts#L1470 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:446](src/cli.ts#L446 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:455](src/cli.ts#L455 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -438,6 +443,43 @@ CI can store an ADR 0009 machine signed assertion as a protected CLI credential 
 `events:read`, and refresh the assertion before its five-minute expiry. The stored
 cursor survives assertion rotation for the same principal. Machine subscription
 management is separately authorized by [ADR 0009](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0009-machine-event-authority.md).
+
+## Materialized lanes (preview)
+
+Materialized lanes, a preview of the hosted service, let an agent work on a scoped slice of a repository
+without Git, a clone or a credential helper: the control plane materializes the files it may read, and the
+agent submits explicit file operations. The CLI keeps that
+journey in a plain directory with a `.octocove/lane.json` sidecar (generation, pinned base, scope, one digest per
+file) and never a `.git`:
+
+```sh
+octocove task claim TASK --lane materialized --read src/,README.md --write src/
+octocove lane materialize TASK work/        # writes the open generation's files; begins an execution if none is open
+cd work && $EDITOR src/app.ts
+octocove lane status                        # modified, added (inside the write scope), deleted, unresolved conflicts
+octocove lane refresh                       # take the pinned head; see below
+octocove lane submit --message "..." --wait 60
+```
+
+`lane refresh` requests a `base-refreshed` generation and applies it **non-destructively**: a file you did not
+edit follows the upstream change (updated, added or removed in place); a file you edited that also changed or
+disappeared upstream keeps your copy, and the upstream copy (where there is one) is kept at
+`.octocove/incoming/PATH`. `lane submit` refuses with `lane-conflicts-unresolved` until every conflict is decided with
+`lane resolve PATH --keep local|incoming`. An unchanged base is reported as nothing to refresh. Unsubmitted edits
+are never discarded. Upstream copies live under `.octocove/incoming/`, so they never collide with a repository
+path and are never submitted. A mode or type change counts as an edit; a directory where upstream now has a file,
+or a kept local file where upstream now has a directory, is a conflict. Every changed blob is downloaded before the
+directory is touched, so a failed refresh changes nothing. Lane commands refuse to work through a symlinked
+directory inside the lane (or a symlinked `.octocove`), create files without following links, and report a
+filesystem error rather than read it as a deleted file. `lane status DIR` works from outside the directory;
+`--task`/`--claim` always mean the chain lane.
+
+`lane submit` reads the sidecar's generation, refuses locally any change outside the write scope
+(`scope-refused`, nothing uploaded), uploads each changed file by its sha256 (`lane/blobs`, replayed by content)
+and posts one `changes` request (`put` with mode `100644`, `100755` or `120000` for symlinks, `delete`), printing
+the submission and candidate; `--wait` follows the candidate like `submit`. A `generation-superseded` answer means
+the lane moved: run `lane refresh`, then submit again. The files stay as edited after a submission; the sidecar
+records `lastSubmission`.
 
 ## Chain lane lifecycle
 
