@@ -317,7 +317,11 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
           // Edited, replaced by something else, or deleted locally: the agent decides (keep local = its file or its deletion).
           await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null };
         }
-      } else if (old?.deleted && old.sha === e.sha) files[e.path] = old;   // a kept deletion of an unchanged submodule
+      } else if (old?.deleted) {
+        // A kept deletion of a submodule: still decided while upstream leaves it alone; a moved submodule asks again.
+        if (old.sha === e.sha) files[e.path] = old;
+        else { await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null }; }
+      }
       continue;
     }
     if (old && old.sha === e.sha && old.mode === e.mode) { files[e.path] = old; continue; }

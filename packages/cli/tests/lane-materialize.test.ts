@@ -335,6 +335,16 @@ describe("octocove lane (materialized)", () => {
       expect(await cli(["lane", "resolve", "src/b.txt", "--keep", "local"])).toBe(EXIT.ok);
       expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
       expect(JSON.parse(outText).deleted).toEqual(["src/b.txt"]);
+      // Upstream moves the submodule: the kept deletion is asked again, never silently dropped.
+      const m3 = manifest(3, SHA("base-3"), gen1);
+      m3.entries = m3.entries.map((e: any) => e.path === "src/b.txt" ? { path: "src/b.txt", mode: "160000", type: "submodule", sha: SHA("sub-2") } : e);
+      routes["GET /tasks/T1/lane/materializations/3"] = () => json(200, m3);
+      routes["POST /tasks/T1/lane/materializations"] = () => json(201, { claimAttemptId: "C1", executionId: "X1", executionNumber: 1, generation: 3, kind: "base-refreshed", baseSha: SHA("base-3"), scopeVersion: 1, previousGeneration: 2, scope });
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).conflicts).toEqual(["src/b.txt"]);
+      expect(await cli(["lane", "resolve", "src/b.txt", "--keep", "local"])).toBe(EXIT.ok);
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).deleted).toEqual(["src/b.txt"]);
     });
 
     it("a clean file replaced by a submodule drops any stale conflict and upstream copy", async () => {
