@@ -2,8 +2,9 @@
 
 Package name: `@yolo-labs/octocove-client` (pre-1.0, versioned independently).
 
-The supported programmatic surface of the Octocove record API, generated from
-[`spec/openapi.yaml`](../../spec/openapi.yaml): transports, typed operations,
+The supported programmatic surface of the Octocove record API, generated from the API contract of the
+hosted service (the repository's [`spec/openapi.yaml`](../../spec/openapi.yaml) is a
+[frozen](../../docs/PUBLIC_SCOPE.md#frozen-paths) earlier revision): transports, typed operations,
 generated routing, the retry policy, errors and credential types; journeys with one absolute
 deadline, `events.follow`, the auth journeys and the Linux + macOS credential store.
 

@@ -1,14 +1,13 @@
 // Node-only: the retry-policy validator's rejection cases and manifest/runtime build-record agreement.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
 // @ts-expect-error -- plain .mjs CI script without declarations
-import { check, readmeTable } from '../scripts/check-retry-policy.mjs';
+import { check, operationsFromRouting, readmeTable } from '../scripts/check-retry-policy.mjs';
 import { BUILD, CLIENT_VERSION, routing } from '../src/index.js';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const policyText = read('../retry-policy.json');
-const spec = parse(read('../../../spec/openapi.yaml'));
+const spec = operationsFromRouting(read('../src/generated/routing.ts'));
 const readme = read('../README.md');
 const run = (text: string) => check({ policyText: text, spec, readme }) as string[];
 const edit = (mutate: (p: Record<string, any>) => void) => {
@@ -65,6 +64,6 @@ describe('generated routing and build record', () => {
     expect(manifest.version).toBe(CLIENT_VERSION);
     expect(manifest.octocove).toEqual({ openapiVersion: BUILD.openapiVersion, generator: BUILD.generator, routingGenerator: BUILD.routingGenerator });
     expect(BUILD.generator).toBe(`openapi-typescript@${manifest.devDependencies['openapi-typescript']}`);
-    expect(BUILD.openapiVersion).toBe(spec.info.version);
+    expect(BUILD.openapiSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });

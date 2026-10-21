@@ -1,7 +1,7 @@
 # Public scope
 
-This repository contains the Octocove clients and server engine, under the Apache-2.0
-[LICENSE](../LICENSE). It contains:
+This repository contains the Octocove clients and a frozen copy of the server engine, under the
+Apache-2.0 [LICENSE](../LICENSE). It contains:
 
 - the packages: the `octocove` CLI ([`packages/cli`](../packages/cli/README.md)),
   the typed client library ([`packages/client`](../packages/client/README.md)),
@@ -38,7 +38,20 @@ Tests and runners that record evidence write it under the gitignored
 it is absent. Code reaches optional maintainer-only hooks through a location set
 in its environment, never through a path in source.
 
+## Frozen paths
+
+The server engine (`server/`), the API contract (`spec/`) and the record documents
+([API.md](API.md), [COLLABORATION_RECORD.md](COLLABORATION_RECORD.md)) are frozen.
+They stay in the repository for reference, and `tools/check-frozen.py` fails a pull
+request that changes them. The CLI, the client library, the credential helper, the
+shared package and the conformance harness keep changing. They track the hosted
+service, so the client's generated modules may describe operations the frozen
+contract does not; `check:generated` then checks the retry-policy join, the operation
+set and the build record instead of regenerating from `spec/openapi.yaml`.
+
 ## Changing the contract
+
+The sections below describe how the frozen contract was maintained.
 
 The contract is `spec/openapi.yaml` together with [API.md](API.md),
 [COLLABORATION_RECORD.md](COLLABORATION_RECORD.md) and the

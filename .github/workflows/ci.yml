@@ -30,6 +30,12 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 2 # the PR merge commit and both parents
+      - name: Frozen paths are unchanged (server engine, API contract, record documents)
+        run: python3 -B tools/check-frozen.py
+      - name: Test the frozen-path check
+        run: python3 -B tools/test_check_frozen.py
       - name: Evidence links resolve (line and heading anchors in docs and published Markdown; titled code anchors)
         run: python3 -B tools/check-evidence-links.py
       - name: Test evidence link check rejection cases

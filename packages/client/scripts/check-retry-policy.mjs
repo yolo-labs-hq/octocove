@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Validates packages/client/retry-policy.json: every OpenAPI operationId exactly once, one of the
-// three entry shapes, values from the closed sets, `replay: null` only on reads, and the same classes
-// the README's "Retry classes by operation" table assigns (so coverage cannot pass with invented values).
+// Validates packages/client/retry-policy.json: every operationId of the generated routing table exactly
+// once, one of the three entry shapes, values from the closed sets, `replay: null` only on reads, and the
+// same classes the README's "Retry classes by operation" table assigns (so coverage cannot pass with
+// invented values).
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'yaml';
 
 const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -136,10 +136,28 @@ export function check({ policyText, spec, readme }) {
   return errors;
 }
 
+/**
+ * The operations the generated routing table declares, shaped like the OpenAPI `paths`/`webhooks` that
+ * `check` reads. The routing table is generated from the API contract, which may be newer than the
+ * repository's frozen spec/openapi.yaml.
+ */
+export function operationsFromRouting(text) {
+  const start = text.indexOf('export const routing = ');
+  const end = text.indexOf(' as const satisfies');
+  if (start === -1 || end === -1) throw new Error('routing.ts does not carry a routing table');
+  const table = JSON.parse(text.slice(start + 'export const routing = '.length, end));
+  const doc = { paths: {}, webhooks: {} };
+  for (const route of Object.values(table)) {
+    const into = route.kind === 'webhook' ? doc.webhooks : doc.paths;
+    (into[route.path] ??= {})[route.method.toLowerCase()] = { operationId: route.operationId };
+  }
+  return doc;
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const errors = check({
     policyText: readFileSync(here('../retry-policy.json'), 'utf8'),
-    spec: parse(readFileSync(here('../../../spec/openapi.yaml'), 'utf8')),
+    spec: operationsFromRouting(readFileSync(here('../src/generated/routing.ts'), 'utf8')),
     readme: readFileSync(here('../README.md'), 'utf8'),
   });
   if (errors.length) {

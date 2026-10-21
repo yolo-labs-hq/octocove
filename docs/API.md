@@ -1,5 +1,7 @@
 # Octocove API
 
+> **Frozen.** This reference receives no further changes; see [frozen paths](PUBLIC_SCOPE.md#frozen-paths).
+
 Status: the task, claim, candidate, receipt, audit and token-broker routes below are implemented; webhook registration, signed delivery, replay and disable are implemented. The integrator runner is provisional. Human task/attempt governance routes are implemented as documented below and in [COLLABORATION_RECORD.md](COLLABORATION_RECORD.md). Octocove is Apache-2.0 by YOLO Labs. [OpenAPI](../spec/openapi.yaml) defines the wire contract; [COLLABORATION_RECORD.md](COLLABORATION_RECORD.md) defines record invariants and authoritative transitions. No agent runner, conversation, provider PR, or model is a source of authority.
 
 ## One API for every client

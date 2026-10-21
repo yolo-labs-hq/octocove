@@ -1,6 +1,6 @@
 # Documentation index
 
-This Apache-2.0 repository contains the Octocove CLI, client library, credential helper and shared packages, the Worker server engine under [`server/`](../server/README.md), the API contract under [`spec/`](../spec/openapi.yaml), the conformance harness and this documentation. The server implements the record API using Workers, D1, Durable Objects, queues and Artifacts ([public scope](PUBLIC_SCOPE.md)). The hosted service provides the web application; the server guide describes the verified local API boot path and authentication prerequisites.
+This Apache-2.0 repository contains the Octocove CLI, client library, credential helper and shared packages, a frozen copy of the Worker server engine under [`server/`](../server/README.md) and of the API contract under [`spec/`](../spec/openapi.yaml) ([frozen paths](PUBLIC_SCOPE.md#frozen-paths)), the conformance harness and this documentation. The server implements the record API using Workers, D1, Durable Objects, queues and Artifacts ([public scope](PUBLIC_SCOPE.md)). The hosted service provides the web application; the server guide describes the verified local API boot path and authentication prerequisites.
 
 ## Install and use
 
