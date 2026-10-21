@@ -8152,15 +8152,29 @@ components:
         encoding: {type: string, enum: [base64]}
       required: [content]
     LaneChangeOperation:
+      description: Preview (ADR 0030). One file operation. Paths are repository-relative, without leading slash, dot segments or
+        backslashes.
+      oneOf:
+      - $ref: '#/components/schemas/LaneChangePut'
+      - $ref: '#/components/schemas/LaneChangeDelete'
+      discriminator: {propertyName: op, mapping: {put: '#/components/schemas/LaneChangePut', delete: '#/components/schemas/LaneChangeDelete'}}
+    LaneChangePut:
       type: object
       additionalProperties: false
-      description: Preview (ADR 0030). One file operation; put names an uploaded blob and an optional mode (default 100644), delete names
-        only the path. Paths are repository-relative, without leading slash, dot segments or backslashes.
+      description: Writes an uploaded blob at the path; mode defaults to 100644 (120000 makes a symlink whose target is the blob's content).
       properties:
-        op: {type: string, enum: [put, delete]}
+        op: {type: string, enum: [put]}
         path: {type: string, minLength: 1, maxLength: 4096}
         blobId: {type: string, pattern: '^[0-9a-f]{64}$'}
         mode: {type: string, enum: ['100644', '100755', '120000']}
+      required: [op, path, blobId]
+    LaneChangeDelete:
+      type: object
+      additionalProperties: false
+      description: Removes the path; carries nothing else.
+      properties:
+        op: {type: string, enum: [delete]}
+        path: {type: string, minLength: 1, maxLength: 4096}
       required: [op, path]
     LaneChanges:
       type: object

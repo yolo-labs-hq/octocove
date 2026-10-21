@@ -3279,14 +3279,28 @@ export interface components {
             /** @enum {string} */
             encoding?: "base64";
         };
-        /** @description Preview (ADR 0030). One file operation; put names an uploaded blob and an optional mode (default 100644), delete names only the path. Paths are repository-relative, without leading slash, dot segments or backslashes. */
-        LaneChangeOperation: {
-            /** @enum {string} */
-            op: "put" | "delete";
+        /** @description Preview (ADR 0030). One file operation. Paths are repository-relative, without leading slash, dot segments or backslashes. */
+        LaneChangeOperation: components["schemas"]["LaneChangePut"] | components["schemas"]["LaneChangeDelete"];
+        /** @description Writes an uploaded blob at the path; mode defaults to 100644 (120000 makes a symlink whose target is the blob's content). */
+        LaneChangePut: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "put";
             path: string;
-            blobId?: string;
+            blobId: string;
             /** @enum {string} */
             mode?: "100644" | "100755" | "120000";
+        };
+        /** @description Removes the path; carries nothing else. */
+        LaneChangeDelete: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            op: "delete";
+            path: string;
         };
         /** @description Preview (ADR 0030). The operations of one submission against the named open generation; at most 2000, unique by path. */
         LaneChanges: {
