@@ -21,7 +21,8 @@ export const SIDECAR = '.octocove/lane.json';
 /** Upstream copies of conflicted files live here: never in the write scope, never submitted, never colliding with a repository path. */
 export const INCOMING = '.octocove/incoming';
 type Mode = '100644' | '100755' | '120000' | '160000';
-export interface LaneFile { mode: Mode; sha: string; digest: string | null }
+/** `deleted` marks a submodule entry the agent chose to remove (submodules are never on disk, so absence alone says nothing). */
+export interface LaneFile { mode: Mode; sha: string; digest: string | null; deleted?: true }
 export interface LaneConflict { kind: 'modified-upstream' | 'removed-upstream'; incoming: string | null }
 export interface Sidecar {
   version: 1; taskId: string; claimAttemptId: string; executionId: string; generation: number; baseSha: string;
@@ -240,7 +241,7 @@ export async function status(dir: string): Promise<LaneStatus> {
   const modified: string[] = [], deleted: string[] = [];
   for (const [path, file] of Object.entries(sc.files)) {
     const l = await local(dir, path);
-    if (file.mode === '160000') { if (l) modified.push(path); continue; }   // a file where the base has a submodule
+    if (file.mode === '160000') { if (l) modified.push(path); else if (file.deleted) deleted.push(path); continue; }   // a file, or a kept deletion, where the base has a submodule
     if (!l) deleted.push(path);
     else if (l.digest !== file.digest || l.mode !== file.mode) modified.push(path);
   }
@@ -309,9 +310,14 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
       // (or anything else the agent put there) is a conflict, never silently dropped from the next submission.
       if (old && old.mode !== '160000') {
         const l = await local(dir, e.path);
-        if (l && l.digest === old.digest && l.mode === old.mode) await rm(await safeJoin(dir, e.path), { force: true });
-        else if (l || await occupied(dir, e.path)) { await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null }; }
-      }
+        if (l && l.digest === old.digest && l.mode === old.mode) {
+          await rm(await safeJoin(dir, e.path), { force: true });
+          if (has(conflicts, e.path)) { await dropIncoming(e.path); delete conflicts[e.path]; }
+        } else {
+          // Edited, replaced by something else, or deleted locally: the agent decides (keep local = its file or its deletion).
+          await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null };
+        }
+      } else if (old?.deleted && old.sha === e.sha) files[e.path] = old;   // a kept deletion of an unchanged submodule
       continue;
     }
     if (old && old.sha === e.sha && old.mode === e.mode) { files[e.path] = old; continue; }
@@ -355,7 +361,11 @@ export async function resolveConflict(dir: string, path: string, keep: 'local' |
   if (keep === 'incoming') {
     await rm(target, { recursive: true, force: true });
     if (source) { await mkdir(dirname(target), { recursive: true }); await rename(source, target); }
-  } else if (source) await rm(source, { recursive: true, force: true });
+  } else {
+    if (source) await rm(source, { recursive: true, force: true });
+    const tracked = has(sc.files, path) ? sc.files[path] : undefined;
+    if (tracked?.mode === '160000' && !await occupied(dir, path)) sc.files[path] = { ...tracked, deleted: true };
+  }
   delete sc.conflicts[path];
   await save(dir, sc);
   return { path, kept: keep, remaining: Object.keys(sc.conflicts).sort() };

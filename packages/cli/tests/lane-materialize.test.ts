@@ -324,6 +324,34 @@ describe("octocove lane (materialized)", () => {
       expect(JSON.parse(outText).modified).toEqual(["src/b.txt"]);
     });
 
+    it("a local deletion of a file that upstream replaces with a submodule survives as a decision", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      rmSync(join(dir, "src/b.txt"));
+      const m2 = manifest(2, base2, gen1);
+      m2.entries = m2.entries.map((e: any) => e.path === "src/b.txt" ? { path: "src/b.txt", mode: "160000", type: "submodule", sha: SHA("sub") } : e);
+      routes["GET /tasks/T1/lane/materializations/2"] = () => json(200, m2);
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).conflicts).toEqual(["src/b.txt"]);
+      expect(await cli(["lane", "resolve", "src/b.txt", "--keep", "local"])).toBe(EXIT.ok);
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).deleted).toEqual(["src/b.txt"]);
+    });
+
+    it("a clean file replaced by a submodule drops any stale conflict and upstream copy", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/a.txt"), "alpha local\n");
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);                     // gen 2: conflict on src/a.txt
+      writeFileSync(join(dir, "src/a.txt"), "alpha upstream\n");               // matches gen 2, left unresolved
+      const m3 = manifest(3, SHA("base-3"), gen2);
+      m3.entries = m3.entries.map((e: any) => e.path === "src/a.txt" ? { path: "src/a.txt", mode: "160000", type: "submodule", sha: SHA("sub") } : e);
+      routes["GET /tasks/T1/lane/materializations/3"] = () => json(200, m3);
+      routes["POST /tasks/T1/lane/materializations"] = () => json(201, { claimAttemptId: "C1", executionId: "X1", executionNumber: 1, generation: 3, kind: "base-refreshed", baseSha: SHA("base-3"), scopeVersion: 1, previousGeneration: 2, scope });
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).conflicts).toEqual([]);
+      expect(existsSync(join(dir, INCOMING, "src/a.txt"))).toBe(false);
+      expect(existsSync(join(dir, "src/a.txt"))).toBe(false);
+    });
+
     it("never writes through a leaf symlink planted after the check", async () => {
       expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
       const victim = join(work, "victim.txt"); writeFileSync(victim, "untouched\n");
