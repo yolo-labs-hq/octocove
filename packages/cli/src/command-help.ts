@@ -12,7 +12,11 @@ const FLAGS: Record<string,string> = {
   'expires-at': 'Delegation/claim expiry as an absolute ISO 8601 timestamp, for example YYYY-MM-DDTHH:mm:ssZ; choose a future time within server policy.',
   agent: 'Opaque agent ID chosen by the delegating human: nonempty, at most 128 characters. No agent registration or human login is required for this label. Use a separate agent config directory and its own bootstrap; this does not change the signed-in human.',
   verbs: 'Comma-separated permission names. The human must hold every permission granted; no permissions are implied.',
-  lane: 'Lane strategy: chain (default) or ref (classic per-task lane). --source-ref selects the existing external ref path unless --lane is explicit.',
+  lane: 'Lane strategy: chain (default), ref (classic per-task lane) or materialized (preview: files without a clone). --source-ref selects the existing external ref path unless --lane is explicit.',
+  read: 'Materialized lane read scope: comma-separated repository path prefixes (a directory prefix ends with /).',
+  write: 'Materialized lane write scope: comma-separated prefixes, each inside a read prefix.',
+  message: 'Commit message body for the submitted change; the server appends its own trailers.',
+  keep: 'Conflict decision: local keeps your edit and drops the upstream copy; incoming takes the upstream copy.',
   'chain-id': 'Stable chain ID (letters, digits, underscore or hyphen, at most 120 characters); defaults to predecessor chain or task ID.',
   base: 'Exact immutable base commit SHA; chain claims default to the predecessor receipt or known canonical head.',
   'previous-task': 'Previous landed task in the chain; its accepted receipt supplies the next base.',
@@ -47,7 +51,8 @@ const POSITIONALS: Record<string,string> = {
   PROJECT:'Project slug or ID.', REPOSITORY:'Repository ID (clone also accepts a name; optional only when exactly one canonical exists).',
   DIR:'Destination directory; defaults to repository name. Must be absent or empty.', SLUG:'URL-safe project slug.',
   REF:'Local source ref; defaults to HEAD. Cannot be combined with --source.',
-  CANDIDATE_ID:'Candidate ID to land (not a task ID).', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
+  CANDIDATE_ID:'Candidate ID to land (not a task ID).',
+  TASK:'Task ID of an active materialized claim.', PATH:'Repository-relative path of an unresolved conflict.', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
 };
 const MINIMUM_VERBS = `Minimum agent workflow permissions (pass all seven explicitly):
   tasks:list          list project tasks
@@ -65,7 +70,7 @@ The human alone approves; do not grant approval authority to a worker.`;
 
 export function commandHelp(command: string, originalUsage: string, description = '') {
   let usage = originalUsage;
-  if (command === 'task claim' || command === 'claim') usage = `${command} ID [--lane chain|ref] [--chain-id ID] [--base SHA] [--previous-task ID] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]`;
+  if (command === 'task claim' || command === 'claim') usage = `${command} ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--chain-id ID] [--base SHA] [--previous-task ID] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]`;
   if (command.startsWith('workspace ')) usage = `${command} --canonical URL [--canonical-id ID] [--ref REF] [--cache DIR] [--worktree ID] [--lane ID] [--base SHA] [--head SHA] [--source URL] [--sparse PATHS] [--count N]`;
   if (command === 'auth revoke') usage = 'auth revoke [DELEGATION_ID] [--grant ID --purpose submit|approve --timeout SECONDS]';
   if (command === 'auth renew') description = 'Rotate the active credential explicitly. Stored human and agent tokens also renew automatically near expiry; agent renewal stays within its authorization ceiling and claim lease. Revoked or ended grants require a new authorization.';
