@@ -914,6 +914,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks/{id}/lane/blobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload content for a later changes submission (preview)
+         * @description ADR 0030. The claim's agent stages content before naming it in a changes submission. The id is the sha256 of the bytes, so the same content uploads once per claim and a repeat answers the same id; content above the lane limit is 413 blob-too-large. Staged content lives with the execution and is discarded when it ends; it is not a Git object until a changes submission names it.
+         */
+        post: operations["laneBlobUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit explicit file operations against a generation (preview)
+         * @description ADR 0030. The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet.
+         */
+        post: operations["laneChangesSubmit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tasks/{id}/release": {
         parameters: {
             query?: never;
@@ -3232,6 +3272,43 @@ export interface components {
             write: string[];
             requestId?: components["schemas"]["Id"];
         };
+        /** @description Preview (ADR 0030). Content to stage for a changes submission; base64 is the only encoding. */
+        LaneBlobUpload: {
+            /** @description Base64 of the bytes (at most the lane blob limit once decoded). */
+            content: string;
+            /** @enum {string} */
+            encoding?: "base64";
+        };
+        /** @description Preview (ADR 0030). One file operation; put names an uploaded blob and an optional mode (default 100644), delete names only the path. Paths are repository-relative, without leading slash, dot segments or backslashes. */
+        LaneChangeOperation: {
+            /** @enum {string} */
+            op: "put" | "delete";
+            path: string;
+            blobId?: string;
+            /** @enum {string} */
+            mode?: "100644" | "100755" | "120000";
+        };
+        /** @description Preview (ADR 0030). The operations of one submission against the named open generation; at most 2000, unique by path. */
+        LaneChanges: {
+            generation: number;
+            operations: components["schemas"]["LaneChangeOperation"][];
+            /** @description Optional commit message body; the server appends its trailers. */
+            message?: string;
+        };
+        /** @description Preview (ADR 0030). The submission and candidate recorded for a changes submission. staged is always false; a materialized lane never stages behind a fence, it refuses with 409 fenced instead. */
+        LaneChangeResult: {
+            id: components["schemas"]["Id"];
+            seq: number;
+            candidateId: components["schemas"]["Id"];
+            candidateSha: components["schemas"]["Sha"];
+            baseSha: components["schemas"]["Sha"];
+            /** @description refs/octocove/contributions/<id>, create-only. */
+            contributionRef: string;
+            /** @enum {string} */
+            candidateStatus: "active" | "stale";
+            /** @enum {boolean} */
+            staged: false;
+        };
         ChainLane: {
             chainId: components["schemas"]["Id"];
             claimAttemptId: components["schemas"]["Id"];
@@ -5284,6 +5361,80 @@ export interface operations {
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+        };
+    };
+    laneBlobUpload: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneBlobUpload"];
+            };
+        };
+        responses: {
+            /** @description The content-addressed id. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        claimAttemptId: components["schemas"]["Id"];
+                        blobId: string;
+                        size: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+        };
+    };
+    laneChangesSubmit: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules in docs/API.md. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneChanges"];
+            };
+        };
+        responses: {
+            /** @description The recorded submission and candidate. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneChangeResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
     taskRelease: {

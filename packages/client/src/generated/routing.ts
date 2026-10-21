@@ -3304,6 +3304,138 @@ export const routing = {
       "replay": null
     }
   },
+  "laneBlobUpload": {
+    "operationId": "laneBlobUpload",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/blobs",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "laneChangesSubmit": {
+    "operationId": "laneChangesSubmit",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/changes",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
   "laneExecutionBegin": {
     "operationId": "laneExecutionBegin",
     "kind": "path",

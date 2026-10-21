@@ -499,5 +499,15 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
+  },
+  "laneBlobUpload": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneChangesSubmit": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
   }
 }

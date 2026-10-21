@@ -704,7 +704,10 @@ Thrown errors use `application/problem+json` with `type` (`urn:octocove:problem:
 | 409 | `generation-superseded` | Materialized lanes: the named generation was superseded or its execution ended; read the current generation. |
 | 403 | `scope-refused` | Materialized lanes: the path lies outside the generation's read scope. |
 | 403 | `lane-kind-refused` | Materialized lanes: this route is not part of a materialized lane's surface (whole-repository reads, broker credentials, Git transport). |
-| 413 | `blob-too-large` | Materialized lanes: the blob exceeds the lane read limit. |
+| 413 | `blob-too-large` | Materialized lanes: the blob exceeds the lane blob limit (reads and uploads). |
+| 404 | `blob-unknown` | Materialized lanes: a put names a blob id this claim never uploaded (or the execution that staged it ended); upload it again. |
+| 409 | `contribution-ref-conflict` | Materialized lanes: the submission's contribution ref already exists at another commit; submit again under a new key. |
+| 409 | `change-failed` | Materialized lanes: a replay of a changes submission that failed before any record (`details.reason` carries the original code). |
 | 409 | `dependency-cycle` | Remove the self/transitive cycle from the proposed edge. |
 | 409 | `dependency-edit-refused` | Edit dependencies only while draft or ready. |
 | 409 | `dependency-state-mismatch` | Refresh edges; add requires absence and remove requires presence. |

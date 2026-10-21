@@ -2425,6 +2425,75 @@ paths:
         '403': {$ref: '#/components/responses/Problem'}
         '404': {$ref: '#/components/responses/Problem'}
         '409': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/blobs:
+    post:
+      operationId: laneBlobUpload
+      summary: Upload content for a later changes submission (preview)
+      description: ADR 0030. The claim's agent stages content before naming it in a changes submission. The id is the sha256 of the bytes,
+        so the same content uploads once per claim and a repeat answers the same id; content above the lane limit is 413 blob-too-large.
+        Staged content lives with the execution and is discarded when it ends; it is not a Git object until a changes submission names it.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LaneBlobUpload'}
+      responses:
+        '201':
+          description: The content-addressed id.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  claimAttemptId: {$ref: '#/components/schemas/Id'}
+                  blobId: {type: string, pattern: '^[0-9a-f]{64}$'}
+                  size: {type: integer, minimum: 0}
+                required: [claimAttemptId, blobId, size]
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/changes:
+    post:
+      operationId: laneChangesSubmit
+      summary: Submit explicit file operations against a generation (preview)
+      description: ADR 0030. The claim's agent names the open generation and a list of put and delete operations inside the write scope,
+        each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal,
+        duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the
+        generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate.
+        The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same
+        ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence
+        is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit;
+        409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider
+        has no object writer yet.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LaneChanges'}
+      responses:
+        '201':
+          description: The recorded submission and candidate.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LaneChangeResult'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
   /tasks/{id}/release:
     post:
       operationId: taskRelease
@@ -8074,6 +8143,49 @@ components:
         write: {type: array, maxItems: 64, items: {type: string}}
         requestId: {$ref: '#/components/schemas/Id'}
       required: [claimAttemptId, read, write]
+    LaneBlobUpload:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). Content to stage for a changes submission; base64 is the only encoding.
+      properties:
+        content: {type: string, description: Base64 of the bytes (at most the lane blob limit once decoded).}
+        encoding: {type: string, enum: [base64]}
+      required: [content]
+    LaneChangeOperation:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). One file operation; put names an uploaded blob and an optional mode (default 100644), delete names
+        only the path. Paths are repository-relative, without leading slash, dot segments or backslashes.
+      properties:
+        op: {type: string, enum: [put, delete]}
+        path: {type: string, minLength: 1, maxLength: 4096}
+        blobId: {type: string, pattern: '^[0-9a-f]{64}$'}
+        mode: {type: string, enum: ['100644', '100755', '120000']}
+      required: [op, path]
+    LaneChanges:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). The operations of one submission against the named open generation; at most 2000, unique by path.
+      properties:
+        generation: {type: integer, minimum: 1}
+        operations: {type: array, minItems: 1, maxItems: 2000, items: {$ref: '#/components/schemas/LaneChangeOperation'}}
+        message: {type: string, maxLength: 4000, description: 'Optional commit message body; the server appends its trailers.'}
+      required: [generation, operations]
+    LaneChangeResult:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). The submission and candidate recorded for a changes submission. staged is always false; a
+        materialized lane never stages behind a fence, it refuses with 409 fenced instead.
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        seq: {type: integer, minimum: 1}
+        candidateId: {$ref: '#/components/schemas/Id'}
+        candidateSha: {$ref: '#/components/schemas/Sha'}
+        baseSha: {$ref: '#/components/schemas/Sha'}
+        contributionRef: {type: string, description: 'refs/octocove/contributions/<id>, create-only.'}
+        candidateStatus: {type: string, enum: [active, stale]}
+        staged: {type: boolean, enum: [false]}
+      required: [id, seq, candidateId, candidateSha, baseSha, contributionRef, candidateStatus, staged]
     ChainLane:
       type: object
       additionalProperties: false
