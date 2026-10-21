@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.7
+
+Release `@yolo-labs/octocove` 0.3.7 and `@yolo-labs/octocove-client` 0.3.0.
+
+- Add materialized lanes (preview): `task claim TASK --lane materialized --read PREFIXES --write PREFIXES` claims a scoped slice of a repository without a clone or helper, and `lane materialize|status|refresh|resolve|submit` work in a plain directory with a `.octocove/lane.json` sidecar. `lane refresh` is non-destructive: unedited files follow upstream, files changed on both sides keep the local copy and receive the upstream copy under `.octocove/incoming/`, and `lane submit` refuses while conflicts are unresolved or an edit is outside the write scope.
+- Client 0.3.0: the eight materialized-lane operations and their retry classes. The generated modules come from the service's API contract (`generate -- --spec PATH`); without one, `check:generated` checks the retry-policy join, the operation set, the build record and the output digest.
+- The repository now holds only the CLI and its npm libraries.
+
 ## 0.3.6
 
 - Renew scoped agent delegation tokens automatically within their authorization ceiling and claim lease, sharing the protected rotation lock and persisting replacements before retry. Preserve streaming Git transports and keep human and agent identities separate.
