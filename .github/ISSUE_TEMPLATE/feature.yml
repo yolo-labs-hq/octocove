@@ -22,8 +22,8 @@ body:
   - type: textarea
     id: contract
     attributes:
-      label: "Glossary and ADR impact"
-      description: "Say glossary unchanged, or link/propose an ADR for any new noun, state or public write route. Describe synchronized glossary/API/OpenAPI/record changes."
+      label: "Service or API impact"
+      description: "Say whether the change needs the service or its API to change (a new noun, state or write route). Client-only changes say none."
     validations:
       required: true
   - type: textarea

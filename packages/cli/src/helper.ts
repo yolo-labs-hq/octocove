@@ -25,7 +25,7 @@ export async function validateClaimRemote(value: string, env: NodeJS.ProcessEnv,
   if (!remote.startsWith(root + sep)) throw new ConfigError('local Git remote is outside the configured root');
 }
 
-// ADR 0005 authenticated local helper. When the trusted runtime provisions a per-attempt
+// The authenticated local helper (credential boundary). When the trusted runtime provisions a per-attempt
 // helper socket (OCTOCOVE_HELPER_SOCK), the lane pushes git bytes through it and NO reusable
 // credential is written to git config, env or disk: allocated, external-ref and chain lanes
 // use no git credential helper returning a password. The runtime starts the helper, sets the

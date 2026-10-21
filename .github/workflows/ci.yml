@@ -30,12 +30,6 @@ jobs:
     timeout-minutes: 2
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 2 # the PR merge commit and both parents
-      - name: Frozen paths are unchanged (server engine, API contract, record documents)
-        run: python3 -B tools/check-frozen.py
-      - name: Test the frozen-path check
-        run: python3 -B tools/test_check_frozen.py
       - name: Evidence links resolve (line and heading anchors in docs and published Markdown; titled code anchors)
         run: python3 -B tools/check-evidence-links.py
       - name: Test evidence link check rejection cases
@@ -46,26 +40,6 @@ jobs:
         run: python3 -B tools/release-scan/scan.py
       - name: Test the scan's detectors and dispositions
         run: python3 -B tools/release-scan/test_scan.py
-  events-conformance-local:
-    name: events conformance (local oracles)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version-file: .nvmrc
-      - name: Event oracle and fault protocol tests (small fixtures, no timing gates)
-        run: node --test --test-concurrency=1 tools/conformance/events/events.test.mjs
-      - name: Record local timings and per-cell verdicts
-        run: node tools/conformance/events/cli.mjs local .evidence/events-local
-      - name: Upload local event evidence (never live qualification)
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: conformance-events-local
-          path: .evidence/events-local/*.json
-          if-no-files-found: error
   check-shards:
     name: check (${{ matrix.suite }})
     runs-on: ubuntu-latest
@@ -87,7 +61,7 @@ jobs:
         run: timeout --kill-after=10 180 pnpm install --frozen-lockfile < /dev/null
       - name: Typecheck
         run: timeout 600 pnpm -r typecheck < /dev/null
-      - name: Test the packages and the conformance harness
+      - name: Test the packages
         # Each package keeps its own budget; no timeout around the workspace.
         # packages/client runs in its own client job (Node + workerd).
         run: pnpm -r --filter '!./packages/client' test < /dev/null
@@ -128,8 +102,6 @@ jobs:
         run: pnpm --filter ./packages/client test < /dev/null
       - name: Unit tests inside a workerd isolate
         run: pnpm --filter ./packages/client test:workerd < /dev/null
-      - name: Conformance Git adapter stops at the journey's signal and deadline (scripted git, no runtime)
-        run: timeout 120 node --test --test-concurrency=1 tools/conformance/drivers/library-git.test.mjs < /dev/null
       - name: Build and smoke-import the npm pack tarball
         env:
           # The checked-out reviewed head; the tarball and the artifact both carry it.
@@ -160,7 +132,7 @@ jobs:
           fetch-depth: 2 # the PR merge commit and both parents
       - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
         id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'spec/**' 'packages/cli/**' 'packages/client/**' 'packages/shared/**' 'tools/release-scan/**' 'LICENSE' 'NOTICE' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
+        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'packages/cli/**' 'packages/client/**' 'packages/shared/**' 'tools/release-scan/**' 'LICENSE' 'NOTICE' 'package.json' 'pnpm-lock.yaml' 'pnpm-workspace.yaml' 'tsconfig.base.json' '.nvmrc'
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         if: steps.scope.outputs.run == 'true'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -192,7 +164,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    needs: [check-shards, client, npm-pack, events-conformance-local, workflow-policy, repo-hygiene, spec-lint, licenses]
+    needs: [check-shards, client, npm-pack, workflow-policy, repo-hygiene, licenses]
     steps:
       - name: Require every check dependency to pass
         if: ${{ always() }}
@@ -200,36 +172,16 @@ jobs:
           SHARD_RESULT: ${{ needs.check-shards.result }}
           HYGIENE_RESULT: ${{ needs.repo-hygiene.result }}
           POLICY_RESULT: ${{ needs.workflow-policy.result }}
-          EVENTS_RESULT: ${{ needs.events-conformance-local.result }}
-          SPEC_LINT_RESULT: ${{ needs.spec-lint.result }}
           LICENSES_RESULT: ${{ needs.licenses.result }}
           CLIENT_RESULT: ${{ needs.client.result }}
           NPM_PACK_RESULT: ${{ needs.npm-pack.result }}
         run: |
           test "$SHARD_RESULT" = success
-          test "$EVENTS_RESULT" = success
-          test "$SPEC_LINT_RESULT" = success
           test "$LICENSES_RESULT" = success
           test "$CLIENT_RESULT" = success
           test "$NPM_PACK_RESULT" = success
           test "$POLICY_RESULT" = success
           test "$HYGIENE_RESULT" = success
-  spec-lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-        with:
-          fetch-depth: 2 # the PR merge commit and both parents
-      - name: Area scope (PRs skip untouched inputs; see tools/ci-scope.py)
-        id: scope
-        run: python3 tools/ci-scope.py '.github/workflows/ci.yml' 'spec/openapi.yaml' '.nvmrc'
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        if: steps.scope.outputs.run == 'true'
-        with:
-          node-version-file: .nvmrc
-      - run: npx --yes @redocly/cli@2.58.1 lint spec/openapi.yaml < /dev/null
-        if: steps.scope.outputs.run == 'true'
   licenses:
     runs-on: ubuntu-latest
     timeout-minutes: 5

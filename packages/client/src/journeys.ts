@@ -485,7 +485,7 @@ export function journeys(client: OctocoveClient) {
       body(options, 'receiptGet', { path: { id: receiptId } }, { credential: options.credential }),
   };
 
-  // ---- chain lanes (ADR 0003) ----
+  // ---- chain lanes ----
   async function deliveryWait(taskId: string, pushId: string, options: WaitOptions & { readonly credential?: BearerTransport }, scope = journeyScope(options)): Promise<ChainPushResult> {
     let lane: ChainLane | undefined;
     try {

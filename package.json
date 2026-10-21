@@ -10,8 +10,6 @@
   },
   "scripts": {
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "conformance": "node tools/conformance/run.mjs",
-    "conformance:shard": "node tools/conformance/run.mjs --shard"
+    "test": "pnpm -r test"
   }
 }

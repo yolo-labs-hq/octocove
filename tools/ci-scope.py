@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""In-job area skip for required workflows (ADR 0012); no deps.
+"""In-job area skip for required workflows; no deps.
 
 Usage: python3 tools/ci-scope.py <glob>...   (writes run=true|false to $GITHUB_OUTPUT)
 

@@ -1,10 +1,10 @@
-// Acceptance-evidence runner for the authenticated local helper (ADR 0005 §Required controls
-// and verification, items 1, 3, 4, 5).
+// Acceptance-evidence runner for the authenticated local helper (the credential
+// boundary's required controls 1, 3, 4 and 5).
 // Local only: our own disposable bare repos stand in for the gateway/Artifacts upstream; the
 // authority is a provider double (labelled). No live Artifacts/runtime claim is implied.
 //
 //   node tests/evidence.mjs            # prints the table
-//   node tests/evidence.mjs --write    # also writes <evidence dir>/credential-boundary/summary.json
+//   node tests/evidence.mjs --write    # also writes <evidence dir>/helper-acceptance/summary.json
 //
 // The evidence directory is OCTOCOVE_EVIDENCE_DIR (relative to the repository root, or absolute), else the gitignored .evidence/.
 import { spawn } from 'node:child_process';
@@ -90,7 +90,7 @@ async function run() {
 
 await run();
 const summary = {
-  subject: 'broker-held helper credentials', adr: 'docs/adr/0005-credential-boundary.md',
+  subject: 'broker-held helper credentials', contract: 'docs/HELPER_BROKER_CONTRACT.md',
   scope: 'local disposable bare repos; authority is a labelled provider double; no live Artifacts/runtime claim',
   generatedBy: 'packages/helper/tests/evidence.mjs', total: cases.length,
   passed: cases.filter(c => c.ok).length,
@@ -105,7 +105,7 @@ for (const c of cases) console.log(`${pad(c.item, 6)}${pad(c.name, 22)}${pad(c.e
 console.log(`\n${summary.passed}/${summary.total} cases as expected; unauthorized upstream writes=${summary.totalDirectUpstreamWrites}; unauthorized ref mutations=${summary.unauthorizedRefMutations}`);
 
 if (process.argv.includes('--write')) {
-  const out = resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.OCTOCOVE_EVIDENCE_DIR || '.evidence', 'credential-boundary');
+  const out = resolve(fileURLToPath(new URL('../../../', import.meta.url)), process.env.OCTOCOVE_EVIDENCE_DIR || '.evidence', 'helper-acceptance');
   await mkdir(out, { recursive: true });
   await writeFile(join(out, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
   console.log(`\nwrote ${join(out, 'summary.json')}`);

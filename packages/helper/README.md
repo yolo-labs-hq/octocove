@@ -1,7 +1,7 @@
-# @octocove/helper — authenticated local helper (ADR 0005)
+# @octocove/helper — authenticated local helper
 
-Octocove-side reference implementation of the **authenticated local helper** from
-[ADR 0005](../../docs/adr/0005-credential-boundary.md). It
+Octocove-side reference implementation of the **authenticated local helper** of the
+[helper/broker contract](../../docs/HELPER_BROKER_CONTRACT.md). It
 addresses sibling-lane token theft on the Octocove side by keeping the
 reusable lease/credential out of lane visibility entirely: the lane speaks only the git
 pack protocol to a per-attempt socket, and the authenticated upstream connection lives in
@@ -9,7 +9,7 @@ the helper. This is **not** a credential helper that returns a password to git.
 
 It is a transport custody layer, not a public API, and introduces no new record noun,
 state or write route. The gateway channel proof is implemented by `proofAuthority`; orchestrator /
-host runtime isolation is client runtime work (ADR 0005 guidance; outside this repo).
+host runtime isolation is client runtime work (outside this repo).
 
 ## Components
 
@@ -29,13 +29,13 @@ host runtime isolation is client runtime work (ADR 0005 guidance; outside this r
   failures, and retirement removes the entire directory. `localAuthority` mediates to a local bare
   repo for disposable-local acceptance.
 - `proofAuthority` (`src/proof-authority.mjs`) — authority for a proof-mode gateway
-  (ADR 0005 gateway channel proof). Holds the attempt's mTLS channel identity and lease; for each accepted
+  (gateway channel proof). Holds the attempt's mTLS channel identity and lease; for each accepted
   pre-receive update it builds the exact receive-pack body, obtains a single-use proof over its
   digest on that channel and sends the same bytes with the proof. Lost/ambiguous outcomes are
   surfaced (`upstream-ambiguous`), never retried with a fresh proof. Fetches use the same private
   lease-config storage and cleanup as `gatewayAuthority`.
 - `taskRepoAuthority` (`src/task-repo-authority.mjs`) is the authority for an allocated task
-  repository (repo lane; [ADR 0005 repo-lane write delivery](../../docs/adr/0005-credential-boundary.md#repo-lane-write-delivery)).
+  repository (repo lane; repo-lane write delivery).
   - **Liveness:** the server's claim status for the exact mapping.
   - **Seeds:** a short broker *read* token, used in the private runtime config and revoked after
     the fetch.
@@ -90,8 +90,7 @@ remotes must be credential-free HTTPS, and a task repository must be an Artifact
 `/git/<namespace>/<repo>.git` remote. Every git child runs with an allowlisted environment
 (`PATH` and locale only, no global or system config), never the runtime's own.
 
-**The helper does not provide runtime isolation.** As specified by
-[ADR-0005](../../docs/adr/0005-credential-boundary.md), same-UID `/proc` secret isolation and
+**The helper does not provide runtime isolation.** Same-UID `/proc` secret isolation and
 socket-peer isolation are client-runtime properties, which require a distinct UID, isolated user
 namespace or microVM. Mode 0700/0600 files and these helper checks do not prevent
 same-UID processes from reading secrets or establish an attempt identity. The tests below use

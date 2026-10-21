@@ -492,7 +492,7 @@ export const authCases: Case[] = [
     ok(calls.every((x) => !x.headers['idempotency-key']), 'a read carries no Idempotency-Key');
   }),
 
-  // ---- own notifications (ADR 0025) ----
+  // ---- own notifications ----
   test('auth.notifications.list reads GET /v1/me/notifications with unread, limit and cursor, with no Idempotency-Key; limit 0 is the badge', async () => {
     const item = { id: 'ntf_7', kind: 'landed', projectId: 'p', projectSlug: 'p', projectName: 'P', taskId: 't', taskTitle: 'Fix',
       eventId: 'evt_42', createdAt: '2026-10-10T00:00:00.000Z', readAt: null };

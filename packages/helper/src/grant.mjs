@@ -1,4 +1,4 @@
-// Immutable broker-grant identity/scope for the authenticated local helper (ADR 0005).
+// Immutable broker-grant identity/scope for the authenticated local helper (credential boundary).
 //
 // A "lease" is an existing broker grant, not a new substrate noun. The broker derives
 // it from live attempt authority plus the server-owned mapping; a client can never
@@ -9,7 +9,7 @@
 
 const OPERATIONS = new Set(['read', 'write']);
 // `ref`: a ref lane in a shared repository (the default). `repo`: an allocated task
-// repository, single-writer by construction (ADR 0005 "Repo-lane write delivery").
+// repository, single-writer by construction (repo-lane write delivery).
 const LANES = new Set(['ref', 'repo']);
 
 // A ref-lane write grant owns exactly one `refs/heads/lane/<lane>` ref. A repo-lane write

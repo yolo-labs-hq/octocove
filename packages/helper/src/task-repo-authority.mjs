@@ -1,5 +1,5 @@
 // taskRepoAuthority — AttemptHelper authority for an allocated task repository (repo lane;
-// ADR 0005 "Repo-lane write delivery").
+// the credential boundary's repo-lane write delivery).
 //
 // The task repository is single-writer by construction, and its provider write token never
 // leaves the control plane. Reads seed the mirror with a short broker *read* token in the

@@ -30,13 +30,14 @@ pnpm install --frozen-lockfile
 
 If Corepack is unavailable, install pnpm 10.34.5 using your normal package-manager setup. Required local checks use fixtures and provider doubles and do not need service credentials. See the [docs index](docs/README.md) for component instructions.
 
-## Scope and glossary
+## Scope
 
-Read [GLOSSARY.md](docs/GLOSSARY.md), especially the scope fence and change rule, before proposing changes. Octocove owns collaboration intent, authority, evidence, dependencies and Git delivery. Agent scheduling, compute provisioning, CI execution services and client review tooling belong to clients/adapters; workspace adapters are external.
-
-**A new substrate noun, a new state on an existing noun, or a new public API write route needs an ADR** in `docs/adr/NNNN-<slug>.md` in the same PR. Reuse existing terms first; promoting a planned term also triggers this rule. Use the glossary's ADR template and next available number. State the affected archetypes and what the change does not do; a single integration's convenience alone does not justify a substrate concept.
-
-When a decision is accepted, update the glossary in the same PR; the OpenAPI, API and collaboration record documents are frozen and do not change. If the glossary does not change, explicitly say so in the PR. This is a review rule, not a claim of automated enforcement.
+This repository holds the CLI and its npm libraries. Changes to the packages, their tests, their guides and the
+tooling that builds and publishes them are welcome here. Octocove owns collaboration intent, authority, evidence,
+dependencies and Git delivery; agent scheduling, compute provisioning, CI execution services and review tooling
+belong to clients and adapters. Changes to the service, its API contract or its behaviour are proposed as an issue,
+not as a pull request here: describe the client need, the affected client archetypes and what the change does not
+do.
 
 ## Bounded checks
 
@@ -46,19 +47,17 @@ Run **one test file or one package at a time, sequentially**. Recursive builds a
 pnpm --filter @yolo-labs/octocove exec vitest run tests/cli.test.ts --maxWorkers=1
 pnpm --filter @yolo-labs/octocove-client test
 pnpm --filter @octocove/helper test
-pnpm --dir tools/conformance test
-npx --yes @redocly/cli@2.58.1 lint spec/openapi.yaml
 ```
 
 These are examples, not mandatory checks for every PR; `pnpm -r test` runs every package's tests. Keep Vitest at one worker where supported. For Node tests, name one file; if it uses concurrent subtests, also set `--test-concurrency=1`. Scope any necessary build/typecheck to the changed package. Documentation-only changes generally need link, syntax and diff checks, not runtime tests.
 
-The server engine (`server/`), the API contract (`spec/`) and the record documents are [frozen](docs/PUBLIC_SCOPE.md#frozen-paths); `tools/check-frozen.py` fails a pull request that changes them. Contributions go to the CLI, the client library, the helper, the shared package, the conformance harness and the client docs. The client's generated modules are regenerated from the hosted service's contract by the maintainers (`pnpm --filter @yolo-labs/octocove-client generate -- --spec PATH`); `check:generated` and `check:policy` then check the retry-policy join, the operation set and the build record.
+Contributions go to the CLI, the client library, the helper, the shared package and the client docs. The client's generated modules are regenerated from the hosted service's contract by the maintainers (`pnpm --filter @yolo-labs/octocove-client generate -- --spec PATH`); `check:generated` and `check:policy` then check the retry-policy join, the operation set and the build record.
 
 Docs line links (`#L<n> "token"`) drift when a concurrent change shifts their target file: after merging the target branch, run `python3 tools/reanchor-evidence-links.py`, then `python3 -B tools/check-evidence-links.py`. The first moves each broken link to the one line holding its token and reports any it cannot place; fix those by hand.
 
 ## Pull requests
 
-One change per PR. Describe the concrete problem, resulting behavior and scope; link the issue and any ADR. Keep unrelated changes out. Name every check you actually ran, its result, and checks skipped with reasons. Evidence must state revision and local versus live scope; preserve FAIL/BLOCKED findings and distinguish fixtures/provider doubles from deployed qualification. Never describe an unrun check as passing.
+One change per PR. Describe the concrete problem, resulting behavior and scope; link the issue. Keep unrelated changes out. Name every check you actually ran, its result, and checks skipped with reasons. Evidence must state revision and local versus live scope; preserve FAIL/BLOCKED findings and distinguish fixtures/provider doubles from deployed qualification. Never describe an unrun check as passing.
 
 Use the PR checklist, sign off every contribution commit, and disclose material AI assistance. Sanitize logs, screenshots and evidence before posting: no secrets, personal data, absolute local paths, or private deployment identifiers. Report suspected vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
 
@@ -74,7 +73,7 @@ default branch.
 
 | Workflow | Required check | Coverage |
 | --- | --- | --- |
-| `ci.yml` | `check` | Aggregates `check-shards` (typecheck and tests of the packages), `client`, `npm-pack`, `events conformance (local oracles)`, `spec-lint`, `licenses`, `workflow-policy` and `repo-hygiene`; fails on any failed, skipped or cancelled dependency. |
+| `ci.yml` | `check` | Aggregates `check-shards` (typecheck and tests of the packages), `client`, `npm-pack`, `licenses`, `workflow-policy` and `repo-hygiene`; fails on any failed, skipped or cancelled dependency. |
 
 The jobs behind `check`:
 
@@ -82,11 +81,9 @@ The jobs behind `check`:
 | --- | --- |
 | `workflow-policy` | `python3 tools/check-ci-policy.py` and its fixture tests. |
 | `repo-hygiene` | The documentation link checks (`tools/check-evidence-links.py`), the counts-only secret and identifier scan of `HEAD` (`tools/release-scan/scan.py`), and their fixture tests. |
-| `events-conformance-local` | The event oracle and fault protocol tests under `tools/conformance/events/`, with local timings uploaded as an artifact (never live qualification). |
 | `check-shards` | Typecheck and tests of the packages under `packages/` other than the client. |
 | `client` | The client's generated-code and retry-policy drift checks, its unit tests on Node 22 and inside a workerd isolate, and a smoke import of its `npm pack` tarball. |
 | `npm-pack` | Builds `@yolo-labs/octocove` and the client, `pnpm pack`s both and runs the tarball gate (`tools/release-scan/pack_scan.py`); it publishes nothing ([Releasing the CLI and client](docs/RELEASING.md#releasing-the-cli-and-client)). |
-| `spec-lint` | Redocly lint of `spec/openapi.yaml`. |
 | `licenses` | `tools/release-scan/licenses.py --check`: `third-party-licenses.json` and `THIRD_PARTY_NOTICES.md` match the lockfile and the reviewed `license-metadata.json`, offline. After a dependency change, run `licenses.py --refresh`, review the new metadata, then regenerate with `licenses.py`. |
 
 ### CI event and cancellation policy

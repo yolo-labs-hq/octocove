@@ -2,9 +2,8 @@
 
 **Git hosting for humans and agents.** By YOLO Labs.
 
-Octocove is an open-source GitHub alternative for the AI era, backed by Cloudflare Workers and Artifacts. It carries intent, exact-candidate approvals and attributable landing receipts across [three client archetypes](docs/GLOSSARY.md#archetypes): a workspace adapter, an agent working in its own clone through the CLI, and CI with a policy-bot approver. Octocove is designed to be independently usable; YOLO Studio is its first integration and remains a separate, closed application.
+Octocove is an open-source GitHub alternative for the AI era, backed by Cloudflare Workers and Artifacts. It carries intent, exact-candidate approvals and attributable landing receipts across three client archetypes: a workspace adapter, an agent working in its own clone through the CLI, and CI with a policy-bot approver. Octocove is designed to be independently usable; YOLO Studio is its first integration and remains a separate, closed application.
 
-Decisions: [0001 machine approval](docs/adr/0001-machine-approval-authority.md), [0002 own-clone registration](docs/adr/0002-own-clone-source-registration.md), [0003 chain lanes](docs/adr/0003-chain-mode-repo-lanes.md), [0004 events](docs/adr/0004-event-vocabulary.md), [0005 credential boundary](docs/adr/0005-credential-boundary.md), [0027 organizations and tenant routing (accepted contract; runtime not yet shipped)](docs/adr/0027-organizations-tenant-identity-and-explicit-tenant-routing.md). Lane topology is decided in [ADR 0003](docs/adr/0003-chain-mode-repo-lanes.md) (Artifacts canonicals use chain-mode repo lanes) and [ADR 0010](docs/adr/0010-byo-canonical-provider.md) (BYO canonical providers use ref lanes).
 
 - Intent travels with the task
 - One collaboration API for humans and agents
@@ -14,28 +13,21 @@ Decisions: [0001 machine approval](docs/adr/0001-machine-approval-authority.md),
 
 ## Octocove and your agents
 
-Octocove does not orchestrate your agents. It records versioned intent, enforces dependencies on accepted landed results, and preserves the authority and exact approval behind each result. Chain lanes let successive attempts share a Git repository under one-writer rules, with each successor pinned to the preceding accepted result. Events and webhooks report recorded changes so your client can read the authoritative state and decide what work to run next. Octocove schedules and retries its own record operations, but it will never choose, launch, or schedule your participant agents or select their models and prompts. The [glossary's scope fence](docs/GLOSSARY.md#scope-fence) is the committed boundary.
+Octocove does not orchestrate your agents. It records versioned intent, enforces dependencies on accepted landed results, and preserves the authority and exact approval behind each result. Chain lanes let successive attempts share a Git repository under one-writer rules, with each successor pinned to the preceding accepted result. Events and webhooks report recorded changes so your client can read the authoritative state and decide what work to run next. Octocove schedules and retries its own record operations, but it will never choose, launch, or schedule your participant agents or select their models and prompts. The glossary's scope fence is the committed boundary.
 
 ## This repository
 
-This repository contains the Octocove clients: the CLI, the client library and the credential helper. It also keeps a frozen copy of the server engine and API contract. Use the hosted web app, or run the frozen Worker engine yourself.
-
-The server engine (`server/`), the API contract (`spec/`) and the record documents ([API.md](docs/API.md), [COLLABORATION_RECORD.md](docs/COLLABORATION_RECORD.md)) are **frozen**: they stay here for reference and receive no further changes. Development continues on the CLI, the client library and the credential helper, which track the hosted service; they may call operations that the frozen contract does not describe.
+This repository contains the Octocove command-line client and the npm libraries it is built from. The service itself, its API contract and its design documents are maintained separately; use the hosted service at [app.octocove.com](https://app.octocove.com).
 
 | Path | What it is |
 | --- | --- |
-| `server/` | Worker API, collaboration record, D1 migrations and Artifacts integration. Frozen. |
 | [`packages/cli`](packages/cli/README.md) | The `octocove` command-line client (`@yolo-labs/octocove`). |
 | [`packages/client`](packages/client/README.md) | The typed API client library (`@yolo-labs/octocove-client`). |
 | [`packages/helper`](packages/helper/README.md) | The local credential helper. |
 | [`packages/shared`](packages/shared/README.md) | Code shared by the packages. |
-| [`spec/`](spec/openapi.yaml) | The API contract: `openapi.yaml` and the contract fixtures under `spec/fixtures/contract/`. Frozen. |
-| [`tools/conformance`](tools/conformance/README.md) | The client conformance harness and event oracles. |
-| [`docs/`](docs/README.md) | Glossary, collaboration record, API reference, ADRs, client contract and runbooks. |
+| [`docs/`](docs/README.md) | Client guides: the multi-agent walkthrough, examples, the helper/broker contract and the release process. |
 
-**Open-source scope.** Everything in this repository is Apache-2.0: the server engine, the CLI, the client library, the credential helper, the API contract, the conformance harness and the docs. The hosted web application at [app.octocove.com](https://app.octocove.com) is a separate client and is not included here; a review UI can be built against the record API and client library. YOLO Studio is a separate, closed application. See [public scope](docs/PUBLIC_SCOPE.md) for details.
-
-How the clients reach the service (HTTP API, events and webhooks, the helper/broker contract and Git transport) is summarised in the [documentation index](docs/README.md#how-the-client-talks-to-the-service); the record itself is specified in [docs/COLLABORATION_RECORD.md](docs/COLLABORATION_RECORD.md).
+**Open-source scope.** Everything in this repository is Apache-2.0. The hosted service, its web application and YOLO Studio are separate and are not included here. See [public scope](docs/PUBLIC_SCOPE.md).
 
 ## Run with the hosted service
 
@@ -106,42 +98,9 @@ In the web app, the human reviews the candidate diff and checks, clicks
 or land in this walkthrough. See [the multi-agent walkthrough](docs/DEMO.md) for
 concurrency, dependencies and merge recovery.
 
-## Run the server yourself
-
-The Apache-2.0 Worker engine lives in `server/`; see [the server setup guide](server/README.md) for binding and authentication prerequisites. Use the repository's Node/pnpm versions for source development. The included `server/wrangler.jsonc` uses example resource names and a local D1 database; native Git operations require your own Artifacts REST account/token configuration.
-
-The verified local path is **API boot only**. From the repository root:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm --filter @octocove/server typecheck
-pnpm --filter @octocove/server db:migrate:local
-pnpm --filter @octocove/server dev --local --ip 127.0.0.1 --port 8790
-```
-
-In another terminal, check the local API without sending any CLI credentials:
-
-```sh
-curl -q --fail http://localhost:8790/healthz
-curl -q --silent --show-error --output /dev/null --write-out '%{http_code}\n' http://localhost:8790/v1/me
-```
-
-The health request returns HTTP 200; the unauthenticated `me` request must print `401`. All 56 local D1 migrations apply, and the selected core tests pass as listed in the server guide. Local D1 does not emulate Artifacts Git storage.
-
-**Interactive login is not provided by this snapshot.** There is no `/auth/cli` consent UI. An API URL plus OIDC configuration alone cannot complete CLI device login; a separately supplied consent page must use the existing browser session, binding and CSRF confirmation endpoints. The hosted service provides that page. Do not substitute a generic development bearer.
-
-For a separately configured self-host deployment, use its API URL and a fresh private CLI configuration directory:
-
-```sh
-export OCTOCOVE_API_URL=http://localhost:8790/v1
-export OCTOCOVE_CONFIG_DIR="$(mktemp -d)"
-```
-
-These settings select the API and isolate credentials; they do not complete login. The published CLI requires an HTTPS verification URL for login, so a complete self-host setup also needs trusted HTTPS. Never reuse a hosted credential for another service. Refer to the server guide before enabling authenticated repository writes.
-
 ## Scope of evidence
 
-Package tests run against fixtures and provider doubles; the conformance harness checks client behaviour against the contract fixtures. Neither qualifies a deployed end-to-end service.
+Package tests run against fixtures and provider doubles. They do not qualify a deployed end-to-end service.
 
 ## Development
 
@@ -150,13 +109,12 @@ pnpm install --frozen-lockfile
 pnpm --filter @yolo-labs/octocove exec vitest run tests/cli.test.ts --maxWorkers=1
 pnpm --filter @yolo-labs/octocove-client test
 pnpm --filter @octocove/helper test
-npx --yes @redocly/cli@2.58.1 lint spec/openapi.yaml
 ```
 
-Use Node 22 and pnpm 10.34.5. Run one test file at a time with one worker; `pnpm -r test` runs every package's tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and scope rules and the [documentation index](docs/README.md) for contracts and runbooks.
+Use Node 22 and pnpm 10.34.5. Run one test file at a time with one worker; `pnpm -r test` runs every package's tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and scope rules and the [documentation index](docs/README.md) for the client guides.
 
 Tool versions are pinned (`.nvmrc`, `packageManager`).
 
 ## License
 
-Octocove’s substrate, CLI, code and documentation are licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) for attribution and [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off requirement. YOLO Studio remains closed source and is the first integration.
+Octocove’s CLI, libraries, code and documentation in this repository are licensed under [Apache-2.0](LICENSE). See [NOTICE](NOTICE) for attribution and [CONTRIBUTING.md](CONTRIBUTING.md) for the DCO sign-off requirement. YOLO Studio remains closed source and is the first integration.

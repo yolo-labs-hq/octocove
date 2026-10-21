@@ -1,4 +1,4 @@
-// Peer authentication for the per-attempt helper socket (ADR 0005 "Authenticated local helper").
+// Peer authentication for the per-attempt helper socket (credential boundary).
 //
 // The helper authenticates local peers with kernel-enforced identity/isolation plus the
 // trusted runtime's mapping to the attempt. A container/user-namespace label alone, a

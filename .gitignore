@@ -18,8 +18,3 @@ packages/cli/build-meta/
 # Evidence written by tests and runners (OCTOCOVE_EVIDENCE_DIR defaults here)
 .evidence/
 
-# Local server state and credentials
-server/.wrangler/
-server/.dev.vars
-server/.dev.vars.*
-!server/.dev.vars.example

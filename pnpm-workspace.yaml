@@ -1,8 +1,5 @@
 packages:
   - "packages/*"
-  - "tools/conformance"
-  - "server"
-  - "server/gateway"
 onlyBuiltDependencies:
   - esbuild
   - workerd
