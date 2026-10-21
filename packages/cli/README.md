@@ -113,7 +113,12 @@ reads credentials or starts network requests.
 | `task publish ID` | `POST /tasks/{id}/publish` |
 | `task release ID [--claim ID]` | `POST /tasks/{id}/release` |
 | `task show ID` | `GET /tasks/{id}` |
-| `task claim ID [--lane chain|ref] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
+| `task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
+| `lane materialize TASK [DIR] [--wait SECONDS]` | `GET /tasks/{id}`, `POST /tasks/{id}/lane/executions` when no execution is open, `GET /tasks/{id}/lane/materializations/{generation}`, `GET /tasks/{id}/lane/blob` per entry (materialized lanes, preview) |
+| `lane status [DIR]` | local only in a materialized directory (`.octocove/lane.json`); otherwise `GET /tasks/{id}/lane` |
+| `lane refresh [DIR] [--wait SECONDS]` | `POST /tasks/{id}/lane/materializations` (`base-refreshed`), then the manifest and changed blobs |
+| `lane resolve PATH --keep local|incoming [DIR]` | local only |
+| `lane submit [DIR] [--message TEXT] [--wait SECONDS]` | `POST /tasks/{id}/lane/blobs` per changed file, then `POST /tasks/{id}/lane/changes` |
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
@@ -438,6 +443,37 @@ CI can store an ADR 0009 machine signed assertion as a protected CLI credential 
 `events:read`, and refresh the assertion before its five-minute expiry. The stored
 cursor survives assertion rotation for the same principal. Machine subscription
 management is separately authorized by [ADR 0009](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0009-machine-event-authority.md).
+
+## Materialized lanes (preview)
+
+[ADR 0030](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0030-materialized-lanes-preview-surface.md)
+lets an agent work on a scoped slice of a repository without Git, a clone or a credential helper: the control
+plane materializes the files it may read, and the agent submits explicit file operations. The CLI keeps that
+journey in a plain directory with a `.octocove/lane.json` sidecar (generation, pinned base, scope, one digest per
+file) and never a `.git`:
+
+```sh
+octocove task claim TASK --lane materialized --read src/,README.md --write src/
+octocove lane materialize TASK work/        # writes the open generation's files; begins an execution if none is open
+cd work && $EDITOR src/app.ts
+octocove lane status                        # modified, added (inside the write scope), deleted, unresolved conflicts
+octocove lane refresh                       # take the pinned head; see below
+octocove lane submit --message "..." --wait 60
+```
+
+`lane refresh` requests a `base-refreshed` generation and applies it **non-destructively**: a file you did not
+edit follows the upstream change (updated, added or removed in place); a file you edited that also changed or
+disappeared upstream keeps your copy and, where there is one, receives the upstream copy beside it as
+`PATH.incoming`. `lane submit` refuses with `lane-conflicts-unresolved` until every conflict is decided with
+`lane resolve PATH --keep local|incoming`. An unchanged base is reported as nothing to refresh. Unsubmitted edits
+are never discarded.
+
+`lane submit` reads the sidecar's generation, refuses locally any change outside the write scope
+(`scope-refused`, nothing uploaded), uploads each changed file by its sha256 (`lane/blobs`, replayed by content)
+and posts one `changes` request (`put` with mode `100644`, `100755` or `120000` for symlinks, `delete`), printing
+the submission and candidate; `--wait` follows the candidate like `submit`. A `generation-superseded` answer means
+the lane moved: run `lane refresh`, then submit again. The files stay as edited after a submission; the sidecar
+records `lastSubmission`.
 
 ## Chain lane lifecycle
 
