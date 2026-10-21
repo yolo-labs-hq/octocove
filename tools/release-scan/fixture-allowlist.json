@@ -71,6 +71,20 @@
       "kind": "secret_assignment",
       "reason": "Generated openapi-typescript type for the declared BYO Basic credential field; a type, not a credential value.",
       "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
+    },
+    {
+      "context_sha256": "205e7c0f5c75a8686ed527871addd2f59527c561c688632ebc4c513cf52140c8",
+      "file": "packages/client/dist/generated/openapi.d.ts",
+      "kind": "secret_assignment",
+      "reason": "Generated openapi-typescript declaration (built from src/generated/openapi.ts) for the OpenAPI Authorization schema (claim authorization record), not a credential value; shipped in the npm tarball.",
+      "value_sha256": "14b57e32825ade14cf13ce7f4c2bc6c75a70088735c0c5fe95ffb4e680e8b043"
+    },
+    {
+      "context_sha256": "f2212e7e5354c0b6e73810171eb0a030aeacc460e2311106dba0a1fbe9db0aef",
+      "file": "packages/client/dist/generated/openapi.d.ts",
+      "kind": "secret_assignment",
+      "reason": "Generated openapi-typescript declaration (built from src/generated/openapi.ts) for the OpenAPI Authorization schema (claim authorization record), not a credential value; shipped in the npm tarball.",
+      "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
     }
   ]
 }
