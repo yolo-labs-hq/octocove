@@ -286,7 +286,13 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
   await pruneIncoming(dir, new Set(Object.values(conflicts).map((c) => c.incoming).filter((p): p is string => !!p)));
   // Removals first, so an upstream file-to-directory (or symlink-to-directory) transition finds the old entry gone.
   for (const [path, old] of Object.entries(sc.files)) {
-    if (manifest.has(path) || old.mode === '160000') continue;
+    if (manifest.has(path)) continue;
+    if (old.mode === '160000') {
+      // A removed submodule: a local replacement the agent made is a decision to take; otherwise nothing is on disk.
+      if (await occupied(dir, path)) { await dropIncoming(path); conflicts[path] = { kind: 'removed-upstream', incoming: null }; }
+      else if (has(conflicts, path)) { await dropIncoming(path); delete conflicts[path]; }
+      continue;
+    }
     const l = await local(dir, path);
     const clean = l && l.digest === old.digest && l.mode === old.mode;
     if (!l && !await occupied(dir, path)) {
@@ -317,6 +323,9 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
           // Edited, replaced by something else, or deleted locally: the agent decides (keep local = its file or its deletion).
           await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null };
         }
+      } else if (!old && await occupied(dir, e.path)) {
+        // Competing additions: the agent's own file (or link, or directory) where upstream now adds a submodule.
+        await dropIncoming(e.path); conflicts[e.path] = { kind: 'modified-upstream', incoming: null };
       } else if (old && (old.deleted || await occupied(dir, e.path))) {
         // The agent replaced or deleted a submodule: still decided while upstream leaves it alone; a moved submodule asks again.
         if (old.sha === e.sha) files[e.path] = old;
