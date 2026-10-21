@@ -10,13 +10,16 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { chmod, lstat, mkdir, readdir, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ConfigError } from './config.js';
 import { ApiError, type Api } from './http.js';
 
 export const SIDECAR = '.octocove/lane.json';
+/** Upstream copies of conflicted files live here: never in the write scope, never submitted, never colliding with a repository path. */
+export const INCOMING = '.octocove/incoming';
 type Mode = '100644' | '100755' | '120000' | '160000';
 export interface LaneFile { mode: Mode; sha: string; digest: string | null }
 export interface LaneConflict { kind: 'modified-upstream' | 'removed-upstream'; incoming: string | null }
@@ -47,22 +50,34 @@ const absent = (error: unknown) => ['ENOENT', 'ENOTDIR'].includes((error as Node
 async function lstatOrNull(target: string) {
   try { return await lstat(target); } catch (error) { if (absent(error)) return null; throw error; }
 }
-/**
- * The on-disk location of a lane path. Lexical containment is not enough: every existing parent inside the lane must
- * be a real directory, never a symlink, so no write, delete or read follows a link out of the lane (or into `.octocove`).
- */
-async function safeJoin(dir: string, path: string) {
-  if (!validLanePath(path)) throw new ConfigError(`refusing an unsafe path from the lane: ${JSON.stringify(path)}`);
-  const target = resolve(dir, path);
-  if (relative(dir, target).startsWith('..') || !target.startsWith(dir + sep)) throw new ConfigError(`refusing a path outside the lane directory: ${JSON.stringify(path)}`);
+/** The first existing parent of `path` under `base` that is not a real directory: a symlink, or a file (a tree transition). */
+async function blockingParent(base: string, path: string): Promise<{ at: string; symlink: boolean } | null> {
   const parts = path.split('/');
   for (let i = 1; i < parts.length; i++) {
-    const s = await lstatOrNull(join(dir, ...parts.slice(0, i)));
-    if (!s) break;
-    if (!s.isDirectory()) throw new ConfigError(`refusing ${JSON.stringify(path)}: ${JSON.stringify(parts.slice(0, i).join('/'))} is ${s.isSymbolicLink() ? 'a symlink' : 'not a directory'} inside the lane`);
+    const s = await lstatOrNull(join(base, ...parts.slice(0, i)));
+    if (!s) return null;
+    if (!s.isDirectory()) return { at: parts.slice(0, i).join('/'), symlink: s.isSymbolicLink() };
   }
+  return null;
+}
+/**
+ * The on-disk location of a lane path. Lexical containment is not enough: no existing parent may be a symlink, so no
+ * read, write or delete follows a link out of the lane (or into `.octocove`). A regular file as a parent is allowed
+ * here (the path simply cannot exist); writers check `blockingParent` themselves.
+ */
+async function safeUnder(base: string, path: string, valid: (p: string) => boolean = validLanePath) {
+  if (!valid(path)) throw new ConfigError(`refusing an unsafe path from the lane: ${JSON.stringify(path)}`);
+  const target = resolve(base, path);
+  if (relative(base, target).startsWith('..') || !target.startsWith(base + sep)) throw new ConfigError(`refusing a path outside the lane directory: ${JSON.stringify(path)}`);
+  const blocked = await blockingParent(base, path);
+  if (blocked?.symlink) throw new ConfigError(`refusing ${JSON.stringify(path)}: ${JSON.stringify(blocked.at)} is a symlink inside the lane`);
   return target;
 }
+const safeJoin = (dir: string, path: string) => safeUnder(dir, path);
+const incomingOf = (path: string) => `${INCOMING}/${path}`;
+const validIncoming = (p: string) => p.startsWith(`${INCOMING}/`) && validLanePath(p.slice(INCOMING.length + 1));
+/** A recorded upstream copy's location; only names under `.octocove/incoming/` are ever honoured. */
+const incomingTarget = (dir: string, rel: string) => safeUnder(dir, rel, validIncoming);
 
 /** Synchronous on purpose: the dispatcher decides between the chain and materialized `lane status` before any I/O or timer. */
 export const hasSidecar = (dir: string) => existsSync(join(dir, SIDECAR));
@@ -97,6 +112,7 @@ interface Local { mode: Mode; content: Buffer; digest: string }
 /** The file as it is on disk: a symlink's digest is its target. A directory (or anything else) at the path is not a file. */
 async function local(dir: string, path: string): Promise<Local | null> {
   const target = await safeJoin(dir, path);
+  if (await blockingParent(dir, path)) return null;   // a file where a parent directory would be: the path cannot exist
   const s = await lstatOrNull(target);
   if (!s) return null;
   if (s.isSymbolicLink()) { const link = await readlink(target); return { mode: '120000', content: Buffer.from(link), digest: sha256(link) }; }
@@ -105,19 +121,55 @@ async function local(dir: string, path: string): Promise<Local | null> {
   return { mode: s.mode & 0o111 ? '100755' : '100644', content, digest: sha256(content) };
 }
 /** Whether anything at all (file, link, directory) occupies the path. */
-async function occupied(dir: string, path: string) { return !!await lstatOrNull(await safeJoin(dir, path)); }
-async function writeEntry(dir: string, path: string, mode: Mode, content: Buffer) {
-  const target = await safeJoin(dir, path);
+async function occupied(dir: string, path: string) { const t = await safeJoin(dir, path); return !(await blockingParent(dir, path)) && !!await lstatOrNull(t); }
+/**
+ * Writes one entry. After creating the parents, their real path must still be inside the lane where the lexical
+ * path says (a parent swapped for a symlink in between is refused), and the leaf is created exclusively without
+ * following links, so a symlink planted at the leaf is never written through.
+ */
+async function writeAt(dir: string, target: string, mode: Mode, content: Buffer) {
   await mkdir(dirname(target), { recursive: true });
+  const [realRoot, realParent] = await Promise.all([realpath(dir), realpath(dirname(target))]);
+  if (realParent !== join(realRoot, relative(dir, dirname(target)))) throw new ConfigError(`refusing to write ${JSON.stringify(relative(dir, target))}: its directory moved outside the lane`);
   await rm(target, { recursive: true, force: true });
   if (mode === '120000') { await symlink(content.toString('utf8'), target); return; }
-  await writeFile(target, content);
-  await chmod(target, mode === '100755' ? 0o755 : 0o644);
+  const handle = await open(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode === '100755' ? 0o755 : 0o644);
+  try { await handle.writeFile(content); await handle.chmod(mode === '100755' ? 0o755 : 0o644); } finally { await handle.close(); }
 }
-/** Every regular file or symlink under the write prefixes, excluding the sidecar directory and pending `.incoming` copies. */
+async function writeEntry(dir: string, path: string, mode: Mode, content: Buffer) {
+  const blocked = await blockingParent(dir, path);
+  if (blocked) throw new ConfigError(`cannot write ${JSON.stringify(path)}: ${JSON.stringify(blocked.at)} is not a directory`);
+  await writeAt(dir, await safeJoin(dir, path), mode, content);
+}
+async function writeIncoming(dir: string, path: string, mode: Mode, content: Buffer) {
+  await sidecarDir(dir);
+  const rel = incomingOf(path);
+  const blocked = await blockingParent(dir, rel);
+  if (blocked) throw new ConfigError(`cannot keep the upstream copy of ${JSON.stringify(path)}: ${JSON.stringify(blocked.at)} is not a directory`);
+  await writeAt(dir, await incomingTarget(dir, rel), mode, content);
+  return rel;
+}
+/** Removes our upstream copies that no conflict references (left by a refresh that failed part-way). */
+async function pruneIncoming(dir: string, keep: Set<string>) {
+  const root = join(dir, INCOMING);
+  const visit = async (rel: string): Promise<boolean> => {   // true when the directory ends up empty
+    let entries;
+    try { entries = await readdir(rel ? join(root, rel) : root, { withFileTypes: true }); } catch (error) { if (absent(error)) return true; throw error; }
+    let empty = true;
+    for (const e of entries) {
+      const p = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory() && !e.isSymbolicLink()) { if (await visit(p)) await rm(join(root, p), { recursive: true, force: true }); else empty = false; }
+      else if (keep.has(incomingOf(p))) empty = false;
+      else await rm(join(root, p), { force: true });
+    }
+    return empty;
+  };
+  await sidecarDir(dir);
+  await visit('');
+}
+/** Every regular file or symlink under the write prefixes, excluding the sidecar directory (and so every upstream copy). */
 async function walkWriteScope(dir: string, sc: Sidecar) {
   const found = new Set<string>();
-  const incoming = new Set(Object.values(sc.conflicts).map((c) => c.incoming).filter((p): p is string => !!p));
   const visit = async (rel: string) => {
     let entries;
     try { entries = await readdir(resolve(dir, rel), { withFileTypes: true }); } catch (error) { if (absent(error)) return; throw error; }
@@ -125,7 +177,7 @@ async function walkWriteScope(dir: string, sc: Sidecar) {
       const p = rel ? `${rel}/${e.name}` : e.name;
       if (p === '.octocove') continue;
       if (e.isDirectory()) await visit(p);
-      else if ((e.isFile() || e.isSymbolicLink()) && !incoming.has(p)) found.add(p);
+      else if (e.isFile() || e.isSymbolicLink()) found.add(p);
     }
   };
   for (const prefix of sc.scope.write) {
@@ -216,42 +268,61 @@ export async function refresh(api: Api, dir: string, options: MaterializeOptions
   const m = await readManifest(api, sc.taskId, gen.generation, options.deadline);
   const files = dict<LaneFile>(), conflicts = dict<LaneConflict>(sc.conflicts);
   const updated: string[] = [], added: string[] = [], removed: string[] = [];
-  const manifestPaths = new Set(m.entries.map((e) => e.path));
-  /** A free name for the upstream copy: never a manifest path, a tracked file or anything already on disk, except our own earlier copy. */
-  const incomingFor = async (path: string) => {
-    const own = conflicts[path]?.incoming;
-    for (let i = 0; i < 100; i++) {
-      const name = i ? `${path}.incoming.${i}` : `${path}.incoming`;
-      if (name === own) return name;
-      if (!validLanePath(name) || manifestPaths.has(name) || has(sc.files, name) || Object.values(conflicts).some((c) => c.incoming === name)) continue;
-      if (!await occupied(dir, name)) return name;
-    }
-    throw new ConfigError(`no free name for the upstream copy of ${path}; clear ${path}.incoming* and refresh again`);
+  const manifest = new Map(m.entries.map((e) => [e.path, e]));
+  const dropIncoming = async (path: string) => {
+    const c = conflicts[path];
+    if (c?.incoming) await rm(await incomingTarget(dir, c.incoming), { recursive: true, force: true });
   };
+  // Download every changed entry before touching the directory, so a network failure leaves it exactly as it was.
+  const contents = new Map<string, Buffer>();
+  for (const e of m.entries) {
+    if (e.type === 'submodule') continue;
+    const old = has(sc.files, e.path) ? sc.files[e.path] : undefined;
+    if (old && old.sha === e.sha && old.mode === e.mode) continue;
+    contents.set(e.path, await readBlob(api, sc.taskId, gen.generation, e.path, options.deadline));
+  }
+  // Copies left by an earlier refresh that failed part-way are ours and unrecorded: remove them first.
+  await pruneIncoming(dir, new Set(Object.values(conflicts).map((c) => c.incoming).filter((p): p is string => !!p)));
+  // Removals first, so an upstream file-to-directory (or symlink-to-directory) transition finds the old entry gone.
+  for (const [path, old] of Object.entries(sc.files)) {
+    if (manifest.has(path) || old.mode === '160000') continue;
+    const l = await local(dir, path);
+    const clean = l && l.digest === old.digest && l.mode === old.mode;
+    if (!l && !await occupied(dir, path)) {
+      // Gone on both sides: nothing to decide, and an earlier upstream copy is stale.
+      if (has(conflicts, path)) { await dropIncoming(path); delete conflicts[path]; }
+      continue;
+    }
+    if (clean) {
+      await rm(await safeJoin(dir, path), { force: true }); removed.push(path);
+      if (has(conflicts, path)) { await dropIncoming(path); delete conflicts[path]; }
+      continue;
+    }
+    await dropIncoming(path);
+    conflicts[path] = { kind: 'removed-upstream', incoming: null };
+  }
   for (const e of m.entries) {
     const old = has(sc.files, e.path) ? sc.files[e.path] : undefined;
     if (e.type === 'submodule') { files[e.path] = { mode: '160000', sha: e.sha, digest: null }; continue; }
     if (old && old.sha === e.sha && old.mode === e.mode) { files[e.path] = old; continue; }
-    const content = await readBlob(api, sc.taskId, gen.generation, e.path, options.deadline);
+    const content = contents.get(e.path)!;
     files[e.path] = { mode: e.mode, sha: e.sha, digest: sha256(content) };
-    const l = await local(dir, e.path);
-    const taken = !l && await occupied(dir, e.path);   // a directory (or other non-file) the agent put there
+    const blocked = await blockingParent(dir, e.path);   // a kept local file (or link) where upstream now has a directory
+    const l = blocked ? null : await local(dir, e.path);
+    const taken = !blocked && !l && await occupied(dir, e.path);   // a directory (or other non-file) the agent put there
     // Identical local content (an agent that already wrote what upstream now has): adopt it, nothing to decide.
-    if (l && !old && l.digest === files[e.path]!.digest && l.mode === e.mode) { added.push(e.path); continue; }
+    // Also covers a refresh interrupted after it updated this file in place.
+    if (l && l.digest === files[e.path]!.digest && l.mode === e.mode) {
+      (old ? updated : added).push(e.path);
+      if (has(conflicts, e.path)) { await dropIncoming(e.path); delete conflicts[e.path]; }
+      continue;
+    }
     // Edited means: content, mode or type differs from what this lane wrote; something exists where nothing was
-    // written; or the file was removed locally.
-    const edited = taken || (l ? !old || l.digest !== old.digest || l.mode !== old.mode : !!old);
+    // written; the file was removed locally; or a kept local file blocks the upstream path.
+    const edited = !!blocked || taken || (l ? !old || l.digest !== old.digest || l.mode !== old.mode : !!old);
     if (!edited) { await writeEntry(dir, e.path, e.mode, content); (old ? updated : added).push(e.path); continue; }
-    const incoming = await incomingFor(e.path);
-    await writeEntry(dir, incoming, e.mode, content);
-    conflicts[e.path] = { kind: 'modified-upstream', incoming };
-  }
-  for (const [path, old] of Object.entries(sc.files)) {
-    if (has(files, path) || old.mode === '160000') continue;
-    const l = await local(dir, path);
-    if (!l) { if (await occupied(dir, path)) conflicts[path] = { kind: 'removed-upstream', incoming: null }; continue; }
-    if (l.digest === old.digest && l.mode === old.mode) { await rm(await safeJoin(dir, path), { force: true }); removed.push(path); }
-    else conflicts[path] = { kind: 'removed-upstream', incoming: null };
+    await dropIncoming(e.path);
+    conflicts[e.path] = { kind: 'modified-upstream', incoming: await writeIncoming(dir, e.path, e.mode, content) };
   }
   const next: Sidecar = { ...sc, executionId: m.executionId ?? sc.executionId, generation: gen.generation, baseSha: m.baseSha, scopeVersion: m.scopeVersion,
     scope: { read: [...m.scope.read], write: [...m.scope.write] }, files, conflicts };
@@ -264,11 +335,17 @@ export async function resolveConflict(dir: string, path: string, keep: 'local' |
   const sc = await load(dir);
   const c = has(sc.conflicts, path) ? sc.conflicts[path] : undefined;
   if (!c) fail(404, 'lane-conflict-unknown', `${path} has no unresolved conflict; run octocove lane status`);
+  const target = await safeJoin(dir, path);
+  const source = c!.incoming ? await incomingTarget(dir, c!.incoming) : null;
+  // Check everything before changing anything: a failed resolve leaves the local file and the conflict as they were.
+  if (keep === 'incoming' && source && !await lstatOrNull(source))
+    fail(409, 'lane-incoming-missing', `the upstream copy ${c!.incoming} is gone; run octocove lane refresh to fetch it again, or keep local`);
+  const blocked = keep === 'incoming' && source ? await blockingParent(dir, path) : null;
+  if (blocked) fail(409, 'lane-resolve-blocked', `${blocked.at} is a file where ${path} needs a directory; resolve ${blocked.at} first`);
   if (keep === 'incoming') {
-    const target = await safeJoin(dir, path);
-    if (c!.incoming) { await rm(target, { recursive: true, force: true }); await rename(await safeJoin(dir, c!.incoming), target); }
-    else await rm(target, { recursive: true, force: true });
-  } else if (c!.incoming) await rm(await safeJoin(dir, c!.incoming), { force: true });
+    await rm(target, { recursive: true, force: true });
+    if (source) { await mkdir(dirname(target), { recursive: true }); await rename(source, target); }
+  } else if (source) await rm(source, { recursive: true, force: true });
   delete sc.conflicts[path];
   await save(dir, sc);
   return { path, kept: keep, remaining: Object.keys(sc.conflicts).sort() };

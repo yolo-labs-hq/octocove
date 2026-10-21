@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
-import { SIDECAR } from "../src/lane-materialize.js";
+import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
 
 // The materialized lane journey (ADR 0030 preview) against a stub control plane: no Git, no helper, no broker.
 interface Call { method: string; url: URL; headers: Record<string, string>; body?: any }
@@ -124,12 +124,12 @@ describe("octocove lane (materialized)", () => {
     const r = JSON.parse(outText);
     expect(r).toMatchObject({ refreshed: true, generation: 2, baseSha: base2, updated: ["README.md"], added: ["src/c.txt"], removed: [], conflicts: ["src/a.txt"] });
     expect(read("src/a.txt")).toBe("alpha local\n");                 // the local edit is intact
-    expect(read("src/a.txt.incoming")).toBe("alpha upstream\n");     // the upstream copy sits beside it
+    expect(read(`${INCOMING}/src/a.txt`)).toBe("alpha upstream\n");  // the upstream copy is kept in the sidecar area
     expect(read("README.md")).toBe("readme v2\n");                   // unedited files follow upstream
     expect(read("src/c.txt")).toBe("charlie\n");
     expect(read("src/new.txt")).toBe("new\n");                       // local additions survive
     expect(existsSync(join(dir, "src/b.txt"))).toBe(false);
-    expect(sidecar()).toMatchObject({ generation: 2, baseSha: base2, conflicts: { "src/a.txt": { kind: "modified-upstream", incoming: "src/a.txt.incoming" } } });
+    expect(sidecar()).toMatchObject({ generation: 2, baseSha: base2, conflicts: { "src/a.txt": { kind: "modified-upstream", incoming: `${INCOMING}/src/a.txt` } } });
 
     // Submit refuses until the conflict is decided; nothing reaches the control plane.
     expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
@@ -139,7 +139,7 @@ describe("octocove lane (materialized)", () => {
     expect(calls.some((c) => c.url.pathname.endsWith("/lane/blobs"))).toBe(false);
 
     expect(await cli(["lane", "resolve", "src/a.txt", "--keep", "local"])).toBe(EXIT.ok);
-    expect(existsSync(join(dir, "src/a.txt.incoming"))).toBe(false);
+    expect(existsSync(join(dir, INCOMING, "src/a.txt"))).toBe(false);
     expect(read("src/a.txt")).toBe("alpha local\n");
     expect(sidecar().conflicts).toEqual({});
 
@@ -162,7 +162,7 @@ describe("octocove lane (materialized)", () => {
     expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);
     expect(await cli(["lane", "resolve", "src/a.txt", "--keep", "incoming"])).toBe(EXIT.ok);
     expect(read("src/a.txt")).toBe("alpha upstream\n");
-    expect(existsSync(join(dir, "src/a.txt.incoming"))).toBe(false);
+    expect(existsSync(join(dir, INCOMING, "src/a.txt"))).toBe(false);
     expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
     expect(JSON.parse(outText)).toMatchObject({ modified: [], added: [], deleted: [], conflicts: [] });
     expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
@@ -230,17 +230,92 @@ describe("octocove lane (materialized)", () => {
       expect(errText).toContain(".octocove");
     });
 
-    it("never overwrites an existing PATH.incoming; picks a free name and records it", async () => {
+    it("upstream copies never touch repository paths: a local PATH.incoming is the agent's own file", async () => {
       expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
       writeFileSync(join(dir, "src/a.txt"), "alpha local\n");
       writeFileSync(join(dir, "src/a.txt.incoming"), "my notes\n");
       expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);
       expect(read("src/a.txt.incoming")).toBe("my notes\n");
-      expect(read("src/a.txt.incoming.1")).toBe("alpha upstream\n");
-      expect(sidecar().conflicts["src/a.txt"]).toEqual({ kind: "modified-upstream", incoming: "src/a.txt.incoming.1" });
+      expect(read(`${INCOMING}/src/a.txt`)).toBe("alpha upstream\n");
       expect(await cli(["lane", "resolve", "src/a.txt", "--keep", "incoming"])).toBe(EXIT.ok);
       expect(read("src/a.txt")).toBe("alpha upstream\n");
-      expect(read("src/a.txt.incoming")).toBe("my notes\n");
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).added).toEqual(["src/a.txt.incoming"]);
+    });
+
+    it("resolve --keep incoming with the upstream copy gone changes nothing", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/a.txt"), "alpha local\n");
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);
+      rmSync(join(dir, INCOMING, "src/a.txt"));
+      expect(await cli(["lane", "resolve", "src/a.txt", "--keep", "incoming"])).toBe(EXIT.failure);
+      expect(errText).toContain("lane-incoming-missing");
+      expect(read("src/a.txt")).toBe("alpha local\n");
+      expect(sidecar().conflicts["src/a.txt"]).toBeDefined();
+    });
+
+    it("a refresh that fails part-way leaves no copy behind that submit could pick up", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/a.txt"), "alpha local\n");
+      const blob = routes["GET /tasks/T1/lane/blob"]!;
+      routes["GET /tasks/T1/lane/blob"] = (c) => c.url.searchParams.get("generation") === "2" && c.url.searchParams.get("path") === "src/c.txt" ? json(503, { code: "temporarily-unavailable", status: 503 }) : blob(c);
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.failure);
+      // Downloads come first: the failed refresh changed nothing on disk.
+      expect(read("README.md")).toBe("readme v1\n");
+      expect(existsSync(join(dir, INCOMING))).toBe(false);
+      // An unrecorded copy (as a crash mid-apply would leave) is never an addition, and the next refresh prunes it.
+      mkdirSync(join(dir, INCOMING, "src"), { recursive: true }); writeFileSync(join(dir, INCOMING, "src/stray.txt"), "stray\n");
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).added).toEqual([]);
+      routes["GET /tasks/T1/lane/blob"] = blob;
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText)).toMatchObject({ generation: 2, conflicts: ["src/a.txt"] });
+      expect(sidecar().conflicts["src/a.txt"].incoming).toBe(`${INCOMING}/src/a.txt`);
+      expect(existsSync(join(dir, INCOMING, "src/stray.txt"))).toBe(false);
+    });
+
+    it("a carried conflict whose file a later generation removes is reconciled, never resurrected", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/a.txt"), "alpha local\n");
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);          // gen 2: conflict on src/a.txt
+      rmSync(join(dir, "src/a.txt"));                                  // the agent deletes its copy too
+      const gen3 = { ...gen2 } as Record<string, string>; delete gen3["src/a.txt"];
+      routes["GET /tasks/T1/lane/materializations/3"] = () => json(200, manifest(3, SHA("base-3"), gen3));
+      routes["POST /tasks/T1/lane/materializations"] = () => json(201, { claimAttemptId: "C1", executionId: "X1", executionNumber: 1, generation: 3, kind: "base-refreshed", baseSha: SHA("base-3"), scopeVersion: 1, previousGeneration: 2, scope });
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).conflicts).toEqual([]);
+      expect(sidecar().conflicts).toEqual({});
+      expect(existsSync(join(dir, INCOMING, "src/a.txt"))).toBe(false);
+    });
+
+    it("upstream file-to-directory transitions refresh, and a kept local file blocking one is a conflict", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const gen3 = { ...gen1, "src/b.txt/inner": "inner\n", "src/run.sh/x": "x\n" } as Record<string, string>;
+      delete gen3["src/b.txt"]; delete gen3["src/run.sh"];
+      writeFileSync(join(dir, "src/run.sh"), "#!/bin/sh\necho local\n");   // kept local edit blocks src/run.sh/
+      routes["GET /tasks/T1/lane/materializations/2"] = () => json(200, manifest(2, base2, gen3));
+      routes["GET /tasks/T1/lane/blob"] = (c) => { const path = c.url.searchParams.get("path")!; const content = (c.url.searchParams.get("generation") === "2" ? gen3 : gen1 as Record<string, string>)[path];
+        return content === undefined ? json(404, { code: "not-found", status: 404 }) : json(200, { path, mode: modeOf(path), type: path === "src/link" ? "symlink" : "file", sha: SHA(content), size: content.length, encoding: "base64", content: b64(content) }); };
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      const r = JSON.parse(outText);
+      expect(r.removed).toEqual(["src/b.txt"]);
+      expect(read("src/b.txt/inner")).toBe("inner\n");
+      expect(r.conflicts).toEqual(["src/run.sh", "src/run.sh/x"]);
+      expect(read("src/run.sh")).toBe("#!/bin/sh\necho local\n");
+      expect(read(`${INCOMING}/src/run.sh/x`)).toBe("x\n");
+      expect(await cli(["lane", "resolve", "src/run.sh/x", "--keep", "incoming"])).toBe(EXIT.failure);
+      expect(errText).toContain("lane-resolve-blocked");
+      expect(await cli(["lane", "resolve", "src/run.sh", "--keep", "incoming"])).toBe(EXIT.ok);
+      expect(await cli(["lane", "resolve", "src/run.sh/x", "--keep", "incoming"])).toBe(EXIT.ok);
+      expect(read("src/run.sh/x")).toBe("x\n");
+    });
+
+    it("never writes through a leaf symlink planted after the check", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const victim = join(work, "victim.txt"); writeFileSync(victim, "untouched\n");
+      rmSync(join(dir, "README.md")); symlinkSync(victim, join(dir, "README.md"));   // README.md changes upstream
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);
+      expect(readFileSync(victim, "utf8")).toBe("untouched\n");
     });
 
     it("a local directory where upstream adds a file is a conflict, not deleted", async () => {
@@ -249,7 +324,7 @@ describe("octocove lane (materialized)", () => {
       expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
       expect(JSON.parse(outText).conflicts).toContain("src/c.txt");
       expect(read("src/c.txt/notes")).toBe("keep\n");
-      expect(read("src/c.txt.incoming")).toBe("charlie\n");
+      expect(read(`${INCOMING}/src/c.txt`)).toBe("charlie\n");
     });
 
     it("a mode-only local edit is a conflict when upstream changes the file, and is kept when upstream removes it", async () => {

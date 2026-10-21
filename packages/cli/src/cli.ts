@@ -111,7 +111,7 @@ Commands:
   lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
   lane status|retry|retire [--task ID] [--claim ID]
   lane materialize TASK [DIR] [--wait SECONDS]  (materialized lane: write the open generation into DIR, no .git)
-  lane refresh [DIR] [--wait SECONDS]           (materialized lane: take the pinned head; edits kept, conflicts as PATH.incoming)
+  lane refresh [DIR] [--wait SECONDS]           (materialized lane: take the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
   lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: upload changed files and submit them as a candidate)
   task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
