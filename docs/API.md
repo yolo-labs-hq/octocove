@@ -694,6 +694,17 @@ Thrown errors use `application/problem+json` with `type` (`urn:octocove:problem:
 | 409 | `checks-failed` | Fix or rerun the required checks before landing. |
 | 409 | `claim-id-conflict` | Choose a new replacement claim ID. |
 | 409 | `claim-inactive` | Refresh the attempt and obtain authority for the current claim. |
+| 409 | `lane-kind-not-admitted` | Materialized lanes (preview, ADR 0030): the repository's lane policy does not admit the requested kind. |
+| 409 | `publication-undeclared` | Materialized lanes: a public repository admits materialized claims only under the explicit public-on-submit declaration. |
+| 409 | `base-unknown` | Materialized lanes: the target ref has no pinned head to materialize from; verify the repository or wait for the next head observation. |
+| 409 | `execution-active` | Materialized lanes: an execution attempt is already open for this claim. |
+| 409 | `execution-inactive` | Materialized lanes: no open execution attempt; begin one, or the claim ended. |
+| 409 | `scope-unchanged` | Materialized lanes: no scope version newer than the open generation's; ask for a grant first. |
+| 409 | `base-unchanged` | Materialized lanes: the pinned head equals the open generation's base; nothing to refresh. |
+| 409 | `generation-superseded` | Materialized lanes: the named generation was superseded or its execution ended; read the current generation. |
+| 403 | `scope-refused` | Materialized lanes: the path lies outside the generation's read scope. |
+| 403 | `lane-kind-refused` | Materialized lanes: this route is not part of a materialized lane's surface (whole-repository reads, broker credentials, Git transport). |
+| 413 | `blob-too-large` | Materialized lanes: the blob exceeds the lane read limit. |
 | 409 | `dependency-cycle` | Remove the self/transitive cycle from the proposed edge. |
 | 409 | `dependency-edit-refused` | Edit dependencies only while draft or ready. |
 | 409 | `dependency-state-mismatch` | Refresh edges; add requires absence and remove requires presence. |

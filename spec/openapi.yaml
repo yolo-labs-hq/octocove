@@ -2237,8 +2237,194 @@ paths:
                 intentVersion:
                   type: integer
                   minimum: 1
+                laneKind:
+                  type: string
+                  enum: [materialized]
+                  description: Preview (ADR 0030). Request a materialized lane instead of a Git remote; the repository's lane policy must admit it
+                    (409 lane-kind-not-admitted), a public repository must have declared public-on-submit (409 publication-undeclared), the target
+                    ref must have a pinned head (409 base-unknown), and the claimant must be an agent with a delegation. Mutually exclusive with
+                    chain and source.
+                scope:
+                  $ref: '#/components/schemas/LaneScope'
               required:
               - intentVersion
+  /tasks/{id}/lane/executions:
+    post:
+      operationId: laneExecutionBegin
+      summary: Begin a new execution attempt for a materialized claim (preview)
+      description: ADR 0030. The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or
+        revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope.
+        409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, properties: {}}
+      responses:
+        '201':
+          description: The new execution and its initial generation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LaneGeneration'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/materializations:
+    post:
+      operationId: laneGenerationCreate
+      summary: Create a new materialization generation (preview)
+      description: ADR 0030. scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none
+        is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move).
+        The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                kind: {type: string, enum: [scope-expanded, base-refreshed]}
+              required: [kind]
+      responses:
+        '201':
+          description: The new generation.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LaneGeneration'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/materializations/{generation}:
+    get:
+      operationId: laneManifestGet
+      summary: Read a generation's manifest (preview)
+      description: ADR 0030. The entries of the generation's base commit inside the read scope, with changedSincePrevious for a
+        base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a
+        project member with tasks:read names the claim with ?claim (default the task's active materialized claim).
+      security: [{HumanSession: []}, {HumanCliSession: []}, {AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - {name: generation, in: path, required: true, schema: {type: integer, minimum: 1}}
+      - {name: claim, in: query, required: false, schema: {$ref: '#/components/schemas/Id'}}
+      responses:
+        '200':
+          description: The manifest.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LaneManifest'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/blob:
+    get:
+      operationId: laneBlobGet
+      summary: Read one blob inside the generation's read scope (preview)
+      description: ADR 0030. A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404;
+        a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content.
+      security: [{HumanSession: []}, {HumanCliSession: []}, {AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - {name: generation, in: query, required: true, schema: {type: integer, minimum: 1}}
+      - {name: path, in: query, required: true, schema: {type: string}}
+      - {name: claim, in: query, required: false, schema: {$ref: '#/components/schemas/Id'}}
+      responses:
+        '200':
+          description: The blob.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LaneBlob'}
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+        '413': {$ref: '#/components/responses/Problem'}
+        '503': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/scope-requests:
+    post:
+      operationId: laneScopeRequest
+      summary: Ask for a wider scope (preview)
+      description: ADR 0030. Records the request; nothing changes until a project member grants a new scope version and the agent requests a
+        scope-expanded generation.
+      security: [{AgentDelegation: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LaneScopeRequest'}
+      responses:
+        '201':
+          description: The pending request.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  claimAttemptId: {$ref: '#/components/schemas/Id'}
+                  requestId: {$ref: '#/components/schemas/Id'}
+                  scope: {$ref: '#/components/schemas/LaneScope'}
+                  status: {type: string, enum: [pending]}
+                required: [claimAttemptId, requestId, scope, status]
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
+  /tasks/{id}/lane/scope:
+    post:
+      operationId: laneScopeGrant
+      summary: Grant a new scope version (preview)
+      description: ADR 0030. A project member with tasks:edit records the next scope version for the claim, optionally deciding a pending
+        request. The grant takes effect only when the agent requests a scope-expanded generation.
+      security: [{HumanSession: []}, {HumanCliSession: []}]
+      parameters:
+      - {name: id, in: path, required: true, schema: {$ref: '#/components/schemas/Id'}}
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LaneScopeGrant'}
+      responses:
+        '201':
+          description: The granted scope version.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  claimAttemptId: {$ref: '#/components/schemas/Id'}
+                  scopeVersion: {type: integer, minimum: 1}
+                  scope: {$ref: '#/components/schemas/LaneScope'}
+                  requestId: {$ref: '#/components/schemas/Id'}
+                required: [claimAttemptId, scopeVersion, scope]
+        '400': {$ref: '#/components/responses/Problem'}
+        '401': {$ref: '#/components/responses/Problem'}
+        '403': {$ref: '#/components/responses/Problem'}
+        '404': {$ref: '#/components/responses/Problem'}
+        '409': {$ref: '#/components/responses/Problem'}
   /tasks/{id}/release:
     post:
       operationId: taskRelease
@@ -5143,6 +5329,9 @@ components:
           anyOf:
           - $ref: '#/components/schemas/Id'
           - type: 'null'
+        lane:
+          description: Preview (ADR 0030). Present when the task's active claim is a materialized lane.
+          $ref: '#/components/schemas/MaterializedLane'
         liveAttempt:
           type: object
           additionalProperties: false
@@ -5401,7 +5590,9 @@ components:
           type: string
           format: date-time
         remote: {type: string, description: Chain remote URL or literal pending.}
-        lane: {$ref: '#/components/schemas/ChainLane'}
+        lane:
+          description: A chain lane's pointer state, or (preview, ADR 0030) a materialized lane's execution and generation.
+          anyOf: [{$ref: '#/components/schemas/ChainLane'}, {$ref: '#/components/schemas/MaterializedLane'}]
         dependencyResults:
           type: array
           items:
@@ -5431,7 +5622,8 @@ components:
       - provisioningState
       - workspace
       - blockedReason
-      description: workspace is non-null iff provisioningState is ready; blockedReason is non-null iff blocked.
+      description: workspace is non-null iff provisioningState is ready, except for a materialized lane (preview), whose surface is the
+        generation manifest and whose workspace stays null; blockedReason is non-null iff blocked.
         Grant exists before provisioning; broker cannot issue a write credential until ready.
     ClaimResponse:
       type: object
@@ -7775,6 +7967,113 @@ components:
         baseSha: {type: string, pattern: '^[a-f0-9]{40}$'}
         previousTaskId: {$ref: '#/components/schemas/Id'}
       description: First base equals registered canonical head. Successors pin the preceding chain task accepted receipt SHA. Artifacts only; cannot combine with external source.
+    LaneScope:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). Path prefixes relative to the repository root; every write prefix lies within a read prefix.
+      properties:
+        read: {type: array, minItems: 1, maxItems: 64, items: {type: string}}
+        write: {type: array, maxItems: 64, items: {type: string}}
+      required: [read, write]
+    MaterializedLane:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). The state of a materialized lane; null identifiers mean no open execution or generation.
+      properties:
+        kind: {type: string, enum: [materialized]}
+        claimAttemptId: {$ref: '#/components/schemas/Id'}
+        executionId: {anyOf: [{$ref: '#/components/schemas/Id'}, {type: 'null'}]}
+        executionNumber: {anyOf: [{type: integer, minimum: 1}, {type: 'null'}]}
+        executionEnded: {anyOf: [{type: string, format: date-time}, {type: 'null'}]}
+        generation: {anyOf: [{type: integer, minimum: 1}, {type: 'null'}]}
+        generationKind: {anyOf: [{type: string, enum: [initial, scope-expanded, base-refreshed]}, {type: 'null'}]}
+        baseSha: {anyOf: [{$ref: '#/components/schemas/Sha'}, {type: 'null'}]}
+        scopeVersion: {anyOf: [{type: integer, minimum: 1}, {type: 'null'}]}
+        superseded: {anyOf: [{type: string, format: date-time}, {type: 'null'}]}
+        scope: {anyOf: [{$ref: '#/components/schemas/LaneScope'}, {type: 'null'}]}
+      required: [kind]
+    LaneGeneration:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). One materialization generation of one execution attempt.
+      properties:
+        claimAttemptId: {$ref: '#/components/schemas/Id'}
+        executionId: {$ref: '#/components/schemas/Id'}
+        executionNumber: {type: integer, minimum: 1}
+        generation: {type: integer, minimum: 1}
+        kind: {type: string, enum: [initial, scope-expanded, base-refreshed]}
+        baseSha: {$ref: '#/components/schemas/Sha'}
+        scopeVersion: {type: integer, minimum: 1}
+        previousGeneration: {type: integer, minimum: 1}
+        scope: {$ref: '#/components/schemas/LaneScope'}
+      required: [claimAttemptId, executionId, generation, kind, baseSha, scopeVersion]
+    LaneManifestEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        path: {type: string}
+        mode: {type: string, enum: ['100644', '100755', '120000', '160000']}
+        type: {type: string, enum: [file, symlink, submodule]}
+        sha: {$ref: '#/components/schemas/Sha'}
+        size: {type: integer, minimum: 0}
+      required: [path, mode, type, sha]
+    LaneManifest:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). Entries of the generation's base commit inside the read scope, sorted by path. truncated is true when
+        the server's entry or tree-read limits were reached. changedSincePrevious is non-null only for a base-refreshed generation.
+      properties:
+        taskId: {$ref: '#/components/schemas/Id'}
+        claimId: {$ref: '#/components/schemas/Id'}
+        executionId: {$ref: '#/components/schemas/Id'}
+        generation: {type: integer, minimum: 1}
+        kind: {type: string, enum: [initial, scope-expanded, base-refreshed]}
+        baseSha: {$ref: '#/components/schemas/Sha'}
+        scopeVersion: {type: integer, minimum: 1}
+        scope: {$ref: '#/components/schemas/LaneScope'}
+        entries: {type: array, items: {$ref: '#/components/schemas/LaneManifestEntry'}}
+        truncated: {type: boolean}
+        changedSincePrevious:
+          anyOf:
+          - type: object
+            additionalProperties: false
+            properties:
+              added: {type: array, items: {type: string}}
+              modified: {type: array, items: {type: string}}
+              removed: {type: array, items: {type: string}}
+            required: [added, modified, removed]
+          - type: 'null'
+      required: [taskId, claimId, executionId, generation, kind, baseSha, scopeVersion, scope, entries, truncated, changedSincePrevious]
+    LaneBlob:
+      type: object
+      additionalProperties: false
+      description: Preview (ADR 0030). One entry's content at the generation's base; submodule entries have encoding none and null content.
+      properties:
+        path: {type: string}
+        mode: {type: string, enum: ['100644', '100755', '120000', '160000']}
+        type: {type: string, enum: [file, symlink, submodule]}
+        sha: {$ref: '#/components/schemas/Sha'}
+        size: {type: integer, minimum: 0}
+        encoding: {type: string, enum: [base64, none]}
+        content: {anyOf: [{type: string}, {type: 'null'}]}
+      required: [path, mode, type, sha, size, encoding, content]
+    LaneScopeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        read: {type: array, minItems: 1, maxItems: 64, items: {type: string}}
+        write: {type: array, maxItems: 64, items: {type: string}}
+        reason: {type: string, maxLength: 2000}
+      required: [read, write]
+    LaneScopeGrant:
+      type: object
+      additionalProperties: false
+      properties:
+        claimAttemptId: {$ref: '#/components/schemas/Id'}
+        read: {type: array, minItems: 1, maxItems: 64, items: {type: string}}
+        write: {type: array, maxItems: 64, items: {type: string}}
+        requestId: {$ref: '#/components/schemas/Id'}
+      required: [claimAttemptId, read, write]
     ChainLane:
       type: object
       additionalProperties: false
