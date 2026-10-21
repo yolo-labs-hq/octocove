@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readlinkSync, writeFileSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -210,4 +210,115 @@ describe("octocove lane (materialized)", () => {
     expect(await cli(["lane", "status"], { cwd: dir })).toBe(EXIT.usage);
     expect(errText).toContain("--task is required");
   });
+
+  describe("review fixes", () => {
+    it("never writes through a symlinked parent directory", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const outside = join(work, "outside"); mkdirSync(outside);
+      rmSync(join(dir, "src"), { recursive: true }); symlinkSync(outside, join(dir, "src"));
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.config);
+      expect(errText).toContain("symlink");
+      expect(readdirSync(outside)).toEqual([]);
+    });
+
+    it("refuses a symlinked sidecar directory", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const elsewhere = join(work, "elsewhere"); mkdirSync(elsewhere);
+      writeFileSync(join(elsewhere, "lane.json"), readFileSync(join(dir, SIDECAR)));
+      rmSync(join(dir, ".octocove"), { recursive: true }); symlinkSync(elsewhere, join(dir, ".octocove"));
+      expect(await cli(["lane", "status"])).toBe(EXIT.config);
+      expect(errText).toContain(".octocove");
+    });
+
+    it("never overwrites an existing PATH.incoming; picks a free name and records it", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/a.txt"), "alpha local\n");
+      writeFileSync(join(dir, "src/a.txt.incoming"), "my notes\n");
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.ok);
+      expect(read("src/a.txt.incoming")).toBe("my notes\n");
+      expect(read("src/a.txt.incoming.1")).toBe("alpha upstream\n");
+      expect(sidecar().conflicts["src/a.txt"]).toEqual({ kind: "modified-upstream", incoming: "src/a.txt.incoming.1" });
+      expect(await cli(["lane", "resolve", "src/a.txt", "--keep", "incoming"])).toBe(EXIT.ok);
+      expect(read("src/a.txt")).toBe("alpha upstream\n");
+      expect(read("src/a.txt.incoming")).toBe("my notes\n");
+    });
+
+    it("a local directory where upstream adds a file is a conflict, not deleted", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      mkdirSync(join(dir, "src/c.txt")); writeFileSync(join(dir, "src/c.txt/notes"), "keep\n");
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).conflicts).toContain("src/c.txt");
+      expect(read("src/c.txt/notes")).toBe("keep\n");
+      expect(read("src/c.txt.incoming")).toBe("charlie\n");
+    });
+
+    it("a mode-only local edit is a conflict when upstream changes the file, and is kept when upstream removes it", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      chmodSync(join(dir, "src/a.txt"), 0o755);   // upstream modifies a.txt
+      chmodSync(join(dir, "src/b.txt"), 0o755);   // upstream removes b.txt
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      const r = JSON.parse(outText);
+      expect(r.conflicts).toEqual(["src/a.txt", "src/b.txt"]);
+      expect(r.removed).toEqual([]);
+      expect(read("src/a.txt")).toBe("alpha\n");
+      expect(read("src/b.txt")).toBe("bravo\n");
+      expect(sidecar().conflicts["src/b.txt"]).toEqual({ kind: "removed-upstream", incoming: null });
+      expect(await cli(["lane", "resolve", "src/b.txt", "--keep", "incoming"])).toBe(EXIT.ok);
+      expect(existsSync(join(dir, "src/b.txt"))).toBe(false);
+    });
+
+    it("a locally added file identical to an upstream addition is adopted; a different one conflicts", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/c.txt"), "charlie\n");
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText)).toMatchObject({ added: ["src/c.txt"], conflicts: [] });
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).added).toEqual([]);
+    });
+
+    it("a refresh that failed after creating the generation is completed by the next refresh", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const blob = routes["GET /tasks/T1/lane/blob"]!;
+      routes["GET /tasks/T1/lane/blob"] = (c) => c.url.searchParams.get("generation") === "2" ? json(503, { code: "temporarily-unavailable", status: 503 }) : blob(c);
+      expect(await cli(["lane", "refresh"])).toBe(EXIT.failure);
+      expect(sidecar().generation).toBe(1);
+      routes["GET /tasks/T1/lane/blob"] = blob;
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText)).toMatchObject({ refreshed: true, generation: 2 });
+      expect(sidecar().generation).toBe(2);
+    });
+
+    it("lane status DIR works from outside the directory", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/b.txt"), "changed\n");
+      expect(await cli(["lane", "status", dir, "--json"], { cwd: work })).toBe(EXIT.ok);
+      expect(JSON.parse(outText).modified).toEqual(["src/b.txt"]);
+    });
+
+    it("files named after object prototype properties are ordinary files", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/constructor"), "x\n");
+      writeFileSync(join(dir, "src/__proto__"), "y\n");
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText).added).toEqual(["src/__proto__", "src/constructor"]);
+    });
+
+    it.skipIf(process.getuid?.() === 0)("an unreadable directory is an error, never a delete", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      chmodSync(join(dir, "src"), 0o000);
+      try {
+        expect(await cli(["lane", "submit"])).not.toBe(EXIT.ok);
+        expect(changes()).toHaveLength(0);
+      } finally { chmodSync(join(dir, "src"), 0o755); }
+    });
+
+    it("blob upload keys are scoped to the execution", async () => {
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "src/b.txt"), "changed\n");
+      expect(await cli(["lane", "submit"])).toBe(EXIT.ok);
+      const upload = calls.find((c) => c.url.pathname.endsWith("/lane/blobs"))!;
+      expect(upload.headers["Idempotency-Key"] ?? upload.headers["idempotency-key"]).toContain("X1");
+    });
+  });
 });
+

@@ -466,7 +466,11 @@ edit follows the upstream change (updated, added or removed in place); a file yo
 disappeared upstream keeps your copy and, where there is one, receives the upstream copy beside it as
 `PATH.incoming`. `lane submit` refuses with `lane-conflicts-unresolved` until every conflict is decided with
 `lane resolve PATH --keep local|incoming`. An unchanged base is reported as nothing to refresh. Unsubmitted edits
-are never discarded.
+are never discarded. The upstream copy never overwrites anything: when `PATH.incoming` is taken, the next free
+`PATH.incoming.N` is used and recorded in the sidecar. A mode or type change counts as an edit, and a directory where
+upstream now has a file is a conflict. Lane commands refuse to work through a symlinked directory inside the lane
+(or a symlinked `.octocove`), and a filesystem error is reported rather than read as a deleted file. `lane status
+DIR` works from outside the directory; `--task`/`--claim` always mean the chain lane.
 
 `lane submit` reads the sidecar's generation, refuses locally any change outside the write scope
 (`scope-refused`, nothing uploaded), uploads each changed file by its sha256 (`lane/blobs`, replayed by content)

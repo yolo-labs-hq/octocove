@@ -719,7 +719,12 @@ const COMMANDS: Record<string, Handler> = {
       out(d,v.json,{taskId,claimId,remote:remoteName,synced:true},()=>`Fetched canonical through ${remoteName}. Merge its current target branch locally, then run octocove lane push.`);
     }catch(error){throw managed?.failure ?? error;}finally{await managed?.close();}
   },
-  "lane status": (d, args) => hasSidecar(d.cwd ?? process.cwd()) ? materializedLane("status")(d, args) : laneHandler("status")(d, args),
+  // A materialized directory (its own sidecar, or DIR's) answers locally; --task/--claim always mean the chain lane.
+  "lane status": (d, args) => {
+    const positional = args.find(a => !a.startsWith("-"));
+    const chain = args.includes("--task") || args.includes("--claim") || args.some(a => a.startsWith("--task=") || a.startsWith("--claim="));
+    return !chain && hasSidecar(resolve(d.cwd ?? process.cwd(), positional ?? ".")) ? materializedLane("status")(d, args) : laneHandler("status")(d, args);
+  },
   "lane materialize": materializedLane("materialize"),
   "lane refresh": materializedLane("refresh"),
   "lane resolve": materializedLane("resolve"),
