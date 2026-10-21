@@ -469,5 +469,45 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
+  },
+  "laneExecutionBegin": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneGenerationCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneManifestGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneBlobGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneScopeRequest": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneScopeGrant": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneBlobUpload": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneChangesSubmit": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
   }
 }
