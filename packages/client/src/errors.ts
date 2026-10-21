@@ -188,7 +188,7 @@ const isDateTime = (value: unknown): value is string => typeof value === 'string
 /** A path on the API, never another origin: the browser login start (`/v1/auth/login?reauth=1&return_path=...`). */
 const isReauthUrl = (value: unknown): value is string => typeof value === 'string' && /^\/(?![/\\])\S*$/.test(value);
 
-/** `reauth-required` (ADR 0023): a sensitive action needs a sign-in that authenticated recently. */
+/** `reauth-required`: a sensitive action needs a sign-in that authenticated recently. */
 export interface ReauthRequiredView {
   readonly authenticatedAt: string | null;
   /** POST it `{ mode: 'browser' }` as a browser login; the issuer re-authenticates and the same sign-in is refreshed. */

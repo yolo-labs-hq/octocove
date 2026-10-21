@@ -1,5 +1,5 @@
-// Local acceptance for the authenticated local helper (ADR 0005 §Required controls and
-// verification, items 1, 3, 4, 5).
+// Local acceptance for the authenticated local helper (the credential
+// boundary's required controls 1, 3, 4 and 5).
 // Verification of our own software on our own disposable local bare repos; no third-party
 // targets. Real git speaks the pack protocol through the lane connector to the AttemptHelper,
 // which delivers to a local bare "upstream" standing in for the gateway/Artifacts repo.

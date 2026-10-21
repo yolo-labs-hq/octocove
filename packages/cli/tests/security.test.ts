@@ -66,7 +66,7 @@ const claimArgs = ["task", "claim", "T1", "--intent-version", "1", "--lane", "re
 
 describe("bootstrap hand-off", () => {
   beforeEach(async () => {
-    // ADR-0005: the same local fixture helper as async-provisioning.test.ts.
+    // The same local fixture helper as async-provisioning.test.ts.
     // Git is mocked: this grant/peer attestation covers runtime setup only,
     // not claim-bound transport or actual runtime isolation.
     const grant = { tenant: "fixture", project: "p", attempt: "C1", repo: "C1",

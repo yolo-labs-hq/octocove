@@ -3,8 +3,7 @@
 Package name: `@yolo-labs/octocove-client` (pre-1.0, versioned independently).
 
 The supported programmatic surface of the Octocove record API, generated from the API contract of the
-hosted service (the repository's [`spec/openapi.yaml`](../../spec/openapi.yaml) is a
-[frozen](../../docs/PUBLIC_SCOPE.md#frozen-paths) earlier revision): transports, typed operations,
+hosted service ([how it is generated](../../docs/PUBLIC_SCOPE.md#the-api-contract-and-the-generated-client)): transports, typed operations,
 generated routing, the retry policy, errors and credential types; journeys with one absolute
 deadline, `events.follow`, the auth journeys and the Linux + macOS credential store.
 
@@ -117,7 +116,7 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 | `submitWithGrant` | `network-only` | `guarded-result` | **a different ledger**: the lifecycle ledger scoped to the claim actor and task (`<actorType>:<actorId>:<task>:submit`); a consumed grant without a prior row is `409 machine-authority-denied` |
 | `taskClaim` (**bootstrap** variant) | `network-only` | `bounded-recovery` | bounded by the **bootstrap expiry** (5 min) and the authorizer's membership recheck; the reply is the **original claim snapshot** plus the recovered delegation, not current readiness — read `claimGet` for that; after the window: `401 unauthenticated` / `401 bootstrap-consumed` |
 | `claimAuthorize` | `network-only` | `bounded-recovery` | 300 s window, valid only while the bootstrap is unconsumed and unrevoked, else `409 idempotency-result-expired` |
-| `authLogin` (browser and CLI modes) | `network-only` | `bounded-recovery` | **600 s** window, matching the login transaction lifetime ([AUTH.md](../../docs/AUTH.md)) |
+| `authLogin` (browser and CLI modes) | `network-only` | `bounded-recovery` | **600 s** window, matching the login transaction lifetime (AUTH.md) |
 | `authCliExchange`, `sessionRenew`, `delegationRenew`, `authLogout`, `meSessionRevoke` | `network-only` | `bounded-recovery` | 120 s window; pending/polling answers are not final records; `meSessionRevoke` recovers like logout, and a fresh key on an already-revoked sign-in answers 204 from state |
 | `authCliConfirm`, `delegationRevoke`, `brokerTokenRevoke` | `never` | `state` | confirm checks transaction state; an agent's own successful revocation makes its credential unusable for a retry; broker revocation marks the token for revocation and drains |
 | `approvalTrustActivationChallenge` | `never` | `none` | mints a fresh single-use challenge each call |

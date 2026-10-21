@@ -1,13 +1,13 @@
 # Helper ↔ Octocove broker contract
 
-**Scope: Octocove's side of the exchange only.** This document specifies the broker side (`brokerTokenCreate` and `brokerTokenRevoke` in the [OpenAPI spec](../spec/openapi.yaml); the CLI side is `packages/cli/src/helper.ts`), tested on Miniflare/local D1 with a fake Artifacts server. The helper-side keys are the requests an external credential helper must send. Not yet implemented: the helper is not published,
+**Scope: Octocove's side of the exchange only.** This document specifies the broker side (`brokerTokenCreate` and `brokerTokenRevoke` in the OpenAPI spec; the CLI side is `packages/cli/src/helper.ts`), tested on Miniflare/local D1 with a fake Artifacts server. The helper-side keys are the requests an external credential helper must send. Not yet implemented: the helper is not published,
 and no released helper
 implements these keys. Octocove is Apache-2.0. No task, approval, ref policy,
 or other collaboration concepts belong in the helper implementation.
 
 ## Exchange
 
-[ADR 0005](adr/0005-credential-boundary.md) accepts a protected socket transport
+The credential boundary accepts a protected socket transport
 plus the gateway channel proof. The bearer/password exchange and local identity
 files below describe the **legacy** behavior; they do not isolate same-UID siblings,
 and a credential helper that returns a password to Git cannot satisfy that decision.
@@ -19,9 +19,8 @@ keeps the lease out of lane visibility. `octocove task claim` configures the
 provisions the socket (`OCTOCOVE_HELPER_SOCK`). Without that setting, allocated claims
 refuse with exit 78 before credential import or claim creation; the CLI never falls
 back to the password exchange below. The gateway channel proof is
-implemented in the gateway and in the helper's `proofAuthority` (wire contract in
-[ADR 0005](adr/0005-credential-boundary.md#gateway-channel-proof-push-time),
-locally qualified) but is not enabled in claim provisioning, and runtime isolation is not
+implemented in the gateway and in the helper's `proofAuthority` (wire contract with the
+service, locally qualified) but is not enabled in claim provisioning, and runtime isolation is not
 qualified in any client runtime.
 
 POST the configured HTTPS broker URL (`/v1/broker/token`, alias `/broker/token`)
@@ -49,8 +48,7 @@ scope means `read`, and `write` is refused with 403 `protected-runtime-required`
 `broker_admission_audit` row. Writes go through the attempt helper and gateway proof.
 Read tokens remain available. The only exception is the operator's per-project
 `LEGACY_BROKER_WRITE_PROJECTS` migration boundary (never chain), which restores the
-historical write default and audits each export; see
-[ADR 0005](adr/0005-credential-boundary.md#broker-write-export).
+historical write default and audits each export.
 
 This is an additive adaptation: the broker's legacy
 `{taskId, grantId?, repo?, scope?, ttl?}` remains supported for Octocove clients.

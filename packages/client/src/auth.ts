@@ -109,7 +109,7 @@ export type MeDelegation = OpenEnums<components['schemas']['MeDelegation']>;
 export interface MeDelegationsPage { readonly items: readonly MeDelegation[]; readonly nextCursor: string | null }
 
 /**
- * One of the caller's in-app notifications (`meNotificationsList` item, ADR 0025): ids plus display fields joined when
+ * One of the caller's in-app notifications (`meNotificationsList` item): ids plus display fields joined when
  * read. `id` is what `notifications.markRead` takes; `eventId` is the `GET /events` id. `kind` is open.
  */
 export type MeNotification = OpenEnums<components['schemas']['MeNotification']>;

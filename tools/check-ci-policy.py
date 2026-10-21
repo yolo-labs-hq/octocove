@@ -106,7 +106,7 @@ GATES, CHECK_STEP_GATE, CHECK_STEP = CANONICAL["gates"], CANONICAL["check_step_g
 # In-job area skips: exactly these jobs call tools/ci-scope.py, right after a
 # depth-2 checkout, and every later step is conditional on its output.
 SCOPED_JOBS = {
-    "ci.yml": {"licenses", "npm-pack", "spec-lint"},
+    "ci.yml": {"licenses", "npm-pack"},
 }
 CHECKOUT = "      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1\n"
 SCOPE_RUN = "        id: scope\n        run: python3 tools/ci-scope.py '.github/workflows/{name}' "

@@ -9,7 +9,6 @@ Name each single-file check actually run, worker limit and result. List skipped 
 ## Checklist
 
 - [ ] One change = one PR; unrelated changes excluded.
-- [ ] Glossary unchanged, or ADR linked for every new substrate noun/state/public write route; accepted definitions synchronized across glossary, OpenAPI/API and record.
 - [ ] Single-file, single-worker tests named above (or docs-only checks and runtime-test skip reason); evidence is honest about unrun checks and local/live scope.
 - [ ] No secrets, personal data, absolute operator/sandbox paths or private deployment identifiers in changes/evidence.
 - [ ] Every contribution commit has DCO sign-off (`git commit -s`); contribution rights and material AI assistance reviewed.

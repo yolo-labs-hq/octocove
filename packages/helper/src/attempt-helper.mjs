@@ -1,4 +1,4 @@
-// AttemptHelper — the per-attempt authenticated local helper (ADR 0005).
+// AttemptHelper — the per-attempt authenticated local helper (credential boundary).
 //
 // The trusted runtime provisions ONE AttemptHelper per attempt. It mediates git transport
 // for exactly that attempt over a protected Unix socket confined to the attempt's isolated

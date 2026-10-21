@@ -1,5 +1,5 @@
 // CLI claim and candidate paths against recorded API responses: the contract
-// examples in spec/fixtures/contract/, which conform to spec/openapi.yaml.
+// examples in tests/fixtures/contract/, response bodies of the Octocove API contract.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import { systemGit } from "../src/git.js";
 import type { Credentials } from "../src/config.js";
 
 const fixture = (name: string) =>
-  JSON.parse(readFileSync(join(process.cwd(), "../../spec/fixtures/contract", `${name}.json`), "utf8")) as { status: number; body: any };
+  JSON.parse(readFileSync(join(process.cwd(), "tests/fixtures/contract", `${name}.json`), "utf8")) as { status: number; body: any };
 const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const recorded = (name: string) => { const f = fixture(name); return reply(f.status, f.body); };
 

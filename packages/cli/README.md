@@ -1,6 +1,6 @@
 # octocove CLI
 
-One `octocove` binary with a subcommand per record API verb in [docs/API.md](https://github.com/yolo-labs-hq/octocove/blob/main/docs/API.md). A human terminal and an
+One `octocove` binary with a subcommand per record API verb. A human terminal and an
 agent sandbox run the same commands against the same API with the same semantics; only the credential differs. No
 CLI-managed background daemons: anything that waits (claim provisioning, landing) polls for a bounded time and then exits.
 Allocated claims use a per-attempt helper bundled with the CLI, or an external runtime.
@@ -99,10 +99,10 @@ reads credentials or starts network requests.
 | `logout` | `POST /auth/logout`; clear active credential after success |
 | `whoami [--json]` | `GET /me` (library `auth.me()`): the authenticated principal, credential kind and project memberships |
 | `project create SLUG --name TEXT [--json]` | `POST /projects` (library `projects.create()`): allow-listed humans create a project and become its first member; 403 `project-create-disabled` otherwise |
-| `repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF] [--json]` | `POST /projects/{project}/repositories` with `mode` `create` or `import` (library `repositories.create()`): a `project:admin` human has Octocove create an empty repository (or a README root commit with `--seed` in native mode), or import a public HTTPS remote, in the project's own Artifacts namespace (ADR 0018); born verified; an import prints `importing` and claims answer 409 `repository-importing` until `repo list` shows `(import ready)`; 400 `repository-import-url-invalid` / `repository-import-refused`, 409 `canonical-exists` / `repository-taken` / `repository-creation-pending`, 503 `broker-unavailable` / `broker-provider-unavailable` (Octocove deletes nothing; the cron records the repository if it was created, so retry with the same key, or hands it to the operator) |
+| `repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF] [--json]` | `POST /projects/{project}/repositories` with `mode` `create` or `import` (library `repositories.create()`): a `project:admin` human has Octocove create an empty repository (or a README root commit with `--seed` in native mode), or import a public HTTPS remote, in the project's own Artifacts namespace; born verified; an import prints `importing` and claims answer 409 `repository-importing` until `repo list` shows `(import ready)`; 400 `repository-import-url-invalid` / `repository-import-refused`, 409 `canonical-exists` / `repository-taken` / `repository-creation-pending`, 503 `broker-unavailable` / `broker-provider-unavailable` (Octocove deletes nothing; the cron records the repository if it was created, so retry with the same key, or hands it to the operator) |
 | `project member add PROJECT --principal ID [--role member\|approver] [--verbs a,b]` | `POST /projects/{project}/members`: human project administrators add a signed-in principal. `member` uses the server defaults; `approver` grants task/candidate/receipt/audit/event reads plus approval and landing, without project administration. Use `--verbs` for an explicit set; it cannot be combined with `--role`. |
 | `repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA] [--json]` | `POST /projects/{project}/repositories` (library `repositories.create()`): a `project:admin` human registers the project's canonical Artifacts repository and target ref (default `refs/heads/main`); `NS` must be the project's own namespace `oc-<project-id>`; 409 `canonical-exists` / `repository-taken` / `repository-namespace-mismatch` / `repository-creation-pending` (an open repository creation reserves that name) |
-| `repo verify PROJECT REPOSITORY [--json]` | `POST /projects/{project}/repositories/{repository}/verify` (library `repositories.verify()`): a `project:admin` human binds a registered repository once it exists in the project's own Artifacts namespace (`oc-<project-id>`, ADR 0017), so claims stop answering 409 `repository-unverified`; 409 `repository-namespace-mismatch` (registered outside that namespace), 409 `repository-remote-not-found`, 503 `broker-unavailable` (Artifacts secrets not installed) |
+| `repo verify PROJECT REPOSITORY [--json]` | `POST /projects/{project}/repositories/{repository}/verify` (library `repositories.verify()`): a `project:admin` human binds a registered repository once it exists in the project's own Artifacts namespace (`oc-<project-id>`), so claims stop answering 409 `repository-unverified`; 409 `repository-namespace-mismatch` (registered outside that namespace), 409 `repository-remote-not-found`, 503 `broker-unavailable` (Artifacts secrets not installed) |
 | `repo clone PROJECT [REPOSITORY] [DIR] [--json]` | Human member: resolve the canonical, then Git smart-HTTP `GET /projects/{project}/repositories/{repository}/git/info/refs?service=git-upload-pack` and `POST /projects/{project}/repositories/{repository}/git/git-upload-pack`; persist a credential-free read-only origin and a URL-scoped human credential helper |
 | `repo list PROJECT [--json]` | `GET /projects/{project}/repositories` (library `repositories.list()`): the repository ids and target refs `task create` takes |
 | `auth renew` | `POST /auth/session/renew` or `POST /delegations/{id}/renew`, according to the active credential |
@@ -181,9 +181,9 @@ metadata when the credential is saved. It never emits the device code, verifier,
   no provider write token is exported. This runtime is not an isolated credential boundary.
   `--source-ref REF --repository ID` registers an existing canonical branch instead: it keeps the selected remote
   (default `origin`) and existing credentials, with no helper installation or allocated repository. HTTPS/SSH identity
-  must match registration; all configured push URLs must match too. See [ADR 0002](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0002-own-clone-source-registration.md). See the
+  must match registration; all configured push URLs must match too. See the
   [helper contract](https://github.com/yolo-labs-hq/octocove/blob/main/docs/HELPER_BROKER_CONTRACT.md) for the helper transport and the password exchange.
-  This explicit external-writer path is outside ADR 0005 isolation qualification; independent provider
+  This explicit external-writer path is outside the helper's isolation guarantees; independent provider
   credentials must stay outside the untrusted agent sandbox.
   A delegation returned to a bootstrap claim is stored in `credentials/cli.json`
   immediately, before polling with that delegation, and is never printed. Exit 75 if still pending, 1 if refused or blocked.
@@ -317,7 +317,7 @@ describes runtime availability; it does not prove a helper is running.
 by allocated repositories, external-ref sources and chain lanes. It makes no API
 calls, allocates no remote repository, pushes nothing, and never changes a
 caller's `origin`. Claims, source admission, submissions and landing authority
-remain the existing commands and [ADR 0002](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0002-own-clone-source-registration.md).
+remain the existing commands.
 Use trusted setup's credential-free canonical URL and stable repository identity;
 Git uses the user's existing credential helper/SSH configuration.
 
@@ -438,11 +438,11 @@ between output and checkpoint can repeat an event, so deduplicate by `id`. Use o
 follower per checkpoint file. Empty pages are polled every second; permission and
 cursor errors require operator correction, never an automatic reset to zero.
 
-CI can store an ADR 0009 machine signed assertion as a protected CLI credential with
+CI can store a machine signed assertion as a protected CLI credential with
 `kind: "machine"`. Use audience `<API origin>/auth/event-authority`, project-scoped
 `events:read`, and refresh the assertion before its five-minute expiry. The stored
 cursor survives assertion rotation for the same principal. Machine subscription
-management is separately authorized by [ADR 0009](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0009-machine-event-authority.md).
+management is authorized separately.
 
 ## Materialized lanes (preview)
 
@@ -483,8 +483,7 @@ records `lastSubmission`.
 
 ## Chain lane lifecycle
 
-[ADR 0003](https://github.com/yolo-labs-hq/octocove/blob/main/docs/adr/0003-chain-mode-repo-lanes.md) and
-[API chain lanes](https://github.com/yolo-labs-hq/octocove/blob/main/docs/API.md) define the record and
+The service defines the chain lane record and its
 retention rules. `claim` is an alias of `task claim`:
 
 ```sh

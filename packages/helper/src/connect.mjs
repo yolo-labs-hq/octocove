@@ -1,4 +1,4 @@
-// Lane-side connector for the authenticated local helper (ADR 0005).
+// Lane-side connector for the authenticated local helper (credential boundary).
 //
 // git invokes this as an `ext::` transport, e.g.
 //   git remote add octocove "ext::octocove-helper-connect %s"

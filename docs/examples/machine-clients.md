@@ -1,6 +1,6 @@
 # Headless machine clients
 
-These examples use ADR-0001's implemented routes. They do not qualify a live
+These examples use the implemented machine approval routes. They do not qualify a live
 issuer, provider, runtime isolation, or branch protection. Local conformance
 uses signed fake issuers and native Git with explicit storage doubles; unsupported
 cells remain BLOCKED.

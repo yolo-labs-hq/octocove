@@ -138,8 +138,7 @@ export function check({ policyText, spec, readme }) {
 
 /**
  * The operations the generated routing table declares, shaped like the OpenAPI `paths`/`webhooks` that
- * `check` reads. The routing table is generated from the API contract, which may be newer than the
- * repository's frozen spec/openapi.yaml.
+ * `check` reads. The routing table is generated from the API contract, which is not in this repository.
  */
 export function operationsFromRouting(text) {
   const start = text.indexOf('export const routing = ');
