@@ -249,15 +249,27 @@ async function readPristine(dir: string, digest: string | null) {
 
 /** Where a read is pinned: a lane head (every file of one download from the same state), an upstream commit, a claim (human reads). */
 interface At { head?: string | null; base?: string | null; claim?: string }
+/** A lane read, read again after a 429 once its `Retry-After` has passed, while the deadline leaves room (reads are safe to repeat). */
+async function paced<T>(api: Api, deadline: number, read: () => Promise<T>): Promise<T> {
+  for (;;) {
+    try { return await read(); }
+    catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 429) throw error;
+      const wait = Math.max(1, error.retryAfter ?? 1) * 1000;
+      if (Date.now() + wait >= deadline) throw error;
+      await api.pause(wait);
+    }
+  }
+}
 async function readBlob(api: Api, taskId: string, generation: number, path: string, deadline: number, at: At = {}) {
   const query = { generation, path, ...(at.head ? { head: at.head } : {}), ...(at.base ? { base: at.base } : {}), ...(at.claim ? { claim: at.claim } : {}) };
-  const blob = (await api.call('laneBlobGet', { path: { id: taskId }, query, deadline })).body;
+  const blob = (await paced(api, deadline, () => api.call('laneBlobGet', { path: { id: taskId }, query, deadline }))).body;
   if (!isRecord(blob) || blob.encoding !== 'base64' || typeof blob.content !== 'string') throw new ConfigError(`invalid blob response for ${path}`);
   return Buffer.from(blob.content, 'base64');
 }
 type Manifest = { entries: { path: string; mode: Mode; type: 'file' | 'symlink' | 'submodule'; sha: string }[]; scope: { read: string[]; write: string[] }; baseSha: string; scopeVersion: number; executionId: string; claimId: string; laneHead?: string | null };
 async function readManifest(api: Api, taskId: string, generation: number, deadline: number, head?: string | null): Promise<Manifest> {
-  const m = (await api.call('laneManifestGet', { path: { id: taskId, generation }, ...(head ? { query: { head } } : {}), deadline })).body;
+  const m = (await paced(api, deadline, () => api.call('laneManifestGet', { path: { id: taskId, generation }, ...(head ? { query: { head } } : {}), deadline }))).body;
   if (!isRecord(m) || !Array.isArray(m.entries) || !isRecord(m.scope)) throw new ConfigError('invalid manifest response from the control plane');
   if (m.truncated) throw new ConfigError('the control plane truncated the manifest; ask for a narrower read scope');
   for (const e of m.entries) if (!isRecord(e) || !validLanePath(e.path) || typeof e.sha !== 'string') throw new ConfigError('invalid manifest entry from the control plane');
@@ -278,11 +290,24 @@ const keyed = (options: MaterializeOptions, suffix?: string) => ({
   idempotencyKey: options.idempotencyKey ? suffix ? `${options.idempotencyKey}.${suffix}`.slice(0, 128) : options.idempotencyKey : newIdempotencyKey(),
 });
 const NO_LANE_REPOSITORIES = 'this Octocove server does not offer lane repositories yet: the directory holds the pinned base, and lane submit creates a candidate directly';
+/** A GitHub lane that already submitted without a lane repository stays on that path (409 `lane-direct-path`). */
+export const DIRECT_PATH = 'this GitHub lane already submitted without a lane repository, so it stays that way: the directory holds the pinned base, and lane submit creates a candidate per submission, as in CLI 0.3.x. A new claim gets save points and wrap-up';
 const isSha = (x: unknown): x is string => typeof x === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(x);
 
+/** Why a lane write is waiting: another transition settling, the lane repository resuming, or a rate limit. */
+function busyReason(error: ApiError): string | null {
+  if (error.code === 'operation-in-progress') return 'another save, refresh or wrap-up on this lane is still settling';
+  if (error.status === 503 && error.code === 'lane-repository-unavailable') return 'the lane repository is still settling';
+  if (error.status === 429) return isRecord(error.details) && error.details.reason === 'provider-rest-budget'
+    ? "the GitHub repository's REST budget is low (nothing was created or written)" : 'the server is rate limiting this lane';
+  return null;
+}
+
 /**
- * One lane write that may meet another transition settling (409 `operation-in-progress`): polled here, under the
- * same key, with a line for the person waiting, until the deadline; then surfaced with what to do.
+ * One lane write that may meet another transition settling (409 `operation-in-progress`), a lane repository still
+ * resuming (503 `lane-repository-unavailable`) or a rate limit (429, after its `Retry-After`): polled here, under
+ * the same key, with a line for the person waiting, until the deadline; then surfaced with what to do. A rate limit
+ * whose `Retry-After` runs past the deadline is surfaced as it is, with its `Retry-After`.
  */
 async function settled<T>(api: Api, options: MaterializeOptions, what: string, attempt: (busyIsFinal: true) => Promise<T>): Promise<T> {
   const started = Date.now();
@@ -290,12 +315,14 @@ async function settled<T>(api: Api, options: MaterializeOptions, what: string, a
   for (;;) {
     try { return await attempt(true); }
     catch (error) {
-      if (!(error instanceof ApiError) || (error.code !== 'operation-in-progress' && error.status !== 429)) throw error;
+      const reason = error instanceof ApiError ? busyReason(error) : null;
+      if (!reason || !(error instanceof ApiError)) throw error;
       const wait = Math.max(1, error.retryAfter ?? 1) * 1000, waited = Math.round((Date.now() - started) / 1000);
       if (Date.now() + wait >= options.deadline) {
-        throw new ApiError({ status: error.status, code: error.code, detail: `another save, refresh or wrap-up on this lane was still settling after ${waited} s; nothing was changed locally. Run the same command again in a minute`, details: error.details, requestId: error.requestId });
+        if (error.status === 429) throw error;
+        throw new ApiError({ status: error.status, code: error.code, detail: `${reason} after ${waited} s; nothing was changed locally. Run the same command again in a minute`, details: error.details, requestId: error.requestId });
       }
-      if (Date.now() - told >= 30_000) { options.notify?.(`another save, refresh or wrap-up on this lane is still settling; ${what} retries every ${wait / 1000} s (waited ${waited} s, up to ${Math.round((options.deadline - started) / 1000)} s)`); told = Date.now(); }
+      if (Date.now() - told >= 30_000) { options.notify?.(`${reason}; ${what} retries every ${wait / 1000} s (waited ${waited} s, up to ${Math.round((options.deadline - started) / 1000)} s)`); told = Date.now(); }
       await api.pause(wait);
     }
   }
@@ -320,13 +347,17 @@ export async function materialize(api: Api, taskId: string, dir: string, options
     gen = begun as never;
   }
   let repo: Record<string, any> | null = null, notice: string | null = null;
+  // One key for every attempt: a lane repository that is still being created, or a reopened lane still being
+  // rebased onto its landing, resumes under it (503 lane-repository-unavailable).
+  const key = keyed(options);
   try {
-    repo = (await api.j.command('laneMaterialize', { path: { id: taskId }, body: {} }, keyed(options))).body;
+    repo = (await settled(api, options, 'lane materialize', (busyIsFinal) => api.j.command('laneMaterialize', { path: { id: taskId }, body: {} }, key, { busyIsFinal }))).body;
     if (!isRecord(repo) || !isSha(repo.laneHead) || !Number.isInteger(repo.generation)) throw new ConfigError('invalid materialize response from the control plane');
   } catch (error) {
     if (routeMissing(error)) notice = NO_LANE_REPOSITORIES;
     else if (error instanceof ApiError && error.code === 'repository-provider-unsupported')
       notice = "this repository's provider has no lane repositories: the directory holds the pinned base, and lane submit creates a candidate directly";
+    else if (error instanceof ApiError && error.code === 'lane-direct-path') notice = DIRECT_PATH;
     else throw error;
   }
   if (notice) options.notify?.(notice);
@@ -346,7 +377,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
     ...(repo ? { laneHead: head, snapshotCommit: repo.snapshotCommit, laneRepositoryId: repo.laneRepository?.id } : {}) };
   await save(dir, sc);
   return { taskId, dir, claimAttemptId: sc.claimAttemptId, generation: sc.generation, baseSha: sc.baseSha, laneHead: head, created: repo ? repo.created === true : null,
-    scopeVersion: sc.scopeVersion, scope: sc.scope, files: Object.keys(files).length, notice };
+    reopenId: typeof repo?.reopenId === 'string' ? repo.reopenId as string : null, scopeVersion: sc.scopeVersion, scope: sc.scope, files: Object.keys(files).length, notice };
 }
 
 /** Local edits against the sidecar: modified, added (inside the write prefixes), deleted, and unresolved conflicts. */

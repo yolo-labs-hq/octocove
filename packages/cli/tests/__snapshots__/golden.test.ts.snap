@@ -275,7 +275,7 @@ Commands:
   lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point; a candidate on a lane without a lane repository)
   lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (materialized lane: squash the saved lane into one candidate for review)
   lane patch [DIR] [--out FILE]                 (materialized lane: write unsaved edits as a Git-format patch)
-  lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]  (human, recent sign-in: reopen a landed lane for one agent; not offered by every server yet)
+  lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]  (human, recent sign-in: reopen a landed lane for one agent)
   lane scope-requests ID [--status pending|granted|refused]  (materialized lane: the task's scope requests, newest first; project member)
   task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
   task claim-status ID                          (ID is the claim ID)
@@ -378,7 +378,7 @@ exports[`land fenced 1`] = `
   "requests": [
     "POST /candidates/CA1/land",
   ],
-  "stderr": "octocove: fenced: another landing holds the fence
+  "stderr": "octocove: fenced: another landing holds the fence A landing on this target is in progress; run the same command again once its receipt is final.
 ",
   "stdout": "",
 }

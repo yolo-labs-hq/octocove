@@ -13,7 +13,7 @@ const FLAGS: Record<string,string> = {
   agent: 'Opaque agent ID chosen by the delegating human: nonempty, at most 128 characters. No agent registration or human login is required for this label. Use a separate agent config directory and its own bootstrap; this does not change the signed-in human.',
   verbs: 'Comma-separated permission names. The human must hold every permission granted; no permissions are implied.',
   lane: 'Lane strategy: chain (default), ref (classic per-task lane) or materialized (preview: files without a clone). --source-ref selects the existing external ref path unless --lane is explicit.',
-  read: 'Materialized lane read scope: comma-separated repository path prefixes (a directory prefix ends with /).',
+  read: 'Materialized lane read scope: comma-separated repository path prefixes (a directory prefix ends with /). Left out when continuing a reopened lane, which keeps its granted scope.',
   write: 'Materialized lane write scope: comma-separated prefixes, each inside a read prefix.',
   message: 'Message for the save point or wrap-up (the wrap-up subject defaults to the first save point\'s); the server appends its own trailers.',
   resolve: 'PATH=lane|base|FILE for a path the last refused refresh or wrap-up listed; repeat once per path. lane keeps the saved lane version, base takes upstream, FILE uploads that local file as the result. Sent under a new idempotency key.',

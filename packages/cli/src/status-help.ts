@@ -13,7 +13,7 @@ const tasks = {
   landed: 'The accepted result reached canonical. Next: inspect the receipt and stop this attempt.',
   rejected: 'The task was closed without acceptance. Next: stop work on this task.',
   superseded: 'Another task replaces this one. Next: stop and follow the replacement.',
-  reopened: 'A human reopened the landed lane for more work (not offered by every server yet). Next: the authorized agent claims, saves and wraps up again.',
+  reopened: 'A human reopened the landed lane for more work. Next: the authorized agent claims with the reopen bootstrap, saves and wraps up again; a new landing gets its own receipt.',
 } satisfies Record<Schemas['TaskStatus'], string>;
 const candidates = {
   active: 'Current candidate; reviewable when bindings and checks permit. Next: human review/approve, then land.',

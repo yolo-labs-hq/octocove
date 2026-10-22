@@ -114,27 +114,27 @@ reads credentials or starts network requests.
 | `task release ID [--claim ID] [--dir DIR]` | `POST /tasks/{id}/release`; in a materialized lane directory (DIR, or the working directory) unsaved edits are first written to a patch (`lane patch`) |
 | `task show ID` | `GET /tasks/{id}` |
 | `task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
-| `lane materialize TASK [DIR] [--wait SECONDS]` | `GET /tasks/{id}`, `POST /tasks/{id}/lane/executions` when no execution is open, `POST /tasks/{id}/lane/materialize` (idempotent), then `GET /tasks/{id}/lane/materializations/{generation}?head=` and `GET /tasks/{id}/lane/blob?head=` per entry at the lane head (materialized lanes, preview; a server without the route answers 404 and the directory holds the pinned base) |
+| `lane materialize TASK [DIR] [--wait SECONDS]` | `GET /tasks/{id}`, `POST /tasks/{id}/lane/executions` when no execution is open, `POST /tasks/{id}/lane/materialize` (idempotent), then `GET /tasks/{id}/lane/materializations/{generation}?head=` and `GET /tasks/{id}/lane/blob?head=` per entry at the lane head (materialized lanes, preview; a server without the route answers 404, and a GitHub lane that already submitted without a lane repository answers `409 lane-direct-path`: either way the directory holds the pinned base) |
 | `lane status [DIR]` | local only in a materialized directory (`.octocove/lane.json`); otherwise `GET /tasks/{id}/lane` |
 | `lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]` | `POST /tasks/{id}/lane/materializations` (`base-refreshed`, `expectedHead`, `resolutions`), then the manifest and changed blobs at the new lane head; on `refresh-conflict`, `GET /tasks/{id}/lane/blob?base=` per conflict |
 | `lane resolve PATH --keep local|incoming [DIR]` | local only |
 | `lane submit [DIR] [--message TEXT] [--wait SECONDS]` | `POST /tasks/{id}/lane/blobs` per changed file, then `POST /tasks/{id}/lane/changes` with `expectedHead` (a save point; a candidate on a lane without a lane repository); on `lane-not-materialized`, `POST /tasks/{id}/lane/materialize` first |
 | `lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]` | `POST /tasks/{id}/lane/wrap-up`; `POST /tasks/{id}/lane/blobs` for a FILE resolution; on `refresh-conflict`, `GET /tasks/{id}/lane/blob?base=` per conflict |
 | `lane patch [DIR] [--out FILE]` | local (the directory's own copies); `GET /tasks/{id}/lane/blob` only for a directory an older CLI wrote |
-| `lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]` | `GET /tasks/{id}`, then `POST /tasks/{id}/lane/reopen` (human, recent sign-in; not offered by every server yet: a 404 is reported as `lane-reopen-unavailable`) |
+| `lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]` | `GET /tasks/{id}`, then `POST /tasks/{id}/lane/reopen` with the task's newest landed receipt (human, recent sign-in; a server without the route answers 404, reported as `lane-reopen-unavailable`) |
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1041](src/cli.ts#L1041 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1042](src/cli.ts#L1042 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1043](src/cli.ts#L1043 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1044](src/cli.ts#L1044 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1045](src/cli.ts#L1045 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:1046](src/cli.ts#L1046 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1047](src/cli.ts#L1047 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1048](src/cli.ts#L1048 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1049](src/cli.ts#L1049 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1075](src/cli.ts#L1075 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1076](src/cli.ts#L1076 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1077](src/cli.ts#L1077 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1078](src/cli.ts#L1078 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1079](src/cli.ts#L1079 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:1080](src/cli.ts#L1080 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1081](src/cli.ts#L1081 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1082](src/cli.ts#L1082 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1083](src/cli.ts#L1083 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -142,12 +142,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1589](src/cli.ts#L1589 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1601](src/cli.ts#L1601 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1630](src/cli.ts#L1630 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1642](src/cli.ts#L1642 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1641](src/cli.ts#L1641 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1682](src/cli.ts#L1682 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:504](src/cli.ts#L504 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:528](src/cli.ts#L528 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -526,10 +526,28 @@ directory, then save. The old side comes from copies the CLI keeps under `.octoc
 with `--dir`) a lane directory, and `lane reopen --dir`, write that patch first and report it.
 
 **Reopen.** `lane reopen TASK --agent ID --verbs a,b --expires-at TIME` (human, recent sign-in) reopens a landed
-lane for one agent, against the task's newest receipt (`--expected-receipt` to name it), and stores the agent's
-one-use bootstrap like `task authorize` (`--bootstrap-out PATH`); only its metadata is printed. The agent then claims
-and materializes as usual and continues the same lane. A server that does not offer it answers 404, reported as
-`lane-reopen-unavailable`.
+lane for one agent, against the task's newest landed receipt (`latestReceiptId`; `--expected-receipt` to name it),
+and stores the agent's one-use bootstrap like `task authorize` (`--bootstrap-out PATH`); only its metadata is printed,
+with the claim line to hand on. The task becomes `reopened`, and it admits a claim only with that bootstrap (`409
+lane-reopen-required` otherwise). The agent claims within five minutes with `task claim TASK --lane materialized
+--intent-version N --bootstrap-file FILE` and no `--read`/`--write` (the lane keeps its granted scope; a declared
+scope must be that one), then `lane materialize TASK DIR` continues the lane head, already rebased onto the landing;
+while that rebase settles, the claim reports provisioning `pending` and `lane materialize` resumes it. The next
+wrap-up carries only the work saved since the landing and lands with its own receipt; `task show` reports the
+newest landing and how many there were, and `receipt show` and `candidate show` print the landing number. Refusals
+are explained: `lane-not-reopenable` (by its `details.reason`), `human-required`, `already-claimed`, `fenced` and
+`operation-in-progress` (retried), and `idempotency-result-expired` for a key reused after the bootstrap was used or
+its five minutes passed (run it again with a new key). A server that does not offer reopening answers 404, reported
+as `lane-reopen-unavailable`.
+
+**Direct-path GitHub lanes and request budgets.** A GitHub lane that already submitted without a lane repository
+stays that way: `lane materialize` reports `409 lane-direct-path` as a notice, the directory holds the pinned base,
+and `lane submit` creates a candidate per submission, as in CLI 0.3.x. On a GitHub repository the server budgets its
+GitHub requests: a scope that needs too many for one operation is `413 materialization-too-large` (or
+`wrap-up-too-large`) with `details.reason: rest-budget` (narrow the scope), and a low hourly budget is `429
+rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After`. Lane commands wait that out (writes under the same
+idempotency key, and lane reads too) within their deadline, as they do `operation-in-progress` and `503 lane-repository-unavailable`, and
+otherwise say when to run the command again; nothing is created or written by a refused call.
 
 `candidate show` adds, for a materialized submission, where it came from (execution, generation, scope version and
 contribution ref, fixed at submission) and the file operations it journaled, and, when the server reports them,

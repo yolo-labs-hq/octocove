@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
+import { saveCredentials } from "../src/config.js";
 
 // Materialized lanes with a lane repository: save points on the lane head, wrap-up, refresh with resolutions, unsaved
 // edits as a patch, and reopen, against a small model of the control plane.
@@ -394,6 +395,120 @@ describe("octocove lane with a lane repository", () => {
     it("is refused for an agent delegation before anything is sent", async () => {
       expect(await cli(args)).toBe(EXIT.humanRequired);
       expect(posts("/lane/reopen")).toHaveLength(0);
+    });
+
+    it("names the task's newest landed receipt and prints a claim line without a scope", async () => {
+      const landedTwice = routes["GET /tasks/T1"]!;
+      routes["GET /tasks/T1"] = (c) => { const r = landedTwice(c); return r.json().then((b: any) => json(200, { ...b, status: "landed", latestReceiptId: "RC2", landingCount: 2 })) as never; };
+      routes["POST /tasks/T1/lane/reopen"] = () => json(201, { reopenId: "RO2", taskId: "T1", status: "reopened", reopenedFromReceiptId: "RC2", landingCount: 2, laneRepositoryId: "LR1",
+        agentBootstrap: { id: "A2", taskId: "T1", projectId: "P1", claimAttemptId: "C3", delegationId: "D3", bootstrapToken: "reopen-bootstrap-secret", bootstrapExpiresAt: "2026-10-22T00:05:00Z",
+          authorizationExpiresAt: "2026-10-23T00:00:00Z", verbs: ["tasks:read", "submissions:create"] } });
+      expect(await cli([...args, "--reason", "follow-up"], human)).toBe(EXIT.ok);
+      expect(posts("/lane/reopen")[0]!.body).toEqual({ expectedReceiptId: "RC2", agentId: "agent-1", verbs: ["tasks:read", "submissions:create"], expiresAt: "2026-10-23T00:00:00Z", reason: "follow-up" });
+      expect(outText).toMatch(/Landings: +2/);
+      expect(outText).toContain("--lane materialized --intent-version 3 --bootstrap-file");
+      expect(outText).not.toContain("--read");
+      expect(outText + errText).not.toContain("reopen-bootstrap-secret");
+    });
+
+    it.each([
+      [409, "lane-not-reopenable", { reason: "not-a-wrap-up" }, "did not come from a lane wrap-up", EXIT.failure],
+      [409, "idempotency-result-expired", undefined, "without --idempotency-key", EXIT.failure],
+      [409, "fenced", undefined, "landing on this target is in progress", EXIT.failure],
+      [403, "human-required", undefined, "human-required", EXIT.humanRequired],
+    ])("explains a %s %s refusal", async (status, code, details, text, exit) => {
+      routes["POST /tasks/T1/lane/reopen"] = () => problem(status, code, details);
+      expect(await cli(args, human)).toBe(exit);
+      expect(errText).toContain(code);
+      expect(errText).toContain(text);
+      // No bootstrap was stored.
+      expect(existsSync(join(work, "cfg")) && readdirSync(join(work, "cfg"), { recursive: true }).some((f) => String(f).includes("bootstrap-"))).toBe(false);
+    });
+  });
+
+  describe("claiming a reopened lane", () => {
+    const claimArgs = ["task", "claim", "T1", "--lane", "materialized", "--intent-version", "3"];
+    const reopenedClaim = (provisioningState: string) => () => json(provisioningState === "pending" ? 202 : 201, {
+      claim: { id: "C3", taskId: "T1", status: "active", provisioningState, lane: { kind: "materialized", executionId: "X2", generation: 1, baseSha, scopeVersion: 1, scope, laneHead: SHA("landed"), reopenId: "RO1" } },
+      delegation: { delegationId: "D3", accessToken: "reopenedAgentCredential", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
+
+    it("claims with the reopen bootstrap without a scope, and points at lane materialize", async () => {
+      const file = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "boot") }, { apiUrl: API, token: "reopen-boot", kind: "bootstrap", agentId: "agent-1" });
+      routes["POST /tasks/T1/claim"] = reopenedClaim("pending");
+      expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.ok);
+      const claim = posts("/claim")[0]!;
+      expect(claim.body).toEqual({ intentVersion: 3, laneKind: "materialized" });
+      expect(claim.headers.authorization ?? claim.headers.Authorization).toBe("Bearer reopen-boot");
+      expect(outText).toMatch(/Reopen: +RO1/);
+      expect(outText).toMatch(/Read: +src\/, README\.md/);
+      expect(outText).toContain("pending");
+      expect(outText).toContain("octocove lane materialize T1 DIR");
+      expect(outText + errText).not.toContain("reopenedAgentCredential");
+    });
+
+    it("still requires a scope without a bootstrap, and explains lane-reopen-required", async () => {
+      expect(await cli(claimArgs)).toBe(EXIT.usage);
+      expect(posts("/claim")).toHaveLength(0);
+      routes["POST /tasks/T1/claim"] = () => problem(409, "lane-reopen-required");
+      expect(await cli([...claimArgs, "--read", "src/", "--write", "src/"])).toBe(EXIT.failure);
+      expect(errText).toContain("only the bootstrap `octocove lane reopen` stored admits a claim");
+    });
+  });
+
+  describe("lane materialize on the newer server", () => {
+    it("resumes a lane repository still settling under the same key, and reports the reopen it continues", async () => {
+      const ok = routes["POST /tasks/T1/lane/materialize"]!;
+      let unavailable = 2;
+      routes["POST /tasks/T1/lane/materialize"] = (c) => {
+        if (unavailable-- > 0) return problem(503, "lane-repository-unavailable", undefined, 1);
+        const r = ok(c);
+        return r.json().then((b: any) => json(r.status, { ...b, reopenId: "RO1" })) as never;
+      };
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const keys = posts("/lane/materialize").map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"]);
+      expect(keys).toHaveLength(3);
+      expect(new Set(keys).size).toBe(1);
+      expect(errText).toContain("still settling");
+      expect(outText).toMatch(/Reopen: +RO1/);
+      expect(sidecar().laneHead).toBe(head);
+    });
+
+    it("keeps a GitHub lane that already submitted directly on the 0.3.x path (lane-direct-path)", async () => {
+      routes["POST /tasks/T1/lane/materialize"] = () => problem(409, "lane-direct-path", { reason: "direct-path-submissions" });
+      routes["POST /tasks/T1/lane/changes"] = () => json(201, { id: "S1", candidateId: "CA1", candidateSha: SHA("cand"), contributionRef: "refs/octocove/T1/1", candidateStatus: "active" });
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect(errText).toContain("already submitted without a lane repository");
+      expect(sidecar().laneHead).toBeUndefined();
+      expect(read("src/a.txt")).toBe("alpha\n");
+      writeFileSync(join(dir, "src/a.txt"), "alpha direct\n");
+      expect(await cli(["lane", "submit", "--json"])).toBe(EXIT.ok);
+      expect(posts("/lane/changes")[0]!.body.expectedHead).toBeUndefined();
+      expect(JSON.parse(outText)).toMatchObject({ kind: "candidate", candidateId: "CA1" });
+    });
+
+    it("surfaces GitHub's REST budget with its Retry-After when it runs past the deadline; nothing is written", async () => {
+      routes["POST /tasks/T1/lane/materialize"] = () => problem(429, "rate-limited", { reason: "provider-rest-budget" }, 1800);
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+      expect(errText).toContain("rate-limited");
+      expect(errText).toContain("REST budget is low");
+      expect(errText).toContain("after 1800 s");
+      expect(existsSync(join(dir, SIDECAR))).toBe(false);
+    });
+
+    it("reads a lane file again after a 429's Retry-After", async () => {
+      const ok = routes["GET /tasks/T1/lane/blob"]!;
+      let limited = 1;
+      routes["GET /tasks/T1/lane/blob"] = (c) => limited-- > 0 ? problem(429, "rate-limited", { reason: "provider-rest-budget" }, 2) : ok(c);
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect(slept).toContain(2000);
+      expect(read("src/a.txt")).toBe("alpha\n");
+    });
+
+    it("explains a 413 rest-budget refusal as a scope to narrow", async () => {
+      routes["POST /tasks/T1/lane/materialize"] = () => problem(413, "materialization-too-large", { reason: "rest-budget", requests: 2600, limit: 2500 });
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+      expect(errText).toContain("more GitHub requests than one operation may make");
+      expect(errText).toContain("narrower --read scope");
     });
   });
 });
