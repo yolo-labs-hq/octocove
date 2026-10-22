@@ -18,6 +18,7 @@ const FLAGS: Record<string,string> = {
   message: 'Message for the save point or wrap-up (the wrap-up subject defaults to the first save point\'s); the server appends its own trailers.',
   resolve: 'PATH=lane|base|FILE for a path the last refused refresh or wrap-up listed; repeat once per path. lane keeps the saved lane version, base takes upstream, FILE uploads that local file as the result. Sent under a new idempotency key.',
   'allow-unsaved': 'Wrap up the saved lane head even though the directory has unsaved edits (they stay local and are not part of the candidate).',
+  handover: 'Hand the claim\'s open execution over to this environment first: the new execution inherits the lane head, its delegation is stored privately as the agent credential, and the other environment\'s credential stops working (execution-superseded).',
   out: 'Write the patch to this new file instead of .octocove/unsaved-TIME.patch in the lane directory.',
   reason: 'Why the lane is reopened; recorded with the reopen.', 'expected-receipt': 'The task\'s newest landed receipt; defaults to the one the task reports.',
   dir: 'Materialized lane directory of this task; unsaved edits there are written to a patch first. Defaults to the working directory when it is one.',
@@ -77,7 +78,7 @@ The human alone approves; do not grant approval authority to a worker.`;
 export function commandHelp(command: string, originalUsage: string, description = '') {
   let usage = originalUsage;
   if (command === 'task claim' || command === 'claim') usage = `${command} ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--chain-id ID] [--base SHA] [--previous-task ID] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]`;
-  if (command.startsWith('workspace ')) usage = `${command} --canonical URL [--canonical-id ID] [--ref REF] [--cache DIR] [--worktree ID] [--lane ID] [--base SHA] [--head SHA] [--source URL] [--sparse PATHS] [--count N]`;
+  if (command.startsWith('workspace ')) usage = `${command} --canonical URL [--canonical-id ID] [--ref REF] [--cache DIR] [--worktree ID] [--base SHA] [--head SHA] [--source URL] [--sparse PATHS] [--count N]`;
   if (command === 'auth revoke') usage = 'auth revoke [DELEGATION_ID] [--grant ID --purpose submit|approve --timeout SECONDS]';
   if (command === 'auth renew') description = 'Rotate the active credential explicitly. Stored human and agent tokens also renew automatically near expiry; agent renewal stays within its authorization ceiling and claim lease. Revoked or ended grants require a new authorization.';
   if (command === 'auth exchange') usage += ' [--timeout SECONDS]';
@@ -88,7 +89,6 @@ export function commandHelp(command: string, originalUsage: string, description 
   const optionMatches = [...usage.matchAll(/--([a-z][a-z-]*)(?: ([A-Z][A-Z_]*|[a-z]+(?:\|[a-z]+)+|a,b))?/g)];
   const options = [...new Map(optionMatches.map(m=>[m[1]!,m[0]])).entries()].map(([flag,label])=> {
     let detail = FLAGS[flag];
-    if (flag === 'lane' && command.startsWith('workspace ')) detail = 'Deprecated alias for --worktree (local cache ID, not a lane strategy).';
     if (flag === 'wait' && ['land','receipt show'].includes(command)) detail = 'Wait for the final receipt (boolean flag, no value).';
     if (flag === 'wait' && command === 'login') detail = 'Browser-consent wait in seconds (default 600).';
     if (flag === 'wait' && ['lane refresh','lane wrap-up'].includes(command)) detail = 'Bounded wait in seconds (default 150), including any wait for another save, refresh or wrap-up settling on the lane.';

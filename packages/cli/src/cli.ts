@@ -10,7 +10,7 @@ import { humanSessionFetch, renewHuman, agentSessionFetch, renewAgent } from "./
 import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
 import { stageChain } from "./chain-stage.js";
-import { hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, routeMissing, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
+import { handover as handoverLane, hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
 import { startManagedHelper, requireAgentCredential } from "./managed-helper.mjs";
 import { followEvents } from './event-follow.js';
 import { workspace } from "./workspace.mjs";
@@ -109,11 +109,12 @@ Commands:
   claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]  (default lane: chain)
   lane sync                                   (fetch authenticated canonical refs; preserve local edits)
   lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
-  lane status|retry|retire [--task ID] [--claim ID]
-  lane materialize TASK [DIR] [--wait SECONDS]  (materialized lane: create or reuse the lane repository, write the files at the lane head into DIR, no .git)
+  lane status|retry [--task ID] [--claim ID]
+  lane retire [TASK] [--task ID]                (human project admin, recent sign-in: retire a lane; a materialized lane's repository is deleted, its landed result kept)
+  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (materialized lane: create or reuse the lane repository, write the files at the lane head into DIR, no .git)
   lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (materialized lane: rebase onto the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
-  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point; a candidate on a lane without a lane repository)
+  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point on the lane head)
   lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (materialized lane: squash the saved lane into one candidate for review)
   lane patch [DIR] [--out FILE]                 (materialized lane: write unsaved edits as a Git-format patch)
   lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]  (human, recent sign-in: reopen a landed lane for one agent)
@@ -238,6 +239,30 @@ const EMPTY_REPOSITORY_GUIDE = "https://github.com/yolo-labs-hq/octocove/blob/ma
 /** A refusal's `details.reason`, when it names one. */
 const reason = (err: ApiError) => isRecord(err.details) && typeof err.details.reason === "string" ? err.details.reason as string : undefined;
 
+/** 409 `write-scope-claimed`: the refused prefixes, and each holder when the server names them (to a human with tasks:read). */
+function writeScopeClaimed(err: ApiError) {
+  const d = isRecord(err.details) ? err.details : {};
+  const requested = Array.isArray(d.requested) ? d.requested.filter((p: unknown) => typeof p === "string") : [];
+  const holders = Array.isArray(d.holders) ? d.holders.filter(isRecord).map((h: any) => {
+    const paths = Array.isArray(h.paths) ? h.paths.filter(isRecord).map((p: any) => p.requested === p.held ? `${p.held}` : `${p.held} (you asked for ${p.requested})`).join(", ") : "";
+    const by = h.heldBy === "reopen" ? "an open reopen" : "an active claim";
+    return `task ${h.taskId} holds ${paths || "an overlapping prefix"} through ${by}${typeof h.claimAttemptId === "string" ? ` (claim ${h.claimAttemptId})` : ""}`;
+  }) : [];
+  return `Another task holds an overlapping write scope${requested.length ? ` for ${requested.join(", ")}` : ""}, so nothing was recorded${holders.length ? `: ${holders.join("; ")}` : " (the holder is named only to a project member who can read its tasks)"}. Narrow the write scope, or retry the same command once the holder has landed or been released.`;
+}
+
+/** Why `lane retire` refused (409 `lane-retention-pending`), by the guard the server names in `details.reason`. */
+const RETENTION_PENDING: Record<string, string> = {
+  "claim-active": "a claim of the task is still active; it must be released, revoked or expire first",
+  "reopen-open": "the landed lane is reopened; the reopen must close first",
+  "task-not-terminal": "the task is not landed, rejected or superseded (or a landing is fenced); a lane is retired only after its task is final",
+  "journal-in-flight": "a save, refresh, materialize or head transition is still settling",
+  "wrap-up-in-flight": "a wrap-up is still settling",
+  "push-unresolved": "a push to the lane is not resolved yet",
+  "write-token-live": "a write token for the lane repository or a lane claim is still live; it expires within minutes",
+  "custody-unverified": "a submission of a lane claim is neither a recorded wrap-up nor in verified source custody",
+};
+
 function report(d: Deps, err: unknown, json: boolean): number {
   const quiet = err instanceof Emitted;
   if (err instanceof Emitted) err = err.inner;
@@ -272,7 +297,17 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "lane-head-moved"
         ? "Your local edits are untouched. Run `octocove lane refresh` to take the new lane head (unedited files follow it; an edited file keeps your copy, with the other under .octocove/incoming), then run the command again."
       : err.code === "lane-not-materialized"
-        ? "Run `octocove lane submit` to save your edits: it asks for the lane repository first. A new directory comes from `octocove lane materialize TASK DIR`."
+        ? "This lane has no lane repository yet: run `octocove lane materialize TASK DIR` first, edit there, then save with `octocove lane submit`."
+      : err.code === "write-scope-claimed"
+        ? writeScopeClaimed(err)
+      : err.code === "execution-superseded"
+        ? `This credential's lane execution${isRecord(err.details) && typeof err.details.executionId === "string" ? ` (${err.details.executionId})` : ""} was handed over to another environment, so it is no longer authoritative here. Continue in the environment that took it over, or run \`octocove lane materialize TASK DIR --handover\` to take the lane back into a new directory. Keep this directory's unsaved edits with \`octocove lane patch\`.`
+      : err.code === "execution-inactive"
+        ? "This claim has no open lane execution. Run `octocove task show TASK_ID` to inspect it; after a release or revocation a human authorizes a new claim."
+      : err.code === "lane-retention-pending"
+        ? `The lane cannot be retired yet: ${RETENTION_PENDING[reason(err) ?? ""] ?? `a retention guard holds (${reason(err) ?? "unknown"})`}. Nothing was deleted.${reason(err) === "task-not-terminal" ? "" : " Run the same command again once it settles."}`
+      : err.code === "lane-retired"
+        ? "This lane was retired: its lane repository is gone and it is never materialized or reopened again. The landed result stays on the repository (`octocove task show TASK_ID`)."
       : err.code === "refresh-conflict"
         ? "Decide every listed path and run the same command again with one --resolve PATH=lane|base|FILE each: lane keeps the saved lane version, base takes upstream, FILE uploads that file (the upstream copies are under .octocove/incoming)."
       : err.code === "nothing-to-wrap-up"
@@ -285,8 +320,6 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? `${reason(err) === "rest-budget" ? "Wrapping up would take more GitHub requests than one operation may make" : "The saved change is too large for one candidate"}; nothing was created. Release the claim and split the work into narrower claims.`
       : err.code === "rate-limited" && reason(err) === "provider-rest-budget"
         ? `The GitHub repository's REST budget is low, so nothing was created or written. Run the same command again${err.retryAfter ? ` after ${err.retryAfter} s` : " later"} (Retry-After).`
-      : err.code === "lane-direct-path"
-        ? "This GitHub lane already submitted without a lane repository and stays that way: `octocove lane submit` creates a candidate per submission, as in CLI 0.3.x. A new claim gets save points and wrap-up."
       : err.code === "lane-reopen-required"
         ? "This task was reopened for more work: only the bootstrap `octocove lane reopen` stored admits a claim (--bootstrap-file FILE). If it was used or expired, the human runs `octocove lane reopen` again."
       : err.code === "lane-not-reopenable"
@@ -301,7 +334,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "fenced"
         ? "A landing on this target is in progress; run the same command again once its receipt is final."
       : err.code === "repository-provider-unsupported"
-        ? "This repository's provider does not support this lane step yet; on it, `octocove lane submit` creates the candidate directly."
+        ? "This repository's provider has no lane repositories; a materialized lane needs an Artifacts or GitHub repository."
       : err.code === "reauth-required"
         ? "This command needs a recent sign-in: run `octocove login`, then run it again with the same --idempotency-key if you passed one."
       : err.code === "lane-conflicts-unresolved"
@@ -429,7 +462,7 @@ function attributionRows(attribution: any): [string, unknown][] {
     : [["Attribution", "not recorded (created before attribution)"]];
 }
 
-/** Whether approve and land would be accepted for this reader now (preview; absent on older servers). */
+/** Whether approve and land would be accepted for this reader now. */
 function actionRows(actions: any): [string, unknown][] {
   if (!isRecord(actions)) return [];
   const row = (a: any, extra?: string) => !isRecord(a) || typeof a.available !== "boolean" ? undefined
@@ -459,7 +492,7 @@ async function approvalRows(api: Api, taskId: string | undefined, receiptId?: st
   try {
     const task = (await api.call("taskGet", { path: { id: taskId }, deadline })).body;
     // A candidate is matched among the task's landings by its SHA: a reopened lane lands more than once.
-    const exactReceipt = receiptId ?? (candidateSha === undefined ? task.acceptedReceiptId : undefined);
+    const exactReceipt = receiptId ?? (candidateSha === undefined ? task.latestReceiptId : undefined);
     if (!exactReceipt && candidateSha === undefined) return receiptId ? [["Approved by", "unavailable"]] : [];
     let cursor: string | undefined;
     const seen = new Set<string>();
@@ -539,27 +572,19 @@ function governance(operationId: GovernanceOperation, fields: Record<string, str
 const workspaceHandler = (action: string): Handler => async (d, args) => {
   const {v} = opts(args, {
     canonical:{type:"string"}, "canonical-id":{type:"string"}, cache:{type:"string"},
-    ref:{type:"string"}, worktree:{type:"string"}, lane:{type:"string"}, base:{type:"string"}, head:{type:"string"},
+    ref:{type:"string"}, worktree:{type:"string"}, base:{type:"string"}, head:{type:"string"},
     source:{type:"string"}, sparse:{type:"string"}, count:{type:"string"},
   }, 0);
   const count = v.count === undefined ? 1 : Number(v.count);
   if (!Number.isInteger(count) || count < 1 || count > 16) throw new UsageError("--count must be 1..16");
-  // Deprecated alias: `workspace --lane` named a local worktree, not a record lane.
-  const warning = { code: "deprecated-option", message: "workspace --lane is deprecated; use --worktree" };
-  if(v.lane !== undefined) {
-    if(v.worktree !== undefined) throw new UsageError("use --worktree, not --lane");
-    if (!v.json) d.stderr(`octocove: ${warning.message}\n`);
-  }
   const result = await workspace(action, {
     canonical:need(v,"canonical"), canonicalId:v["canonical-id"],
     cache:v.cache ?? join(d.env.XDG_CACHE_HOME ?? join(homedir(),".cache"),"octocove","workspaces"),
-    ref:v.ref, worktree:v.worktree ?? v.lane, base:v.base, head:v.head, source:v.source,
+    ref:v.ref, worktree:v.worktree, base:v.base, head:v.head, source:v.source,
     sparse:v.sparse ? v.sparse.split(",") : [], count,
   });
   out(d, v.json, result, () => kv(Object.entries(result)));
   if(result.ok === false) throw new Emitted(new Error("workspace refresh conflict; task head retained"));
-  // On JSON failures the error reporter owns stderr: never prepend a warning document.
-  if (v.json && v.lane !== undefined) d.stderr(JSON.stringify({ warning }) + "\n");
 };
 
 const eventsFollow: Handler = async (d,args) => {
@@ -577,11 +602,34 @@ const eventsFollow: Handler = async (d,args) => {
   finally { process.removeListener('SIGINT',abort); d.signal?.removeEventListener('abort',abort); }
 };
 
+/** A task's lane repository (`TaskLaneRepository`): its state, latest wrap-up, newest receipt, open reopen and unresolved conflict. */
+function laneRepositoryRows(lr: any, headLabel = "Lane head"): [string, unknown][] {
+  if (!isRecord(lr)) return [];
+  const w = isRecord(lr.latestWrapUp) ? lr.latestWrapUp : null;
+  const c = isRecord(lr.unresolvedConflict) ? lr.unresolvedConflict : null;
+  const paths = c && Array.isArray(c.conflicts) ? c.conflicts.map((x: any) => x?.path).filter((x: unknown) => typeof x === "string") : [];
+  const shown = paths.slice(0, 5), count = typeof c?.conflictCount === "number" ? c.conflictCount : paths.length;
+  return [
+    ["Lane repository", `${lr.laneRepositoryId} (${lr.state}${lr.state === "failed" && lr.failureReason ? `: ${lr.failureReason}` : ""})`],
+    [headLabel, lr.laneHead ?? "(not materialized yet)"],
+    ["Latest wrap-up", w ? `${w.id}: candidate ${w.candidateId} (${w.candidateStatus})` : "(none)"],
+    ["Latest receipt", lr.latestReceiptId ?? "(not landed)"],
+    ["Open reopen", lr.openReopenId ?? "(none)"],
+    ["Unresolved conflict", c ? `${c.source} refused at ${c.refusedAt}: ${count} path(s)${shown.length ? ` (${shown.join(", ")}${count > shown.length ? ", ..." : ""})` : ""}` : "(none)"],
+    ...(lr.retiredAt ? [["Retired", lr.retiredAt]] as [string, unknown][] : []),
+  ];
+}
+
 // Lane JSON uses the v1 envelope shape. These are client command results, not
 // committed audit events: event replay/follow remains the source of record events.
 function laneOut(d: Deps, json: boolean, action: string, taskId: string, projectId: string | null, data: any, id = newIdempotencyKey()) {
   out(d, json, { id, type: `lane.${action}`, schemaVersion: 1, projectId, taskId, occurredAt: new Date().toISOString(), data },
     () => {
+      if (action === "retire") {
+        const repos = Array.isArray(data?.laneRepositories) ? data.laneRepositories : [];
+        return kv([["Task", taskId], ["Phase", data?.phase === "retired" ? "retired" : `${data?.phase} (deletion is confirmed by the server; run the same command again to check)`],
+          ...repos.map((r: any) => ["Lane repository", `${r.id} (${r.state}${r.retiredAt ? `, retired at ${r.retiredAt}` : ""})`] as [string, unknown])]);
+      }
       if (action !== "push") return kv([["Task", taskId], ...Object.entries(data)]);
       const c = data.candidate?.candidate;
       return kv([["Task", taskId], ["Agent", data.submission?.context?.actorType === "agent" ? data.submission.context.actorId : d.credentials?.kind === "agent" ? d.credentials.agentId : undefined],
@@ -593,7 +641,7 @@ function laneOut(d: Deps, json: boolean, action: string, taskId: string, project
 /** Materialized lanes (preview) live in a plain directory with a sidecar; no Git, helper or broker is involved. */
 type MaterializedAction = "materialize" | "status" | "refresh" | "resolve" | "submit" | "wrap-up" | "patch";
 const MATERIALIZED_FLAGS: Record<MaterializedAction, Record<string, { type: "string" | "boolean"; multiple?: boolean }>> = {
-  materialize: { wait: { type: "string" } },
+  materialize: { wait: { type: "string" }, handover: { type: "boolean" } },
   status: {},
   refresh: { wait: { type: "string" }, resolve: { type: "string", multiple: true } },
   resolve: { keep: { type: "string" } },
@@ -614,9 +662,19 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
   const shown = dirArg ?? (action === "materialize" ? pos[0]! : ".");
   if (action === "status") {
     const st = await laneDirStatus(dir);
-    out(d, v.json, st, () => kv([["Task", st.taskId], ["Generation", st.generation], ["Base", st.baseSha], ["Lane head", st.laneHead ?? "(no lane repository)"], ["Modified", list(st.modified)], ["Added", list(st.added)],
+    // With a credential at hand, the task's lane repository as the server records it; the directory alone otherwise.
+    const creds = d.credentials ?? await activeCredentials(d.env);
+    let server: { laneRepository: unknown } | { error: string } | undefined;
+    if (creds && creds.kind !== "bootstrap") {
+      try { server = { laneRepository: (await connect(d, creds).call("taskGet", { path: { id: st.taskId }, deadline: Date.now() + READ_SECONDS * 1000 })).body?.laneRepository ?? null }; }
+      catch (error) { if (error instanceof ApiError || error instanceof TransportError) server = { error: error instanceof ApiError ? error.code : error.code }; else throw error; }
+    }
+    const body = server === undefined ? st : "error" in server ? { ...st, laneRepositoryError: server.error } : { ...st, laneRepository: server.laneRepository };
+    out(d, v.json, body, () => kv([["Task", st.taskId], ["Generation", st.generation], ["Base", st.baseSha], ["Lane head", st.laneHead], ["Modified", list(st.modified)], ["Added", list(st.added)],
       ["Deleted", list(st.deleted)], ["Conflicts", st.conflicts.map(c => `${c.path} (${c.kind}${c.incoming ? `, upstream copy at ${c.incoming}` : ""})`).join("; ") || "(none)"],
-      ...(st.pending ? [[`Unresolved ${st.pending.operation} conflicts`, `${st.pending.conflicts.map(c => c.path).join(", ")}${st.pending.stale ? " (the lane moved since; run the command again to list them afresh)" : ` (decide with octocove lane ${st.pending.operation} --resolve PATH=lane|base|FILE)`}`] as [string, string]] : [])]));
+      ...(st.pending ? [[`Unresolved ${st.pending.operation} conflicts`, `${st.pending.conflicts.map(c => c.path).join(", ")}${st.pending.stale ? " (the lane moved since; run the command again to list them afresh)" : ` (decide with octocove lane ${st.pending.operation} --resolve PATH=lane|base|FILE)`}`] as [string, string]] : []),
+      ...(server === undefined ? [] : "error" in server ? [["Lane repository", `unavailable (${server.error})`] as [string, unknown]]
+        : server.laneRepository ? laneRepositoryRows(server.laneRepository, "Server lane head") : [["Lane repository", "(none recorded)"] as [string, unknown]])]));
     return;
   }
   if (action === "resolve") {
@@ -627,10 +685,8 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
   }
   const deadline = Date.now() + (intFlag(v, "wait") ?? (action === "refresh" || action === "wrap-up" ? LANE_SETTLE_SECONDS : COMMAND_SECONDS)) * 1000;
   if (action === "patch") {
-    // Any credential, or none: the old side comes from the directory's own copies; the lane is read only for a
-    // directory an older client wrote, and only when a credential is at hand.
-    const conn = await client(d).catch(() => null);
-    const r = await writeUnsavedPatch(conn?.api ?? null, dir, { deadline, cwd, out: v.out, human: conn?.creds.kind === "human" });
+    // Local only: the old side comes from the directory's own copies; no credential is needed.
+    const r = await writeUnsavedPatch(dir, { cwd, out: v.out });
     out(d, v.json, r.path ? { path: r.path, files: r.files, skipped: r.skipped, conflicts: r.conflicts } : { path: null, files: [], skipped: r.skipped, conflicts: r.conflicts },
       () => r.path ? kv([["Patch", r.path], ["Files", list(r.files)], ...(r.skipped.length ? [["Not in the patch (submodules)", list(r.skipped)] as [string, string]] : []),
         ["Apply", `git apply ${shq(r.path)} in a lane directory, then octocove lane submit`]]) : "No unsaved edits; nothing written.");
@@ -641,17 +697,31 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
   const notify = (line: string) => d.stderr(v.json ? JSON.stringify({ notice: line }) + "\n" : `octocove: ${line}\n`);
   const options = { deadline, idempotencyKey: v["idempotency-key"], notify };
   if (action === "materialize") {
-    const r = await materializeLane(api, pos[0]!, dir, options);
-    out(d, v.json, r, () => kv([["Task", r.taskId], ["Directory", r.dir], ["Claim", r.claimAttemptId], ["Generation", r.generation], ["Base", r.baseSha],
-      ["Lane head", r.laneHead ?? "(no lane repository)"], ...(r.laneHead ? [["Lane repository", r.created ? "created" : "existing (saved work kept)"] as [string, string]] : []),
+    let lane = api, handover: Awaited<ReturnType<typeof handoverLane>> | undefined, credentialsFile: string | undefined;
+    if (v.handover) {
+      // The open execution moves here; the delegation bound to the new one replaces the stored agent credential
+      // (privately, like a claim's), and every later request of this command presents it.
+      handover = await handoverLane(api, pos[0]!, options);
+      if (handover.delegation) {
+        const next: Credentials = { ...creds, token: handover.delegation.token, delegationId: handover.delegation.delegationId, expiresAt: handover.delegation.expiresAt, issuedAt: new Date().toISOString() };
+        credentialsFile = await saveCredentials(d.env, next);
+        lane = connect(d, next);
+      }
+    }
+    const r = await materializeLane(lane, pos[0]!, dir, options);
+    const shownHandover = handover ? { executionId: handover.executionId, supersededExecutionId: handover.supersededExecutionId, credentialRotated: handover.delegation !== null, ...(credentialsFile ? { credentialsFile } : {}) } : undefined;
+    out(d, v.json, shownHandover ? { ...r, handover: shownHandover } : r, () => kv([["Task", r.taskId], ["Directory", r.dir], ["Claim", r.claimAttemptId], ["Generation", r.generation], ["Base", r.baseSha],
+      ["Lane head", r.laneHead], ["Lane repository", r.created ? "created" : "existing (saved work kept)"],
+      ...(shownHandover ? [["Handover", `execution ${shownHandover.executionId}${shownHandover.supersededExecutionId ? ` (took over ${shownHandover.supersededExecutionId}; that environment's credential no longer works)` : ""}`],
+        ["Credentials", credentialsFile ?? "unchanged (this credential already belongs to the new execution)"]] as [string, unknown][] : []),
       ...(r.reopenId ? [["Reopen", `${r.reopenId} (continues the landed lane; the next wrap-up carries only new work)`] as [string, string]] : []),
       ["Scope version", r.scopeVersion], ["Read", r.scope.read.join(", ")], ["Write", r.scope.write.join(", ") || "(none)"], ["Files", r.files],
-      ["Next", r.laneHead ? `edit, then octocove lane submit ${shq(shown)} --message TEXT` : `edit, then octocove lane submit ${shq(shown)}`]]));
+      ["Next", `edit, then octocove lane submit ${shq(shown)} --message TEXT`]]));
     return;
   }
   if (action === "refresh") {
     const r = await refreshLane(api, dir, { ...options, resolve: v.resolve, cwd });
-    out(d, v.json, r, () => kv([["Refreshed", r.refreshed ? "yes" : "no (base unchanged)"], ["Generation", r.generation], ["Base", r.baseSha], ["Lane head", r.laneHead ?? "(no lane repository)"],
+    out(d, v.json, r, () => kv([["Refreshed", r.refreshed ? "yes" : "no (base unchanged)"], ["Generation", r.generation], ["Base", r.baseSha], ["Lane head", r.laneHead],
       ...(r.caughtUp ? [["Took saved work", `the lane head another save had moved (${r.caughtUp})`] as [string, string]] : []),
       ["Updated", list(r.updated)], ["Added", list(r.added)], ["Removed", list(r.removed)], ["Conflicts", list(r.conflicts)],
       ...(r.conflicts.length ? [["Next", "octocove lane resolve PATH --keep local|incoming for each conflict"] as [string, string]] : [])]));
@@ -667,35 +737,25 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
     return;
   }
   const r = await submitLaneChanges(api, dir, { ...options, message: v.message });
-  if (r.kind === "save-point") {
-    out(d, v.json, r, () => kv([["Save point", r.savePointId], ["Lane head", r.laneHead], ["Previous head", r.previousHead], ["Generation", r.generation], ["Operations", r.operations],
-      ...(r.supersededCandidateId ? [["Superseded candidate", `${r.supersededCandidateId} (wrap up again for review)`] as [string, string]] : []),
-      ["Next", `keep editing and saving, or octocove lane wrap-up ${shq(shown)} for review`]]));
-    return;
-  }
-  if (v.wait !== undefined) {
-    const candidate = candidateBody(await api.j.candidates.waitFor(r.id, api.until(deadline)));
-    out(d, v.json, { submission: r, candidate }, () => JSON.stringify(candidate));
-    if (candidate.state === "pending") throw new PendingError("candidate computation is pending");
-    return;
-  }
-  out(d, v.json, r, () => kv([["Submission", r.id], ["Candidate", r.candidateId], ["Candidate SHA", r.candidateSha], ["Contribution ref", r.contributionRef], ["Status", r.candidateStatus], ["Generation", r.generation], ["Operations", r.operations]]));
+  out(d, v.json, r, () => kv([["Save point", r.savePointId], ["Lane head", r.laneHead], ["Previous head", r.previousHead], ["Generation", r.generation], ["Operations", r.operations],
+    ...(r.supersededCandidateId ? [["Superseded candidate", `${r.supersededCandidateId} (wrap up again for review)`] as [string, string]] : []),
+    ["Next", `keep editing and saving, or octocove lane wrap-up ${shq(shown)} for review`]]));
 };
 /**
  * Before a claim ends or a lane is reopened: unsaved edits in the task's lane directory (DIR, or the working
  * directory when it is one) are written to a patch beside the sidecar and reported, never silently left behind.
  */
-async function keepUnsaved(d: Deps, api: Api, taskId: string, dirArg: string | undefined, human: boolean) {
+async function keepUnsaved(d: Deps, taskId: string, dirArg: string | undefined) {
   const dir = resolve(d.cwd ?? process.cwd(), dirArg ?? ".");
   if (!hasSidecar(dir)) { if (dirArg !== undefined) throw new ConfigError(`${dirArg} is not a materialized lane directory`); return null; }
   const st = await laneDirStatus(dir);
   if (st.taskId !== taskId) { if (dirArg !== undefined) throw new ConfigError(`${dirArg} holds task ${st.taskId}, not ${taskId}`); return null; }
   if (!st.modified.length && !st.added.length && !st.deleted.length) return null;
-  const r = await writeUnsavedPatch(api, dir, { deadline: Date.now() + READ_SECONDS * 1000, human });
+  const r = await writeUnsavedPatch(dir);
   if (r.path) d.stderr(`octocove: ${r.files.length} unsaved edit(s) in ${dir} kept as a patch: ${r.path} (git apply it in a lane directory, then octocove lane submit)\n`);
   return r.path;
 }
-const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler => async (d, args) => {
+const laneHandler = (action: "status" | "retry" | "push"): Handler => async (d, args) => {
   const { v, pos } = opts(args, { task: { type: "string" }, claim: { type: "string" },
     ...(action === "push" ? { source: { type: "string" as const }, base: { type: "string" as const },
       "push-id": { type: "string" as const }, wait: { type: "string" as const } } : {}),
@@ -714,12 +774,10 @@ const laneHandler = (action: "status" | "retry" | "retire" | "push"): Handler =>
     if (action === "push" && !d.env.OCTOCOVE_HELPER_SOCK) requireAgentCredential((d.credentials ?? await activeCredentials(d.env))?.kind ?? "missing");
     const { api, creds } = await client(d);
     if (action === "push" && !d.env.OCTOCOVE_HELPER_SOCK) requireAgentCredential(creds.kind);
-    if (action === "retire" && creds.kind !== "human") throw new HumanRequiredError("lane retire requires a human credential");
     const projectId = await getConfig(d.git, "octocove.projectId") ?? null;
     const path = { id: taskId };
-    if (action === "status" || action === "retire") {
-      const r = action === "status" ? (await api.call("chainLaneGet", { path, deadline: Date.now() + READ_SECONDS * 1000 })).body
-        : await api.j.chain.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    if (action === "status") {
+      const r = (await api.call("chainLaneGet", { path, deadline: Date.now() + READ_SECONDS * 1000 })).body;
       laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
     }
     const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
@@ -873,9 +931,7 @@ const COMMANDS: Record<string, Handler> = {
   "lane submit": materializedLane("submit"),
   "lane wrap-up": materializedLane("wrap-up"),
   "lane patch": materializedLane("patch"),
-  // The authoritative scope-request record of the task's materialized claims (preview); agent delegations are refused.
-  // Reopening a landed lane: the task is read first (its newest landed receipt and intent version), so a 404 from the
-  // reopen route itself means a server that does not offer it, reported as such.
+  // Reopening a landed lane: the task is read first, for its newest landed receipt and intent version.
   "lane reopen": async (d, args) => {
     const { v, pos } = opts(args, { agent: { type: "string" }, verbs: { type: "string" }, "expires-at": { type: "string" }, reason: { type: "string" },
       "expected-receipt": { type: "string" }, "bootstrap-out": { type: "string" }, dir: { type: "string" } }, 1);
@@ -885,22 +941,16 @@ const COMMANDS: Record<string, Handler> = {
     const input = { agentId: need(v, "agent"), verbs: need(v, "verbs").split(",").map((x: string) => x.trim()), expiresAt: need(v, "expires-at") };
     const deadline = Date.now() + AUTHORIZE_SECONDS * 1000;
     const task = (await api.call("taskGet", { path: { id: taskId }, deadline: Date.now() + READ_SECONDS * 1000 })).body;
-    // The newest landed receipt (`latestReceiptId`); a server that predates follow-up landings reports only the first.
-    const expectedReceiptId = v["expected-receipt"] ?? (isRecord(task) ? task.latestReceiptId ?? task.acceptedReceiptId : undefined);
+    // The newest landed receipt: a reopened lane lands again under its own receipt.
+    const expectedReceiptId = v["expected-receipt"] ?? (isRecord(task) ? task.latestReceiptId : undefined);
     if (typeof expectedReceiptId !== "string") throw new UsageError("this task has no landed receipt; reopen applies to a landed task (or pass --expected-receipt ID)");
     const intentVersion = isRecord(task) && Number.isInteger(task.intentVersion) ? task.intentVersion as number : undefined;
     // Unsaved edits in the old lane directory are kept as a patch before the lane moves on.
-    const saved = await keepUnsaved(d, api, taskId, v.dir, true);
+    const saved = await keepUnsaved(d, taskId, v.dir);
     const output = v["bootstrap-out"] !== undefined ? await reserveBootstrap(need(v, "bootstrap-out")) : undefined;
     try {
-      let r: any;
-      try {
-        r = (await api.j.command("laneReopen", { path: { id: taskId }, body: { expectedReceiptId, ...input, ...(v.reason ? { reason: v.reason } : {}) } as never },
-          api.write(AUTHORIZE_SECONDS, v["idempotency-key"]))).body;
-      } catch (error) {
-        if (routeMissing(error)) throw new ApiError({ status: 404, code: "lane-reopen-unavailable", detail: "this Octocove server does not offer reopening a landed lane yet; nothing was changed. Start further work as a new task" });
-        throw error;
-      }
+      const r: any = (await api.j.command("laneReopen", { path: { id: taskId }, body: { expectedReceiptId, ...input, ...(v.reason ? { reason: v.reason } : {}) } as never },
+        api.write(AUTHORIZE_SECONDS, v["idempotency-key"]))).body;
       const b = isRecord(r) ? r.agentBootstrap : undefined;
       if (!isRecord(b) || typeof b.bootstrapToken !== "string" || typeof r.reopenId !== "string") throw new ConfigError("reopen did not return an agent bootstrap");
       const lifetime = { expiresAt: b.bootstrapExpiresAt, absoluteExpiresAt: b.authorizationExpiresAt };
@@ -917,6 +967,7 @@ const COMMANDS: Record<string, Handler> = {
         ["Next", `hand the bootstrap file to the agent, which claims within 5 minutes: ${claimLine}, then octocove lane materialize ${taskId} DIR (it continues the lane head)`]]));
     } finally { await output?.close(); }
   },
+  // The authoritative scope-request record of the task's materialized claims (preview); agent delegations are refused.
   "lane scope-requests": async (d, args) => {
     const { v, pos } = opts(args, { status: { type: "string" } }, 1, 1);
     if (v.status !== undefined && !["pending", "granted", "refused"].includes(v.status)) throw new UsageError("--status must be pending, granted or refused");
@@ -934,7 +985,20 @@ const COMMANDS: Record<string, Handler> = {
   },
   "lane push": laneHandler("push"),
   "lane retry": laneHandler("retry"),
-  "lane retire": laneHandler("retire"),
+  // Retiring a lane (human project:admin, recent sign-in). On a materialized lane every lane repository of the task is
+  // deleted once its retention guards hold (409 lane-retention-pending names the first that does not); the canonical,
+  // its landed commits and receipts are never touched. A replay under any key answers the completed retirement.
+  "lane retire": async (d, args) => {
+    const { v, pos } = opts(args, { task: { type: "string" } }, 1, 0);
+    if (pos[0] && v.task && pos[0] !== v.task) throw new UsageError("use TASK or --task, not both");
+    const taskId = pos[0] ?? v.task ?? await getConfig(d.git, "octocove.taskId").catch(() => undefined);
+    if (!taskId) throw new UsageError("lane retire needs TASK (or --task, or a claimed task in this repository's git config)");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("lane retire requires a human credential (project:admin, with a recent sign-in)");
+    const projectId = await getConfig(d.git, "octocove.projectId").catch(() => undefined) ?? null;
+    const r = await api.j.chain.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    laneOut(d, v.json, "retire", taskId, projectId, r, v["idempotency-key"]);
+  },
   "workspace prepare": workspaceHandler("prepare"),
   "workspace open": workspaceHandler("open"),
   "workspace refresh": workspaceHandler("refresh"),
@@ -1096,8 +1160,8 @@ const COMMANDS: Record<string, Handler> = {
     const { api } = await client(d);
     const r = await api.call("taskGet", { deadline: Date.now() + READ_SECONDS * 1000, path: { id: pos[0]! } });
     const task = r.body;
-    // The newest landing: a reopened lane lands again under its own receipt (an older server reports only the first).
-    const latestReceiptId = task.latestReceiptId ?? task.acceptedReceiptId;
+    // The newest landing: a reopened lane lands again under its own receipt.
+    const latestReceiptId = task.latestReceiptId;
     const landings = typeof task.landingCount === "number" ? task.landingCount : undefined;
     let receipt: any;
     if (!v.json && (task.status === "landed" || task.status === "reopened") && latestReceiptId) {
@@ -1113,11 +1177,13 @@ const COMMANDS: Record<string, Handler> = {
         ["Next", latestReceiptId ? `octocove receipt show ${latestReceiptId}` : undefined],
         ["History", `octocove log ${task.id}`],
       ]);
-      if (task.status === "landed") return `${contractText(task)}\n\n${state}\n\n${landings !== undefined && landings > 1 ? "Landed (newest landing)" : "Landed"}\n${landed}`;
+      // The task's lane repository, whether or not a claim is live: it reads after a landing, a reopen and a retirement.
+      const lane = isRecord(task.laneRepository) ? `\n\nLane\n${kv(laneRepositoryRows(task.laneRepository))}` : "";
+      if (task.status === "landed") return `${contractText(task)}\n\n${state}\n\n${landings !== undefined && landings > 1 ? "Landed (newest landing)" : "Landed"}\n${landed}${lane}`;
       const live = Object.entries(task.liveAttempt ?? {}).filter(([, value]) => value !== null && value !== undefined);
       // Reopened: the last landing stands while an agent continues the lane; the next wrap-up is reviewed and landed anew.
       const reopened = task.status === "reopened" ? `\n\nReopened after landing\n${landed}` : "";
-      return `${contractText(task)}\n\n${state}${reopened}${live.length ? `\n\nLive attempt\n${kv(live)}` : ""}`;
+      return `${contractText(task)}\n\n${state}${reopened}${live.length ? `\n\nLive attempt\n${kv(live)}` : ""}${lane}`;
     });
   },
 
@@ -1248,7 +1314,7 @@ const COMMANDS: Record<string, Handler> = {
     const { v, pos } = opts(args, { claim: { type: "string" }, dir: { type: "string" } }, 1);
     const { api, creds } = await client(d);
     // A materialized lane directory (DIR, or the working directory) keeps its unsaved edits as a patch first.
-    const saved = await keepUnsaved(d, api, pos[0]!, v.dir, creds.kind === "human");
+    const saved = await keepUnsaved(d, pos[0]!, v.dir);
     const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
     if (!claimAttemptId && creds.kind === "human") throw new UsageError("--claim is required");
     const r = await api.j.claims.release(pos[0]!, claimAttemptId ? { claimAttemptId } : {}, api.write(COMMAND_SECONDS, v["idempotency-key"]));

@@ -377,11 +377,11 @@ it('external non-native chain stages a real bundle, enqueues and submits without
   f.deps.fetch=async(url,init)=>{
     const path=new URL(url).pathname;requests.push(path);
     if(path.endsWith('/lane/pushes')){
-      expect(JSON.parse(init.body as string)).toEqual({claimAttemptId:'C1',pushId:'legacy-push',sourceSha:f.baseSha});
-      delivered=true;return Response.json({pushId:'legacy-push',sourceSha:f.baseSha,status:'queued'},{status:202});
+      expect(JSON.parse(init.body as string)).toEqual({claimAttemptId:'C1',pushId:'external-push',sourceSha:f.baseSha});
+      delivered=true;return Response.json({pushId:'external-push',sourceSha:f.baseSha,status:'queued'},{status:202});
     }
     if(path.endsWith('/lane'))return Response.json({chainId:'chain',claimAttemptId:'C1',writerClaimId:'C1',baseSha:f.baseSha,
-      pushes:delivered?[{pushId:'legacy-push',sourceSha:f.baseSha,status:'delivered'}]:[]});
+      pushes:delivered?[{pushId:'external-push',sourceSha:f.baseSha,status:'delivered'}]:[]});
     if(path.endsWith('/submissions')){
       expect(JSON.parse(init.body as string)).toEqual({claimAttemptId:'C1',sourceSha:f.baseSha,baseSha:f.baseSha,intentVersion:1});
       return Response.json({id:'S1',taskId:'T1',sourceSha:f.baseSha,baseSha:f.baseSha},{status:201});
@@ -389,7 +389,7 @@ it('external non-native chain stages a real bundle, enqueues and submits without
     return fetch(url,init);
   };
   try{
-    expect(await run({...f.deps,argv:['lane','push','HEAD','--push-id','legacy-push','--json']})).toBe(0);
+    expect(await run({...f.deps,argv:['lane','push','HEAD','--push-id','external-push','--json']})).toBe(0);
     expect(staged!.includes(Buffer.from('# v2 git bundle'))).toBe(true);
     expect(requests.some(path=>path.includes('receive-pack'))).toBe(false);
     expect(requests).toContain('/v1/tasks/T1/submissions');
@@ -400,7 +400,7 @@ it('external non-native chain stages a real bundle, enqueues and submits without
 it('absolute installed CLI claims, fetches and pushes without its bin directory on PATH',async()=>{
   const f=await fixture(),installed=join(f.dir,'install % path'),dist=join(installed,'dist');
   await mkdir(dist,{recursive:true});
-  await writeFile(join(installed,'package.json'),JSON.stringify({version:'0.3.2',type:'module'}));
+  await writeFile(join(installed,'package.json'),JSON.stringify({version:'0.4.0',type:'module'}));
   await build({entryPoints:{octocove:'src/bin.ts','octocove-helper-connect':'src/helper-connect.mjs','pre-receive-hook':'../helper/src/pre-receive-hook.mjs'},
     bundle:true,platform:'node',format:'esm',target:'node20',outdir:dist,outExtension:{'.js':'.mjs'}});
   const server=createServer(async(request,response)=>{
@@ -456,7 +456,7 @@ it('missing bundled connector refuses before creating a server-side claim',async
   expect(f.calls).not.toContain('POST /v1/tasks/T1/claim');expect(f.revoked).toEqual([]);
 });
 
-it('managed transports refuse a shadow PATH connector; an explicit external socket permits the legacy contract',async()=>{
+it('managed transports refuse a shadow PATH connector; an explicit external socket permits the external helper contract',async()=>{
   const f=await fixture();await bind(f);
   await f.git(['remote','set-url','octocove','ext::octocove-helper-connect %s']);
   await f.git(['config','octocove.mappingId','M1']);await f.git(['config','octocove.ref',f.claim.workspace.ref]);

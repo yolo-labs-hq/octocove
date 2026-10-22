@@ -3507,7 +3507,7 @@ export const routing = {
     "policy": {
       "callable": true,
       "autoRetry": "network-only",
-      "replay": "stored-result"
+      "replay": "bounded-recovery"
     }
   },
   "laneGenerationCreate": {

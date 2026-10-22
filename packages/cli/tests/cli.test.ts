@@ -1155,7 +1155,7 @@ describe("presenter output", () => {
   beforeEach(() => {
     routes["GET /submissions/S1/candidate"] = () => json(200, view);
     routes["GET /receipts/R1"] = () => json(200, receipt);
-    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } });
+    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "landed", acceptedReceiptId: "R1", latestReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } });
     routes["GET /projects/P1/landings"] = () => json(200, { items: [{ receiptId: "R1", taskId: "T1", candidateSha: SHA_A,
       approvedBy: "issuer|reviewer", approvedAt: "2030-01-01T00:00:00Z", actor: { type: "human", id: "issuer|requester" } }], nextCursor: null });
   });
@@ -1236,7 +1236,7 @@ describe("presenter output", () => {
   it("preserves JSON bytes and performs no presenter enrichment", async () => {
     const cases: [string[], any][] = [
       [["candidate", "show", "--submission", "S1"], view], [["receipt", "show", "R1"], receipt],
-      [["task", "show", "T1"], { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } }],
+      [["task", "show", "T1"], { ...task, status: "landed", acceptedReceiptId: "R1", latestReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } }],
     ];
     for (const [args, body] of cases) {
       calls = [];

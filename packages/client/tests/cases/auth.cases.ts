@@ -539,7 +539,7 @@ export const authCases: Case[] = [
 
   // ---- own profile ----
   test('auth.profile.update PATCHes /v1/me/profile with the patch and a key, replays a lost answer with the same key, and surfaces invalid-profile', async () => {
-    const answer = { profile: { name: 'Ada', pronouns: null, bio: null, timezone: 'Europe/London' } };
+    const answer = { profile: { handle: 'ada', name: 'Ada', pronouns: null, bio: null, timezone: 'Europe/London' } };
     const { fetch, calls } = scriptedFetch(new TypeError('fetch failed'), json(200, answer), problem(400, 'invalid-profile', { details: { field: 'timezone' } }));
     const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: browserCookie({ origin: BASE, csrfToken: () => 'csrf-profile-fixture' }) }));
     equal(await oc.auth.profile.update({ name: 'Ada', pronouns: null, timezone: 'Europe/London' }, { deadline: soon() }), answer.profile);

@@ -268,11 +268,12 @@ Commands:
   claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]  (default lane: chain)
   lane sync                                   (fetch authenticated canonical refs; preserve local edits)
   lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
-  lane status|retry|retire [--task ID] [--claim ID]
-  lane materialize TASK [DIR] [--wait SECONDS]  (materialized lane: create or reuse the lane repository, write the files at the lane head into DIR, no .git)
+  lane status|retry [--task ID] [--claim ID]
+  lane retire [TASK] [--task ID]                (human project admin, recent sign-in: retire a lane; a materialized lane's repository is deleted, its landed result kept)
+  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (materialized lane: create or reuse the lane repository, write the files at the lane head into DIR, no .git)
   lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (materialized lane: rebase onto the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
-  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point; a candidate on a lane without a lane repository)
+  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point on the lane head)
   lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (materialized lane: squash the saved lane into one candidate for review)
   lane patch [DIR] [--out FILE]                 (materialized lane: write unsaved edits as a Git-format patch)
   lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]  (human, recent sign-in: reopen a landed lane for one agent)
@@ -403,7 +404,7 @@ exports[`lane retire as agent 1`] = `
 {
   "code": 77,
   "requests": [],
-  "stderr": "octocove: lane retire requires a human credential
+  "stderr": "octocove: lane retire requires a human credential (project:admin, with a recent sign-in)
 ",
   "stdout": "",
 }

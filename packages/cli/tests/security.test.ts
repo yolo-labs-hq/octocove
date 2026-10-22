@@ -221,37 +221,33 @@ describe("protected credential imports", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it.each(["legacy", "bootstrap"])("refuses a 0644 %s file", async (kind) => {
-    const file = join(dir, kind === "legacy" ? "credentials.json" : "import.json");
+  it("refuses a 0644 bootstrap file", async () => {
+    const file = join(dir, "import.json");
     await writeFile(file, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap" }), { mode: 0o644 });
-    if (kind === "legacy") await expect(loadCredentials(env)).rejects.toThrow("unprotected");
-    else await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
+    await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
     await expect(stat(activeFile())).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it.each(["legacy", "bootstrap"])("refuses a symlinked %s file", async (kind) => {
+  it("refuses a symlinked bootstrap file", async () => {
     const target = join(dir, "target.json");
     await writeFile(target, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap" }), { mode: 0o600 });
-    const file = join(dir, kind === "legacy" ? "credentials.json" : "import.json");
+    const file = join(dir, "import.json");
     await symlink(target, file);
-    if (kind === "legacy") await expect(loadCredentials(env)).rejects.toThrow("unprotected");
-    else await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
+    await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
     await expect(stat(activeFile())).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("migrates a protected legacy credential atomically and removes the old file", async () => {
-    const legacy = join(dir, "credentials.json");
-    await chmod(dir, 0o755); // legacy config dirs need not already be a 0700 store
-    await writeFile(legacy, JSON.stringify({ apiUrl: API, token: SESSION, kind: "human" }), { mode: 0o600 });
-    expect(await loadCredentials(env)).toEqual({ apiUrl: API, token: SESSION, kind: "human" });
-    expect((await stat(activeFile())).mode & 0o777).toBe(0o600);
-    expect((await stat(join(dir, "credentials"))).mode & 0o777).toBe(0o700);
-    await expect(stat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
+  it("never reads a credentials.json beside the store", async () => {
+    const stray = join(dir, "credentials.json");
+    await writeFile(stray, JSON.stringify({ apiUrl: API, token: SESSION, kind: "human" }), { mode: 0o600 });
+    await expect(loadCredentials(env)).rejects.toThrow("no credential");
+    await expect(stat(activeFile())).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await stat(stray)).isFile()).toBe(true);
   });
 
-  it("fails closed when the opened legacy file descriptor belongs to another owner", async () => {
-    const file = join(dir, "credentials.json");
-    await writeFile(file, JSON.stringify({ apiUrl: API, token: SESSION, kind: "human" }), { mode: 0o600 });
+  it("fails closed when the opened bootstrap file descriptor belongs to another owner", async () => {
+    const file = join(dir, "import.json");
+    await writeFile(file, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap" }), { mode: 0o600 });
     const handle = await open(file, "r");
     const original = handle.stat;
     // File ownership fixtures require root; change only descriptor stat's owner for a portable check.
@@ -261,7 +257,7 @@ describe("protected credential imports", () => {
       return info;
     });
     try {
-      await expect(loadCredentials(env)).rejects.toThrow("unprotected");
+      await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
       await expect(stat(activeFile())).rejects.toMatchObject({ code: "ENOENT" });
     } finally { spy.mockRestore(); await handle.close(); }
   });

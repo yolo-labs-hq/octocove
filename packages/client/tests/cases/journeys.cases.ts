@@ -467,7 +467,7 @@ export const journeyCases: Case[] = [
   }),
   // ---- code view ----
   test('repositories.tree and repositories.blob read the canonical repository with ref and path as query parameters', async () => {
-    const tree = { repositoryId: 'repository-1', ref: 'refs/heads/main', commitSha: 'a'.repeat(40), path: 'src', entries: [{ name: 'a.ts', path: 'src/a.ts', type: 'file', size: 1 }], truncated: false };
+    const tree = { repositoryId: 'repository-1', ref: 'refs/heads/main', commitSha: 'a'.repeat(40), path: 'src', entries: [{ name: 'a.ts', path: 'src/a.ts', type: 'file', size: 1 }], sizeTruncated: false, lastCommitTruncated: false, truncated: false };
     const blob = { path: 'src/a.ts', commitSha: 'a'.repeat(40), size: 1, binary: false, truncated: false, encoding: 'utf-8' as const, content: 'a' };
     const { fetch, calls } = scriptedFetch(json(200, tree), json(200, blob));
     const j = journeys(client(fetch));

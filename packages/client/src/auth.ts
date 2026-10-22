@@ -92,7 +92,7 @@ export interface CliLoginAttempt {
 /**
  * The `meGet` answer: the principal the server authenticated, the kind of credential presented (never
  * the credential), its project memberships, ordered by project with verbs sorted and each with its project's slug,
- * name and Artifacts namespace (null for a legacy project), and its capabilities
+ * name and Artifacts namespace (null for a project that has none), and its capabilities
  * (`createProjects`: whether `POST /projects` would pass its allow-list gate). Enums are open.
  */
 export type Me = OpenEnums<components['schemas']['Me']>;

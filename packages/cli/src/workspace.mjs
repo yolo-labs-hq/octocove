@@ -25,7 +25,7 @@ const text = async (dir,args) => (await workspaceGit(args,{cwd:dir})).stdout.tri
 export async function workspace(action, options) {
   options={...options,canonical:locator(options.canonical),source:locator(options.source)};
   if(!['prepare','open','refresh','retire'].includes(action)) throw new Error('unknown workspace action');
-  const {canonical, canonicalId=canonical, ref='refs/heads/main', worktree=options.lane, base, head, source, sparse=[], count=1} = options;
+  const {canonical, canonicalId=canonical, ref='refs/heads/main', worktree, base, head, source, sparse=[], count=1} = options;
   const validateLocator = (value, label) => {
     if(!value || value.startsWith('-')) throw new Error(`credential-free --${label} URL/path required`);
     // Only transports that cannot run commands: https/ssh/file URLs, scp-style host:path or a
@@ -60,18 +60,7 @@ export async function workspace(action, options) {
     if(state.canonical!==canonical || state.ref!==ref) throw new Error('cache canonical/ref mismatch');
     const save=async()=>{ await writeFile(statePath+'.tmp',JSON.stringify(state)+'\n',{mode:0o600}); await rename(statePath+'.tmp',statePath); };
     const run=args=>text(mirror,args);
-    // A legacy cache keeps `pool`, `lanes` and refs/octocove/lanes/*; migrate them to `prepared`,
-    // `slots` and refs/octocove/worktrees/*. Move the pins before saving the new keys, so an
-    // interrupted migration reruns.
-    if(state.lanes || state.pool) {
-      for(const line of (await run(['for-each-ref','--format=%(refname) %(objectname)','refs/octocove/lanes/'])).split('\n').filter(Boolean)) {
-        const [name,value]=line.split(' ');
-        await run(['update-ref',name.replace('refs/octocove/lanes/','refs/octocove/worktrees/'),value]);
-        await run(['update-ref','-d',name,value]);
-      }
-      state={...state,prepared:state.prepared ?? state.pool ?? [],slots:{...state.lanes,...state.slots}};
-      delete state.pool; delete state.lanes; await save();
-    }
+    if(!Array.isArray(state.prepared) || !state.slots || typeof state.slots!=='object') throw new Error('workspace cache state is invalid; remove the cache directory and prepare again');
     state.slots=Object.assign(Object.create(null),state.slots);
     const pin=async(id,value)=>run(['update-ref',`refs/octocove/worktrees/${hash(id)}`,value]);
     const clean=async path=>{ if(await text(path,['status','--porcelain','--untracked-files=all'])) throw new Error('workspace has uncommitted changes; commit or save them first'); };

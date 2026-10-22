@@ -36,17 +36,17 @@ describe("workspace count usage", () => {
     });
 });
 
-describe("deprecated workspace option in JSON mode", () => {
+describe("workspace JSON errors", () => {
   const failures = [
     { name: "missing canonical", args: [], code: EXIT.usage },
     { name: "invalid count", args: ["--canonical", "/unused/repository", "--count", "0"], code: EXIT.usage },
-    { name: "conflicting aliases", args: ["--canonical", "/unused/repository", "--worktree", "W1"], code: EXIT.usage },
+    { name: "removed --lane option", args: ["--canonical", "/unused/repository", "--lane", "W1"], code: EXIT.usage },
     { name: "workspace failure", args: ["--canonical", "/unused/repository"], code: EXIT.failure },
   ];
   it.each(actions.flatMap(action => failures.map(failure => ({ action, ...failure })) ))(
     "$action: $name produces one JSON error on stderr", async ({ action, args, code, name }) => {
       vi.mocked(workspace).mockRejectedValue(new Error("workspace cache unavailable"));
-      const result = await invoke(action, ["--lane", "W1", "--json", ...args]);
+      const result = await invoke(action, ["--worktree", "W1", "--json", ...args]);
       expect(result.code).toBe(code);
       expect(result.stdout).toBe("");
       expect(JSON.parse(result.stderr)).toEqual({ error: { code: code === EXIT.usage ? "usage" : "error", message: expect.any(String) } });
@@ -55,24 +55,17 @@ describe("deprecated workspace option in JSON mode", () => {
       expect(workspace).toHaveBeenCalledTimes(name === "workspace failure" ? 1 : 0);
     });
 
-  it.each(actions)("%s still warns after successful JSON execution", async action => {
-    const result = await invoke(action, ["--canonical", "/unused/repository", "--lane", "W1", "--json"]);
+  it.each(actions)("%s prints the result alone after successful JSON execution", async action => {
+    const result = await invoke(action, ["--canonical", "/unused/repository", "--worktree", "W1", "--json"]);
     expect(result.code).toBe(EXIT.ok);
     expect(JSON.parse(result.stdout)).toEqual({ ok: true });
-    expect(JSON.parse(result.stderr)).toEqual({ warning: { code: "deprecated-option", message: "workspace --lane is deprecated; use --worktree" } });
+    expect(result.stderr).toBe("");
     expect(workspace).toHaveBeenCalledWith(action, expect.objectContaining({ worktree: "W1" }));
-  });
-
-  it("text mode retains its warning before an execution error", async () => {
-    vi.mocked(workspace).mockRejectedValue(new Error("workspace cache unavailable"));
-    const result = await invoke("open", ["--canonical", "/unused/repository", "--lane", "W1"]);
-    expect(result.code).toBe(EXIT.failure);
-    expect(result.stderr).toBe("octocove: workspace --lane is deprecated; use --worktree\noctocove: workspace cache unavailable\n");
   });
 });
 
 describe("workspace refresh conflict output", () => {
-  it.each(["--worktree", "--lane"])("%s: conflict JSON goes to stdout with exit 1 and empty stderr", async flag => {
+  it.each(["--worktree"])("%s: conflict JSON goes to stdout with exit 1 and empty stderr", async flag => {
     const conflict = { ok: false, path: "content-merge", head: "a".repeat(40), canonicalHead: "b".repeat(40), conflicts: ["src/file.ts"] };
     vi.mocked(workspace).mockResolvedValue(conflict);
     const result = await invoke("refresh", ["--canonical", "/unused/repository", flag, "W1", "--json"]);

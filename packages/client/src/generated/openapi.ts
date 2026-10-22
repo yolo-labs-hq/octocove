@@ -12,7 +12,7 @@ export interface paths {
         put?: never;
         /**
          * Mint a repo-scoped provider Git token from a server-owned claim grant
-         * @description Owning human claim or exact agent attempt/delegation only, with current membership and cookie Origin/CSRF checks. Requests never grant authority. Write requires submissions:create; read requires tasks:read. TTL is clamped to the stored 900-second maximum and remaining attempt budget with a ten-second provider reserve. Submitted/candidate attempts remain eligible. No idempotency key is required; refresh does not revoke its predecessor. Integrator grants are private. Under protected-runtime admission, allocated ref/repo/chain claims never export a provider write token. Omitted scope means read; write is refused with 403 `protected-runtime-required` (`chain-push-queue-required` for chain claims) before provider I/O and recorded in a sanitized admission audit row. Writes go through the attempt helper and gateway proof. Only projects on the operator's LEGACY_BROKER_WRITE_PROJECTS migration boundary (never chain) keep an audited write export.
+         * @description Owning human claim or exact agent attempt/delegation only, with current membership and cookie Origin/CSRF checks. Requests never grant authority. Write requires submissions:create; read requires tasks:read. TTL is clamped to the stored 900-second maximum and remaining attempt budget with a ten-second provider reserve. Submitted/candidate attempts remain eligible. No idempotency key is required; refresh does not revoke its predecessor. Integrator grants are private. Under protected-runtime admission, allocated ref/repo/chain claims never export a provider write token. Omitted scope means read; write is refused with 403 `protected-runtime-required` (`chain-push-queue-required` for chain claims) before provider I/O and recorded in a sanitized admission audit row. Writes go through the attempt helper and gateway proof.
          */
         post: operations["brokerTokenCreate"];
         delete?: never;
@@ -764,8 +764,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Retire a chain after durable receipts and source custody
-         * @description Human project:admin closes allocation atomically, after terminal tasks, ended claims, delivered pushes, verified source custody, completed computes and terminated operations. Deletion is reconciled and GET-confirmed by the provisioner; mapping evidence remains.
+         * Retire a chain lane, or a materialized lane's repositories, after durable receipts and source custody
+         * @description Human project:admin. Explicit retirement is the only way a lane's repository is ever deleted: there is no time-based deletion. On a chain lane it closes allocation atomically, after terminal tasks, ended claims, delivered pushes, verified source custody, completed computes and terminated operations; deletion is reconciled and GET-confirmed by the provisioner, and mapping evidence remains (409 chain-retention-pending otherwise). On a materialized lane it also needs a recent sign-in (403 reauth-required) and retires every lane repository of the task, only while every retention guard holds, and otherwise refuses 409 lane-retention-pending with `details.reason` naming the first guard that fails: `claim-active` (a claim of the task is active), `reopen-open` (the landed lane is reopened), `task-not-terminal` (not landed with its newest landed receipt, rejected or superseded, or a landing is fenced), `journal-in-flight` (a lane repository being created, a save point journaled or written, a head transition journaled), `wrap-up-in-flight`, `push-unresolved`, `write-token-live` (an unrevoked, unexpired write token for the lane repository or a lane claim) or `custody-unverified` (a submission of a lane claim that is neither a recorded wrap-up nor in verified source custody); `details.laneRepositoryId` names the lane repository. The retirement is journaled first (`retiring`, after which no reopen, write or materialize is admitted), the guard is re-checked immediately before the provider delete, the delete is read back until it answers 404, and only then is the lane repository `retired`. A provider failure answers 503 lane-repository-unavailable (retryable); any later call, under any key, or the task alarm resumes it. The canonical repository, its landed commits, contribution refs and receipts are never touched (a receipt references the canonical, never a lane repository), and the record keeps every lane commit id, snapshot and mapping row. Once retired, reopen refuses 409 lane-not-reopenable (`retired`), and reads of the lane head refuse 409 lane-retired. A lane repository whose creation failed after the provider created it is retired by the same call and guard; it stays `failed` and is not listed in `laneRepositories`.
          */
         post: operations["chainLaneRetire"];
         delete?: never;
@@ -805,7 +805,7 @@ export interface paths {
         put?: never;
         /**
          * Begin a new execution attempt for a materialized claim (preview)
-         * @description The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope. 409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown; 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles. On a lane with a lane repository the new execution inherits the lane head and stays pinned to the lane's base and scope version (no rebase unless the agent asks; a later base-refreshed request rebases), through a head transition that keeps the head and pairs generation 1 with the snapshot the head was built on, and the answer carries laneHead and previousHead (equal). This is how a second agent environment on the same live claim continues the work. 409 operation-in-progress (retryable) while the lane repository is still being created or a save point is in flight.
+         * @description The claim's own agent (submissions:create), with the delegation bound to the claim's open execution, hands that execution over to a new attempt on the same live claim - how a second agent environment continues the work. In one batch the open execution ends (superseded) with its open generation, the new execution opens with generation 1 (at the target ref's pinned head with the latest granted scope), and the delegation rotates to a credential bound to the new execution, returned as delegation (its laneKind, executionId and scopeVersion are the new execution's; renew it as usual). The presenting token, and every token of the superseded execution, then answers 409 execution-superseded (details.executionId) on every route, renewal included - a stale workspace is never authoritative. Humans are refused (403 forbidden); the body is empty (400 invalid-request otherwise). 409 claim-inactive; 409 base-unknown; 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles. 409 operation-in-progress (retryable) while a change, save point, wrap-up or head transition is still settling on the lane, or the open execution has no open generation yet (a reopen's rebase), or a concurrent handover or renewal of the same token committed first. A lost answer replays under the same key with the superseded token, returning the same credential, for two minutes (409 idempotency-result-expired after; issuance is never rerun); the same key with the new credential answers the recorded execution without delegation. On a lane with a lane repository the new execution inherits the lane head and stays pinned to the lane's base and scope version (no rebase unless the agent asks; a later base-refreshed request rebases), through a head transition that keeps the head and pairs generation 1 with the snapshot the head was built on, and the answer carries laneHead and previousHead (equal). 409 operation-in-progress (retryable) while the lane repository is still being created.
          */
         post: operations["laneExecutionBegin"];
         delete?: never;
@@ -843,7 +843,7 @@ export interface paths {
         };
         /**
          * Read a generation's manifest (preview)
-         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that. Once the lane is materialized the manifest lists the lane head (the snapshot plus every save point) instead of the base and carries laneHead; baseSha stays the generation's pinned base. Gitlinks are not lane content, so the base's gitlinks inside the read scope are listed with the head's entries, unless the head has an entry at, below or above that path. Before materialization laneHead is null and the entries are the base's, as today. head pins the read to one lane commit of the open generation's recorded lineage - its snapshot, the head a new execution inherited, or a recorded save point (409 generation-superseded for any other commit; 409 lane-not-materialized before materialization; 400 when malformed); without it the current head is served. 503 lane-repository-unavailable (retryable) while the lane repository cannot be read.
+         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that. Once the lane is materialized the manifest lists the lane head (the snapshot plus every save point) instead of the base and carries laneHead; baseSha stays the generation's pinned base. Gitlinks are not lane content, so the base's gitlinks inside the read scope are listed with the head's entries, unless the head has an entry at, below or above that path. Before materialization laneHead is null and the entries are the base's, as today. head pins the read to one lane commit of the open generation's recorded lineage - its snapshot, the head a new execution inherited, or a recorded save point (409 generation-superseded for any other commit; 409 lane-not-materialized before materialization; 400 when malformed); without it the current head is served. 503 lane-repository-unavailable (retryable) while the lane repository cannot be read. Once the lane is retired (or retiring) its head is never read and never replaced by the base (409 lane-retired, details.laneRepositoryId and details.retiredAt); the landed result stays readable on the canonical.
          */
         get: operations["laneManifestGet"];
         put?: never;
@@ -863,7 +863,7 @@ export interface paths {
         };
         /**
          * Read a generation's manifest by its immutable address (preview)
-         * @description The same manifest as laneManifestGet for exactly the named execution's generation of a materialized claim of this task, for a project member with tasks:read; agent delegations are refused. A generation stays addressable after it is superseded, its execution ended or a newer execution started; the route never falls back to another execution or generation (404 not-found when the pair does not exist on this task). A materialized candidate's provenance names its executionId and generation. Once the lane is materialized it lists that generation's newest recorded lane state - the lane head for the open generation - with laneHead; before that, the base with laneHead null.
+         * @description The same manifest as laneManifestGet for exactly the named execution's generation of a materialized claim of this task, for a project member with tasks:read; agent delegations are refused. A generation stays addressable after it is superseded, its execution ended or a newer execution started; the route never falls back to another execution or generation (404 not-found when the pair does not exist on this task). A materialized candidate's provenance names its executionId and generation. Once the lane is materialized it lists that generation's newest recorded lane state - the lane head for the open generation - with laneHead; before that, the base with laneHead null. Once the lane is retired, a materialized generation answers 409 lane-retired.
          */
         get: operations["laneGenerationManifestGet"];
         put?: never;
@@ -883,7 +883,7 @@ export interface paths {
         };
         /**
          * Read one blob inside the generation's read scope (preview)
-         * @description A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content. Once the lane is materialized the blob is read at the lane head, or at head when given - pass the manifest's laneHead so a multi-file download is consistent even if the head moves meanwhile (409 generation-superseded for a commit outside the open generation's recorded lineage; 409 lane-not-materialized for head before materialization). A path absent at that head is 404; a gitlink of the base the head does not replace is answered from the base. The answer carries laneHead, null before materialization; 503 lane-repository-unavailable (retryable) while the lane repository cannot be read. base instead reads the upstream side of a conflict - the file at the canonical commit a 409 refresh-conflict named in details.newBaseSha (or the generation's pinned base, details.oldBaseSha) - so a client can build a content resolution; still limited to the read scope.
+         * @description A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content. Once the lane is materialized the blob is read at the lane head, or at head when given - pass the manifest's laneHead so a multi-file download is consistent even if the head moves meanwhile (409 generation-superseded for a commit outside the open generation's recorded lineage; 409 lane-not-materialized for head before materialization). A path absent at that head is 404; a gitlink of the base the head does not replace is answered from the base. The answer carries laneHead, null before materialization; 503 lane-repository-unavailable (retryable) while the lane repository cannot be read; 409 lane-retired once the lane is retired. base instead reads the upstream side of a conflict - the file at the canonical commit a 409 refresh-conflict named in details.newBaseSha (or the generation's pinned base, details.oldBaseSha) - so a client can build a content resolution; still limited to the read scope.
          */
         get: operations["laneBlobGet"];
         put?: never;
@@ -929,7 +929,7 @@ export interface paths {
         put?: never;
         /**
          * Grant a new scope version (preview)
-         * @description A project member with tasks:edit records the next scope version for the claim, optionally deciding a pending request. The grant takes effect only when the agent requests a scope-expanded generation; until then the lane's scopeVersion and scope stay the open generation's and the grant shows as latestGrantedScope. A requestId decides exactly that request and no other - 400 invalid-request for an empty requestId, 404 not-found when it is not a request of this claim, 409 scope-request-decided when it was already decided (a racing grant commits nothing, 409 operation-in-progress). Without requestId no request is decided.
+         * @description A project member with tasks:edit records the next scope version for the claim, optionally deciding a pending request. The grant takes effect only when the agent requests a scope-expanded generation; until then the lane's scopeVersion and scope stay the open generation's and the grant shows as latestGrantedScope. A requestId decides exactly that request and no other - 400 invalid-request for an empty requestId, 404 not-found when it is not a request of this claim, 409 scope-request-decided when it was already decided (a racing grant commits nothing, 409 operation-in-progress). Without requestId no request is decided. A granted version holds its write scope at once; a grant adding a write prefix that overlaps the write scope another task holds on the same repository and target ref is refused 409 write-scope-claimed (details.requested, and details.holders with each holder's claimAttemptId to a caller with tasks:read) and the request stays pending. Prefixes the claim already holds are not re-checked.
          */
         post: operations["laneScopeGrant"];
         delete?: never;
@@ -968,8 +968,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Submit explicit file operations against a generation (preview)
-         * @description The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 scope-overlap (details.path) when an operation's path lies inside the write scope of another active materialized lane on the same repository and target (or at the directory such a prefix names); 409 authority-lost when the claim, its delegation, the agent's membership or the lane execution ended while the change was in flight. Both are re-checked before the commit and again before the contribution ref, so a refused change never creates the ref (Git objects already written stay unreferenced); a retry of a change refused after its journal entry answers 409 change-failed (reason scope-overlap or authority-lost); 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet. Save points. On a lane of an Artifacts canonical that has a lane repository (after lane/materialize) a changes submission is a save point, not a submission or a candidate - one commit on the lane branch whose parent is the previous lane head and whose tree is that head plus the operations (cumulative), with the agent's message. The request must carry expectedHead, the lane head the operations were made against (400 invalid-request, details.field expectedHead, when it is missing; nothing is written). A put below a file or symlink of the head replaces that entry with a directory, so the entry must be inside the write scope too (403 scope-refused, details.path, before any write). The journal records the key, the operation digest, expectedHead and the precomputed lane commit before any write; the head moves only by an expected-old update from expectedHead, serialized per claim. A new key whose expectedHead is not the current head answers 409 lane-head-moved (details.laneHead); the same key with the same body replays the recorded answer even after the head moved; a save point that failed terminally replays as 409 change-failed (details.reason). The answer is a LaneSavePoint with no candidate; a save point after a wrap-up supersedes that wrap-up's candidate (supersededCandidateId, in the same record batch; its approvals are invalidated). 409 operation-in-progress (retryable) while the lane repository is being created, another save point is in flight or a head transition settles; 409 authority-lost when the claim, delegation, membership or execution ended before the write; 503 lane-repository-unavailable (retryable with the same key; the journal resumes, also from the task alarm). On an Artifacts canonical a lane that was never materialized answers 409 lane-not-materialized. A GitHub canonical follows the same model - once lane/materialize created the lane repository, a changes submission is a save point exactly as above and nothing is written to GitHub. A GitHub lane that was never materialized keeps the direct path (a candidate per submission under a contribution ref, expectedHead ignored); that path is retired for new lanes and kept only for those existing ones, and a lane that submitted on it stays on it (lane/materialize answers 409 lane-direct-path).
+         * Take a save point on the lane repository
+         * @description On a materialized lane that has a lane repository (after lane/materialize), on an Artifacts or a GitHub canonical alike, a changes submission is a save point, not a submission or a candidate - one commit on the lane branch whose parent is the previous lane head and whose tree is that head plus the operations (cumulative), with the agent's message; nothing is written to the canonical. The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. Every operation is validated before any write (403 scope-refused, details.path; 400 for traversal, duplicates or an unsupported mode; 404 blob-unknown; 409 generation-superseded). 409 scope-overlap (details.path) when an operation's path lies inside the write scope of another active materialized lane on the same repository and target (or at the directory such a prefix names), checked again before the push; 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 execution-inactive without an open execution. The request must carry expectedHead, the lane head the operations were made against (400 invalid-request, details.field expectedHead, when it is missing; nothing is written). A put below a file or symlink of the head replaces that entry with a directory, so the entry must be inside the write scope too (403 scope-refused, details.path, before any write). A save point carries up to 16 MiB of file content (the sum of the sizes of the blobs its puts name); more answers 413 changes-too-large (details.reason bytes, details.limit) before any provider call. The trees rebuilt on changed paths and the commit travel in the same pack with 4 MiB of headroom of their own; only trees past it (directories with tens of thousands of entries) answer 413 changes-too-large with details.reason pack-bytes. The journal records the key, the operation digest, expectedHead and the precomputed lane commit before any write; the head moves only by an expected-old update from expectedHead, serialized per claim. A new key whose expectedHead is not the current head answers 409 lane-head-moved (details.laneHead); the same key with the same body replays the recorded answer even after the head moved; a save point that failed terminally replays as 409 change-failed (details.reason). The answer is a LaneSavePoint with no candidate; a save point after a wrap-up supersedes that wrap-up's candidate (supersededCandidateId, in the same record batch; its approvals are invalidated). 409 operation-in-progress (retryable) while the lane repository is being created, another save point is in flight or a head transition settles; 409 authority-lost when the claim, delegation, membership or execution ended before the write; 503 lane-repository-unavailable (retryable with the same key; the journal resumes, also from the task alarm). A lane without a lane repository answers 409 lane-not-materialized, whatever its canonical's provider, and nothing is written.
          */
         post: operations["laneChangesSubmit"];
         delete?: never;
@@ -989,7 +989,7 @@ export interface paths {
         put?: never;
         /**
          * Create the lane repository for the open generation
-         * @description The claim's agent explicitly materializes its lane: the first call creates the scoped lane repository for the open generation (create, reconcile by name, write the snapshot of the generation's base restricted to the read scope, set the lane head). Idempotent per claim: every later call, including one after a refresh, a scope expansion or a new execution, answers the current generation, base and lane head and never re-seeds the repository or resets the head (200). The body is empty; the claim and execution come from the delegation. A snapshot is written only from a complete listing of the read scope; a listing truncated by the entry or tree-read limits answers 413 materialization-too-large and nothing is created, so narrow the read scope. 409 execution-inactive without an open execution; 409 claim-inactive; 409 operation-in-progress (retryable) while a head transition is settling; 503 lane-repository-unavailable (retryable with the same key) while the lane repository cannot be reached. Never returns a lane repository URL or a credential. A lane that never calls this route never gets a repository; its reads serve the pinned base. The snapshot holds every file and symlink of the read scope (gitlinks are not lane content); a read scope whose content cannot fit one 16 MiB pack also answers 413 materialization-too-large (details.reason bytes; listing-truncated otherwise). 409 repository-provider-unsupported on a canonical other than Artifacts or GitHub; 409 change-failed (details.reason) once an earlier materialization of this claim failed terminally. 409 lane-direct-path (details.reason direct-path-submissions) on a GitHub lane that already submitted on the direct path: it stays there, and nothing is created. On a GitHub canonical the provider reads are budgeted - at most 2,500 GitHub REST requests per operation (413 materialization-too-large, details.reason rest-budget, details.requests and details.limit; narrow the read scope), and none once the credential's remaining hourly budget, as GitHub reports it, would fall below a reserve of 250 kept for wrap-up and landing (429 rate-limited, details.reason provider-rest-budget, with Retry-After until GitHub's window resets). A snapshot admits its blob reads before the first one is made, so nothing is created when it is refused; immutable objects already read (trees, commits, blobs, by id) are not read again. A new generation on a lane with a lane repository is a journaled head transition (refresh or scope expansion); a new execution inherits the lane head.
+         * @description The claim's agent explicitly materializes its lane: the first call creates the scoped lane repository for the open generation (create, reconcile by name, write the snapshot of the generation's base restricted to the read scope, set the lane head). Idempotent per claim: every later call, including one after a refresh, a scope expansion or a new execution, answers the current generation, base and lane head and never re-seeds the repository or resets the head (200). The body is empty; the claim and execution come from the delegation. A snapshot is written only from a complete listing of the read scope; a listing truncated by the entry or tree-read limits answers 413 materialization-too-large and nothing is created, so narrow the read scope. 409 execution-inactive without an open execution; 409 claim-inactive; 409 operation-in-progress (retryable) while a head transition is settling; 503 lane-repository-unavailable (retryable with the same key) while the lane repository cannot be reached. Never returns a lane repository URL or a credential. A lane that never calls this route never gets a repository; its reads serve the pinned base. The snapshot holds every file and symlink of the read scope (gitlinks are not lane content); a read scope whose files exceed 16 MiB of content also answers 413 materialization-too-large (details.reason bytes; listing-truncated otherwise). 409 repository-provider-unsupported on a canonical other than Artifacts or GitHub; 409 change-failed (details.reason) once an earlier materialization of this claim failed terminally. 409 lane-retired once the lane was retired: a retired lane is never materialized again. On a GitHub canonical the provider reads are budgeted - at most 2,500 GitHub REST requests per operation (413 materialization-too-large, details.reason rest-budget, details.requests and details.limit; narrow the read scope), and none once the credential's remaining hourly budget, as GitHub reports it, would fall below a reserve of 250 kept for wrap-up and landing (429 rate-limited, details.reason provider-rest-budget, with Retry-After until GitHub's window resets). A snapshot admits its blob reads before the first one is made, so nothing is created when it is refused; immutable objects already read (trees, commits, blobs, by id) are not read again. A new generation on a lane with a lane repository is a journaled head transition (refresh or scope expansion); a new execution inherits the lane head.
          */
         post: operations["laneMaterialize"];
         delete?: never;
@@ -1029,7 +1029,7 @@ export interface paths {
         put?: never;
         /**
          * Reopen a landed materialized lane for more work
-         * @description A human reopens a landed task whose newest landing came from a materialized lane with a lane repository, and in the same command authorizes one agent for the reopened lane (the fresh delegation a reopened lane requires). The same command re-authorizes a task that is already reopened and has no active claim (its previous reopened claim ended with save points not yet wrapped up); that continuation keeps the lane head and its base exactly as they are, so saved work is never dropped. The caller must be a project member holding tasks:edit and tasks:claim and every verb it delegates, as for claimAuthorize; agent delegations and machine callers are refused (403 human-required) and approval is never delegable. expectedReceiptId must be the task's newest landed receipt (latestReceiptId; 409 expected-state-mismatch otherwise). The task moves landed -> reopened; its earlier receipts, approvals and candidates are unchanged, and acceptedReceiptId keeps naming the first landing. The answer reserves a new materialized claim attempt for the agent, bound to the same lane repository and its latest granted scope (every scope version carries over), and returns a five-minute one-use bootstrap; the agent claims with it through POST /tasks/{id}/claim (laneKind materialized; a declared scope must be the lane's), then calls lane/materialize, which answers the lane's current state (it creates nothing). On a reopened task only such a bootstrap admits a claim (409 lane-reopen-required otherwise). On a reopen from landed the lane head is the landed wrap-up's laneHead (any later save point would have superseded that candidate), and the claim's generation 1 is opened by a journaled `reopened` head transition onto the newest landing's canonical commit (the receipt's landedSha, not a later canonical head; refresh to move further), which already contains the landed squash: the new head's parent is the old head and its tree is the new snapshot, so the rebase cannot conflict and drops nothing, and the next wrap-up carries only new work (its message and savePointIds name only the save points since the landing). The lane history continues (save points, squash 1 landed, reopen, save points, squash 2). Until that transition settles the claim reads provisioningState pending; lane/materialize and the task alarm resume it (503 lane-repository-unavailable is retried). The claim answer's lane block carries laneHead and reopenId. Reopen re-runs the overlap and activation guard over the write scope (409 scope-overlap, with details.retryable while another lane's change is unsettled). 409 lane-not-reopenable (details.reason) when the task never landed or its reopened work is already wrapped up (not-landed), its newest landing was not a materialized wrap-up (not-a-wrap-up), its lane repository is retired (retired), another task owns the lane (other-task), or the lane head moved (lane-head-moved); 409 task-closed for a rejected or superseded task; 409 already-claimed while an active claim exists; 409 fenced while a landing fence is held; 409 operation-in-progress (retryable) while a save point, head transition or wrap-up of the lane is settling. The same key and body replay the committed answer, bootstrap included, while the bootstrap is unconsumed and inside its window, then 409 idempotency-result-expired (bounded recovery, as claimAuthorize). The reopen ends and the task returns to landed when its claim ends (release, revocation, expiry), or its bootstrap lapses unclaimed, with no save point since the reopen, or when a human rejects the reopened work. Each later landing is its own candidate, exact approval, receipt and export.
+         * @description A human reopens a landed task whose newest landing came from a materialized lane with a lane repository, and in the same command authorizes one agent for the reopened lane (the fresh delegation a reopened lane requires). The same command re-authorizes a task that is already reopened and has no active claim (its previous reopened claim ended with save points not yet wrapped up); that continuation keeps the lane head and its base exactly as they are, so saved work is never dropped. The caller must be a project member holding tasks:edit and tasks:claim and every verb it delegates, as for claimAuthorize; agent delegations and machine callers are refused (403 human-required) and approval is never delegable. expectedReceiptId must be the task's newest landed receipt (latestReceiptId; 409 expected-state-mismatch otherwise). The task moves landed -> reopened; its earlier receipts, approvals and candidates are unchanged, and acceptedReceiptId keeps naming the first landing. The answer reserves a new materialized claim attempt for the agent, bound to the same lane repository and its latest granted scope (every scope version carries over), and returns a five-minute one-use bootstrap; the agent claims with it through POST /tasks/{id}/claim (laneKind materialized; a declared scope must be the lane's), then calls lane/materialize, which answers the lane's current state (it creates nothing). On a reopened task only such a bootstrap admits a claim (409 lane-reopen-required otherwise). On a reopen from landed the lane head is the landed wrap-up's laneHead (any later save point would have superseded that candidate), and the claim's generation 1 is opened by a journaled `reopened` head transition onto the newest landing's canonical commit (the receipt's landedSha, not a later canonical head; refresh to move further), which already contains the landed squash: the new head's parent is the old head and its tree is the new snapshot, so the rebase cannot conflict and drops nothing, and the next wrap-up carries only new work (its message and savePointIds name only the save points since the landing). The lane history continues (save points, squash 1 landed, reopen, save points, squash 2). Until that transition settles the claim reads provisioningState pending; lane/materialize and the task alarm resume it (503 lane-repository-unavailable is retried). The claim answer's lane block carries laneHead and reopenId. Reopen re-runs the overlap and activation guard over the write scope (409 scope-overlap, with details.retryable while another lane's change is unsettled). A landed lane holds no write scope: a reopen from landed whose lane scope overlaps the write scope another task was admitted into meanwhile is refused 409 write-scope-claimed, details.holders naming that task and claim attempt; once open, the reopen holds the lane's scope until it closes. 409 lane-not-reopenable (details.reason) when the task never landed or its reopened work is already wrapped up (not-landed), its newest landing was not a materialized wrap-up (not-a-wrap-up), its lane repository is retired (retired), another task owns the lane (other-task), or the lane head moved (lane-head-moved); 409 task-closed for a rejected or superseded task; 409 already-claimed while an active claim exists; 409 fenced while a landing fence is held; 409 operation-in-progress (retryable) while a save point, head transition or wrap-up of the lane is settling. The same key and body replay the committed answer, bootstrap included, while the bootstrap is unconsumed and inside its window, then 409 idempotency-result-expired (bounded recovery, as claimAuthorize). The reopen ends and the task returns to landed when its claim ends (release, revocation, expiry), or its bootstrap lapses unclaimed, with no save point since the reopen, or when a human rejects the reopened work. Each later landing is its own candidate, exact approval, receipt and export.
          */
         post: operations["laneReopen"];
         delete?: never;
@@ -1409,7 +1409,7 @@ export interface paths {
         put?: never;
         /**
          * Rotate a delegation within its authorized ceiling
-         * @description Same still-valid agent delegation only; requires active bound claim, authorizer membership, unrevoked grant. Cannot widen scope or ceiling. Exact retry with predecessor permitted for two minutes only for this operation.
+         * @description Same still-valid agent delegation only; requires active bound claim, authorizer membership, unrevoked grant. Cannot widen scope or ceiling. Exact retry with predecessor permitted for two minutes only for this operation. A materialized-lane token of an execution a newer one superseded (laneExecutionBegin) answers 409 execution-superseded.
          */
         post: operations["delegationRenew"];
         delete?: never;
@@ -2190,6 +2190,8 @@ export interface components {
             landingCount?: number;
             /** @description Preview. Present when the task's active claim is a materialized lane. */
             lane?: components["schemas"]["MaterializedLane"];
+            /** @description GET /tasks/{id} only (absent from the task list). The task's newest lane repository, whether or not a claim is live; absent before the task's first lane/materialize. An agent delegation reads it only for the lane its own claim is bound to. */
+            laneRepository?: components["schemas"]["TaskLaneRepository"];
             liveAttempt: {
                 claimId: components["schemas"]["Id"] | null;
                 submissionId: components["schemas"]["Id"] | null;
@@ -2277,7 +2279,7 @@ export interface components {
         };
         DelegationCredential: {
             delegationId: components["schemas"]["Id"];
-            /** @description Octocove-issued task/attempt delegation, never a human OIDC or Artifacts token. Returned only by issuance/renewal; redact logs. */
+            /** @description Octocove-issued task/attempt delegation, never a human OIDC or Artifacts token. Returned only by issuance/renewal and a lane execution handover (laneExecutionBegin); redact logs. */
             accessToken: string;
             /** @enum {string} */
             tokenType: "Bearer";
@@ -2400,8 +2402,8 @@ export interface components {
             fileOperations?: components["schemas"]["LaneFileOperation"][];
             /** @description True when fileOperations lists every journaled operation, false when it was cut at its bound. */
             fileOperationsComplete?: boolean;
-            /** @description Always present on GET /submissions/{id}/candidate from this server; optional so recorded contract fixtures and older servers stay valid. A client without it enables neither action. */
-            actions?: components["schemas"]["CandidateActions"];
+            /** @description Whether approve and land would be accepted for this reader now (the routes' own authorization, then state). */
+            actions: components["schemas"]["CandidateActions"];
         };
         CandidateReady: {
             workAttribution?: components["schemas"]["WorkAttribution"];
@@ -2786,9 +2788,9 @@ export interface components {
         };
         /** @description A lowercase global username. Reserved names me, new, settings, admin, api, octocove, people, support and help cannot be selected. Current and retired names remain reserved to their owner. */
         Handle: string;
-        /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile`; the four nullable fields are null while unset. The handle is non-null once assigned and absent on older servers. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
+        /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile`; the four nullable fields are null while unset. Every profile has a handle (allocated at sign-in, or on first read when sign-in deferred it). `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
         Profile: {
-            handle?: components["schemas"]["Handle"];
+            handle: components["schemas"]["Handle"];
             name: string | null;
             pronouns: string | null;
             bio: string | null;
@@ -3017,6 +3019,12 @@ export interface components {
             error?: string;
         };
         CodeCompare: {
+            /** @description Exact requested base commit. Emitted together with headSha and commitsTruncated. */
+            baseSha: components["schemas"]["Sha"];
+            /** @description Exact requested head commit. */
+            headSha: components["schemas"]["Sha"];
+            /** @description True when the base was not reached within the 100-commit history bound. Equal base and head return empty history and false. */
+            commitsTruncated: boolean;
             files: components["schemas"]["CodeDiffFile"][];
             commits: components["schemas"]["CodeCommit"][];
             omittedFiles: number;
@@ -3037,10 +3045,10 @@ export interface components {
             /** @description The normalised directory path, `""` for the root. */
             path: string;
             entries: components["schemas"]["CodeTreeEntry"][];
-            /** @description True when a file or symlink size is omitted because the metadata lookup budget was exhausted or size metadata was unavailable. Blob bodies are not downloaded to determine listing sizes. Optional on older servers. */
-            sizeTruncated?: boolean;
-            /** @description True when any listed entry lacks lastCommit because a history, entry or tree-read budget was reached. False for an empty directory. Optional on older servers. */
-            lastCommitTruncated?: boolean;
+            /** @description True when a file or symlink size is omitted because the metadata lookup budget was exhausted or size metadata was unavailable. Blob bodies are not downloaded to determine listing sizes. */
+            sizeTruncated: boolean;
+            /** @description True when any listed entry lacks lastCommit because a history, entry or tree-read budget was reached. False for an empty directory. */
+            lastCommitTruncated: boolean;
             readme?: components["schemas"]["CodeReadme"];
             /** @description The directory holds more than `entries` lists. */
             truncated: boolean;
@@ -3187,6 +3195,22 @@ export interface components {
             receiptId: components["schemas"]["Id"];
             headSha: components["schemas"]["Sha"];
         };
+        WriteScopeHolder: {
+            taskId: components["schemas"]["Id"];
+            /**
+             * @description claim - a granted, active materialized claim, at every scope version from the one its newest generation pinned to the newest granted; reopen - an open reopen of a landed lane, at the scopes its lane's current claim holds, until the reopen closes.
+             * @enum {string}
+             */
+            heldBy: "claim" | "reopen";
+            /** @description The holder's claim attempt. */
+            claimAttemptId?: components["schemas"]["Id"];
+            paths: {
+                /** @description The write prefix the refused admission asked for. */
+                requested: string;
+                /** @description The holder's overlapping write prefix. */
+                held: string;
+            }[];
+        };
         /** @description Details for codes other than `stale-base`. Only the listed fields are typed; other fields may appear and must be tolerated. */
         ProblemDetails: {
             reason?: string;
@@ -3195,6 +3219,10 @@ export interface components {
             /** @enum {string} */
             claimResult?: "refused-not-ready" | "refused-already-claimed" | "refused-dependency-unlanded" | "refused-unauthorized" | "refused-task-closed";
             blockingTaskIds?: components["schemas"]["Id"][];
+            /** @description 409 write-scope-claimed - the refused write prefixes of the admission. */
+            requested?: string[];
+            /** @description 409 write-scope-claimed, to a human member with tasks:read only - each task holding a write scope the admission overlaps, on the same repository and target ref (so the same project). */
+            holders?: components["schemas"]["WriteScopeHolder"][];
             candidateId?: components["schemas"]["Id"];
             conflictFiles?: string[];
             fenceId?: components["schemas"]["Id"];
@@ -3381,7 +3409,7 @@ export interface components {
             latestGrantedScope?: components["schemas"]["LaneGrantedScope"];
             /** @description The lane head; absent before lane/materialize, null until it completes. */
             laneHead?: components["schemas"]["Sha"] | null;
-            /** @description The lane repository's record state; absent before lane/materialize, null until it completes. */
+            /** @description The lane repository's record state (`retiring` once a human retired the lane, `retired` once its repository is deleted); absent before lane/materialize, null until it completes. */
             laneRepository?: components["schemas"]["LaneRepositoryState"] | null;
             /** @description The newest recorded save point on this claim; absent before lane/materialize, null when none. */
             latestSavePointId?: components["schemas"]["Id"] | null;
@@ -3408,6 +3436,10 @@ export interface components {
             previousHead?: components["schemas"]["Sha"];
             /** @description The resolutions the rebase commit recorded (base-refreshed on a lane repository). */
             resolutions?: components["schemas"]["LaneResolution"][];
+            /** @description LaneExecutionBegin only - the execution this one superseded. */
+            supersededExecutionId?: components["schemas"]["Id"];
+            /** @description LaneExecutionBegin only - the delegation credential bound to the new execution. Absent on a replay presented with that credential itself. */
+            delegation?: components["schemas"]["DelegationCredential"];
         };
         LaneManifestEntry: {
             path: string;
@@ -3497,29 +3529,14 @@ export interface components {
             op: "delete";
             path: string;
         };
-        /** @description Preview. The operations of one submission against the named open generation; at most 2000, unique by path. */
+        /** @description The operations of one save point against the named open generation; at most 2000, unique by path. */
         LaneChanges: {
             generation: number;
-            /** @description The lane head these operations were made against (compare-and-set). Required on a lane with a lane repository (400 invalid-request, details.field expectedHead, without it); ignored on the candidate-per-submission path. */
+            /** @description The lane head these operations were made against (compare-and-set). Required (400 invalid-request, details.field expectedHead, without it); optional in the schema only so that a lane without a lane repository is answered 409 lane-not-materialized rather than 400. */
             expectedHead?: components["schemas"]["Sha"];
             operations: components["schemas"]["LaneChangeOperation"][];
             /** @description Optional commit message body; the server appends its trailers. On a save point it is the lane commit's message and a line of the wrap-up message. */
             message?: string;
-        };
-        /** @description Preview. The submission and candidate recorded for a changes submission. staged is always false; a materialized lane never stages behind a fence, it refuses with 409 fenced instead. */
-        LaneChangeResult: {
-            id: components["schemas"]["Id"];
-            seq: number;
-            candidateId: components["schemas"]["Id"];
-            candidateSha: components["schemas"]["Sha"];
-            baseSha: components["schemas"]["Sha"];
-            /** @description refs/octocove/contributions/<id>, create-only. */
-            contributionRef: string;
-            /** @enum {string} */
-            candidateStatus: "active" | "stale";
-            /** @enum {boolean} */
-            staged: false;
-            provenance?: components["schemas"]["MaterializedProvenance"];
         };
         /** @description Whether candidateApprove and candidateLand would be accepted for this reader now, derived from the same checks those commands run and in their order - the route's authorization and recent sign-in (forbidden, human-required, claim-inactive, reauth-required), then state. A client never enables an action whose available is false. A later write can still change the answer (for example a base move); the commands remain authoritative. */
         CandidateActions: {
@@ -3579,7 +3596,19 @@ export interface components {
             /** @enum {string} */
             mode?: "100644" | "100755" | "120000";
         };
-        /** @description The record state of a lane's repository, one per lane (record role lane). Never carries a URL, a name or a credential; no client ever reads a lane repository over Git. */
+        /** @description The answer of a retirement that already completed. On a materialized lane `laneRepositories` lists each retired lane repository of the task; a chain lane's answer carries `phase` only. */
+        LaneRetired: {
+            /** @constant */
+            phase: "retired";
+            laneRepositories?: components["schemas"]["LaneRepositoryState"][];
+        };
+        /** @description A retirement that was requested: `retiring` until the provider delete is confirmed (404 read back), then `retired`. On a materialized lane `laneRepositories` lists each lane repository being retired. */
+        LaneRetirement: {
+            /** @enum {string} */
+            phase: "retiring" | "retired";
+            laneRepositories?: components["schemas"]["LaneRepositoryState"][];
+        };
+        /** @description The record state of a lane's repository, one per lane (record role lane): `ready`, then `retiring` once a human explicitly retired the lane (POST lane/retire) and `retired` (with `retiredAt`) once the repository's deletion was read back; never deleted by time. Never carries a URL, a name or a credential; no client ever reads a lane repository over Git. */
         LaneRepositoryState: {
             id: components["schemas"]["Id"];
             /** @enum {string} */
@@ -3587,6 +3616,45 @@ export interface components {
             /** Format: date-time */
             materializedAt: string;
             retiredAt: string | null;
+        };
+        /** @description The record state of the task's newest lane repository, independent of the live claim: it still reads after a landing, during and after a reopen, during and after a retirement, and for a lane repository whose creation failed. Never carries a URL, a name or a credential. `state` is the record's: `journaled` and `created` while lane/materialize is in flight, `ready`, `failed` (terminal, with `failureReason`), `retiring` once a human retired the lane and `retired` once its repository's deletion was read back. `latestWrapUp` and `latestReceiptId` cover every claim the lane was bound to (its first claim and the claims its reopens granted); `claimAttemptId` is the claim it is bound to now. */
+        TaskLaneRepository: {
+            laneRepositoryId: components["schemas"]["Id"];
+            /** @enum {string} */
+            state: "journaled" | "created" | "ready" | "failed" | "retiring" | "retired";
+            /** @description Why creation failed (`authority-lost`, `snapshot-mismatch` or `lane-head-moved`); null unless `state` is `failed`. */
+            failureReason: string | null;
+            claimAttemptId: components["schemas"]["Id"];
+            materializedAt: string | null;
+            retiredAt: string | null;
+            /** @description The lane head; null until lane/materialize completes. A retired lane keeps its last head (the commit is gone). */
+            laneHead: components["schemas"]["Sha"] | null;
+            /** @description The lane's newest recorded wrap-up and its candidate's current status, as GET /submissions/{id}/candidate projects it (an active candidate off the known head reads `stale`); null when none. */
+            latestWrapUp: {
+                id: components["schemas"]["Id"];
+                submissionId: components["schemas"]["Id"];
+                candidateId: components["schemas"]["Id"];
+                /** @enum {string} */
+                candidateStatus: "active" | "fenced" | "landed" | "raced" | "failed" | "superseded" | "stale" | "withdrawn" | "rejected";
+            } | null;
+            /** @description The newest landed receipt of one of the lane's wrap-up candidates; null when the lane never landed. */
+            latestReceiptId: components["schemas"]["Id"] | null;
+            /** @description The task's open reopen of this lane; null when no reopen is open. */
+            openReopenId: components["schemas"]["Id"] | null;
+            /** @description The lane's newest unresolved refresh-conflict refusal; null when there is none. A wrap-up or refresh refusal is resolved once a later wrap-up or refresh of the lane is recorded, a scope-expansion refusal once a later scope expansion is. An agent delegation reads it only when its own claim was refused. */
+            unresolvedConflict: components["schemas"]["LaneUnresolvedConflict"] | null;
+        };
+        /** @description A recorded 409 `refresh-conflict` refusal: what the wrap-up (`source: wrap-up`, pinned base to the canonical head), the refresh (`refresh`, old base to new base) or the scope expansion (`scope-expansion`, the same base, with the newly readable paths) compared and the conflicts it listed, as the refusal's `details` named them. `conflicts` holds the first 100 in path order; `conflictCount` is the total. The agent's own 409 answer carries the full list and `unresolved`. */
+        LaneUnresolvedConflict: {
+            /** @enum {string} */
+            source: "wrap-up" | "refresh" | "scope-expansion";
+            claimAttemptId: components["schemas"]["Id"];
+            /** Format: date-time */
+            refusedAt: string;
+            oldBaseSha: components["schemas"]["Sha"];
+            newBaseSha: components["schemas"]["Sha"];
+            conflictCount: number;
+            conflicts: components["schemas"]["LaneConflict"][];
         };
         /** @description The lane's current generation, pinned base and lane head. A repeat call answers the same shape with the current values; it never resets the head. */
         LaneMaterializeResult: {
@@ -3657,7 +3725,7 @@ export interface components {
             /** @description One per path a 409 refresh-conflict listed; up to the snapshot entry limit, so every conflict set fits the schema. A request whose resolutions exceed the 1 MiB JSON body limit is refused 413 request-body-too-large; narrow the lane's changes (or its claim) instead. */
             resolutions?: components["schemas"]["LaneResolution"][];
         };
-        /** @description The submission and its one candidate, shaped like LaneChangeResult plus the wrap-up's identity. baseSha is the canonical head the squash was built on (the candidate's only parent). */
+        /** @description The submission and its one candidate, with the wrap-up's identity. baseSha is the canonical head the squash was built on (the candidate's only parent). */
         LaneWrapUpResult: {
             wrapUpId: components["schemas"]["Id"];
             id: components["schemas"]["Id"];
@@ -5440,28 +5508,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Already retired. */
+            /** @description Already retired (a replay calls nothing). */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @constant */
-                        phase: "retired";
-                    };
+                    "application/json": components["schemas"]["LaneRetired"];
                 };
             };
-            /** @description Retirement requested; alarm reconciles deletion. `phase` is re-read after the synchronous reconcile, so it may already be `retired`. */
+            /** @description Retirement requested; the alarm reconciles deletion. `phase` is re-read after the synchronous reconcile, so it may already be `retired`. */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        /** @enum {string} */
-                        phase: "retiring" | "retired";
-                    };
+                    "application/json": components["schemas"]["LaneRetirement"];
                 };
             };
             400: components["responses"]["Problem"];
@@ -5497,7 +5559,7 @@ export interface operations {
                     source?: components["schemas"]["ExternalRefSource"];
                     intentVersion: number;
                     /**
-                     * @description Preview. Request a materialized lane instead of a Git remote; the repository's lane policy must admit it (409 lane-kind-not-admitted), a public repository must have declared public-on-submit (409 publication-undeclared), the target ref must have a pinned head (409 base-unknown), and the claimant must be an agent with a delegation. Mutually exclusive with chain and source. On a reopened task only the bootstrap a laneReopen returned admits a claim (409 lane-reopen-required otherwise); it continues the reopened lane at its latest granted scope (a declared scope must be that one, else 400 invalid-request), and the task stays reopened until the next wrap-up.
+                     * @description Preview. Request a materialized lane instead of a Git remote; the repository's lane policy must admit it (409 lane-kind-not-admitted), a public repository must have declared public-on-submit (409 publication-undeclared), the target ref must have a pinned head (409 base-unknown), and the claimant must be an agent with a delegation. Mutually exclusive with chain and source. On a reopened task only the bootstrap a laneReopen returned admits a claim (409 lane-reopen-required otherwise); it continues the reopened lane at its latest granted scope (a declared scope must be that one, else 400 invalid-request), and the task stays reopened until the next wrap-up. The first claim keeps its write scope. A write prefix overlapping the write scope another task holds on the same repository and target ref (a granted active materialized claim at its newest granted scope version and every version back to the one its newest generation pinned, or an open reopen) is refused 409 write-scope-claimed (details.requested; details.holders to a human with tasks:read); nothing is recorded and the bootstrap stays unused. Of two simultaneous overlapping claims exactly one is admitted.
                      * @enum {string}
                      */
                     laneKind?: "materialized";
@@ -5887,13 +5949,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The save point (a lane with a lane repository, on an Artifacts or a GitHub canonical), or the recorded submission and candidate (the retired direct path: a GitHub lane never materialized). */
+            /** @description The save point, on the lane repository (Artifacts or GitHub canonical). */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LaneChangeResult"] | components["schemas"]["LaneSavePoint"];
+                    "application/json": components["schemas"]["LaneSavePoint"];
                 };
             };
             400: components["responses"]["Problem"];

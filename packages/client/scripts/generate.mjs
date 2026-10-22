@@ -144,6 +144,10 @@ function publicText(text) {
     // "bound under <record>, ..." loses the whole phrase; "Under <record> protected-runtime admission" keeps "Under".
     .replace(/\s*\b(?:under|per|see|in|by|from|via|following)\s+ADR[- ]?\d{1,4}\b(?=\s*(?:[,.;:)]|$|(?:whose|which|that|and)\b))/gi, '')
     .replace(/\bADR[- ]?\d{1,4}\b[:.,]?\s*/g, '')
+    // Dated decision labels: "(operator decision YYYY-MM-DD)" is dropped, and "Operator decision YYYY-MM-DD - the rule
+    // ..." reads "The rule ...".
+    .replace(/\s*\(\s*operator decision \d{4}-\d{2}-\d{2}[^()]*\)/gi, '')
+    .replace(/\boperator decision \d{4}-\d{2}-\d{2}\s*(?:-|:|,)?\s*([a-z]?)/gi, (_, c) => c.toUpperCase())
     // Citations of the service's own documents, which this repository does not include.
     .replace(/\s*\([^()]*\b(?:docs\/(?:API|AUTH)\.md|COLLABORATION_RECORD\.md)[^()]*\)/g, '')
     .replace(/;\s*see\s+(?:docs\/(?:API|AUTH)\.md|COLLABORATION_RECORD\.md)(?:\s+section\s+\d+)?\./gi, '.')

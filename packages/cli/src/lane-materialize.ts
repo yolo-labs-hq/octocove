@@ -4,9 +4,9 @@
  * `materialize` asks the control plane for the lane's repository (idempotent), then writes the files at the lane
  * head beside a `.octocove/lane.json` sidecar that records the lane head, the generation, its pinned base, the
  * granted scope and one digest per file. `status` compares the directory with the sidecar. `submit` uploads the
- * changed files and saves them as one save point on the lane head (`expectedHead` from the sidecar); on a lane
- * without a lane repository it submits them as a candidate, as before. `wrap-up` turns the saved lane into the one
- * candidate a human reviews. `refresh` takes a `base-refreshed` generation non-destructively: an unedited file
+ * changed files and saves them as one save point on the lane head (`expectedHead` from the sidecar). `wrap-up` turns
+ * the saved lane into the one candidate a human reviews. `handover` moves the claim's open execution to this
+ * environment and returns the delegation bound to the new one. `refresh` takes a `base-refreshed` generation non-destructively: an unedited file
  * follows the new lane head, an edited file keeps the local copy and receives the upstream copy under
  * `.octocove/incoming` until `resolve` decides. A conflict between saved lane changes and upstream (409
  * `refresh-conflict`) is recorded with its upstream copies and decided with `--resolve PATH=lane|base|FILE`.
@@ -38,15 +38,15 @@ export interface Pending {
 export interface Sidecar {
   version: 1; taskId: string; claimAttemptId: string; executionId: string; generation: number; baseSha: string;
   scopeVersion: number; scope: { read: string[]; write: string[] }; files: Record<string, LaneFile>;
-  conflicts: Record<string, LaneConflict>; lastSubmission?: { id: string; candidateId: string; generation: number; at: string };
-  /** The lane head the files were read at, once the lane has a lane repository; absent (or null) on a lane without one. */
-  laneHead?: string | null; snapshotCommit?: string; laneRepositoryId?: string;
+  conflicts: Record<string, LaneConflict>;
+  /** The lane head the files were read at. */
+  laneHead: string; snapshotCommit?: string; laneRepositoryId?: string;
   pending?: Pending;
   lastSavePoint?: { id: string; laneHead: string; generation: number; at: string };
   lastWrapUp?: { id: string; candidateId: string; candidateSha: string; baseSha: string; laneHead: string; at: string };
 }
 export interface LaneStatus {
-  taskId: string; generation: number; baseSha: string; laneHead: string | null; modified: string[]; added: string[]; deleted: string[];
+  taskId: string; generation: number; baseSha: string; laneHead: string; modified: string[]; added: string[]; deleted: string[];
   conflicts: { path: string; kind: LaneConflict['kind']; incoming: string | null }[];
   pending: (Pending & { stale: boolean }) | null;
 }
@@ -57,8 +57,6 @@ const fail = (status: number, code: string, detail: string, details?: unknown): 
 /** Git's blob id for content, in the object format the lane's commit ids use (40 hex: SHA-1, 64 hex: SHA-256). */
 const gitBlobId = (content: Buffer, like: string) =>
   createHash(like.length === 64 ? 'sha256' : 'sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
-/** A 404 from a route the server does not mount yet (the task itself was read first), as opposed to a refusal. */
-export const routeMissing = (error: unknown) => error instanceof ApiError && error.status === 404 && ['http-404', 'not-found'].includes(error.code);
 
 /** Repository-relative paths only: no absolute, dot-segment, backslash or NUL paths, and never the sidecar directory. */
 export function validLanePath(path: string) {
@@ -120,8 +118,8 @@ async function load(dir: string): Promise<Sidecar> {
   try { sc = JSON.parse(text); } catch { throw new ConfigError(`${SIDECAR} is not valid JSON`); }
   if (!isRecord(sc) || sc.version !== 1 || typeof sc.taskId !== 'string' || !Number.isInteger(sc.generation) || !isRecord(sc.files) || !isRecord(sc.conflicts) || !isRecord(sc.scope))
     throw new ConfigError(`${SIDECAR} is not a lane sidecar this CLI understands`);
-  if (sc.laneHead !== undefined && sc.laneHead !== null && !(typeof sc.laneHead === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(sc.laneHead)))
-    throw new ConfigError(`${SIDECAR} records an invalid lane head`);
+  if (!(typeof sc.laneHead === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(sc.laneHead)))
+    throw new ConfigError(`${SIDECAR} records no valid lane head; materialize the lane again into a new directory`);
   // A recorded refusal this CLI cannot read is dropped: running the command again lists the conflicts afresh.
   const pending = isRecord(sc.pending) && Array.isArray(sc.pending.conflicts) && sc.pending.conflicts.every((c: unknown) => isRecord(c) && validLanePath(c.path) && (c.incoming === null || (typeof c.incoming === 'string' && validIncoming(c.incoming))))
     ? sc.pending as Pending : undefined;
@@ -289,14 +287,11 @@ const keyed = (options: MaterializeOptions, suffix?: string) => ({
   deadline: options.deadline,
   idempotencyKey: options.idempotencyKey ? suffix ? `${options.idempotencyKey}.${suffix}`.slice(0, 128) : options.idempotencyKey : newIdempotencyKey(),
 });
-const NO_LANE_REPOSITORIES = 'this Octocove server does not offer lane repositories yet: the directory holds the pinned base, and lane submit creates a candidate directly';
-/** A GitHub lane that already submitted without a lane repository stays on that path (409 `lane-direct-path`). */
-export const DIRECT_PATH = 'this GitHub lane already submitted without a lane repository, so it stays that way: the directory holds the pinned base, and lane submit creates a candidate per submission, as in CLI 0.3.x. A new claim gets save points and wrap-up';
 const isSha = (x: unknown): x is string => typeof x === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(x);
 
 /** Why a lane write is waiting: another transition settling, the lane repository resuming, or a rate limit. */
 function busyReason(error: ApiError): string | null {
-  if (error.code === 'operation-in-progress') return 'another save, refresh or wrap-up on this lane is still settling';
+  if (error.code === 'operation-in-progress') return 'another save, refresh, wrap-up or handover on this lane is still settling';
   if (error.status === 503 && error.code === 'lane-repository-unavailable') return 'the lane repository is still settling';
   if (error.status === 429) return isRecord(error.details) && error.details.reason === 'provider-rest-budget'
     ? "the GitHub repository's REST budget is low (nothing was created or written)" : 'the server is rate limiting this lane';
@@ -328,10 +323,29 @@ async function settled<T>(api: Api, options: MaterializeOptions, what: string, a
   }
 }
 
+/** The delegation a handover returned, bound to the new execution. A secret: stored privately, never printed. */
+export interface HandoverDelegation { delegationId: string; token: string; expiresAt: string; revocationId: string }
 /**
- * Asks for the lane repository (idempotent; the first call creates it, later ones answer the current lane head),
- * then writes the files at the lane head into `dir` (absent or empty) with the sidecar. Begins an execution when none
- * is open. Against a server without lane repositories the directory holds the pinned base, as before.
+ * Hands the claim's open execution over to a new one (`laneExecutionBegin`): the previous execution ends, the new one
+ * inherits the lane head, and the delegation rotates to `delegation`, bound to the new execution. The presenting token
+ * then answers 409 `execution-superseded`. A handover still settling (409 `operation-in-progress`) is waited for under
+ * the same key. A replay presented with the new credential answers without `delegation` (null here).
+ */
+export async function handover(api: Api, taskId: string, options: MaterializeOptions) {
+  const key = keyed(options, 'handover');
+  const r = (await settled(api, options, 'the handover', (busyIsFinal) => api.j.command('laneExecutionBegin', { path: { id: taskId }, body: {} }, key, { busyIsFinal }))).body;
+  if (!isRecord(r) || typeof r.executionId !== 'string' || !Number.isInteger(r.generation)) throw new ConfigError('invalid handover response from the control plane');
+  const c = r.delegation;
+  if (c !== undefined && (!isRecord(c) || typeof c.accessToken !== 'string' || !c.accessToken || typeof c.delegationId !== 'string' || typeof c.expiresAt !== 'string' || typeof c.revocationId !== 'string'))
+    throw new ConfigError('the handover returned an invalid delegation');
+  const delegation: HandoverDelegation | null = c ? { delegationId: c.delegationId, token: c.accessToken, expiresAt: c.expiresAt, revocationId: c.revocationId } : null;
+  return { executionId: r.executionId as string, supersededExecutionId: typeof r.supersededExecutionId === 'string' ? r.supersededExecutionId : null,
+    generation: r.generation as number, laneHead: isSha(r.laneHead) ? r.laneHead : null, delegation };
+}
+
+/**
+ * Asks for the lane repository (idempotent; the first call creates it, later ones answer the current lane head, and
+ * a reopened lane's rebase resumes), then writes the files at the lane head into `dir` (absent or empty) with the sidecar.
  */
 export async function materialize(api: Api, taskId: string, dir: string, options: MaterializeOptions) {
   try { if ((await readdir(dir)).length) throw new ConfigError(`${dir} is not empty`); }
@@ -340,29 +354,12 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   const lane = isRecord(task) ? task.lane : undefined;
   if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string')
     throw new ConfigError('this task has no active materialized lane; claim it with --lane materialized first');
-  let gen: { generation: number; executionId: string } = lane as never;
-  if (lane.generation === null || lane.generation === undefined || lane.superseded) {
-    const begun = (await api.j.command('laneExecutionBegin', { path: { id: taskId }, body: {} }, keyed(options, 'execution'))).body;
-    if (!isRecord(begun) || !Number.isInteger(begun.generation)) throw new ConfigError('invalid execution response from the control plane');
-    gen = begun as never;
-  }
-  let repo: Record<string, any> | null = null, notice: string | null = null;
   // One key for every attempt: a lane repository that is still being created, or a reopened lane still being
   // rebased onto its landing, resumes under it (503 lane-repository-unavailable).
   const key = keyed(options);
-  try {
-    repo = (await settled(api, options, 'lane materialize', (busyIsFinal) => api.j.command('laneMaterialize', { path: { id: taskId }, body: {} }, key, { busyIsFinal }))).body;
-    if (!isRecord(repo) || !isSha(repo.laneHead) || !Number.isInteger(repo.generation)) throw new ConfigError('invalid materialize response from the control plane');
-  } catch (error) {
-    if (routeMissing(error)) notice = NO_LANE_REPOSITORIES;
-    else if (error instanceof ApiError && error.code === 'repository-provider-unsupported')
-      notice = "this repository's provider has no lane repositories: the directory holds the pinned base, and lane submit creates a candidate directly";
-    else if (error instanceof ApiError && error.code === 'lane-direct-path') notice = DIRECT_PATH;
-    else throw error;
-  }
-  if (notice) options.notify?.(notice);
-  const generation = repo ? repo.generation as number : gen.generation;
-  const head = repo ? repo.laneHead as string : null;
+  const repo = (await settled(api, options, 'lane materialize', (busyIsFinal) => api.j.command('laneMaterialize', { path: { id: taskId }, body: {} }, key, { busyIsFinal }))).body;
+  if (!isRecord(repo) || !isSha(repo.laneHead) || !Number.isInteger(repo.generation)) throw new ConfigError('invalid materialize response from the control plane');
+  const generation = repo.generation as number, head = repo.laneHead as string;
   const m = await readManifest(api, taskId, generation, options.deadline, head);
   const files = dict<LaneFile>();
   for (const e of m.entries) {
@@ -372,12 +369,12 @@ export async function materialize(api: Api, taskId: string, dir: string, options
     await keepPristine(dir, content);
     files[e.path] = { mode: e.mode, sha: e.sha, digest: sha256(content) };
   }
-  const sc: Sidecar = { version: 1, taskId, claimAttemptId: lane.claimAttemptId, executionId: m.executionId ?? gen.executionId, generation,
+  const sc: Sidecar = { version: 1, taskId, claimAttemptId: lane.claimAttemptId, executionId: m.executionId ?? repo.executionId, generation,
     baseSha: m.baseSha, scopeVersion: m.scopeVersion, scope: { read: [...m.scope.read], write: [...m.scope.write] }, files, conflicts: dict(),
-    ...(repo ? { laneHead: head, snapshotCommit: repo.snapshotCommit, laneRepositoryId: repo.laneRepository?.id } : {}) };
+    laneHead: head, snapshotCommit: repo.snapshotCommit, laneRepositoryId: repo.laneRepository?.id };
   await save(dir, sc);
-  return { taskId, dir, claimAttemptId: sc.claimAttemptId, generation: sc.generation, baseSha: sc.baseSha, laneHead: head, created: repo ? repo.created === true : null,
-    reopenId: typeof repo?.reopenId === 'string' ? repo.reopenId as string : null, scopeVersion: sc.scopeVersion, scope: sc.scope, files: Object.keys(files).length, notice };
+  return { taskId, dir, claimAttemptId: sc.claimAttemptId, generation: sc.generation, baseSha: sc.baseSha, laneHead: head, created: repo.created === true,
+    reopenId: typeof repo.reopenId === 'string' ? repo.reopenId as string : null, scopeVersion: sc.scopeVersion, scope: sc.scope, files: Object.keys(files).length };
 }
 
 /** Local edits against the sidecar: modified, added (inside the write prefixes), deleted, and unresolved conflicts. */
@@ -393,7 +390,7 @@ export async function status(dir: string): Promise<LaneStatus> {
   const added = [...await walkWriteScope(dir, sc)].filter((p) => !has(sc.files, p)).sort();
   const conflicts = Object.entries(sc.conflicts).map(([path, c]) => ({ path, kind: c.kind, incoming: c.incoming })).sort((a, b) => a.path.localeCompare(b.path));
   const pending = sc.pending ? { ...sc.pending, stale: sc.pending.laneHead !== sc.laneHead || sc.pending.generation !== sc.generation } : null;
-  return { taskId: sc.taskId, generation: sc.generation, baseSha: sc.baseSha, laneHead: sc.laneHead ?? null, modified: modified.sort(), added, deleted: deleted.sort(), conflicts, pending };
+  return { taskId: sc.taskId, generation: sc.generation, baseSha: sc.baseSha, laneHead: sc.laneHead, modified: modified.sort(), added, deleted: deleted.sort(), conflicts, pending };
 }
 
 /** Upstream copies that a conflict record still names: kept by every prune. */
@@ -564,7 +561,7 @@ async function recordConflicts(api: Api, dir: string, sc: Sidecar, operation: Pe
   const d = isRecord(error.details) ? error.details : {};
   const list = Array.isArray(d.conflicts) ? d.conflicts : [];
   const newBaseSha = isSha(d.newBaseSha) ? d.newBaseSha : null, oldBaseSha = isSha(d.oldBaseSha) ? d.oldBaseSha : null;
-  const pending: Pending = { operation, generation: sc.generation, laneHead: sc.laneHead!, oldBaseSha, newBaseSha, conflicts: [] };
+  const pending: Pending = { operation, generation: sc.generation, laneHead: sc.laneHead, oldBaseSha, newBaseSha, conflicts: [] };
   // Earlier upstream copies of a recorded refusal are replaced by this one's.
   await pruneIncoming(dir, keptIncoming({ ...sc, pending: undefined }));
   for (const c of list) {
@@ -600,7 +597,7 @@ export async function refresh(api: Api, dir: string, options: ResolveOptions) {
   const resolutions = await resolutionsFor(api, dir, sc, 'refresh', options);
   let caughtUp: string | null = null;
   for (let attempt = 0; ; attempt++) {
-    const body = { kind: 'base-refreshed' as const, ...(sc.laneHead ? { expectedHead: sc.laneHead } : {}), ...(resolutions ? { resolutions } : {}) };
+    const body = { kind: 'base-refreshed' as const, expectedHead: sc.laneHead, ...(resolutions ? { resolutions } : {}) };
     // A retry after taking a moved head is a new request: a new key.
     const key = attempt === 0 ? keyed(options) : { deadline: options.deadline, idempotencyKey: newIdempotencyKey() };
     let gen: any;
@@ -608,18 +605,18 @@ export async function refresh(api: Api, dir: string, options: ResolveOptions) {
       gen = (await settled(api, options, 'the refresh', (busyIsFinal) => api.j.command('laneGenerationCreate', { path: { id: sc.taskId }, body }, key, { busyIsFinal }))).body;
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
-      if (error.code === 'lane-head-moved' && sc.laneHead && attempt === 0) {
+      if (error.code === 'lane-head-moved' && attempt === 0) {
         // Another save (or a second environment) moved the lane head: take it first, keeping local edits.
         const lane = await openLane(api, sc.taskId, options.deadline);
         if (!lane) throw error;
         const m = await readManifest(api, sc.taskId, lane.generation, options.deadline, lane.laneHead);
         const r = await applyManifest(api, dir, sc, lane.generation, m, { head: m.laneHead ?? lane.laneHead }, options);
         await save(dir, r.next);
-        sc = r.next; caughtUp = sc.laneHead ?? null;
+        sc = r.next; caughtUp = sc.laneHead;
         options.notify?.(`took the lane head another save moved to (${caughtUp}); local edits kept; refreshing from there`);
         continue;
       }
-      if (error.code === 'refresh-conflict' && sc.laneHead) throw await recordConflicts(api, dir, sc, 'refresh', error, options);
+      if (error.code === 'refresh-conflict') throw await recordConflicts(api, dir, sc, 'refresh', error, options);
       if (error.code !== 'base-unchanged') throw error;
       // The pinned head did not move. The server's open generation or lane head may still be ahead of the sidecar's
       // (an earlier refresh created it and then failed, or another save moved the head): apply it now.
@@ -627,7 +624,7 @@ export async function refresh(api: Api, dir: string, options: ResolveOptions) {
       const ahead = lane && (lane.generation > sc.generation || (lane.laneHead && lane.laneHead !== sc.laneHead));
       if (!ahead) {
         if (sc.pending?.operation === 'refresh') { delete sc.pending; await save(dir, sc); }
-        return { refreshed: false, generation: sc.generation, baseSha: sc.baseSha, laneHead: sc.laneHead ?? null, updated: [], added: [], removed: [], conflicts: Object.keys(sc.conflicts).sort(), caughtUp };
+        return { refreshed: false, generation: sc.generation, baseSha: sc.baseSha, laneHead: sc.laneHead, updated: [], added: [], removed: [], conflicts: Object.keys(sc.conflicts).sort(), caughtUp };
       }
       gen = { generation: lane!.generation, laneHead: lane!.laneHead };
     }
@@ -637,7 +634,7 @@ export async function refresh(api: Api, dir: string, options: ResolveOptions) {
     const r = await applyManifest(api, dir, { ...sc, pending: undefined }, gen.generation, m, { head: m.laneHead ?? head }, options);
     delete r.next.pending;
     await save(dir, r.next);
-    return { refreshed: true, generation: r.next.generation, baseSha: r.next.baseSha, laneHead: r.next.laneHead ?? null, updated: r.updated, added: r.added, removed: r.removed,
+    return { refreshed: true, generation: r.next.generation, baseSha: r.next.baseSha, laneHead: r.next.laneHead, updated: r.updated, added: r.added, removed: r.removed,
       conflicts: r.conflicts, resolutions: resolutions?.length ?? 0, caughtUp };
   }
 }
@@ -671,17 +668,15 @@ export async function resolveConflict(dir: string, path: string, keep: 'local' |
 
 export interface SubmitOptions extends MaterializeOptions { message?: string }
 /**
- * Uploads every changed file and sends the operations against the sidecar's generation. On a lane with a lane
- * repository this is a save point on `expectedHead` (the sidecar's lane head), and the saved files become the
- * directory's new baseline; otherwise (or on a provider that still makes one candidate per submission) it is a
- * candidate, as before. Refuses while conflicts remain; never changes a local file.
+ * Uploads every changed file and saves them as one save point on `expectedHead` (the sidecar's lane head); the saved
+ * files become the directory's new baseline. Refuses while conflicts remain; never changes a local file.
  */
 export async function submit(api: Api, dir: string, options: SubmitOptions) {
   const sc = await load(dir);
   const st = await status(dir);
   if (st.conflicts.length) fail(409, 'lane-conflicts-unresolved', `resolve ${st.conflicts.map((c) => c.path).join(', ')} first (octocove lane resolve PATH --keep local|incoming)`);
   const puts = [...st.modified, ...st.added], deletes = st.deleted;
-  if (!puts.length && !deletes.length) fail(409, 'nothing-to-submit', 'no local changes against the materialized generation');
+  if (!puts.length && !deletes.length) fail(409, 'nothing-to-submit', 'no local changes against the lane head');
   for (const path of [...puts, ...deletes]) if (!inScope(path, sc.scope.write)) fail(403, 'scope-refused', `${path} is outside the lane's write scope (${sc.scope.write.join(', ') || 'none'})`);
   const operations: ({ op: 'put'; path: string; blobId: string; mode?: '100644' | '100755' | '120000' } | { op: 'delete'; path: string })[] = [];
   const contents = new Map<string, Local>();
@@ -695,44 +690,22 @@ export async function submit(api: Api, dir: string, options: SubmitOptions) {
   }
   for (const path of deletes) operations.push({ op: 'delete', path });
   operations.sort((a, b) => a.path.localeCompare(b.path));
-  const send = (key: { deadline: number; idempotencyKey?: string }) => api.j.command('laneChangesSubmit', { path: { id: sc.taskId }, body: {
-    generation: sc.generation, ...(sc.laneHead ? { expectedHead: sc.laneHead } : {}), operations, ...(options.message ? { message: options.message } : {}) } }, key);
-  let r: any;
-  try { r = (await send(keyed(options))).body; }
-  catch (error) {
-    if (!(error instanceof ApiError) || error.code !== 'lane-not-materialized' || sc.laneHead) throw error;
-    // The server keeps save points in a lane repository, which this directory never asked for (an older client, or a
-    // server that did not offer one yet). Ask for it now (idempotent); its head is this directory's baseline only when
-    // nothing was saved there yet.
-    const repo = (await api.j.command('laneMaterialize', { path: { id: sc.taskId }, body: {} }, keyed(options, 'materialize'))).body;
-    if (!isRecord(repo) || !isSha(repo.laneHead)) throw new ConfigError('invalid materialize response from the control plane');
-    if (repo.generation !== sc.generation || repo.baseSha !== sc.baseSha || repo.laneHead !== repo.snapshotCommit)
-      fail(409, 'lane-head-moved', `the lane repository already holds work this directory does not have (lane head ${repo.laneHead}); your local edits are untouched`, { laneHead: repo.laneHead });
-    sc.laneHead = repo.laneHead; sc.snapshotCommit = repo.snapshotCommit; sc.laneRepositoryId = repo.laneRepository?.id;
-    await save(dir, sc);
-    options.notify?.('this lane now has a lane repository; the edits are saved there as a save point');
-    r = (await send(keyed(options, 'save'))).body;
+  const r = (await api.j.command('laneChangesSubmit', { path: { id: sc.taskId }, body: {
+    generation: sc.generation, expectedHead: sc.laneHead, operations, ...(options.message ? { message: options.message } : {}) } }, keyed(options))).body;
+  if (!isRecord(r) || typeof r.savePointId !== 'string' || !isSha(r.laneHead)) throw new ConfigError('invalid save point response from the control plane');
+  // The lane head now holds these edits, so they become the directory's baseline.
+  for (const op of operations) {
+    if (op.op === 'delete') { delete sc.files[op.path]; continue; }
+    const l = contents.get(op.path)!;
+    await keepPristine(dir, l.content);
+    sc.files[op.path] = { mode: l.mode, sha: gitBlobId(l.content, sc.baseSha), digest: l.digest };
   }
-  if (isRecord(r) && typeof r.savePointId === 'string' && isSha(r.laneHead)) {
-    // A save point: the lane head now holds these edits, so they become the directory's baseline.
-    for (const op of operations) {
-      if (op.op === 'delete') { delete sc.files[op.path]; continue; }
-      const l = contents.get(op.path)!;
-      await keepPristine(dir, l.content);
-      sc.files[op.path] = { mode: l.mode, sha: gitBlobId(l.content, sc.baseSha), digest: l.digest };
-    }
-    sc.laneHead = r.laneHead;
-    sc.lastSavePoint = { id: r.savePointId, laneHead: r.laneHead, generation: sc.generation, at: new Date().toISOString() };
-    delete sc.pending;
-    await save(dir, sc);
-    return { kind: 'save-point' as const, savePointId: r.savePointId as string, laneHead: r.laneHead as string, previousHead: r.previousHead as string,
-      supersededCandidateId: (r.supersededCandidateId ?? null) as string | null, generation: sc.generation, operations: operations.length };
-  }
-  if (!isRecord(r) || typeof r.id !== 'string' || typeof r.candidateId !== 'string') throw new ConfigError('invalid changes response from the control plane');
-  sc.lastSubmission = { id: r.id, candidateId: r.candidateId, generation: sc.generation, at: new Date().toISOString() };
+  sc.laneHead = r.laneHead;
+  sc.lastSavePoint = { id: r.savePointId, laneHead: r.laneHead, generation: sc.generation, at: new Date().toISOString() };
+  delete sc.pending;
   await save(dir, sc);
-  return { kind: 'candidate' as const, ...(r as Record<string, unknown>), id: r.id as string, candidateId: r.candidateId as string, candidateSha: r.candidateSha as string | undefined,
-    contributionRef: r.contributionRef as string | undefined, candidateStatus: r.candidateStatus as string | undefined, operations: operations.length, generation: sc.generation };
+  return { savePointId: r.savePointId as string, laneHead: r.laneHead as string, previousHead: r.previousHead as string,
+    supersededCandidateId: (r.supersededCandidateId ?? null) as string | null, generation: sc.generation, operations: operations.length };
 }
 
 export interface WrapUpOptions extends ResolveOptions { message?: string; allowUnsaved?: boolean }
@@ -743,7 +716,6 @@ export interface WrapUpOptions extends ResolveOptions { message?: string; allowU
  */
 export async function wrapUp(api: Api, dir: string, options: WrapUpOptions) {
   const sc = await load(dir);
-  if (!sc.laneHead) fail(409, 'lane-not-materialized', `${dir} has no saved lane to wrap up (it was materialized without a lane repository). Run octocove lane submit to save your edits first; on a server without lane repositories, submit creates the candidate directly`);
   const resolutions = await resolutionsFor(api, dir, sc, 'wrap-up', options);
   const st = await status(dir);
   // A path resolved with its own edited file is part of the candidate through the resolution.
@@ -754,13 +726,12 @@ export async function wrapUp(api: Api, dir: string, options: WrapUpOptions) {
     fail(409, 'lane-unsaved-edits', `${listed.length} unsaved edit(s) would not be part of the candidate: ${listed.join(', ')}. Save them first (octocove lane submit --message TEXT), keep them aside (octocove lane patch), or pass --allow-unsaved to wrap up the saved lane head without them`,
       { unsaved, conflicts: st.conflicts.map((c) => c.path) });
   }
-  const body = { generation: sc.generation, laneHead: sc.laneHead!, ...(options.message ? { message: options.message } : {}), ...(resolutions ? { resolutions } : {}) };
+  const body = { generation: sc.generation, laneHead: sc.laneHead, ...(options.message ? { message: options.message } : {}), ...(resolutions ? { resolutions } : {}) };
   const key = keyed(options);
   let r: any;
   try {
     r = (await settled(api, options, 'the wrap-up', (busyIsFinal) => api.j.command('laneWrapUp', { path: { id: sc.taskId }, body }, key, { busyIsFinal }))).body;
   } catch (error) {
-    if (routeMissing(error)) fail(404, 'lane-wrap-up-unavailable', 'this Octocove server does not offer lane wrap-up yet; nothing was sent. On such a server, octocove lane submit creates the candidate directly');
     if (error instanceof ApiError && error.code === 'refresh-conflict') throw await recordConflicts(api, dir, sc, 'wrap-up', error, options);
     throw error;
   }
@@ -775,13 +746,12 @@ export async function wrapUp(api: Api, dir: string, options: WrapUpOptions) {
     resolutions: resolutions?.length ?? 0, unsavedLeftOut: options.allowUnsaved ? unsaved : [] };
 }
 
-export interface PatchOptions { deadline: number; cwd?: string; out?: string; /** A human reads the lane by naming the claim. */ human?: boolean }
+export interface PatchOptions { cwd?: string; out?: string }
 /**
  * The directory's unsaved edits as a Git-format patch: the old side comes from the copies kept when the files were
- * written (or, for a directory an older client wrote, from the lane), the new side from disk. Submodule entries are
- * not file content and are listed as skipped.
+ * written, the new side from disk. Submodule entries are not file content and are listed as skipped. Local only.
  */
-export async function unsavedPatch(api: Api | null, dir: string, options: PatchOptions) {
+export async function unsavedPatch(dir: string) {
   const sc = await load(dir);
   const st = await status(dir);
   const entries: PatchEntry[] = [], skipped: string[] = [], missing: string[] = [];
@@ -791,24 +761,18 @@ export async function unsavedPatch(api: Api | null, dir: string, options: PatchO
     const l = await local(dir, path);
     let old: PatchEntry['old'] = null;
     if (tracked) {
-      let content = await readPristine(dir, tracked.digest);
-      if (!content && api) {
-        try {
-          const fetched = await readBlob(api, sc.taskId, sc.generation, path, options.deadline, { head: sc.laneHead ?? null, ...(options.human ? { claim: sc.claimAttemptId } : {}) });
-          if (sha256(fetched) === tracked.digest) content = fetched;
-        } catch (error) { if (!(error instanceof ApiError)) throw error; }
-      }
+      const content = await readPristine(dir, tracked.digest);
       if (!content) { missing.push(path); continue; }
       old = { mode: tracked.mode as PatchMode, content };
     }
     entries.push({ path, old, new: l ? { mode: l.mode as PatchMode, content: l.content } : null });
   }
-  if (missing.length) throw new ConfigError(`cannot write the unsaved edits of ${missing.join(', ')} as a patch: the lane's copy of those files is not available. Nothing was changed; copy them out of ${dir} before you continue`);
+  if (missing.length) throw new ConfigError(`cannot write the unsaved edits of ${missing.join(', ')} as a patch: the directory's copy of those files (under ${OBJECTS}) is missing. Nothing was changed; copy them out of ${dir} before you continue`);
   return { patch: gitPatch(entries), files: entries.map((e) => e.path).sort(), skipped, conflicts: st.conflicts.map((c) => c.path) };
 }
 /** Writes the unsaved edits to `out` (a new file) or to a new `.octocove/unsaved-TIME.patch`; null when there are none. */
-export async function writeUnsavedPatch(api: Api | null, dir: string, options: PatchOptions) {
-  const r = await unsavedPatch(api, dir, options);
+export async function writeUnsavedPatch(dir: string, options: PatchOptions = {}) {
+  const r = await unsavedPatch(dir);
   if (!r.files.length) return { ...r, path: null as string | null };
   let target: string;
   if (options.out) target = resolve(options.cwd ?? process.cwd(), options.out);

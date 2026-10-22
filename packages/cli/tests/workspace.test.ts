@@ -95,31 +95,18 @@ describe('local workspace cache',()=>{
     } finally {await cleanup(f.root);}
   },30000);
 
-  it('accepts the deprecated --lane alias with a warning and migrates legacy pool/lanes cache state',async()=>{
+  it('refuses a cache state it did not write, and --lane is not an option',async()=>{
     const f=fixture();
     try {
-      await workspace('prepare',{...f.options,count:2});
-      const opened=await workspace('open',{...f.options,worktree:'old',base:f.base});
-      // Rewrite the cache into its legacy shape: `pool`, `lanes` and refs/octocove/lanes/*.
-      const root=join(f.options.cache,readdirSync(f.options.cache)[0]!), mirror=join(root,'mirror.git'), statePath=join(root,'state.json');
+      await workspace('prepare',f.options);
+      const root=join(f.options.cache,readdirSync(f.options.cache)[0]!), statePath=join(root,'state.json');
       const {prepared,slots,...rest}=JSON.parse(readFileSync(statePath,'utf8'));
       writeFileSync(statePath,JSON.stringify({...rest,pool:prepared,lanes:slots}));
-      const pinned=git(mirror,'for-each-ref','--format=%(refname)','refs/octocove/worktrees/');
-      git(mirror,'update-ref',pinned.replace('/worktrees/','/lanes/'),f.base); git(mirror,'update-ref','-d',pinned);
-      let output='', errors='';
-      const cli=(...argv:string[])=>run({argv:['workspace',...argv,'--json','--canonical',f.canonical,'--cache',f.options.cache],env:{},git:systemGit(f.repo),fetch:async()=>{throw new Error('no network API');},stdout:s=>{output+=s;},stderr:s=>{errors+=s;},stdin:async()=>''});
-      expect(await cli('open','--lane','old','--base',f.base)).toBe(0);
-      expect(JSON.parse(output).path).toBe(opened.path);
-      expect(JSON.parse(errors).warning.code).toBe('deprecated-option');
-      const state=JSON.parse(readFileSync(statePath,'utf8'));
-      expect(state).not.toHaveProperty('pool'); expect(state).not.toHaveProperty('lanes');
-      expect(state.prepared).toHaveLength(1); expect(Object.keys(state.slots)).toEqual(['old']);
-      expect(git(mirror,'for-each-ref','refs/octocove/lanes/')).toBe('');
-      expect(git(mirror,'for-each-ref','--format=%(objectname)','refs/octocove/worktrees/')).toBe(f.base);
-      expect(await cli('retire','--worktree','old','--lane','old')).not.toBe(0);
-      output=''; expect(await cli('retire','--worktree','old')).toBe(0);
-      expect(JSON.parse(output).retired).toBe('old');
-      expect(git(mirror,'for-each-ref','refs/octocove/worktrees/')).toBe('');
+      await expect(workspace('open',{...f.options,worktree:'old',base:f.base})).rejects.toThrow('workspace cache state is invalid');
+      let errors='';
+      const code=await run({argv:['workspace','open','--lane','old','--json','--canonical',f.canonical,'--cache',f.options.cache],env:{},git:systemGit(f.repo),fetch:async()=>{throw new Error('no network API');},stdout:()=>{},stderr:s=>{errors+=s;},stdin:async()=>''});
+      expect(code).toBe(2);
+      expect(JSON.parse(errors).error.code).toBe('usage');
     } finally {await cleanup(f.root);}
   },30000);
 
@@ -210,7 +197,7 @@ describe('local workspace cache',()=>{
         expect(result.ok).toBe(true);
         git(opened.path,'merge','--no-commit','--no-ff',canonicalHead); git(opened.path,'merge','--abort');
       }
-      // Current Git detaches fetch/merge auto-maintenance; older Git runs it in the foreground. Put the
+      // Current Git detaches fetch/merge auto-maintenance; some Git versions run it in the foreground. Put the
       // mirror over its pack limit and invoke the auto-gc they run, so every Git version exercises
       // the detached writer this teardown races against. pack-objects writes each pack directly,
       // whether or not its blob is reachable.
