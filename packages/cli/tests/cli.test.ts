@@ -526,6 +526,58 @@ describe("candidate show", () => {
     expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(0);
     expect(outText).toContain("pending");
   });
+
+  it("prints a materialized candidate's provenance, file operations and action eligibility", async () => {
+    routes["GET /submissions/S1/candidate"] = () => json(200, { state: "complete", candidate: {
+      id: "CA1", outcome: "computed", status: "active", candidateSha: SHA_A, baseSha: SHA_B, latestCheck: null,
+      provenance: { laneKind: "materialized", claimAttemptId: "C1", executionId: "X1", executionNumber: 2, generation: 3, scopeVersion: 4, baseSha: SHA_B, contributionRef: "refs/octocove/contributions/S1" },
+      operations: 3, fileOperations: [{ op: "put", path: "src/a.ts", mode: "100644" }, { op: "delete", path: "src/b.ts" }], fileOperationsComplete: false,
+      actions: { approve: { available: false, reason: "already-approved" }, land: { available: true, approvalId: "AP1" } },
+    } });
+    expect(await cli(["candidate", "show", "--submission", "S1"], { kind: "human" })).toBe(0);
+    expect(outText).toContain("Lane:             materialized: execution 2 (X1), generation 3, scope version 4");
+    expect(outText).toContain("Contribution ref: refs/octocove/contributions/S1");
+    expect(outText).toContain("File operations:  3: put src/a.ts, delete src/b.ts, ... (1 more)");
+    expect(outText).toContain("Approve:          unavailable (already-approved)");
+    expect(outText).toContain("Land:             available (approval AP1)");
+  });
+
+  it("omits the action rows when the server does not report them", async () => {
+    routes["GET /submissions/S1/candidate"] = () => json(200, { state: "complete", candidate: { id: "CA1", outcome: "computed", status: "active", candidateSha: SHA_A, baseSha: SHA_B, latestCheck: null } });
+    expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(0);
+    expect(outText).not.toContain("Approve:");
+    expect(outText).not.toContain("File operations:");
+  });
+});
+
+describe("lane scope-requests", () => {
+  const list = { items: [
+    { requestId: "R2", claimAttemptId: "C1", read: ["src/", "docs/"], write: ["src/"], status: "pending", actionable: true, agent: "agent-1", reason: "needs docs", requestedAt: "2026-10-21T10:00:00Z" },
+    { requestId: "R1", claimAttemptId: "C0", read: ["src/"], write: [], status: "granted", actionable: false, notActionableReason: "decided", agent: "agent-1", requestedAt: "2026-10-20T10:00:00Z", decidedAt: "2026-10-20T11:00:00Z", scopeVersion: 2 },
+  ], truncated: false, grantVerb: "tasks:edit", canGrant: false };
+
+  it("lists the task's scope requests for a human, passing the status filter", async () => {
+    routes["GET /tasks/T1/lane/scope-requests"] = () => json(200, list);
+    expect(await cli(["lane", "scope-requests", "T1", "--status", "pending"], { kind: "human" })).toBe(0);
+    expect(calls[0]!.url.searchParams.get("status")).toBe("pending");
+    expect(outText).toContain("Request:          R2");
+    expect(outText.split("\n")).toContainEqual(expect.stringMatching(/ pending \(actionable\)$/));
+    expect(outText).toContain("Write:            (none)");
+    expect(outText).toContain("Scope version:    2");
+    expect(outText).toContain("You do not hold tasks:edit in this project");
+  });
+
+  it("prints the list as JSON", async () => {
+    routes["GET /tasks/T1/lane/scope-requests"] = () => json(200, list);
+    expect(await cli(["lane", "scope-requests", "T1", "--json"], { kind: "human" })).toBe(0);
+    expect(JSON.parse(outText)).toEqual(list);
+  });
+
+  it("refuses an agent delegation and an unknown status before sending anything", async () => {
+    expect(await cli(["lane", "scope-requests", "T1"])).toBe(EXIT.humanRequired);
+    expect(await cli(["lane", "scope-requests", "T1", "--status", "open"], { kind: "human" })).toBe(EXIT.usage);
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("approve", () => {

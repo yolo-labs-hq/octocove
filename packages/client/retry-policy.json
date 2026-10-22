@@ -485,6 +485,11 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "laneGenerationManifestGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "laneBlobGet": {
     "callable": true,
     "autoRetry": "network-only",
@@ -494,6 +499,11 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
+  },
+  "laneScopeRequestsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
   },
   "laneScopeGrant": {
     "callable": true,

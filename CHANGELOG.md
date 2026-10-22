@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8
+
+Release `@yolo-labs/octocove` 0.3.8 and `@yolo-labs/octocove-client` 0.4.0.
+
+- Client 0.4.0: regenerated from the current API contract. New read operations `laneScopeRequestsList` (a task's scope requests, newest first) and `laneGenerationManifestGet` (a generation's manifest by its immutable execution and generation address), both `network-only` reads in the retry policy. New schemas: `LaneGrantedScope` (the lane's `latestGrantedScope`), `LaneScopeRequestItem` and `LaneScopeRequestList`, `RepositoryLanePolicy` (a repository's optional `lanePolicy`), `MaterializedProvenance` and `LaneFileOperation` (a materialized candidate's `provenance`, `operations`, `fileOperations` and `fileOperationsComplete`), and `CandidateActions`, `CandidateApproveAction` and `CandidateLandAction` (a candidate's `actions`: whether approve and land would be accepted for the reader now). Repository `provider` can now be `github` or `forgejo` as well as `artifacts`, so the `Repository` type opens its enums like the other response types. The contract documents new `409` refusals: `scope-overlap` (its `details.retryable` says whether the same request can succeed later), `scope-request-decided`, `provider-landing-unsupported`, `fenced` and `already-approved`; they surface as `ApiError` codes, and the transport retry classes are unchanged.
+- CLI: `candidate show` prints a materialized candidate's provenance (execution, generation, scope version, contribution ref) and its journaled file operations, and, when the server reports them, whether `approve` and `land` are available to you, with the reason when not. New `lane scope-requests ID [--status pending|granted|refused]` lists a task's scope requests for a project member.
+
 ## 0.3.7
 
 Release `@yolo-labs/octocove` 0.3.7 and `@yolo-labs/octocove-client` 0.3.0.
