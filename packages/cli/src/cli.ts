@@ -92,7 +92,7 @@ Commands:
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
-  repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts remote)
+  repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
   auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator)
@@ -374,6 +374,13 @@ const kv = (rows: [string, unknown][]) =>
     .filter(([, v]) => v !== undefined && v !== null)
     .map(([k, v]) => `${(k + ":").padEnd(Math.max(18, k.length + 2))}${typeof v === "object" ? JSON.stringify(v) : v}`)
     .join("\n");
+
+/** The label a repository's provider path prints under; an unknown or missing provider is never shown as Artifacts. */
+const providerLabel = (provider: unknown) =>
+  provider === "artifacts" ? "Artifacts" : provider === "github" ? "GitHub" : provider === "forgejo" ? "Forgejo" : `Provider ${String(provider ?? "unknown")}`;
+/** `repo list` column: Artifacts paths print bare as before; any other provider is prefixed with its name. */
+const providerPath = (r: { provider?: unknown; namespace: string; repoId: string }) =>
+  r.provider === "artifacts" || r.provider === undefined ? `${r.namespace}/${r.repoId}` : `${String(r.provider)}:${r.namespace}/${r.repoId}`;
 
 function attributionRows(attribution: any): [string, unknown][] {
   return attribution && typeof attribution.id === "string" && typeof attribution.kind === "string"
@@ -980,7 +987,7 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo add requires a human credential");
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.repoId}`], ["Name", r.name],
+    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), `${r.namespace}/${r.repoId}`], ["Name", r.name],
       ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable (not observed yet)"]]));
   },
 
@@ -997,7 +1004,7 @@ const COMMANDS: Record<string, Handler> = {
     const nextSteps = input.mode === "create"
       ? v.seed ? "Use the seeded head as the base when creating and claiming tasks." : "Empty repository: see " + EMPTY_REPOSITORY_GUIDE
       : "Wait for `repo list` to show the import ready before claiming.";
-    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Target ref", r.targetRef],
+    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Target ref", r.targetRef],
       ["Head", r.knownHeadSha], ["Import", r.importState ? `${r.importState} (claims wait until \`repo list\` shows it ready)` : v.seed ? "none (seeded repository)" : "none (empty repository)"], ["Next steps", nextSteps]]));
   },
 
@@ -1007,7 +1014,7 @@ const COMMANDS: Record<string, Handler> = {
     if (creds.kind !== "human") throw new HumanRequiredError("repo verify requires a human credential");
     const r = await api.j.repositories.verify(pos[0]!, pos[1]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
     const nextSteps = "If the repository is empty, see " + EMPTY_REPOSITORY_GUIDE;
-    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], ["Artifacts", `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Binding", r.binding],
+    out(d, v.json, { ...r, cloneUrl: r.cloneUrl ?? null, ...(r.cloneUrl ? {} : { cloneUrlHint: "No clone URL was returned" }), nextSteps }, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), `${r.namespace}/${r.name}`], ["Clone URL", r.cloneUrl ?? "No clone URL was returned"], ["Binding", r.binding],
       ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"], ["Next steps", nextSteps]]));
   },
 
@@ -1038,7 +1045,7 @@ const COMMANDS: Record<string, Handler> = {
     const { v, pos } = opts(args, {}, 1);
     const { api } = await client(d);
     const items = await api.j.repositories.list(pos[0]!, api.until(Date.now() + READ_SECONDS * 1000));
-    out(d, v.json, { items: items.map(r => ({ ...r, cloneUrl: r.cloneUrl ?? null, cloneUrlHint: r.cloneUrl ? undefined : "No clone URL was returned" })) }, () => items.map((r) => `${r.id}  ${r.targetRef}  ${r.knownHeadSha ?? "(head unavailable)"}  ${r.namespace}/${r.repoId}  ${r.name}${r.importState ? `  (import ${r.importState})` : ""}  ${r.cloneUrl ?? "No clone URL was returned"}`).join("\n") || "(no repositories)");
+    out(d, v.json, { items: items.map(r => ({ ...r, cloneUrl: r.cloneUrl ?? null, cloneUrlHint: r.cloneUrl ? undefined : "No clone URL was returned" })) }, () => items.map((r) => `${r.id}  ${r.targetRef}  ${r.knownHeadSha ?? "(head unavailable)"}  ${providerPath(r)}  ${r.name}${r.importState ? `  (import ${r.importState})` : ""}  ${r.cloneUrl ?? "No clone URL was returned"}`).join("\n") || "(no repositories)");
   },
 
   "task create": async (d, args) => {

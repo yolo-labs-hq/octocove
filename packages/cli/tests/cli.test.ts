@@ -287,6 +287,36 @@ describe("repo add / verify / list", () => {
     expect(calls).toEqual([]);
   });
 
+  it("labels the repository path with its provider in repo verify, add and list", async () => {
+    const github = { ...repository, provider: "github", namespace: "octo-org", repoId: "widgets", name: "widgets",
+      cloneUrl: "https://github.com/octo-org/widgets.git", binding: "verified", verifiedAt: "2026-10-10T00:00:00.000Z", verifiedBy: "human-1" };
+    const artifacts = { ...repository, cloneUrl: "https://git.example.org/ns/canonical.git", binding: "trusted", verifiedAt: null };
+    const label = (text: string, key: string) => text.split("\n").find((line) => line.startsWith(key + ":"));
+    routes[`POST /projects/${PROJECT}/repositories/${repository.id}/verify`] = () => json(200, github);
+    expect(await cli(["repo", "verify", PROJECT, repository.id], { kind: "human" })).toBe(0);
+    expect(label(outText, "GitHub")).toMatch(/^GitHub:\s+octo-org\/widgets$/);
+    expect(outText).not.toContain("Artifacts:");
+    routes[`POST /projects/${PROJECT}/repositories/${repository.id}/verify`] = () => json(200, { ...github, provider: "forgejo" });
+    expect(await cli(["repo", "verify", PROJECT, repository.id], { kind: "human" })).toBe(0);
+    expect(label(outText, "Forgejo")).toMatch(/^Forgejo:\s+octo-org\/widgets$/);
+    routes[`POST /projects/${PROJECT}/repositories/${repository.id}/verify`] = () => json(200, artifacts);
+    expect(await cli(["repo", "verify", PROJECT, repository.id], { kind: "human" })).toBe(0);
+    expect(label(outText, "Artifacts")).toBe("Artifacts:        ns/canonical");
+    expect(outText).not.toContain("GitHub:");
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, github);
+    expect(await cli(["repo", "add", PROJECT, "--namespace", "octo-org", "--repo", "widgets", "--name", "widgets"], { kind: "human" })).toBe(0);
+    expect(label(outText, "GitHub")).toMatch(/^GitHub:\s+octo-org\/widgets$/);
+    expect(outText).not.toContain("Artifacts:");
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, repository);
+    expect(await cli(["repo", "add", PROJECT, "--namespace", "ns", "--repo", "repo-1", "--name", "canonical"], { kind: "human" })).toBe(0);
+    expect(label(outText, "Artifacts")).toBe("Artifacts:        ns/repo-1");
+    routes[`GET /projects/${PROJECT}/repositories`] = () => json(200, { items: [artifacts, github] });
+    expect(await cli(["repo", "list", PROJECT])).toBe(0);
+    const [artifactsLine, githubLine] = outText.trim().split("\n");
+    expect(artifactsLine).toContain("  ns/repo-1  canonical  ");
+    expect(githubLine).toContain("  github:octo-org/widgets  widgets  ");
+  });
+
   it("lists the project's repositories", async () => {
     routes[`GET /projects/${PROJECT}/repositories`] = () => json(200, { items: [repository] });
     expect(await cli(["repo", "list", PROJECT])).toBe(0);
