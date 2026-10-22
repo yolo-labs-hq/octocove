@@ -3245,12 +3245,20 @@ export const routing = {
       ],
       "query": [
         {
+          "name": "base",
+          "required": false
+        },
+        {
           "name": "claim",
           "required": false
         },
         {
           "name": "generation",
           "required": true
+        },
+        {
+          "name": "head",
+          "required": false
         },
         {
           "name": "path",
@@ -3547,6 +3555,12 @@ export const routing = {
       ],
       "409": [
         "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
       ]
     },
     "successStatuses": [
@@ -3648,6 +3662,10 @@ export const routing = {
         {
           "name": "claim",
           "required": false
+        },
+        {
+          "name": "head",
+          "required": false
         }
       ],
       "header": [],
@@ -3692,6 +3710,150 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
+    }
+  },
+  "laneMaterialize": {
+    "operationId": "laneMaterialize",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/materialize",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "laneReopen": {
+    "operationId": "laneReopen",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/reopen",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "bounded-recovery"
     }
   },
   "laneScopeGrant": {
@@ -3879,6 +4041,75 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
+    }
+  },
+  "laneWrapUp": {
+    "operationId": "laneWrapUp",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/wrap-up",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
     }
   },
   "meDelegationsList": {

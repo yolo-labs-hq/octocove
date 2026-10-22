@@ -143,6 +143,13 @@ export const journeyCases: Case[] = [
     ok(Date.now() - started >= 900, 'waited the default second');
     equal(keys(calls)[0], keys(calls)[1]);
   }),
+  test('command with busyIsFinal surfaces operation-in-progress to a caller that polls itself', async () => {
+    const { fetch, calls } = scriptedFetch(withRetryAfter(problem(409, 'operation-in-progress'), '0.01'), json(201, { id: 'task-1' }));
+    const oc = journeys(client(fetch));
+    const error = await rejects(() => oc.command('taskPublish', { path: { id: 't' }, body: {} } as never, { deadline: soon(), idempotencyKey: 'busy-key-0000001' }, { busyIsFinal: true }), ApiError);
+    equal(error.code, 'operation-in-progress');
+    equal(calls.length, 1);
+  }),
   test('command body timeout and busy refusals retry with the same key; oversized bodies do not', async () => {
     const task = { projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] };
     for (const [status, code] of [[408, 'request-body-timeout'], [429, 'request-body-busy']] as const) {

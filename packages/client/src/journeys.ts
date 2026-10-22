@@ -563,10 +563,13 @@ export function journeys(client: OctocoveClient) {
    * One keyed command with no shaped journey (a direct agent claim, a landing request read without its
    * receipt wait, a chain push staged by the caller, an administrator revocation): the same bounded
    * replay rule as every other journey command — same key, body and credential, resent only after a
-   * lost answer when the operation's ledger makes that a replay.
+   * lost answer when the operation's ledger makes that a replay. With `busyIsFinal`, `429` and
+   * `operation-in-progress` are surfaced to the caller (which polls with its own messaging) instead of
+   * being waited out under the same key.
    */
-  const keyed = <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions) =>
-    command(options, operationId, input);
+  const keyed = <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
+    extra: Pick<SendOptions, 'busyIsFinal'> = {}) =>
+    command(options, operationId, input, extra.busyIsFinal ? { busyIsFinal: true } : {});
 
   return { client, command: keyed, tasks, projects, repositories, claims, submissions, candidates, approvals, grants, landings, receipts, chain, webhooks, log, audit, events, auth: authJourneys(client) };
 }

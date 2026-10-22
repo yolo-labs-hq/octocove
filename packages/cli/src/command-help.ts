@@ -15,7 +15,12 @@ const FLAGS: Record<string,string> = {
   lane: 'Lane strategy: chain (default), ref (classic per-task lane) or materialized (preview: files without a clone). --source-ref selects the existing external ref path unless --lane is explicit.',
   read: 'Materialized lane read scope: comma-separated repository path prefixes (a directory prefix ends with /).',
   write: 'Materialized lane write scope: comma-separated prefixes, each inside a read prefix.',
-  message: 'Commit message body for the submitted change; the server appends its own trailers.',
+  message: 'Message for the save point or wrap-up (the wrap-up subject defaults to the first save point\'s); the server appends its own trailers.',
+  resolve: 'PATH=lane|base|FILE for a path the last refused refresh or wrap-up listed; repeat once per path. lane keeps the saved lane version, base takes upstream, FILE uploads that local file as the result. Sent under a new idempotency key.',
+  'allow-unsaved': 'Wrap up the saved lane head even though the directory has unsaved edits (they stay local and are not part of the candidate).',
+  out: 'Write the patch to this new file instead of .octocove/unsaved-TIME.patch in the lane directory.',
+  reason: 'Why the lane is reopened; recorded with the reopen.', 'expected-receipt': 'The task\'s newest landed receipt; defaults to the one the task reports.',
+  dir: 'Materialized lane directory of this task; unsaved edits there are written to a patch first. Defaults to the working directory when it is one.',
   keep: 'Conflict decision: local keeps your edit and drops the upstream copy; incoming takes the upstream copy.',
   'chain-id': 'Stable chain ID (letters, digits, underscore or hyphen, at most 120 characters); defaults to predecessor chain or task ID.',
   base: 'Exact immutable base commit SHA; chain claims default to the predecessor receipt or known canonical head.',
@@ -52,7 +57,8 @@ const POSITIONALS: Record<string,string> = {
   DIR:'Destination directory; defaults to repository name. Must be absent or empty.', SLUG:'URL-safe project slug.',
   REF:'Local source ref; defaults to HEAD. Cannot be combined with --source.',
   CANDIDATE_ID:'Candidate ID to land (not a task ID).',
-  TASK:'Task ID of an active materialized claim.', PATH:'Repository-relative path of an unresolved conflict.', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
+  TASK:'Task ID of an active materialized claim (lane reopen: a landed task).', PATH:'Repository-relative path of an unresolved conflict.',
+  FILE:'With --resolve PATH=FILE: a local file whose content resolves the conflict at PATH.', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
 };
 const MINIMUM_VERBS = `Minimum agent workflow permissions (pass all seven explicitly):
   tasks:list          list project tasks
@@ -85,10 +91,11 @@ export function commandHelp(command: string, originalUsage: string, description 
     if (flag === 'lane' && command.startsWith('workspace ')) detail = 'Deprecated alias for --worktree (local cache ID, not a lane strategy).';
     if (flag === 'wait' && ['land','receipt show'].includes(command)) detail = 'Wait for the final receipt (boolean flag, no value).';
     if (flag === 'wait' && command === 'login') detail = 'Browser-consent wait in seconds (default 600).';
+    if (flag === 'wait' && ['lane refresh','lane wrap-up'].includes(command)) detail = 'Bounded wait in seconds (default 150), including any wait for another save, refresh or wrap-up settling on the lane.';
     if (!detail) throw new Error(`missing option help: ${command} --${flag}`);
     return `  ${label.padEnd(28)} ${detail}`;
   });
   const positionalUsage=usage.slice(command.length).replace(/--[a-z-]+(?: [A-Z][A-Z_]*| [a-z]+(?:\|[a-z]+)+| a,b)?/g,'');
-  const args=[...new Set(positionalUsage.match(/\b[A-Z][A-Z_]*\b/g)??[])].map(name=>`  ${name.padEnd(28)} ${POSITIONALS[name] ?? (command==='task claim-status'?'Claim ID (not a task ID).':command.startsWith('receipt ')?'Receipt ID.':command.startsWith('webhook ')?'Webhook subscription ID.':command.startsWith('project ')?'Project ID.':command==='approve'?'Candidate ID to approve.':'Task ID for this command.')}`);
+  const args=[...new Set(positionalUsage.match(/\b[A-Z][A-Z_]*\b/g)??[])].map(name=>`  ${name.padEnd(28)} ${(name==='DIR'&&command.startsWith('lane ')&&command!=='lane materialize'?'Materialized lane directory; defaults to the working directory.':undefined) ?? (name==='DIR'&&command==='lane materialize'?'Directory to write the lane into; defaults to TASK. Must be absent or empty.':undefined) ?? POSITIONALS[name] ?? (command==='task claim-status'?'Claim ID (not a task ID).':command.startsWith('receipt ')?'Receipt ID.':command.startsWith('webhook ')?'Webhook subscription ID.':command.startsWith('project ')?'Project ID.':command==='approve'?'Candidate ID to approve.':'Task ID for this command.')}`);
   return `Usage: octocove ${usage}\n${description?`\n${description}\n`:''}${args.length?`\nArguments:\n${args.join('\n')}\n`:''}\nOptions:\n${options.join('\n') || '  This command has no command-specific flags.'}\n${command==='task authorize'?`\n${MINIMUM_VERBS}\n`:''}${['candidate show','task show'].includes(command)?`\n${statusHelp()}\n`:''}${['approve','submit'].includes(command)?'\nWith --grant, use only ID, --grant, --as, --timeout and global JSON/idempotency options. The protected grant supplies the exact target and source/approval fields.\n':''}${['task create','task edit'].includes(command)?`\nExample acceptance: --acceptance '["Tests pass", "No credentials in output"]'\n`:''}${['task claim','claim'].includes(command)?'\nChain is the default. Bootstrap claims need --intent-version and --base because a bootstrap cannot read the task. Use --lane ref for classic per-task allocation.\n':''}`;
 }
