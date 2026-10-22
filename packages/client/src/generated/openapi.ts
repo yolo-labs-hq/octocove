@@ -805,7 +805,7 @@ export interface paths {
         put?: never;
         /**
          * Begin a new execution attempt for a materialized claim (preview)
-         * @description The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope. 409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown.
+         * @description The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope. 409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown; 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles.
          */
         post: operations["laneExecutionBegin"];
         delete?: never;
@@ -825,7 +825,7 @@ export interface paths {
         put?: never;
         /**
          * Create a new materialization generation (preview)
-         * @description Scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded.
+         * @description Scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded. A scope-expanded generation answers 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles.
          */
         post: operations["laneGenerationCreate"];
         delete?: never;
@@ -843,9 +843,29 @@ export interface paths {
         };
         /**
          * Read a generation's manifest (preview)
-         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim).
+         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that.
          */
         get: operations["laneManifestGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/executions/{execution}/materializations/{generation}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a generation's manifest by its immutable address (preview)
+         * @description The same manifest as laneManifestGet for exactly the named execution's generation of a materialized claim of this task, for a project member with tasks:read; agent delegations are refused. A generation stays addressable after it is superseded, its execution ended or a newer execution started; the route never falls back to another execution or generation (404 not-found when the pair does not exist on this task). A materialized candidate's provenance names its executionId and generation.
+         */
+        get: operations["laneGenerationManifestGet"];
         put?: never;
         post?: never;
         delete?: never;
@@ -881,11 +901,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Read the task's scope requests (preview)
+         * @description The authoritative scope-request record of the task's materialized claims, newest first, at most 100 (truncated when more match), for a project member with tasks:read; agent delegations are refused. status filters by pending, granted or refused (400 invalid-request otherwise). Each item carries the complete requested scope, the requesting agent and its reason, and whether it is actionable - pending on a claim that is still active, so a grant naming it could succeed (notActionableReason decided or claim-inactive otherwise). grantVerb is the verb the grant route checks (tasks:edit) and canGrant whether the reader holds it. Not audited; audit history is not a substitute.
+         */
+        get: operations["laneScopeRequestsList"];
         put?: never;
         /**
          * Ask for a wider scope (preview)
-         * @description Records the request; nothing changes until a project member grants a new scope version and the agent requests a scope-expanded generation.
+         * @description Records the request; nothing changes until a project member grants a new scope version and the agent requests a scope-expanded generation. Only the claim's agent asks; a human session is 403 forbidden.
          */
         post: operations["laneScopeRequest"];
         delete?: never;
@@ -905,7 +929,7 @@ export interface paths {
         put?: never;
         /**
          * Grant a new scope version (preview)
-         * @description A project member with tasks:edit records the next scope version for the claim, optionally deciding a pending request. The grant takes effect only when the agent requests a scope-expanded generation.
+         * @description A project member with tasks:edit records the next scope version for the claim, optionally deciding a pending request. The grant takes effect only when the agent requests a scope-expanded generation; until then the lane's scopeVersion and scope stay the open generation's and the grant shows as latestGrantedScope. A requestId decides exactly that request and no other - 400 invalid-request for an empty requestId, 404 not-found when it is not a request of this claim, 409 scope-request-decided when it was already decided (a racing grant commits nothing, 409 operation-in-progress). Without requestId no request is decided.
          */
         post: operations["laneScopeGrant"];
         delete?: never;
@@ -945,7 +969,7 @@ export interface paths {
         put?: never;
         /**
          * Submit explicit file operations against a generation (preview)
-         * @description The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet.
+         * @description The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 scope-overlap (details.path) when an operation's path lies inside the write scope of another active materialized lane on the same repository and target (or at the directory such a prefix names); 409 authority-lost when the claim, its delegation, the agent's membership or the lane execution ended while the change was in flight. Both are re-checked before the commit and again before the contribution ref, so a refused change never creates the ref (Git objects already written stay unreferenced); a retry of a change refused after its journal entry answers 409 change-failed (reason scope-overlap or authority-lost); 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet.
          */
         post: operations["laneChangesSubmit"];
         delete?: never;
@@ -1045,7 +1069,7 @@ export interface paths {
         put?: never;
         /**
          * Approve the exact candidate tuple
-         * @description Human approver ONLY. Exact boundTo equals live computed candidate SHA, base SHA and current intentVersion or 409 approval-mismatch with details.currentBoundTo. Latest checks pass or policy none, no fence, task candidate or landed follow-up. Agent credentials return 403 human-required.
+         * @description Human approver ONLY. Exact boundTo equals live computed candidate SHA, base SHA and current intentVersion or 409 approval-mismatch with details.currentBoundTo. Latest checks pass or policy none, no fence, task candidate or landed follow-up. Agent credentials return 403 human-required. 409 already-approved when the candidate already has a live approval (one per candidate). The candidate read's actions.approve reports the same checks.
          */
         post: operations["candidateApprove"];
         delete?: never;
@@ -1065,7 +1089,7 @@ export interface paths {
         put?: never;
         /**
          * Fence and enqueue an approved landing
-         * @description Human lander or agent candidates:land AND project delegated-land policy. Revalidate exact approval, base, intent and checks. Reserve receipt identity atomically with fence/dispatch. Receipt ID equals fence ID; final receipt is created only at release. Same key returns original 202; other key while held returns 409 fenced.
+         * @description Human lander or agent candidates:land AND project delegated-land policy. Revalidate exact approval, base, intent and checks. Reserve receipt identity atomically with fence/dispatch. Receipt ID equals fence ID; final receipt is created only at release. Same key returns original 202; other key while held returns 409 fenced. 409 provider-landing-unsupported, before any fence, when no landing executor supports the canonical provider and the candidate's lane kind (the worker-native backend lands Git-native candidates on Artifacts and materialized candidates on GitHub; an external dispatcher backend lands the Git-native candidates its compute published). 409 fenced, before any fence, while another task's landing holds the same target. The candidate read's actions.land reports the same checks.
          */
         post: operations["candidateLand"];
         delete?: never;
@@ -2301,6 +2325,15 @@ export interface components {
             /** Format: date-time */
             computedAt: string;
             reviewBoundTo: components["schemas"]["BoundTo"] | null;
+            provenance?: components["schemas"]["MaterializedProvenance"];
+            /** @description Preview. The number of file operations the materialized submission journaled; absent for other candidates and for a journal that predates the stored intent. */
+            operations?: number;
+            /** @description Preview. The journaled operations in path order, at most 200; present with operations. */
+            fileOperations?: components["schemas"]["LaneFileOperation"][];
+            /** @description True when fileOperations lists every journaled operation, false when it was cut at its bound. */
+            fileOperationsComplete?: boolean;
+            /** @description Always present on GET /submissions/{id}/candidate from this server; optional so recorded contract fixtures and older servers stay valid. A client without it enables neither action. */
+            actions?: components["schemas"]["CandidateActions"];
         };
         CandidateReady: {
             workAttribution?: components["schemas"]["WorkAttribution"];
@@ -2798,8 +2831,11 @@ export interface components {
             cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
-            /** @enum {string} */
-            provider: "artifacts";
+            /**
+             * @description For `github` and `forgejo` the repository is bound under (`namespace` is its owner); a repository this API creates or registers is always `artifacts`.
+             * @enum {string}
+             */
+            provider: "artifacts" | "github" | "forgejo";
             namespace: string;
             repoId: string;
             name: string;
@@ -2819,8 +2855,11 @@ export interface components {
             cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
-            /** @enum {string} */
-            provider: "artifacts";
+            /**
+             * @description For `github` and `forgejo` the repository is bound under (`namespace` is its owner); a repository this API creates or registers is always `artifacts`.
+             * @enum {string}
+             */
+            provider: "artifacts" | "github" | "forgejo";
             namespace: string;
             repoId: string;
             name: string;
@@ -2837,6 +2876,16 @@ export interface components {
             verifiedAt: string | null;
             /** @description Null unless Octocove imported the repository. `importing` - claims refuse 409 `repository-importing`; `ready` - nothing to wait for; `failed` - claims refuse 409 `repository-import-failed` (Artifacts lost the repository, or reported no content within an hour). An `importing` repository is reconciled from Artifacts on this read. */
             importState: ("importing" | "ready" | "failed") | null;
+            /** @description Present exactly when the repository has a declared lane policy; absent means none was declared (Git-native lanes only), never a default policy. */
+            lanePolicy?: components["schemas"]["RepositoryLanePolicy"];
+        };
+        /** @description Preview. The repository's declared lane policy, read-only. laneKinds lists the admitted claim kinds; candidatePublication is how a submitted candidate becomes visible; visibility is the operator-declared repository visibility (a public repository admits materialized claims only under public-on-submit). */
+        RepositoryLanePolicy: {
+            laneKinds: string[];
+            /** @enum {string} */
+            candidatePublication: "repository-readers" | "public-on-submit";
+            /** @enum {string} */
+            visibility: "private" | "public";
         };
         RepositoryVerification: {
             /** @description Credential-free canonical clone URL, absent when unknown. */
@@ -3192,7 +3241,46 @@ export interface components {
             read: string[];
             write: string[];
         };
-        /** @description Preview. The state of a materialized lane; null identifiers mean no open execution or generation. */
+        /** @description Preview. The newest scope version granted to the claim and its prefixes. */
+        LaneGrantedScope: {
+            version: number;
+            read: string[];
+            write: string[];
+        };
+        /** @description Preview. One scope request as recorded. read and write are the complete requested scope. */
+        LaneScopeRequestItem: {
+            requestId: components["schemas"]["Id"];
+            claimAttemptId: components["schemas"]["Id"];
+            read: string[];
+            write: string[];
+            /** @enum {string} */
+            status: "pending" | "granted" | "refused";
+            /** @description Pending and its claim is still the active materialized claim. */
+            actionable: boolean;
+            /**
+             * @description Present exactly when actionable is false.
+             * @enum {string}
+             */
+            notActionableReason?: "decided" | "claim-inactive";
+            /** @description The requesting agent's id (attribution, not identity). */
+            agent: string;
+            reason?: string;
+            /** Format: date-time */
+            requestedAt: string;
+            /** Format: date-time */
+            decidedAt?: string;
+            /** @description The scope version a grant recorded for this request. */
+            scopeVersion?: number;
+        };
+        LaneScopeRequestList: {
+            items: components["schemas"]["LaneScopeRequestItem"][];
+            truncated: boolean;
+            /** @enum {string} */
+            grantVerb: "tasks:edit";
+            /** @description Whether the reader holds grantVerb in the task's project. */
+            canGrant: boolean;
+        };
+        /** @description Preview. The state of a materialized lane; null identifiers mean no open execution or generation. scopeVersion and scope are the effective scope pinned by the generation; latestGrantedScope is the newest granted version, which a newer grant raises without changing the generation until the agent adopts it with a scope-expanded generation. */
         MaterializedLane: {
             /** @enum {string} */
             kind: "materialized";
@@ -3206,6 +3294,7 @@ export interface components {
             scopeVersion?: number | null;
             superseded?: string | null;
             scope?: components["schemas"]["LaneScope"] | null;
+            latestGrantedScope?: components["schemas"]["LaneGrantedScope"];
         };
         /** @description Preview. One materialization generation of one execution attempt. */
         LaneGeneration: {
@@ -3322,6 +3411,45 @@ export interface components {
             candidateStatus: "active" | "stale";
             /** @enum {boolean} */
             staged: false;
+            provenance?: components["schemas"]["MaterializedProvenance"];
+        };
+        /** @description Whether candidateApprove and candidateLand would be accepted for this reader now, derived from the same checks those commands run and in their order - the route's authorization and recent sign-in (forbidden, human-required, claim-inactive, reauth-required), then state. A client never enables an action whose available is false. A later write can still change the answer (for example a base move); the commands remain authoritative. */
+        CandidateActions: {
+            approve: components["schemas"]["CandidateApproveAction"];
+            land: components["schemas"]["CandidateLandAction"];
+        };
+        CandidateApproveAction: {
+            available: boolean;
+            /** @description Present exactly when available is false. Stable values: forbidden, human-required, reauth-required (authorization, including the route's recent sign-in); already-approved (the candidate has a live approval), candidate-not-active, fenced (a landing fence is held), stale-base, submission-superseded (a newer submission exists), checks-failed (the check policy is not satisfied). Clients treat an unknown value as unavailable. */
+            reason?: string;
+        };
+        CandidateLandAction: {
+            available: boolean;
+            /** @description Present exactly when available is false. Stable values: forbidden, claim-inactive, reauth-required (authorization, including the route's recent sign-in); fenced, target-fenced (another task's landing holds the same target), approval-required (no active approval of this candidate), approval-invalidated, candidate-not-active, provider-landing-unsupported (no landing executor for this provider and lane kind), stale-base, submission-superseded, checks-failed, and a machine approval grant's denial code. Clients treat an unknown value as unavailable. */
+            reason?: string;
+            /** @description The newest active approval of this candidate, the approvalId candidateLand would be called with. */
+            approvalId?: components["schemas"]["Id"];
+        };
+        /** @description Preview. Where a materialized submission came from, read from its own journal and the generation and execution it names - immutable, never the claim's current execution or generation. executionId and generation are the generation's immutable address (laneGenerationManifestGet). */
+        MaterializedProvenance: {
+            /** @enum {string} */
+            laneKind: "materialized";
+            claimAttemptId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            executionNumber: number;
+            generation: number;
+            scopeVersion: number;
+            baseSha: components["schemas"]["Sha"];
+            /** @description refs/octocove/contributions/<submission id>. */
+            contributionRef: string;
+        };
+        /** @description Preview. One journaled operation, without its content; mode (a put's file mode, 100644 when the submission omitted it) is absent for a delete. */
+        LaneFileOperation: {
+            /** @enum {string} */
+            op: "put" | "delete";
+            path: string;
+            /** @enum {string} */
+            mode?: "100644" | "100755" | "120000";
         };
         ChainLane: {
             chainId: components["schemas"]["Id"];
@@ -5263,6 +5391,36 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    laneGenerationManifestGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                execution: components["schemas"]["Id"];
+                generation: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manifest. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneManifest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     laneBlobGet: {
         parameters: {
             query: {
@@ -5294,6 +5452,34 @@ export interface operations {
             409: components["responses"]["Problem"];
             413: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    laneScopeRequestsList: {
+        parameters: {
+            query?: {
+                status?: "pending" | "granted" | "refused";
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The scope requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneScopeRequestList"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     laneScopeRequest: {

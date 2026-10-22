@@ -3562,6 +3562,71 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "laneGenerationManifestGet": {
+    "operationId": "laneGenerationManifestGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/tasks/{id}/lane/executions/{execution}/materializations/{generation}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "execution",
+          "required": true
+        },
+        {
+          "name": "generation",
+          "required": true
+        },
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "laneManifestGet": {
     "operationId": "laneManifestGet",
     "kind": "path",
@@ -3758,6 +3823,62 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": "stored-result"
+    }
+  },
+  "laneScopeRequestsList": {
+    "operationId": "laneScopeRequestsList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/tasks/{id}/lane/scope-requests",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "status",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
     }
   },
   "meDelegationsList": {

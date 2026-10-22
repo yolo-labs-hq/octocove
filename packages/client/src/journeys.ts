@@ -59,7 +59,7 @@ export type BoundTo = Schemas['BoundTo'];
 /** `projectCreate`'s answer: the created project. */
 export type Project = Schemas['Project'];
 /** A project's canonical repository and target ref (`repositoryCreate`'s answer). */
-export type Repository = Schemas['Repository'];
+export type Repository = OpenEnums<Schemas['Repository']>;
 /** A `repositoriesList` item: a `Repository` with its verification state (`namespace-mismatch` or `unverified`
  * exactly when claims, provisioning and credentials refuse it 409 `repository-namespace-mismatch` or
  * `repository-unverified`). */

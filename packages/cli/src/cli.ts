@@ -114,6 +114,7 @@ Commands:
   lane refresh [DIR] [--wait SECONDS]           (materialized lane: take the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
   lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: upload changed files and submit them as a candidate)
+  lane scope-requests ID [--status pending|granted|refused]  (materialized lane: the task's scope requests, newest first; project member)
   task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
@@ -378,6 +379,28 @@ function attributionRows(attribution: any): [string, unknown][] {
   return attribution && typeof attribution.id === "string" && typeof attribution.kind === "string"
     ? [["Worked by", `${attribution.id} (${attribution.kind})`], ["Delegated by", attribution.delegatedBy]]
     : [["Attribution", "not recorded (created before attribution)"]];
+}
+
+/** Whether approve and land would be accepted for this reader now (preview; absent on older servers). */
+function actionRows(actions: any): [string, unknown][] {
+  if (!isRecord(actions)) return [];
+  const row = (a: any, extra?: string) => !isRecord(a) || typeof a.available !== "boolean" ? undefined
+    : a.available ? `available${extra ? ` (${extra})` : ""}` : `unavailable${typeof a.reason === "string" ? ` (${a.reason})` : ""}`;
+  return [["Approve", row(actions.approve)], ["Land", row(actions.land, typeof actions.land?.approvalId === "string" ? `approval ${actions.land.approvalId}` : undefined)]];
+}
+
+/** Where a materialized submission came from, and the file operations it journaled (preview). */
+function materializedRows(c: any): [string, unknown][] {
+  const p = c.provenance;
+  const rows: [string, unknown][] = isRecord(p)
+    ? [["Lane", `${p.laneKind}: execution ${p.executionNumber} (${p.executionId}), generation ${p.generation}, scope version ${p.scopeVersion}`], ["Contribution ref", p.contributionRef]]
+    : [];
+  if (typeof c.operations === "number") {
+    const ops = Array.isArray(c.fileOperations) ? c.fileOperations.map((o: any) => `${o.op} ${o.path}`) : [];
+    const more = c.fileOperationsComplete === false ? `, ... (${c.operations - ops.length} more)` : "";
+    rows.push(["File operations", ops.length ? `${c.operations}: ${ops.join(", ")}${more}` : c.operations]);
+  }
+  return rows;
 }
 
 /** Text-only enrichment. The landing approver is distinct from its requester. */
@@ -729,6 +752,22 @@ const COMMANDS: Record<string, Handler> = {
   "lane refresh": materializedLane("refresh"),
   "lane resolve": materializedLane("resolve"),
   "lane submit": materializedLane("submit"),
+  // The authoritative scope-request record of the task's materialized claims (preview); agent delegations are refused.
+  "lane scope-requests": async (d, args) => {
+    const { v, pos } = opts(args, { status: { type: "string" } }, 1, 1);
+    if (v.status !== undefined && !["pending", "granted", "refused"].includes(v.status)) throw new UsageError("--status must be pending, granted or refused");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("lane scope-requests requires a human credential (a project member)");
+    const r = (await api.call("laneScopeRequestsList", { deadline: Date.now() + READ_SECONDS * 1000, path: { id: pos[0]! }, ...(v.status ? { query: { status: v.status } } : {}) })).body;
+    if (!isRecord(r) || !Array.isArray(r.items)) throw new ConfigError("invalid scope-request response from the control plane");
+    out(d, v.json, r, () => {
+      if (!r.items.length) return "No scope requests.";
+      const blocks = r.items.map((i: any) => kv([["Request", i.requestId], ["Claim", i.claimAttemptId], ["Status", i.actionable ? `${i.status} (actionable)` : i.notActionableReason === "claim-inactive" ? `${i.status} (claim inactive)` : i.status],
+        ["Agent", i.agent], ["Read", i.read?.join(", ")], ["Write", i.write?.join(", ") || "(none)"], ["Reason", i.reason], ["Requested", i.requestedAt], ["Decided", i.decidedAt], ["Scope version", i.scopeVersion]]));
+      const footer = [r.truncated ? "More requests match; showing the newest 100." : undefined, r.canGrant ? undefined : `You do not hold ${r.grantVerb} in this project, so you cannot grant scope.`].filter(Boolean);
+      return [...blocks, ...(footer.length ? [footer.join("\n")] : [])].join("\n\n");
+    });
+  },
   "lane push": laneHandler("push"),
   "lane retry": laneHandler("retry"),
   "lane retire": laneHandler("retire"),
@@ -1363,7 +1402,7 @@ const COMMANDS: Record<string, Handler> = {
       if (view.state === "pending") return kv([["Compute", view.state], ["Job", view.jobId ?? "(staged behind a landing fence)"]]);
       if (view.state === "superseded") return kv([["Compute", view.state], ["Superseded by", view.replacementSubmissionId]]);
       const c = view.candidate;
-      return kv([["Task", c.taskId], ["Candidate", c.id], ...attributionRows(view.workAttribution ?? c.workAttribution), ...approval, ["Compute", c.outcome === "computed" ? "complete" : c.outcome], ["Landing", c.status === "active" ? "not landed" : c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Checks", c.checkPolicy?.kind === "none" ? "not configured" : c.latestCheck?.result ?? "pending"], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["Intent version", c.reviewBoundTo?.intentVersion]]);
+      return kv([["Task", c.taskId], ["Candidate", c.id], ...attributionRows(view.workAttribution ?? c.workAttribution), ...approval, ["Compute", c.outcome === "computed" ? "complete" : c.outcome], ["Landing", c.status === "active" ? "not landed" : c.status], ["Candidate SHA", c.candidateSha], ["Base SHA", c.baseSha], ["Checks", c.checkPolicy?.kind === "none" ? "not configured" : c.latestCheck?.result ?? "pending"], ["Conflicts", c.conflictFiles?.join(", ") || undefined], ["Error", c.errorDetail], ["Intent version", c.reviewBoundTo?.intentVersion], ...materializedRows(c), ...actionRows(c.actions)]);
     });
     if (view.state === "complete" && (view.candidate.outcome === "conflict" || view.candidate.outcome === "error" || view.candidate.status === "failed"))
       throw new CandidateFailedError(view.candidate.outcome === "conflict");

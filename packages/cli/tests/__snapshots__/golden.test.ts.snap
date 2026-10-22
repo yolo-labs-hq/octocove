@@ -273,6 +273,7 @@ Commands:
   lane refresh [DIR] [--wait SECONDS]           (materialized lane: take the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
   lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: upload changed files and submit them as a candidate)
+  lane scope-requests ID [--status pending|granted|refused]  (materialized lane: the task's scope requests, newest first; project member)
   task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
