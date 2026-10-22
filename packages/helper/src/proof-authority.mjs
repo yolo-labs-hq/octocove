@@ -31,8 +31,7 @@ export function packObjects(mirrorDir, newSha, oldSha, objectEnv) {
 }
 
 // tls: { key, cert, ca } PEM strings plus keyFile/certFile/caFile paths for git's own fetch.
-// proof: false sends the same request without a proof (legacy-gateway latency baseline only).
-export function proofAuthority({ grant, gatewayUrl, repoId, lease, tls, proof = true, onTiming = () => {} }) {
+export function proofAuthority({ grant, gatewayUrl, repoId, lease, tls, onTiming = () => {} }) {
   const bound = bindGrant(grant);
   if (typeof lease !== 'function' || !tls?.key || !tls?.cert || !tls?.keyFile || !tls?.certFile) throw new GrantError('invalid-authority');
   const base = new URL(`${credentialedRemote(`${String(gatewayUrl).replace(/\/$/, '')}/repos/${encodeURIComponent(repoId)}`)}/`);
@@ -58,19 +57,17 @@ export function proofAuthority({ grant, gatewayUrl, repoId, lease, tls, proof = 
       await withPrivateGitConfig(runtimeDir, config, env => seedMirror({ mirrorDir, ref, remote, env }));
     },
     async deliver({ mirrorDir, ref, oldSha, newSha, gitEnv }) {
-      const t0 = performance.now(), timing = { proof };
+      const t0 = performance.now(), timing = {};
       const pack = newSha === ZERO ? Buffer.alloc(0) : await packObjects(mirrorDir, newSha, oldSha, gitEnv);
       const body = Buffer.concat([pkt(`${oldSha} ${newSha} ${ref}\0report-status\n`), Buffer.from('0000'), pack]);
       timing.packMs = performance.now() - t0;
       const authorization = `Bearer ${await lease()}`, headers = { authorization, 'content-type': 'application/x-git-receive-pack-request' };
-      if (proof) {
-        const t1 = performance.now();
-        const issued = await call('push-proof', { authorization, 'content-type': 'application/json' },
-          Buffer.from(JSON.stringify({ v: 1, commands: [{ old: oldSha, new: newSha, ref }], bodyDigest: createHash('sha256').update(body).digest('hex') })));
-        timing.issueMs = performance.now() - t1;
-        if (issued.status !== 200) throw new GrantError(code(issued.body));
-        headers['x-octocove-push-proof'] = JSON.parse(issued.body).proof;
-      }
+      const t1 = performance.now();
+      const issued = await call('push-proof', { authorization, 'content-type': 'application/json' },
+        Buffer.from(JSON.stringify({ v: 1, commands: [{ old: oldSha, new: newSha, ref }], bodyDigest: createHash('sha256').update(body).digest('hex') })));
+      timing.issueMs = performance.now() - t1;
+      if (issued.status !== 200) throw new GrantError(code(issued.body));
+      headers['x-octocove-push-proof'] = JSON.parse(issued.body).proof;
       const t2 = performance.now();
       let res;
       try { res = await call('git-receive-pack', headers, body); }

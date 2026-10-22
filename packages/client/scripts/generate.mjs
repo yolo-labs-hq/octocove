@@ -116,7 +116,7 @@ const doc = parse(source);
 const LABEL = String.raw`(?:[GOQ]\d{1,2}(?:-[GOQ]?\d{1,2})?|P\d-\d{1,2})`;
 // The words such a parenthetical may hold besides labels and still say nothing to a client ("<label> for a new execution").
 const LABEL_FILLER = new Set(['for', 'a', 'new', 'execution', 'refresh', 'and', 'scope', 'expansion', 'retiring', 'retired', 'are']);
-/** Drops delivery labels: a parenthetical of labels only, a trailing `, <label>` inside a clause, `is <label>;`, `until <label>`. */
+/** Drops delivery labels: a parenthetical of labels only, a trailing `, <label>` inside a clause, `the [word] <label> <word> path`, `is <label>;`, `until <label>`. */
 function withoutLabels(text) {
   const label = new RegExp(String.raw`\b${LABEL}\b`);
   return text
@@ -126,6 +126,8 @@ function withoutLabels(text) {
       return rest.every((word) => LABEL_FILLER.has(word)) ? '' : whole;
     })
     .replace(new RegExp(String.raw`\bthe fresh delegation ${LABEL} requires\b`, 'g'), 'the fresh delegation a reopened lane requires')
+    // "the <label> direct path" reads "the direct path", "the retired <label> direct path" "the retired direct path".
+    .replace(new RegExp(String.raw`\b(the(?: [a-z]+)?) ${LABEL} (?=[a-z]+ path\b)`, 'g'), '$1 ')
     .replace(new RegExp(String.raw`\bthe ${LABEL} path:\s*`, 'g'), '')
     .replace(new RegExp(String.raw`\bthe ${LABEL} path\b`, 'g'), 'the candidate-per-submission path')
     .replace(new RegExp(String.raw`\bis ${LABEL};`, 'g'), 'is not available yet;')
@@ -142,6 +144,10 @@ function publicText(text) {
     // "bound under <record>, ..." loses the whole phrase; "Under <record> protected-runtime admission" keeps "Under".
     .replace(/\s*\b(?:under|per|see|in|by|from|via|following)\s+ADR[- ]?\d{1,4}\b(?=\s*(?:[,.;:)]|$|(?:whose|which|that|and)\b))/gi, '')
     .replace(/\bADR[- ]?\d{1,4}\b[:.,]?\s*/g, '')
+    // Dated decision labels: "(operator decision YYYY-MM-DD)" is dropped, and "Operator decision YYYY-MM-DD - the rule
+    // ..." reads "The rule ...".
+    .replace(/\s*\(\s*operator decision \d{4}-\d{2}-\d{2}[^()]*\)/gi, '')
+    .replace(/\boperator decision \d{4}-\d{2}-\d{2}\s*(?:-|:|,)?\s*([a-z]?)/gi, (_, c) => c.toUpperCase())
     // Citations of the service's own documents, which this repository does not include.
     .replace(/\s*\([^()]*\b(?:docs\/(?:API|AUTH)\.md|COLLABORATION_RECORD\.md)[^()]*\)/g, '')
     .replace(/;\s*see\s+(?:docs\/(?:API|AUTH)\.md|COLLABORATION_RECORD\.md)(?:\s+section\s+\d+)?\./gi, '.')

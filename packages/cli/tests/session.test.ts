@@ -165,9 +165,8 @@ it('a shared human wrapper renews a newly selected stored replacement instead of
  expect((await selected(initial.apiUrl+'/tasks',{headers})).status).toBe(200);expect(rotations).toBe(1);expect((await loadCredentials(f.env)).token).toBe('third-session');
 });
 
-it('human grant administration renews even when the credential was just migrated from the protected legacy store',async()=>{
- const f=await fixture({expiresAt:future(30000)}),initial=await loadCredentials(f.env),raw=f.deps.fetch;
- await writeFile(join(f.dir,'credentials.json'),JSON.stringify(initial),{mode:0o600});await rm(join(f.dir,'credentials','cli.json'));
+it('human grant administration renews a session near expiry',async()=>{
+ const f=await fixture({expiresAt:future(30000)}),raw=f.deps.fetch;
  f.deps.argv=['auth','revoke','--grant','G1','--json'];
  f.deps.fetch=async(url,init)=>{
   if(url.endsWith('/auth/session/renew'))return raw(url,init);

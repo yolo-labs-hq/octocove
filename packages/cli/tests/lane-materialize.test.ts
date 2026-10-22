@@ -8,7 +8,8 @@ import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
 
-// The materialized lane journey (preview) against a stub control plane: no Git, no helper, no broker.
+// The materialized lane journey (preview) against a stub control plane: no Git, no helper, no broker. The lane head
+// of generation N is HEAD(N); a save point moves it to SAVED.
 interface Call { method: string; url: URL; headers: Record<string, string>; body?: any }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const API = "https://api.example.invalid/v1";
@@ -41,11 +42,12 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
 
 const scope = { read: ["src/", "README.md"], write: ["src/"] };
 const base1 = SHA("base-1"), base2 = SHA("base-2");
+const HEAD = (generation: number) => SHA(`lane-head-${generation}`), SAVED = SHA("saved");
 const gen1 = { "src/a.txt": "alpha\n", "src/b.txt": "bravo\n", "src/run.sh": "#!/bin/sh\necho hi\n", "src/link": "a.txt", "README.md": "readme v1\n" };
 const gen2 = { "src/a.txt": "alpha upstream\n", "src/run.sh": "#!/bin/sh\necho hi\n", "src/link": "a.txt", "src/c.txt": "charlie\n", "README.md": "readme v2\n" };
 const modeOf = (path: string) => path.endsWith(".sh") ? "100755" : path === "src/link" ? "120000" : "100644";
 const manifest = (generation: number, baseSha: string, files: Record<string, string>) => ({
-  taskId: "T1", claimId: "C1", executionId: "X1", generation, kind: generation === 1 ? "initial" : "base-refreshed", baseSha, scopeVersion: 1, scope, truncated: false, changedSincePrevious: null,
+  taskId: "T1", claimId: "C1", executionId: "X1", generation, kind: generation === 1 ? "initial" : "base-refreshed", baseSha, scopeVersion: 1, scope, truncated: false, changedSincePrevious: null, laneHead: HEAD(generation),
   entries: Object.entries(files).sort().map(([path, content]) => ({ path, mode: modeOf(path), type: path === "src/link" ? "symlink" : "file", sha: SHA(content), size: content.length })),
 });
 let generation: number;
@@ -68,10 +70,12 @@ beforeEach(() => {
     if (c.body.kind !== "base-refreshed") return json(400, { code: "invalid-request", status: 400 });
     if (generation === 2) return json(409, { code: "base-unchanged", status: 409 });
     generation = 2;
-    return json(201, { claimAttemptId: "C1", executionId: "X1", executionNumber: 1, generation: 2, kind: "base-refreshed", baseSha: base2, scopeVersion: 1, previousGeneration: 1, scope });
+    return json(201, { claimAttemptId: "C1", executionId: "X1", executionNumber: 1, generation: 2, kind: "base-refreshed", baseSha: base2, scopeVersion: 1, previousGeneration: 1, scope, laneHead: HEAD(2), previousHead: HEAD(1) });
   };
+  routes["POST /tasks/T1/lane/materialize"] = () => json(201, { claimAttemptId: "C1", executionId: "X1", generation, baseSha: generation === 1 ? base1 : base2, laneHead: HEAD(generation),
+    snapshotCommit: HEAD(1), entryCount: 5, laneRepository: { id: "LR1", state: "ready", materializedAt: "2026-10-22T00:00:00Z", retiredAt: null }, created: true });
   routes["POST /tasks/T1/lane/blobs"] = (c) => { const bytes = Buffer.from(c.body.content, "base64"); return json(201, { claimAttemptId: "C1", blobId: sha256(bytes), size: bytes.length }); };
-  routes["POST /tasks/T1/lane/changes"] = (c) => json(201, { id: "S1", seq: 1, candidateId: "K1", candidateSha: SHA("candidate"), baseSha: generation === 1 ? base1 : base2, contributionRef: "refs/octocove/contributions/S1", candidateStatus: "active", staged: false });
+  routes["POST /tasks/T1/lane/changes"] = (c) => json(201, { savePointId: "SP1", claimAttemptId: "C1", executionId: "X1", generation: c.body.generation, laneHead: SAVED, previousHead: c.body.expectedHead, supersededCandidateId: null });
   void files;
 });
 
@@ -91,18 +95,18 @@ describe("octocove lane (materialized)", () => {
     expect(sidecar()).toMatchObject({ version: 1, taskId: "T1", claimAttemptId: "C1", generation: 1, baseSha: base1, scope, conflicts: {} });
     expect(Object.keys(sidecar().files).sort()).toEqual(Object.keys(gen1).sort());
     expect(outText).toContain("Generation:");
+    expect(sidecar().laneHead).toBe(HEAD(1));
     expect(calls.some((c) => c.url.pathname.endsWith("/lane/executions"))).toBe(false);
     // A second materialize into the same directory is refused: refresh is the way to move.
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.config);
     expect(errText).toContain("not empty");
   });
 
-  it("begins an execution when the lane has no open generation", async () => {
-    routes["GET /tasks/T1"] = () => json(200, { id: "T1", intentVersion: 3, lane: { kind: "materialized", claimAttemptId: "C1", executionId: null, generation: null, baseSha: null, scopeVersion: null, scope: null } });
-    routes["POST /tasks/T1/lane/executions"] = () => json(201, { claimAttemptId: "C1", executionId: "X1", executionNumber: 1, generation: 1, kind: "initial", baseSha: base1, scopeVersion: 1, scope });
+  it("materializes a lane whose generation is still being prepared from the materialize answer, never handing over", async () => {
+    routes["GET /tasks/T1"] = () => json(200, { id: "T1", intentVersion: 3, lane: { kind: "materialized", claimAttemptId: "C1", executionId: "X1", generation: null, baseSha: null, scopeVersion: null, scope: null } });
     expect(await cli(["lane", "materialize", "T1", "work"])).toBe(EXIT.ok);
     expect(readFileSync(join(work, "work", "src/b.txt"), "utf8")).toBe("bravo\n");
-    expect(calls.filter((c) => c.url.pathname.endsWith("/lane/executions"))).toHaveLength(1);
+    expect(calls.some((c) => c.url.pathname.endsWith("/lane/executions"))).toBe(false);
   });
 
   it("refuses a task without a materialized lane", async () => {
@@ -144,16 +148,16 @@ describe("octocove lane (materialized)", () => {
     expect(sidecar().conflicts).toEqual({});
 
     expect(await cli(["lane", "submit", "--message", "local edits", "--json"])).toBe(EXIT.ok);
-    expect(JSON.parse(outText)).toMatchObject({ id: "S1", candidateId: "K1", generation: 2, operations: 2 });
+    expect(JSON.parse(outText)).toMatchObject({ savePointId: "SP1", laneHead: SAVED, previousHead: HEAD(2), generation: 2, operations: 2 });
     const uploads = calls.filter((c) => c.method === "POST" && c.url.pathname.endsWith("/lane/blobs")).map((c) => Buffer.from(c.body.content, "base64").toString());
     expect(uploads.sort()).toEqual(["alpha local\n", "new\n"]);
     expect(changes()).toHaveLength(1);
-    expect(changes()[0]!.body).toEqual({ generation: 2, message: "local edits", operations: [
+    expect(changes()[0]!.body).toEqual({ generation: 2, expectedHead: HEAD(2), message: "local edits", operations: [
       { op: "put", path: "src/a.txt", blobId: sha256("alpha local\n"), mode: "100644" },
       { op: "put", path: "src/new.txt", blobId: sha256("new\n"), mode: "100644" },
     ] });
     expect(changes()[0]!.headers["Idempotency-Key"] ?? changes()[0]!.headers["idempotency-key"]).toBeTruthy();
-    expect(sidecar().lastSubmission).toMatchObject({ id: "S1", candidateId: "K1", generation: 2 });
+    expect(sidecar()).toMatchObject({ laneHead: SAVED, lastSavePoint: { id: "SP1", laneHead: SAVED, generation: 2 } });
   });
 
   it("resolve --keep incoming takes the upstream copy, and an unchanged base refreshes nothing", async () => {
@@ -193,7 +197,7 @@ describe("octocove lane (materialized)", () => {
       { op: "put", path: "src/link", blobId: sha256("run.sh"), mode: "120000" },
       { op: "put", path: "src/run.sh", blobId: sha256("#!/bin/sh\necho changed\n"), mode: "100755" },
     ]);
-    expect(sidecar().lastSubmission).toBeUndefined();
+    expect(sidecar().lastSavePoint).toBeUndefined();
   });
 
   it("claims a materialized lane with its scope and no clone", async () => {

@@ -3293,6 +3293,9 @@ export const routing = {
       "413": [
         "application/problem+json"
       ],
+      "429": [
+        "application/problem+json"
+      ],
       "503": [
         "application/problem+json"
       ]
@@ -3504,7 +3507,7 @@ export const routing = {
     "policy": {
       "callable": true,
       "autoRetry": "network-only",
-      "replay": "stored-result"
+      "replay": "bounded-recovery"
     }
   },
   "laneGenerationCreate": {
@@ -3557,6 +3560,9 @@ export const routing = {
         "application/problem+json"
       ],
       "413": [
+        "application/problem+json"
+      ],
+      "429": [
         "application/problem+json"
       ],
       "503": [
@@ -3621,6 +3627,9 @@ export const routing = {
         "application/problem+json"
       ],
       "409": [
+        "application/problem+json"
+      ],
+      "429": [
         "application/problem+json"
       ],
       "503": [
@@ -3691,6 +3700,9 @@ export const routing = {
         "application/problem+json"
       ],
       "409": [
+        "application/problem+json"
+      ],
+      "429": [
         "application/problem+json"
       ],
       "503": [
@@ -3765,6 +3777,9 @@ export const routing = {
         "application/problem+json"
       ],
       "413": [
+        "application/problem+json"
+      ],
+      "429": [
         "application/problem+json"
       ],
       "503": [
@@ -4093,6 +4108,9 @@ export const routing = {
         "application/problem+json"
       ],
       "413": [
+        "application/problem+json"
+      ],
+      "429": [
         "application/problem+json"
       ],
       "503": [

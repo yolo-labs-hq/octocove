@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { atomicSecret, readSecret, readImportSecret, removeSecret } from "./store.js";
+import { atomicSecret, readSecret, readImportSecret } from "./store.js";
 
 /** A local fast-fail label; the server remains the authority. */
 export type CredentialKind = "human" | "agent" | "bootstrap" | "machine";
@@ -70,15 +70,6 @@ export async function loadCredentials(env: NodeJS.ProcessEnv): Promise<Credentia
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new ConfigError("credentials file is unreadable or invalid");
   }
-  const legacy = join(configDir(env), "credentials.json");
-  try {
-    const creds = parseCredentials(await readImportSecret(legacy));
-    await saveCredentials(env, creds);
-    await removeSecret(legacy, false);
-    return creds;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new ConfigError("legacy credentials file is unreadable or unprotected");
-  }
   if (env.OCTOCOVE_BOOTSTRAP_FILE) return importBootstrap(env, env.OCTOCOVE_BOOTSTRAP_FILE);
   throw new ConfigError("no credential: run octocove login or import a protected --bootstrap-file");
 }
@@ -104,7 +95,7 @@ export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, toke
 
 export async function clearCredentials(env: NodeJS.ProcessEnv): Promise<void> {
   clearCredentialEnv(env);
-  // A protected tombstone prevents legacy/import settings from resurrecting a revoked credential.
+  // A protected tombstone prevents import settings (OCTOCOVE_BOOTSTRAP_FILE) from resurrecting a revoked credential.
   await atomicSecret(activeFile(env), { loggedOut: true });
 }
 

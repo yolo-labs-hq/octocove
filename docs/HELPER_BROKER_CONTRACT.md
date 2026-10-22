@@ -104,7 +104,7 @@ root). Directory mode is 0700 and files 0600. Writers reject symlink ancestors a
 nonregular destinations, write and fsync a unique file, then atomically rename
 inside a pinned directory. The CLI uses the client library's protected store (`packages/cli/src/store.ts` delegates to `credentialStore()` in `packages/client/src/store/`). On Linux it anchors every write and read through directory fds at `/proc/self/fd`; macOS has no equivalent, so there a concurrent ancestor swap is detected rather than prevented, and the macOS implementation is exercised only through a platform shim on Linux (see the [client README](../packages/client/README.md#node-credential-store-node)). Readers must likewise protect secret files from
 symlinks and insecure modes. The CLI session/delegation used by later API verbs
-is stored as `credentials/cli.json`; legacy `credentials.json` is read for migration.
+is stored as `credentials/cli.json`.
 Claim setup never exports the delegation to env, subprocess arguments or git
 configuration. `octocove helper status [--json]` reports configuration without
 reading secret contents or echoing arbitrary helper commands.

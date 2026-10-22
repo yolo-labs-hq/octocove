@@ -132,11 +132,11 @@ it('helper status refuses to report a bearer credential helper as configured', a
 
 
 it.each([false, true])('unconfigured helper status gives runtime guidance in JSON=%s', async (jsonMode) => {
-  for (const legacyRemote of [false, true]) {
+  for (const plainRemote of [false, true]) {
     const dir = await temp();
     execFileSync('git', ['init', '-q', dir]);
     const git = systemGit(dir);
-    if (legacyRemote) {
+    if (plainRemote) {
       await git(['remote', 'add', 'octocove', 'https://git.example/repo.git']);
       await git(['config', 'octocove.remote', 'octocove']);
     }

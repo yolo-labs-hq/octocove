@@ -2,13 +2,12 @@
 
 An agent works on a scoped slice of a repository in an ordinary directory, with no Git clone and no credential
 helper. This walkthrough goes **authorize → claim → materialize → edit → save → wrap up → review → approve → land**.
-It covers both kinds of canonical repository: on Artifacts the agent saves as often as it likes and wraps up once
-for review; on GitHub each `lane submit` is the candidate (steps 5 and 6 are one step there).
+It covers both kinds of canonical repository, Artifacts and GitHub, which work the same way: the agent saves as often
+as it likes and wraps up once for review.
 
-> **Preview.** Lane repositories (save points, wrap-up, refresh with resolutions) need a server that offers them.
-> Against one that does not yet, `lane materialize` says so, the directory holds the pinned base, and `lane submit`
-> creates the candidate directly, as in CLI 0.3.x. `candidate show` always says whether `land` is available to you,
-> and why not when it isn't. See the [CLI guide](../../packages/cli/README.md#materialized-lanes-preview).
+> **Preview.** Every materialized lane has a lane repository (save points, wrap-up, refresh with resolutions, reopen
+> and retirement). `candidate show` always says whether `land` is available to you, and why not when it isn't. See the
+> [CLI guide](../../packages/cli/README.md#materialized-lanes-preview).
 
 You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.4.0 or later), and a project whose repository admits
 materialized lanes. The service operator declares that per repository. A human with `tasks:create` and
@@ -42,6 +41,11 @@ octocove task claim "$TASK" --lane materialized --read README.md,docs/ --write d
 
 The claim is ready at once. Nothing is cloned, and no helper starts.
 
+- **`write-scope-claimed`:** the first claim keeps its write scope. If a write prefix overlaps the write scope another
+  task holds on the same repository and target, the claim is refused, nothing is recorded and the bootstrap stays
+  unused. The CLI names the refused prefixes and, to a human who can read the project's tasks, the holding task and
+  claim. Claim again with a narrower `--write`, or once the holder has landed or been released.
+
 ## 3. Materialize (agent)
 
 ```sh
@@ -55,13 +59,22 @@ never resets saved work. The CLI then reads the files at that lane head. `.octoc
 head, the generation, the pinned base, the scope and one digest per file. Octocove keeps the lane repository to
 itself: the agent never sees its URL or a credential for it.
 
+- **Another environment:** to continue the same claim somewhere else, run `octocove lane materialize "$TASK" ./lane
+  --handover` there. It hands the claim's open execution over to that environment and stores the new execution's
+  delegation as its agent credential (privately; it is never printed). The first environment's credential then gets
+  `execution-superseded` everywhere; keep its unsaved edits with `octocove lane patch`.
+- **GitHub request budget:** on a GitHub repository, a read scope that needs too many GitHub requests is refused with
+  `materialization-too-large` (narrow the scope), and while GitHub's hourly request budget is low the answer is `429
+  rate-limited` with a `Retry-After`. Nothing is created either way; the CLI waits within its deadline, otherwise it
+  says when to run the command again.
+
 ## 4. Edit and check (agent)
 
 Edit files with any tool, then check what changed:
 
 ```sh
 $EDITOR ./lane/docs/guide.md
-octocove lane status ./lane       # lane head, modified, added, deleted, unresolved conflicts
+octocove lane status ./lane       # lane head, modified, added, deleted, unresolved conflicts, the lane repository
 ```
 
 ## 5. Save (agent)
@@ -70,7 +83,7 @@ octocove lane status ./lane       # lane head, modified, added, deleted, unresol
 octocove lane submit ./lane --message "Clarify the setup steps"
 ```
 
-On Artifacts, `lane submit` uploads only the changed files inside the write scope and records a **save point** on the
+`lane submit` uploads only the changed files inside the write scope and records a **save point** on the
 lane head: one commit with your message, made against the lane head in `lane.json` (`expectedHead`). The new lane
 head is written back, so the saved files are the directory's new baseline. Save as often as you like; nothing is
 reviewed yet.
@@ -78,14 +91,9 @@ reviewed yet.
 - **`lane-head-moved`:** another save (for example a second environment on the same claim) moved the lane head.
   Nothing local changes. Run `octocove lane refresh ./lane`: it takes the new head (files you did not touch follow
   it, a file changed on both sides keeps your copy and gets the other under `.octocove/incoming/`), then save again.
-- **`lane-not-materialized`:** the directory was written without a lane repository (an older CLI, or before the
-  server offered one). `lane submit` asks for the lane repository itself and saves there, provided nothing was saved
-  there yet; otherwise it tells you to refresh first.
 
 It refuses an edit outside the write scope (`scope-refused`; nothing is uploaded) and any unresolved local conflict
 (`lane-conflicts-unresolved`).
-
-On GitHub, the same command records the candidate directly; continue with step 7.
 
 ## 6. Wrap up (agent)
 
@@ -138,7 +146,7 @@ octocove approve CANDIDATE_ID --candidate-sha SHA --base-sha SHA --intent-versio
 ```
 
 The approval binds that exact candidate, base and intent. If the target branch moves before landing, the candidate
-becomes `stale` and the approval no longer applies: the agent wraps up again (step 6; on GitHub, submits again), and
+becomes `stale` and the approval no longer applies: the agent wraps up again (step 6), and
 the new candidate is approved anew.
 
 ## 8. Land (human, or a delegated agent where the project allows it)
@@ -156,7 +164,32 @@ the reason `provider-landing-unsupported`.
 - **Release:** `octocove task release "$TASK" --dir ./lane` ends the claim. Unsaved edits in the lane directory are
   first written to `.octocove/unsaved-TIME.patch` (the same as `octocove lane patch ./lane`), never dropped. Apply
   that patch with `git apply` in a new lane directory, then save it.
-- **Reopen (human, recent sign-in):** `octocove lane reopen "$TASK" --agent docs-agent --verbs ... --expires-at TIME
-  --bootstrap-out ./agent/bootstrap.json` reopens a landed lane for one more agent, which claims and materializes as
-  in steps 2 and 3 and continues the same lane. With `--dir ./lane`, unsaved edits there are kept as a patch first. A
-  server that does not offer reopening yet answers `lane-reopen-unavailable`; start further work as a new task.
+- **Reopen (human, recent sign-in):** after a landing, more work on the same lane goes through a reopen:
+
+  ```sh
+  octocove lane reopen "$TASK" --agent docs-agent --verbs tasks:read,submissions:create \
+    --expires-at "$(date -u -d '+2 hours' +%FT%TZ)" --bootstrap-out ./agent/bootstrap.json
+  ```
+
+  It names the task's newest landed receipt (`--expected-receipt` to name it yourself), moves the task to `reopened`
+  and writes a new one-use bootstrap privately; only its metadata is printed. With `--dir ./lane`, unsaved edits there
+  are kept as a patch first. A reopened task admits a claim only with that bootstrap (`lane-reopen-required`
+  otherwise). The agent claims within five minutes without a scope (the lane keeps its granted scope), then
+  materializes into a new directory:
+
+  ```sh
+  octocove task claim "$TASK" --lane materialized --intent-version 1 --bootstrap-file ./agent/bootstrap.json
+  octocove lane materialize "$TASK" ./lane2   # the lane head, already rebased onto the landing
+  ```
+
+  The next wrap-up carries only the work saved since the landing, and it lands with its own approval and receipt
+  (`receipt show` prints its landing number). If the reopened claim ends with nothing saved, the task returns to
+  `landed`. Refusals: `lane-not-reopenable` (with a reason: for example, the newest landing did not come from a lane
+  wrap-up), `already-claimed`, `fenced` while a landing is in progress, and `idempotency-result-expired` when the same
+  idempotency key is reused after the bootstrap was used or expired (run it again with a new key).
+- **Lane state:** `octocove task show "$TASK"` prints the task's lane repository at any time: its state, the latest
+  wrap-up and its candidate's status, the newest receipt, the open reopen and the current unresolved conflict.
+- **Retire (project admin, recent sign-in):** `octocove lane retire "$TASK"` deletes the lane's repository for good,
+  once the task is final and nothing is in flight. The canonical, its landed commits and receipts are kept. A refusal
+  (`lane-retention-pending`) says which guard still holds, for example `claim-active` or `reopen-open`; run it again
+  once that settles. A retired lane is never reopened, and its lane head reads answer `lane-retired`.

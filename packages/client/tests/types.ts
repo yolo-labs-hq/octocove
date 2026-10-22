@@ -70,7 +70,7 @@ export async function typeChecks(): Promise<void> {
   const me = await oc.auth.me({ deadline: Date.now() + 1000 });
   const futureKind: typeof me.principal.kind = 'workload';
   const verbs: string[] = me.memberships.flatMap((m) => m.verbs);
-  // Each membership names its project; a legacy project's namespace is null.
+  // Each membership names its project; a project without one has a null namespace.
   const projectLabels: [string, string][] = me.memberships.map((m) => [m.slug, m.name]);
   const namespace: string | null = me.memberships[0]!.artifactsNamespace;
   // @ts-expect-error -- the namespace may be null

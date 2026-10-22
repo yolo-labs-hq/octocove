@@ -23,7 +23,7 @@ export interface ProtectedStore {
   writeSecret(path: string, value: unknown): Promise<string>;
   /** Reads a store file: parent must be 0700, file 0600, both owned by this user. */
   readSecret(path: string): Promise<string>;
-  /** Reads a legacy/import file whose parent may predate the store; the file itself must still be private. */
+  /** Reads an import file (a bootstrap handed over) outside the store; the file itself must still be private. */
   readImportSecret(path: string): Promise<string>;
   /** Deletes a store file, refusing a symlinked file; an exchanged ancestor is excluded per platform (above). */
   removeSecret(path: string, protectedMode?: boolean): Promise<void>;

@@ -147,13 +147,9 @@ function agentLimits(creds: Credentials) {
     if (creds[field] && Date.parse(creds[field]) <= Date.now()) throw new ConfigError(AUTHORIZE_AGAIN);
   }
 }
-/** JWT expiry is only a scheduling hint for older stores; the server checks all authority. */
+/** The stored expiry is only a scheduling hint; the server checks all authority. */
 function agentExpiry(creds: Credentials) {
   if (creds.expiresAt) return Date.parse(creds.expiresAt);
-  try {
-    const payload = JSON.parse(Buffer.from(creds.token.split('.')[1]!, 'base64url').toString());
-    if (typeof payload.exp === 'number' && Number.isFinite(payload.exp)) return payload.exp * 1000;
-  } catch { /* Opaque tokens renew on the server's expiry response. */ }
   return creds.issuedAt ? Date.parse(creds.issuedAt) + 900000 : Infinity;
 }
 

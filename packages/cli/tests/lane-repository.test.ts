@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
+import { saveCredentials } from "../src/config.js";
 
 // Materialized lanes with a lane repository: save points on the lane head, wrap-up, refresh with resolutions, unsaved
 // edits as a patch, and reopen, against a small model of the control plane.
@@ -58,7 +59,7 @@ beforeEach(() => {
   heads = new Map(); head = null; snapshot = null; generation = 1; baseSha = base1; blobs = new Map(); saves = 0; wrapUps = 0;
   work = mkdtempSync(join(tmpdir(), "octocove-lane-repo-"));
   dir = join(work, "T1");
-  routes["GET /tasks/T1"] = () => json(200, { id: "T1", projectId: "P1", status: "claimed", intentVersion: 3, acceptedReceiptId: "RC1",
+  routes["GET /tasks/T1"] = () => json(200, { id: "T1", projectId: "P1", status: "claimed", intentVersion: 3, acceptedReceiptId: "RC1", latestReceiptId: "RC1",
     lane: { kind: "materialized", claimAttemptId: "C1", executionId: "X1", executionNumber: 1, executionEnded: null, generation, generationKind: "initial", baseSha, scopeVersion: 1, superseded: null, scope, laneHead: head } });
   routes["POST /tasks/T1/lane/materialize"] = () => {
     const created = head === null;
@@ -126,12 +127,16 @@ describe("octocove lane with a lane repository", () => {
     expect(outText).toContain("created");
   });
 
-  it("without the route (today's servers) it materializes the pinned base and says so", async () => {
+  it("a 404 or an unsupported provider from lane/materialize is an error, and nothing is written", async () => {
     delete routes["POST /tasks/T1/lane/materialize"];
-    expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
-    expect(errText).toContain("does not offer lane repositories yet");
-    expect(sidecar().laneHead).toBeUndefined();
-    expect(read("src/a.txt")).toBe("alpha\n");
+    expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+    expect(errText).toContain("not-found");
+    expect(existsSync(join(dir, SIDECAR))).toBe(false);
+    routes["POST /tasks/T1/lane/materialize"] = () => problem(409, "repository-provider-unsupported");
+    expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+    expect(errText).toContain("needs an Artifacts or GitHub repository");
+    expect(existsSync(join(dir, SIDECAR))).toBe(false);
+    expect(posts("/lane/changes")).toHaveLength(0);
   });
 
   it("submit saves a save point on the lane head and moves the baseline", async () => {
@@ -143,7 +148,7 @@ describe("octocove lane with a lane repository", () => {
     const body = posts("/lane/changes")[0]!.body;
     expect(body).toMatchObject({ generation: 1, expectedHead: first, message: "step 1" });
     expect(body.operations.map((o: any) => [o.op, o.path])).toEqual([["put", "src/a.txt"], ["delete", "src/b.txt"]]);
-    expect(JSON.parse(outText)).toMatchObject({ kind: "save-point", savePointId: "SP1", laneHead: head, previousHead: first });
+    expect(JSON.parse(outText)).toMatchObject({ savePointId: "SP1", laneHead: head, previousHead: first });
     expect(sidecar()).toMatchObject({ laneHead: head, lastSavePoint: { id: "SP1", laneHead: head } });
     // The saved edits are the new baseline: nothing left to save, and the next save names the new head.
     expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
@@ -168,20 +173,25 @@ describe("octocove lane with a lane repository", () => {
     expect(sidecar()).toEqual(before);
   });
 
-  it("a directory without a lane head asks for the lane repository on lane-not-materialized, then saves", async () => {
-    const materializeRoute = routes["POST /tasks/T1/lane/materialize"]!;
-    delete routes["POST /tasks/T1/lane/materialize"];
-    await cli(["lane", "materialize", "T1"]);                // an older server: no lane repository
-    routes["POST /tasks/T1/lane/materialize"] = materializeRoute;   // the server now offers them
+  it("refuses a sidecar without a lane head, and sends nothing", async () => {
+    await cli(["lane", "materialize", "T1"]);
+    const sc = sidecar(); delete sc.laneHead;
+    writeFileSync(join(dir, SIDECAR), JSON.stringify(sc));
     writeFileSync(join(dir, "src/a.txt"), "alpha 2\n");
-    expect(await cli(["lane", "submit", "--message", "first save", "--json"])).toBe(EXIT.ok);
-    const sent = posts("/lane/changes");
-    expect(sent).toHaveLength(2);
-    expect(sent[0]!.body.expectedHead).toBeUndefined();
-    expect(sent[1]!.body.expectedHead).toBe(heads.keys().next().value);
-    expect(sent[0]!.headers["Idempotency-Key"] ?? sent[0]!.headers["idempotency-key"]).not.toBe(sent[1]!.headers["Idempotency-Key"] ?? sent[1]!.headers["idempotency-key"]);
-    expect(JSON.parse(outText)).toMatchObject({ kind: "save-point" });
-    expect(errText).toContain("lane repository");
+    expect(await cli(["lane", "submit", "--message", "first save"])).toBe(EXIT.config);
+    expect(errText).toContain("no valid lane head");
+    expect(posts("/lane/changes")).toHaveLength(0);
+    expect(posts("/lane/blobs")).toHaveLength(0);
+  });
+
+  it("explains lane-not-materialized as a missing lane/materialize step", async () => {
+    await cli(["lane", "materialize", "T1"]);
+    routes["POST /tasks/T1/lane/changes"] = () => problem(409, "lane-not-materialized");
+    writeFileSync(join(dir, "src/a.txt"), "alpha 2\n");
+    expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
+    expect(errText).toContain("octocove lane materialize TASK DIR");
+    expect(posts("/lane/changes")).toHaveLength(1);
+    expect(posts("/lane/materialize")).toHaveLength(1);
   });
 
   describe("wrap-up", () => {
@@ -250,11 +260,13 @@ describe("octocove lane with a lane repository", () => {
       expect(existsSync(join(dir, INCOMING, "src/a.txt"))).toBe(false);
     });
 
-    it("a server without wrap-up says so and sends nothing else", async () => {
+    it("a 404 from wrap-up is a plain error", async () => {
       delete routes["POST /tasks/T1/lane/wrap-up"];
       await cli(["lane", "materialize", "T1"]);
       expect(await cli(["lane", "wrap-up"])).toBe(EXIT.failure);
-      expect(errText).toContain("lane-wrap-up-unavailable");
+      expect(errText).toContain("not-found");
+      expect(errText).not.toContain("unavailable");
+      expect(posts("/lane/wrap-up")).toHaveLength(1);
     });
   });
 
@@ -373,11 +385,27 @@ describe("octocove lane with a lane repository", () => {
     const human = { credentials: { apiUrl: API, token: "session", kind: "human" as const } };
     const args = ["lane", "reopen", "T1", "--agent", "agent-1", "--verbs", "tasks:read,submissions:create", "--expires-at", "2026-10-23T00:00:00Z"];
 
-    it("reports a server without the route as not available yet", async () => {
+    it("a 404 from the reopen route is a plain error", async () => {
       expect(await cli(args, human)).toBe(EXIT.failure);
-      expect(errText).toContain("lane-reopen-unavailable");
-      expect(errText).toContain("not offer reopening");
+      expect(errText).toContain("not-found");
+      expect(errText).not.toContain("unavailable");
       expect(posts("/lane/reopen")[0]!.body).toMatchObject({ expectedReceiptId: "RC1", agentId: "agent-1" });
+    });
+
+    it("needs the task's latestReceiptId, never the first landing's", async () => {
+      routes["GET /tasks/T1"] = () => json(200, { id: "T1", projectId: "P1", status: "landed", intentVersion: 3, acceptedReceiptId: "RC1", latestReceiptId: null });
+      expect(await cli(args, human)).toBe(EXIT.usage);
+      expect(errText).toContain("no landed receipt");
+      expect(posts("/lane/reopen")).toHaveLength(0);
+    });
+
+    it("explains a 409 write-scope-claimed refusal with its holders", async () => {
+      routes["POST /tasks/T1/lane/reopen"] = () => problem(409, "write-scope-claimed", { requested: ["src/"],
+        holders: [{ taskId: "T9", heldBy: "claim", claimAttemptId: "C9", paths: [{ requested: "src/", held: "src/app/" }] }] });
+      expect(await cli(args, human)).toBe(EXIT.failure);
+      expect(errText).toContain("for src/");
+      expect(errText).toContain("task T9 holds src/app/ (you asked for src/) through an active claim (claim C9)");
+      expect(errText).toContain("Narrow the write scope");
     });
 
     it("stores the agent bootstrap privately and prints only its metadata", async () => {
@@ -394,6 +422,218 @@ describe("octocove lane with a lane repository", () => {
     it("is refused for an agent delegation before anything is sent", async () => {
       expect(await cli(args)).toBe(EXIT.humanRequired);
       expect(posts("/lane/reopen")).toHaveLength(0);
+    });
+
+    it("names the task's newest landed receipt and prints a claim line without a scope", async () => {
+      const landedTwice = routes["GET /tasks/T1"]!;
+      routes["GET /tasks/T1"] = (c) => { const r = landedTwice(c); return r.json().then((b: any) => json(200, { ...b, status: "landed", latestReceiptId: "RC2", landingCount: 2 })) as never; };
+      routes["POST /tasks/T1/lane/reopen"] = () => json(201, { reopenId: "RO2", taskId: "T1", status: "reopened", reopenedFromReceiptId: "RC2", landingCount: 2, laneRepositoryId: "LR1",
+        agentBootstrap: { id: "A2", taskId: "T1", projectId: "P1", claimAttemptId: "C3", delegationId: "D3", bootstrapToken: "reopen-bootstrap-secret", bootstrapExpiresAt: "2026-10-22T00:05:00Z",
+          authorizationExpiresAt: "2026-10-23T00:00:00Z", verbs: ["tasks:read", "submissions:create"] } });
+      expect(await cli([...args, "--reason", "follow-up"], human)).toBe(EXIT.ok);
+      expect(posts("/lane/reopen")[0]!.body).toEqual({ expectedReceiptId: "RC2", agentId: "agent-1", verbs: ["tasks:read", "submissions:create"], expiresAt: "2026-10-23T00:00:00Z", reason: "follow-up" });
+      expect(outText).toMatch(/Landings: +2/);
+      expect(outText).toContain("--lane materialized --intent-version 3 --bootstrap-file");
+      expect(outText).not.toContain("--read");
+      expect(outText + errText).not.toContain("reopen-bootstrap-secret");
+    });
+
+    it.each([
+      [409, "lane-not-reopenable", { reason: "not-a-wrap-up" }, "did not come from a lane wrap-up", EXIT.failure],
+      [409, "idempotency-result-expired", undefined, "without --idempotency-key", EXIT.failure],
+      [409, "fenced", undefined, "landing on this target is in progress", EXIT.failure],
+      [403, "human-required", undefined, "human-required", EXIT.humanRequired],
+    ])("explains a %s %s refusal", async (status, code, details, text, exit) => {
+      routes["POST /tasks/T1/lane/reopen"] = () => problem(status, code, details);
+      expect(await cli(args, human)).toBe(exit);
+      expect(errText).toContain(code);
+      expect(errText).toContain(text);
+      // No bootstrap was stored.
+      expect(existsSync(join(work, "cfg")) && readdirSync(join(work, "cfg"), { recursive: true }).some((f) => String(f).includes("bootstrap-"))).toBe(false);
+    });
+  });
+
+  describe("claiming a reopened lane", () => {
+    const claimArgs = ["task", "claim", "T1", "--lane", "materialized", "--intent-version", "3"];
+    const reopenedClaim = (provisioningState: string) => () => json(provisioningState === "pending" ? 202 : 201, {
+      claim: { id: "C3", taskId: "T1", status: "active", provisioningState, lane: { kind: "materialized", executionId: "X2", generation: 1, baseSha, scopeVersion: 1, scope, laneHead: SHA("landed"), reopenId: "RO1" } },
+      delegation: { delegationId: "D3", accessToken: "reopenedAgentCredential", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
+
+    it("claims with the reopen bootstrap without a scope, and points at lane materialize", async () => {
+      const file = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "boot") }, { apiUrl: API, token: "reopen-boot", kind: "bootstrap", agentId: "agent-1" });
+      routes["POST /tasks/T1/claim"] = reopenedClaim("pending");
+      expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.ok);
+      const claim = posts("/claim")[0]!;
+      expect(claim.body).toEqual({ intentVersion: 3, laneKind: "materialized" });
+      expect(claim.headers.authorization ?? claim.headers.Authorization).toBe("Bearer reopen-boot");
+      expect(outText).toMatch(/Reopen: +RO1/);
+      expect(outText).toMatch(/Read: +src\/, README\.md/);
+      expect(outText).toContain("pending");
+      expect(outText).toContain("octocove lane materialize T1 DIR");
+      expect(outText + errText).not.toContain("reopenedAgentCredential");
+    });
+
+    it("still requires a scope without a bootstrap, and explains lane-reopen-required", async () => {
+      expect(await cli(claimArgs)).toBe(EXIT.usage);
+      expect(posts("/claim")).toHaveLength(0);
+      routes["POST /tasks/T1/claim"] = () => problem(409, "lane-reopen-required");
+      expect(await cli([...claimArgs, "--read", "src/", "--write", "src/"])).toBe(EXIT.failure);
+      expect(errText).toContain("only the bootstrap `octocove lane reopen` stored admits a claim");
+    });
+  });
+
+  describe("lane materialize on the newer server", () => {
+    it("resumes a lane repository still settling under the same key, and reports the reopen it continues", async () => {
+      const ok = routes["POST /tasks/T1/lane/materialize"]!;
+      let unavailable = 2;
+      routes["POST /tasks/T1/lane/materialize"] = (c) => {
+        if (unavailable-- > 0) return problem(503, "lane-repository-unavailable", undefined, 1);
+        const r = ok(c);
+        return r.json().then((b: any) => json(r.status, { ...b, reopenId: "RO1" })) as never;
+      };
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const keys = posts("/lane/materialize").map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"]);
+      expect(keys).toHaveLength(3);
+      expect(new Set(keys).size).toBe(1);
+      expect(errText).toContain("still settling");
+      expect(outText).toMatch(/Reopen: +RO1/);
+      expect(sidecar().laneHead).toBe(head);
+    });
+
+    it("--handover takes the open execution and stores the new execution's delegation privately", async () => {
+      const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+      await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "cfg") }, { apiUrl: API, token: "tok", kind: "agent", delegationId: "D1", agentId: "agent-1", absoluteExpiresAt: "2099-01-01T00:00:00Z" });
+      let busy = 1;
+      routes["POST /tasks/T1/lane/executions"] = (c) => {
+        expect(c.body).toEqual({});
+        if (busy-- > 0) return problem(409, "operation-in-progress", { retryable: true });
+        return json(201, { claimAttemptId: "C1", executionId: "X2", executionNumber: 2, generation: 1, kind: "initial", baseSha: base1, scopeVersion: 1, scope, laneHead: head, previousHead: head,
+          supersededExecutionId: "X1", delegation: { delegationId: "D1", accessToken: "handover-secret", tokenType: "Bearer", expiresAt, revocationId: "RV2" } });
+      };
+      expect(await cli(["lane", "materialize", "T1", "--handover", "--json"], { credentials: undefined })).toBe(EXIT.ok);
+      const begins = posts("/lane/executions");
+      expect(begins).toHaveLength(2);
+      expect(new Set(begins.map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"])).size).toBe(1);
+      expect(errText).toContain("still settling");
+      // Every later request of the command presents the new execution's credential.
+      const auth = (c: Call) => new Headers(c.headers).get("authorization");
+      expect(auth(begins[0]!)).toBe("Bearer tok");
+      expect(auth(posts("/lane/materialize")[0]!)).toBe("Bearer handover-secret");
+      const r = JSON.parse(outText);
+      expect(r.handover).toMatchObject({ executionId: "X2", supersededExecutionId: "X1", credentialRotated: true });
+      expect(outText + errText).not.toContain("handover-secret");
+      const stored = JSON.parse(readFileSync(r.handover.credentialsFile, "utf8"));
+      expect(stored).toMatchObject({ token: "handover-secret", kind: "agent", delegationId: "D1", agentId: "agent-1", expiresAt, absoluteExpiresAt: "2099-01-01T00:00:00Z" });
+      expect(sidecar().laneHead).toBe(head);
+    });
+
+    it("a handover replayed with the new credential keeps it unchanged", async () => {
+      routes["POST /tasks/T1/lane/executions"] = () => json(201, { claimAttemptId: "C1", executionId: "X2", executionNumber: 2, generation: 1, kind: "initial", baseSha: base1, scopeVersion: 1, scope, supersededExecutionId: "X1" });
+      expect(await cli(["lane", "materialize", "T1", "--handover"])).toBe(EXIT.ok);
+      expect(outText).toContain("unchanged (this credential already belongs to the new execution)");
+    });
+
+    it("explains execution-superseded: another environment took the lane", async () => {
+      await cli(["lane", "materialize", "T1"]);
+      routes["POST /tasks/T1/lane/changes"] = () => problem(409, "execution-superseded", { executionId: "X1" });
+      writeFileSync(join(dir, "src/a.txt"), "alpha stale\n");
+      expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
+      expect(errText).toContain("execution (X1) was handed over to another environment");
+      expect(errText).toContain("octocove lane patch");
+      expect(read("src/a.txt")).toBe("alpha stale\n");
+    });
+
+    it("surfaces GitHub's REST budget with its Retry-After when it runs past the deadline; nothing is written", async () => {
+      routes["POST /tasks/T1/lane/materialize"] = () => problem(429, "rate-limited", { reason: "provider-rest-budget" }, 1800);
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+      expect(errText).toContain("rate-limited");
+      expect(errText).toContain("REST budget is low");
+      expect(errText).toContain("after 1800 s");
+      expect(existsSync(join(dir, SIDECAR))).toBe(false);
+    });
+
+    it("reads a lane file again after a 429's Retry-After", async () => {
+      const ok = routes["GET /tasks/T1/lane/blob"]!;
+      let limited = 1;
+      routes["GET /tasks/T1/lane/blob"] = (c) => limited-- > 0 ? problem(429, "rate-limited", { reason: "provider-rest-budget" }, 2) : ok(c);
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect(slept).toContain(2000);
+      expect(read("src/a.txt")).toBe("alpha\n");
+    });
+
+    it("explains a 413 rest-budget refusal as a scope to narrow", async () => {
+      routes["POST /tasks/T1/lane/materialize"] = () => problem(413, "materialization-too-large", { reason: "rest-budget", requests: 2600, limit: 2500 });
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+      expect(errText).toContain("more GitHub requests than one operation may make");
+      expect(errText).toContain("narrower --read scope");
+    });
+  });
+});
+
+describe("lane repository state, write scope and retirement", () => {
+  const human = { credentials: { apiUrl: API, token: "session", kind: "human" as const } };
+  const laneRepository = { laneRepositoryId: "LR1", state: "ready", failureReason: null, claimAttemptId: "C1", materializedAt: "2026-10-22T00:00:00Z", retiredAt: null,
+    laneHead: SHA("lane-head"), latestWrapUp: { id: "W2", submissionId: "S2", candidateId: "K2", candidateStatus: "stale" }, latestReceiptId: "RC1", openReopenId: "RO1",
+    unresolvedConflict: { source: "wrap-up", claimAttemptId: "C1", refusedAt: "2026-10-22T01:00:00Z", oldBaseSha: base1, newBaseSha: base2, conflictCount: 7,
+      conflicts: ["a", "b", "c", "d", "e", "f"].map((n) => ({ path: `src/${n}.txt`, kind: "modify/modify" })) } };
+
+  it("task show prints the task's lane repository", async () => {
+    routes["GET /tasks/T1"] = () => json(200, { id: "T1", projectId: "P1", status: "reopened", intentVersion: 3, intent: { title: "T" }, acceptedReceiptId: "RC0", latestReceiptId: "RC1", landingCount: 2, liveAttempt: {}, laneRepository });
+    expect(await cli(["task", "show", "T1"], human)).toBe(EXIT.ok);
+    expect(outText).toMatch(/Lane repository: +LR1 \(ready\)/);
+    expect(outText).toMatch(/Latest wrap-up: +W2: candidate K2 \(stale\)/);
+    expect(outText).toMatch(/Open reopen: +RO1/);
+    expect(outText).toContain("wrap-up refused at 2026-10-22T01:00:00Z: 7 path(s) (src/a.txt, src/b.txt, src/c.txt, src/d.txt, src/e.txt, ...)");
+  });
+
+  it("lane status adds the server's lane repository to the directory's state, and survives a failed read", async () => {
+    await cli(["lane", "materialize", "T1"]);
+    const task = routes["GET /tasks/T1"]!;
+    routes["GET /tasks/T1"] = (c) => task(c).json().then((b: any) => json(200, { ...b, laneRepository: { ...laneRepository, state: "failed", failureReason: "snapshot-mismatch", unresolvedConflict: null } })) as never;
+    expect(await cli(["lane", "status"])).toBe(EXIT.ok);
+    expect(outText).toMatch(/Lane repository: +LR1 \(failed: snapshot-mismatch\)/);
+    expect(outText).toMatch(/Unresolved conflict: +\(none\)/);
+    expect(outText).toMatch(/Server lane head:/);
+    routes["GET /tasks/T1"] = () => problem(403, "forbidden");
+    expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+    expect(JSON.parse(outText)).toMatchObject({ taskId: "T1", laneRepositoryError: "forbidden" });
+  });
+
+  it("a claim refused write-scope-claimed says nothing was recorded and that the holder is not named", async () => {
+    routes["POST /tasks/T1/claim"] = () => problem(409, "write-scope-claimed", { requested: ["src/app/"] });
+    expect(await cli(["task", "claim", "T1", "--lane", "materialized", "--read", "src/", "--write", "src/app/", "--intent-version", "3"])).toBe(EXIT.failure);
+    expect(errText).toContain("overlapping write scope for src/app/, so nothing was recorded");
+    expect(errText).toContain("the holder is named only to a project member");
+  });
+
+  describe("lane retire", () => {
+    it("retires a materialized lane and prints each lane repository", async () => {
+      routes["POST /tasks/T1/lane/retire"] = (c) => { expect(c.body).toEqual({}); return json(202, { phase: "retiring", laneRepositories: [{ id: "LR1", state: "retiring", materializedAt: "2026-10-22T00:00:00Z", retiredAt: null }] }); };
+      expect(await cli(["lane", "retire", "T1"], human)).toBe(EXIT.ok);
+      expect(outText).toMatch(/Phase: +retiring \(deletion is confirmed by the server/);
+      expect(outText).toMatch(/Lane repository: +LR1 \(retiring\)/);
+      routes["POST /tasks/T1/lane/retire"] = () => json(200, { phase: "retired", laneRepositories: [{ id: "LR1", state: "retired", materializedAt: "2026-10-22T00:00:00Z", retiredAt: "2026-10-22T02:00:00Z" }] });
+      expect(await cli(["lane", "retire", "--task", "T1", "--json"], human)).toBe(EXIT.ok);
+      expect(JSON.parse(outText)).toMatchObject({ type: "lane.retire", taskId: "T1", data: { phase: "retired", laneRepositories: [{ id: "LR1", state: "retired" }] } });
+    });
+
+    it("explains lane-retention-pending by its reason", async () => {
+      routes["POST /tasks/T1/lane/retire"] = () => problem(409, "lane-retention-pending", { reason: "claim-active", laneRepositoryId: "LR1" });
+      expect(await cli(["lane", "retire", "T1"], human)).toBe(EXIT.failure);
+      expect(errText).toContain("a claim of the task is still active");
+      expect(errText).toContain("Nothing was deleted. Run the same command again once it settles.");
+      routes["POST /tasks/T1/lane/retire"] = () => problem(409, "lane-retention-pending", { reason: "task-not-terminal", laneRepositoryId: "LR1" });
+      expect(await cli(["lane", "retire", "T1"], human)).toBe(EXIT.failure);
+      expect(errText).toContain("only after its task is final");
+      expect(errText).not.toContain("once it settles");
+    });
+
+    it("explains lane-retired on a lane head read, and refuses an agent before anything is sent", async () => {
+      routes["POST /tasks/T1/lane/materialize"] = () => problem(409, "lane-retired", { laneRepositoryId: "LR1", retiredAt: "2026-10-22T02:00:00Z" });
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.failure);
+      expect(errText).toContain("This lane was retired");
+      expect(await cli(["lane", "retire", "T1"])).toBe(EXIT.humanRequired);
+      expect(posts("/lane/retire")).toHaveLength(0);
     });
   });
 });

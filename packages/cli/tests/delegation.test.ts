@@ -43,9 +43,13 @@ it.each([110000,-1000])('renews proactively at %s ms remaining',async(ms)=>{
   const f=await fixture({expiresAt:future(ms),absoluteExpiresAt:future(3600000),claimExpiresAt:future(1800000)});
   expect(await run(f.deps),f.output).toBe(0); expect(f.calls[0]?.path).toBe('/v1/delegations/D1/renew'); expect(f.rotations).toBe(1);
 });
-it('old stores use JWT expiry only as a scheduling hint',async()=>{
+it('without a stored expiry, renewal is scheduled from the issue time, never from the token',async()=>{
+  const issued=await fixture({issuedAt:future(-14*60000)});expect(await run(issued.deps),issued.output).toBe(0);
+  expect(issued.calls[0]?.path).toBe('/v1/delegations/D1/renew');expect(issued.rotations).toBe(1);
+  // A token that looks like a JWT about to expire is opaque: it renews only on the server's expiry answer.
   const token='x.'+Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+60})).toString('base64url')+'.x';
-  const f=await fixture({token});expect(await run(f.deps),f.output).toBe(0);expect(f.rotations).toBe(1);
+  const opaque=await fixture({token});opaque.deps.fetch=async(url,init)=>new URL(url).pathname.endsWith('/renew')?Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),tokenType:'Bearer'}):Response.json({items:[]});
+  expect(await run(opaque.deps),opaque.output).toBe(0);expect(opaque.rotations).toBe(0);
 });
 it.each(['absoluteExpiresAt','claimExpiresAt'] as const)('never renews beyond %s',async(field)=>{
   const f=await fixture({[field]:future(-1000)});expect(await run(f.deps)).not.toBe(0);expect(f.calls).toEqual([]);expect(f.output).toContain('new task authorization');expect(f.output).not.toContain('octocove login');

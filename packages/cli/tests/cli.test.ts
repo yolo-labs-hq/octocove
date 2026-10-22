@@ -1155,7 +1155,7 @@ describe("presenter output", () => {
   beforeEach(() => {
     routes["GET /submissions/S1/candidate"] = () => json(200, view);
     routes["GET /receipts/R1"] = () => json(200, receipt);
-    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } });
+    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "landed", acceptedReceiptId: "R1", latestReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } });
     routes["GET /projects/P1/landings"] = () => json(200, { items: [{ receiptId: "R1", taskId: "T1", candidateSha: SHA_A,
       approvedBy: "issuer|reviewer", approvedAt: "2030-01-01T00:00:00Z", actor: { type: "human", id: "issuer|requester" } }], nextCursor: null });
   });
@@ -1207,10 +1207,36 @@ describe("presenter output", () => {
     expect(outText).not.toContain("Live attempt");
     expect(outText).not.toContain("null");
   });
+  it("a task that landed again after a reopen shows its newest landing, and both commands print the landing number", async () => {
+    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "landed", acceptedReceiptId: "R0", latestReceiptId: "R1", landingCount: 2, liveAttempt: { claimId: null, candidateId: null } });
+    routes["GET /receipts/R1"] = () => json(200, { ...receipt, landingNumber: 2 });
+    routes["GET /projects/P1/landings"] = () => json(200, { items: [
+      { receiptId: "R0", taskId: "T1", candidateSha: SHA_B, approvedBy: "first-reviewer", approvedAt: "2030-01-01T00:00:00Z", landingNumber: 1 },
+      { receiptId: "R1", taskId: "T1", candidateSha: SHA_A, approvedBy: "issuer|reviewer", approvedAt: "2030-01-02T00:00:00Z", landingNumber: 2 }], nextCursor: null });
+    expect(await cli(["task", "show", "T1"])).toBe(EXIT.ok);
+    expect(outText).toContain("Landed (newest landing)\n");
+    expect(outText).toContain("Receipt ID:       R1");
+    expect(outText).toContain("Landings:         2 (first: R0)");
+    expect(await cli(["receipt", "show", "R1"])).toBe(EXIT.ok);
+    expect(outText).toContain("Landing number:   2");
+    expect(outText).toContain("Approved by:      issuer|reviewer");
+    expect(await cli(["candidate", "show", "--submission", "S1"])).toBe(EXIT.ok);
+    expect(outText).toContain("Approved by:      issuer|reviewer");
+    expect(outText).toContain("Landing number:   2");
+    expect(outText).not.toContain("first-reviewer");
+  });
+  it("a reopened task shows the landing it continues from", async () => {
+    routes["GET /tasks/T1"] = () => json(200, { ...task, status: "reopened", acceptedReceiptId: "R1", latestReceiptId: "R1", landingCount: 1, liveAttempt: { claimId: null, candidateId: null } });
+    expect(await cli(["task", "show", "T1"])).toBe(EXIT.ok);
+    expect(outText).toMatch(/Status: +reopened/);
+    expect(outText).toContain("Reopened after landing\n");
+    expect(outText).toContain("Receipt ID:       R1");
+    expect(outText).not.toContain("Landings:");
+  });
   it("preserves JSON bytes and performs no presenter enrichment", async () => {
     const cases: [string[], any][] = [
       [["candidate", "show", "--submission", "S1"], view], [["receipt", "show", "R1"], receipt],
-      [["task", "show", "T1"], { ...task, status: "landed", acceptedReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } }],
+      [["task", "show", "T1"], { ...task, status: "landed", acceptedReceiptId: "R1", latestReceiptId: "R1", liveAttempt: { claimId: null, candidateId: null } }],
     ];
     for (const [args, body] of cases) {
       calls = [];
