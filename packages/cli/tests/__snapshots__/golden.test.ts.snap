@@ -251,7 +251,7 @@ Commands:
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
-  repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts remote)
+  repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
   auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator)
