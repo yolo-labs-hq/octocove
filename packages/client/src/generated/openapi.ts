@@ -528,7 +528,7 @@ export interface paths {
         put?: never;
         /**
          * Reject a task
-         * @description Human tasks:edit required. Refuses terminal tasks and held fences. Invalidates active approval, rejects active candidate, revokes active claim and schedules retention-aware cleanup, with a separate audit for each entity. Expected task status and current intent version are mandatory; mismatch is 409. Same principal, route and Idempotency-Key with identical input returns the committed response without new audit rows; different input conflicts.
+         * @description Human tasks:edit required. Refuses terminal tasks and held fences. Invalidates active approval, rejects active candidate, revokes active claim and schedules retention-aware cleanup, with a separate audit for each entity. Expected task status and current intent version are mandatory; mismatch is 409. Same principal, route and Idempotency-Key with identical input returns the committed response without new audit rows; different input conflicts. Planned: on a task that has landed and was reopened, reject ends the reopened work instead - the same invalidation, rejection and revocation - and returns the task to landed; its landings, receipts and accepted result stand.
          */
         post: operations["taskReject"];
         delete?: never;
@@ -548,7 +548,7 @@ export interface paths {
         put?: never;
         /**
          * Supersede a task
-         * @description Human tasks:edit required. As task rejection, with a distinct replacement in the same project. Records superseded_by_task_id; accepted results and history remain immutable. Expected task status and current intent version are mandatory; mismatch is 409. Same principal, route and Idempotency-Key with identical input returns the committed response without new audit rows; different input conflicts.
+         * @description Human tasks:edit required. As task rejection, with a distinct replacement in the same project. Records superseded_by_task_id; accepted results and history remain immutable. Planned: a task that has landed is never superseded, even while reopened (409 task-closed). Expected task status and current intent version are mandatory; mismatch is 409. Same principal, route and Idempotency-Key with identical input returns the committed response without new audit rows; different input conflicts.
          */
         post: operations["taskSupersede"];
         delete?: never;
@@ -805,7 +805,7 @@ export interface paths {
         put?: never;
         /**
          * Begin a new execution attempt for a materialized claim (preview)
-         * @description The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope. 409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown; 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles.
+         * @description The claim's own agent (submissions:create) starts a new attempt when no execution is open (after a release or revocation ended the previous one). Generation 1 is created at the target ref's pinned head with the latest granted scope. 409 execution-active when an attempt is open; 409 claim-inactive; 409 base-unknown; 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles. On a lane with a lane repository the new execution inherits the lane head and stays pinned to the lane's base and scope version (no rebase unless the agent asks; a later base-refreshed request rebases), through a head transition that keeps the head and pairs generation 1 with the snapshot the head was built on, and the answer carries laneHead and previousHead (equal). This is how a second agent environment on the same live claim continues the work. 409 operation-in-progress (retryable) while the lane repository is still being created or a save point is in flight.
          */
         post: operations["laneExecutionBegin"];
         delete?: never;
@@ -825,7 +825,7 @@ export interface paths {
         put?: never;
         /**
          * Create a new materialization generation (preview)
-         * @description Scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded. A scope-expanded generation answers 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles.
+         * @description Scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded. A scope-expanded generation answers 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles. On a lane with a lane repository, a generation is a journaled head transition (the claim's own agent only). base-refreshed happens only on this explicit request and rebases the lane head - a new complete snapshot at the new base, then one rebase commit (parent the old head) replaying the lane's net change. A lane-changed path that also changed upstream (the same path, or one an ancestor of the other, including type changes) refuses the refresh with 409 refresh-conflict listing every conflict (details.conflicts); retry under a new key with one resolution per listed path. Resolutions are accepted only for listed paths, take content needs an uploaded blobId, a resolution writes only inside the write scope (403 scope-refused), and the rebase commit records every resolution; 400 invalid-request (details.field resolutions, details.reason not-a-conflict or duplicate-path) for a resolution naming another path or a path twice, 404 blob-unknown for content naming no uploaded blob. scope-expanded adds the newly readable paths to the snapshot and the head as one commit (a newly readable path colliding with the lane's own change answers 409 refresh-conflict; scope expansion takes no resolutions, 400). expectedHead, when sent, must be the current lane head (409 lane-head-moved, details.laneHead). 409 operation-in-progress (retryable) while another transition settles; 413 materialization-too-large when the new snapshot's listing is incomplete (details.reason listing-truncated, head-listing-truncated or bytes); 503 lane-repository-unavailable (retryable with the same key; the journal resumes, as does the task alarm). The same key replays a recorded answer; another body under it is 409 idempotency-conflict. 409 lane-head-moved also when the lane ref moved under the transition, 409 authority-lost when the claim, delegation or execution ended before the lane ref moved; once it moved, the transition is undone instead (409 operation-in-progress until the task alarm has put the ref back, then a replay answers 409 change-failed, details.reason authority-lost), 409 change-failed (details.reason) when a replayed transition failed terminally. The answer carries laneHead, previousHead and, for base-refreshed, the resolutions applied. Before lane/materialize, resolutions and expectedHead answer 409 lane-not-materialized and the generation behaves as today.
          */
         post: operations["laneGenerationCreate"];
         delete?: never;
@@ -843,7 +843,7 @@ export interface paths {
         };
         /**
          * Read a generation's manifest (preview)
-         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that.
+         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that. Once the lane is materialized the manifest lists the lane head (the snapshot plus every save point) instead of the base and carries laneHead; baseSha stays the generation's pinned base. Gitlinks are not lane content, so the base's gitlinks inside the read scope are listed with the head's entries, unless the head has an entry at, below or above that path. Before materialization laneHead is null and the entries are the base's, as today. head pins the read to one lane commit of the open generation's recorded lineage - its snapshot, the head a new execution inherited, or a recorded save point (409 generation-superseded for any other commit; 409 lane-not-materialized before materialization; 400 when malformed); without it the current head is served. 503 lane-repository-unavailable (retryable) while the lane repository cannot be read.
          */
         get: operations["laneManifestGet"];
         put?: never;
@@ -863,7 +863,7 @@ export interface paths {
         };
         /**
          * Read a generation's manifest by its immutable address (preview)
-         * @description The same manifest as laneManifestGet for exactly the named execution's generation of a materialized claim of this task, for a project member with tasks:read; agent delegations are refused. A generation stays addressable after it is superseded, its execution ended or a newer execution started; the route never falls back to another execution or generation (404 not-found when the pair does not exist on this task). A materialized candidate's provenance names its executionId and generation.
+         * @description The same manifest as laneManifestGet for exactly the named execution's generation of a materialized claim of this task, for a project member with tasks:read; agent delegations are refused. A generation stays addressable after it is superseded, its execution ended or a newer execution started; the route never falls back to another execution or generation (404 not-found when the pair does not exist on this task). A materialized candidate's provenance names its executionId and generation. Once the lane is materialized it lists that generation's newest recorded lane state - the lane head for the open generation - with laneHead; before that, the base with laneHead null.
          */
         get: operations["laneGenerationManifestGet"];
         put?: never;
@@ -883,7 +883,7 @@ export interface paths {
         };
         /**
          * Read one blob inside the generation's read scope (preview)
-         * @description A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content.
+         * @description A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content. Once the lane is materialized the blob is read at the lane head, or at head when given - pass the manifest's laneHead so a multi-file download is consistent even if the head moves meanwhile (409 generation-superseded for a commit outside the open generation's recorded lineage; 409 lane-not-materialized for head before materialization). A path absent at that head is 404; a gitlink of the base the head does not replace is answered from the base. The answer carries laneHead, null before materialization; 503 lane-repository-unavailable (retryable) while the lane repository cannot be read. base instead reads the upstream side of a conflict - the file at the canonical commit a 409 refresh-conflict named in details.newBaseSha (or the generation's pinned base, details.oldBaseSha) - so a client can build a content resolution; still limited to the read scope.
          */
         get: operations["laneBlobGet"];
         put?: never;
@@ -969,9 +969,69 @@ export interface paths {
         put?: never;
         /**
          * Submit explicit file operations against a generation (preview)
-         * @description The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 scope-overlap (details.path) when an operation's path lies inside the write scope of another active materialized lane on the same repository and target (or at the directory such a prefix names); 409 authority-lost when the claim, its delegation, the agent's membership or the lane execution ended while the change was in flight. Both are re-checked before the commit and again before the contribution ref, so a refused change never creates the ref (Git objects already written stay unreferenced); a retry of a change refused after its journal entry answers 409 change-failed (reason scope-overlap or authority-lost); 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet.
+         * @description The claim's agent names the open generation and a list of put and delete operations inside the write scope, each put naming an uploaded blob. The server validates every operation before any write (403 scope-refused, 400 for traversal, duplicates or an unsupported mode, 404 blob-unknown, 409 generation-superseded), journals the change, writes one commit on the generation's base through the repository provider and a create-only contribution ref, then records a submission and its candidate. The commit carries only the task, submission and intent-version trailers. The same key with the same operations replays the same ids without a provider write; the same key with other operations is 409 idempotency-conflict. 409 fenced while a landing fence is held; 409 intent-version-mismatch when the intent moved; 409 contribution-ref-conflict when the ref exists at another commit; 409 scope-overlap (details.path) when an operation's path lies inside the write scope of another active materialized lane on the same repository and target (or at the directory such a prefix names); 409 authority-lost when the claim, its delegation, the agent's membership or the lane execution ended while the change was in flight. Both are re-checked before the commit and again before the contribution ref, so a refused change never creates the ref (Git objects already written stay unreferenced); a retry of a change refused after its journal entry answers 409 change-failed (reason scope-overlap or authority-lost); 409 change-failed replays a change that failed for one of these reasons; 409 repository-provider-unsupported where the provider has no object writer yet. Save points. On a lane of an Artifacts canonical that has a lane repository (after lane/materialize) a changes submission is a save point, not a submission or a candidate - one commit on the lane branch whose parent is the previous lane head and whose tree is that head plus the operations (cumulative), with the agent's message. The request must carry expectedHead, the lane head the operations were made against (400 invalid-request, details.field expectedHead, when it is missing; nothing is written). A put below a file or symlink of the head replaces that entry with a directory, so the entry must be inside the write scope too (403 scope-refused, details.path, before any write). The journal records the key, the operation digest, expectedHead and the precomputed lane commit before any write; the head moves only by an expected-old update from expectedHead, serialized per claim. A new key whose expectedHead is not the current head answers 409 lane-head-moved (details.laneHead); the same key with the same body replays the recorded answer even after the head moved; a save point that failed terminally replays as 409 change-failed (details.reason). The answer is a LaneSavePoint with no candidate; a save point after a wrap-up supersedes that wrap-up's candidate (supersededCandidateId, in the same record batch; its approvals are invalidated). 409 operation-in-progress (retryable) while the lane repository is being created, another save point is in flight or a head transition settles; 409 authority-lost when the claim, delegation, membership or execution ended before the write; 503 lane-repository-unavailable (retryable with the same key; the journal resumes, also from the task alarm). On an Artifacts canonical a lane that was never materialized answers 409 lane-not-materialized; on a GitHub canonical the route keeps its current behaviour (a candidate per submission), with or without a lane repository, until the one-model convergence replaces it, and expectedHead is then ignored.
          */
         post: operations["laneChangesSubmit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/materialize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create the lane repository for the open generation
+         * @description The claim's agent explicitly materializes its lane: the first call creates the scoped lane repository for the open generation (create, reconcile by name, write the snapshot of the generation's base restricted to the read scope, set the lane head). Idempotent per claim: every later call, including one after a refresh, a scope expansion or a new execution, answers the current generation, base and lane head and never re-seeds the repository or resets the head (200). The body is empty; the claim and execution come from the delegation. A snapshot is written only from a complete listing of the read scope; a listing truncated by the entry or tree-read limits answers 413 materialization-too-large and nothing is created, so narrow the read scope. 409 execution-inactive without an open execution; 409 claim-inactive; 409 operation-in-progress (retryable) while a head transition is settling; 503 lane-repository-unavailable (retryable with the same key) while the lane repository cannot be reached. Never returns a lane repository URL or a credential. A lane that never calls this route never gets a repository; its reads serve the pinned base. The snapshot holds every file and symlink of the read scope (gitlinks are not lane content); a read scope whose content cannot fit one 16 MiB pack also answers 413 materialization-too-large (details.reason bytes; listing-truncated otherwise). 409 repository-provider-unsupported on a canonical other than Artifacts or GitHub; 409 change-failed (details.reason) once an earlier materialization of this claim failed terminally. A new generation on a lane with a lane repository is a journaled head transition (refresh or scope expansion); a new execution inherits the lane head.
+         */
+        post: operations["laneMaterialize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/wrap-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Squash the lane into one candidate on the canonical's current head
+         * @description The claim's agent wraps up a materialized lane of an Artifacts canonical: Octocove squashes the lane's net change (the generation's snapshot against the lane head) onto the canonical target's current head (the head the record observed, which approval binds and landing moves from), not the pinned base, into one commit whose only parent is that head; writes it under a create-only contribution ref and reads it back; and records one submission and its candidate. Only wrap-up candidates are reviewed, approved and landed. The commit message is squash-style - the request's message, or the first save point's, as subject; one `* <save point message>` line per save point; then an Octocove trailer block (Octocove-Task, Octocove-Submission, Octocove-Intent-Version, Octocove-Lane-Head). Agent lines that look like Octocove trailers are escaped, control characters are stripped, and the message is capped at 64 KiB by dropping the oldest save-point lines first in favour of `(N earlier save points)`. 409 lane-head-moved (details.laneHead) unless laneHead is the current lane head; 409 nothing-to-wrap-up when the head's tree equals the snapshot's (details.reason no-changes) or the task's active candidate already squashes this lane head onto the current canonical head (details.reason already-wrapped-up, details.candidateId). When a path changed in the lane also changed upstream (pinned base to current head; the same path, or one path an ancestor of the other, including type changes) the answer is 409 refresh-conflict with details.conflicts; retry under a new key with one resolution per listed path. Nothing is chosen silently and the lane head never moves on wrap-up. A diff that cannot be read completely within the limits answers 413 wrap-up-too-large; a changed path outside the write scope 403 scope-refused; an overlap 409 scope-overlap; 409 lane-not-materialized before lane/materialize; 409 generation-superseded; 409 fenced while a landing fence is held; 409 intent-version-mismatch; 409 contribution-ref-conflict; 409 operation-in-progress (retryable); 503 lane-repository-unavailable (retryable with the same key). Journal first, like changes: the same key with the same body replays the recorded answer, even after the head or the canonical moved. A new wrap-up supersedes the task's earlier wrap-up candidate by the existing invalidation rule; when the canonical moves after wrap-up the candidate turns stale and a new wrap-up re-squashes onto the new head for a new exact approval. Squashing onto that head with nothing left to change (the canonical already holds the lane's result) is also nothing-to-wrap-up (no-changes). 400 invalid-request (details.field) for a malformed body, a resolution that is malformed, duplicated or for a path the conflict list does not name; 403 scope-refused for a lane or content resolution outside the write scope; 404 blob-unknown for a content resolution's blob; 409 base-unknown (retryable) before the canonical head is observed; 409 repository-provider-unsupported (details.reason wrap-up) on a canonical other than Artifacts (a GitHub lane keeps the changes path for now). Landing a wrap-up candidate on Artifacts is not available yet; until then candidate actions report provider-landing-unsupported. A provider's definitive refusal of the contribution ref write fails the wrap-up terminally (the same key then replays 409 change-failed with details.reason).
+         */
+        post: operations["laneWrapUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tasks/{id}/lane/reopen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reopen a landed materialized lane for more work (planned)
+         * @description Planned; not mounted yet. A human reopens a landed task whose last landing came from a materialized lane with a lane repository, and in the same command authorizes one agent for the reopened lane (the fresh delegation a reopened lane requires). The same command re-authorizes a task that is already reopened and has no active claim (its previous reopened claim ended with save points not yet wrapped up); that continuation keeps the lane head and its base exactly as they are, so saved work is never dropped. The caller must be a project member holding tasks:edit and tasks:claim and every verb it delegates, as for claimAuthorize; agent delegations and machine callers are refused (403 human-required) and approval is never delegable. expectedReceiptId must be the task's newest landed receipt (409 expected-state-mismatch otherwise). The task moves landed -> reopened; its earlier receipts, approvals and candidates are unchanged, and acceptedReceiptId keeps naming the first landing. On a reopened task expectedReceiptId is still the newest landed receipt. The answer reserves a new materialized claim attempt for the agent, bound to the same lane repository and the latest granted scope, and returns a five-minute one-use bootstrap; the agent claims with it through POST /tasks/{id}/claim (laneKind materialized). That claim's execution continues the lane. On a reopen from landed the lane head is the landed wrap-up's laneHead (any later save point would have superseded that candidate), and generation 1 is opened by a journaled head transition onto the post-landing canonical head, which already contains the landed squash, so the new head's tree is the new snapshot (this rebase cannot conflict and drops nothing); the next wrap-up carries only new work, and the lane history continues (save points, squash 1 landed, reopen, save points, squash 2). The claim answer's lane block carries laneHead and reopenId. Reopen re-runs the overlap and activation guard over the write scope (409 scope-overlap, with details.retryable while another lane's change is unsettled). 409 lane-not-reopenable when the task never landed a materialized wrap-up, its lane repository was retired, or another task now owns the lane; 409 task-closed for a rejected or superseded task; 409 already-claimed while an active claim exists; 409 fenced while a landing fence is held. Each later landing is its own candidate, exact approval, receipt and export.
+         */
+        post: operations["laneReopen"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2091,8 +2151,11 @@ export interface components {
             /** @description Code-specific structured details. `stale-base` sends either no details or StaleFenceDetails; every other code sends ProblemDetails. Select a typed view by `code` and check it at runtime; tolerate fields not declared here. */
             details?: components["schemas"]["StaleFenceDetails"] | components["schemas"]["ProblemDetails"];
         };
-        /** @enum {string} */
-        TaskStatus: "draft" | "ready" | "claimed" | "submitted" | "candidate" | "approved" | "landing" | "landed" | "rejected" | "superseded";
+        /**
+         * @description Reopened is planned and never returned today - a landed task whose materialized lane a human reopened for more work; it leaves reopened for submitted at the next wrap-up, or returns to landed when the reopen ends with no save point since it. Clients treat an unknown status as not actionable.
+         * @enum {string}
+         */
+        TaskStatus: "draft" | "ready" | "claimed" | "submitted" | "candidate" | "approved" | "landing" | "landed" | "rejected" | "superseded" | "reopened";
         DependencyResult: {
             upstreamTaskId: components["schemas"]["Id"];
             receiptId: components["schemas"]["Id"];
@@ -2119,7 +2182,12 @@ export interface components {
             targetRef: string;
             canonicalHeadSha: components["schemas"]["Sha"] | null;
             dependencies: components["schemas"]["DependencyState"][];
+            /** @description The receipt of the task's first landing; write-once. A reopened task keeps it. */
             acceptedReceiptId: components["schemas"]["Id"] | null;
+            /** @description Planned. The receipt of the task's newest landing; equals acceptedReceiptId until a reopened lane lands again. */
+            latestReceiptId?: components["schemas"]["Id"] | null;
+            /** @description Planned. How many times the task landed; more than 1 only after a reopen. */
+            landingCount?: number;
             /** @description Preview. Present when the task's active claim is a materialized lane. */
             lane?: components["schemas"]["MaterializedLane"];
             liveAttempt: {
@@ -2421,6 +2489,8 @@ export interface components {
             };
             integratorRunId: components["schemas"]["Id"];
             ancestryVerified: boolean;
+            /** @description Planned. This landing's position among the task's landings (1 for the first); a reopened task lists one item per landing. */
+            landingNumber?: number;
         };
         /** @description Immutable; landed requires landedSha, fetched-object ancestryVerified=true, and baseShaAfter=reconciledAgainstSha. raced requires baseShaBefore != baseShaAfter. */
         Receipt: {
@@ -2450,6 +2520,8 @@ export interface components {
             eventIdsConsumed: string[];
             /** Format: date-time */
             createdAt: string;
+            /** @description Planned. For a landed receipt, its position among the task's landings (1 for the first). Read-side only; the signed receipt export is unchanged. */
+            landingNumber?: number;
         };
         AuditRow: {
             /** @description D1 audit integer serialized as decimal string to avoid JavaScript precision loss. */
@@ -3089,6 +3161,8 @@ export interface components {
             landed: number;
             rejected: number;
             superseded: number;
+            /** @description Planned. Present, zeros included, once reopen ships; absent before. */
+            reopened?: number;
         };
         /** @description Secret-free request. An unresolved issuer is null or an explicit placeholder; never pass placeholders to provider registration. */
         RegistrationRequest: {
@@ -3128,6 +3202,16 @@ export interface components {
             registrationRequest?: components["schemas"]["RegistrationRequest"];
             /** @description `reauth-required`, when the optional recent-sign-in policy is enabled - when the caller's sign-in last authenticated with the identity provider; null when unknown. */
             authenticatedAt?: string | null;
+            /** @description `lane-head-moved` - the current lane head; reread from it. */
+            laneHead?: components["schemas"]["Sha"];
+            /** @description `refresh-conflict` - every conflicting path of the refresh or wrap-up. */
+            conflicts?: components["schemas"]["LaneConflict"][];
+            /** @description `refresh-conflict` - the listed paths the request carried no valid resolution for. */
+            unresolved?: string[];
+            /** @description `refresh-conflict` - the generation's pinned base, the old side of every conflict. */
+            oldBaseSha?: components["schemas"]["Sha"];
+            /** @description `refresh-conflict` - the canonical commit the refresh or wrap-up compared against (read its side with GET /tasks/{id}/lane/blob?base=). */
+            newBaseSha?: components["schemas"]["Sha"];
             /** @description `reauth-required` - a path on this API, `/v1/auth/login?reauth=1&return_path=...`. POST it `{mode: "browser"}` with the pre-login binding cookie, the session cookie and an allowed Origin, as for a browser login; the issuer is asked for a fresh authentication and the same sign-in is refreshed. */
             reauthUrl?: string;
         } & {
@@ -3295,6 +3379,16 @@ export interface components {
             superseded?: string | null;
             scope?: components["schemas"]["LaneScope"] | null;
             latestGrantedScope?: components["schemas"]["LaneGrantedScope"];
+            /** @description The lane head; absent before lane/materialize, null until it completes. */
+            laneHead?: components["schemas"]["Sha"] | null;
+            /** @description The lane repository's record state; absent before lane/materialize, null until it completes. */
+            laneRepository?: components["schemas"]["LaneRepositoryState"] | null;
+            /** @description The newest recorded save point on this claim; absent before lane/materialize, null when none. */
+            latestSavePointId?: components["schemas"]["Id"] | null;
+            /** @description The newest recorded wrap-up on this claim; null when none. */
+            latestWrapUpId?: components["schemas"]["Id"] | null;
+            /** @description Planned. The reopen this claim continues; absent for a lane's first claim. */
+            reopenId?: components["schemas"]["Id"];
         };
         /** @description Preview. One materialization generation of one execution attempt. */
         LaneGeneration: {
@@ -3308,6 +3402,12 @@ export interface components {
             scopeVersion: number;
             previousGeneration?: number;
             scope?: components["schemas"]["LaneScope"];
+            /** @description The lane head after the transition; absent before lane/materialize. */
+            laneHead?: components["schemas"]["Sha"];
+            /** @description The lane head the transition replaced (a new execution keeps it); absent before lane/materialize. */
+            previousHead?: components["schemas"]["Sha"];
+            /** @description The resolutions the rebase commit recorded (base-refreshed on a lane repository). */
+            resolutions?: components["schemas"]["LaneResolution"][];
         };
         LaneManifestEntry: {
             path: string;
@@ -3318,7 +3418,7 @@ export interface components {
             sha: components["schemas"]["Sha"];
             size?: number;
         };
-        /** @description Preview. Entries of the generation's base commit inside the read scope, sorted by path. truncated is true when the server's entry or tree-read limits were reached. changedSincePrevious is non-null only for a base-refreshed generation. */
+        /** @description Preview. Entries of the generation's base commit inside the read scope, sorted by path; once the lane is materialized, of the lane commit laneHead names. truncated is true when the server's entry or tree-read limits were reached. changedSincePrevious is non-null only for a base-refreshed generation. */
         LaneManifest: {
             taskId: components["schemas"]["Id"];
             claimId: components["schemas"]["Id"];
@@ -3331,13 +3431,17 @@ export interface components {
             scope: components["schemas"]["LaneScope"];
             entries: components["schemas"]["LaneManifestEntry"][];
             truncated: boolean;
+            /** @description The lane commit these entries were read at (pass it as head on blob reads); null before lane/materialize, when the entries are the base's. Absent from servers without lane repositories. */
+            laneHead?: components["schemas"]["Sha"] | null;
             changedSincePrevious: {
                 added: string[];
                 modified: string[];
                 removed: string[];
+                /** @description The conflicts the refresh resolved, with the resolution taken for each (lane repository only). */
+                conflicts?: components["schemas"]["LaneResolvedConflict"][];
             } | null;
         };
-        /** @description Preview. One entry's content at the generation's base; submodule entries have encoding none and null content. */
+        /** @description Preview. One entry's content at the generation's base, or at laneHead once the lane is materialized; submodule entries have encoding none and null content. */
         LaneBlob: {
             path: string;
             /** @enum {string} */
@@ -3349,6 +3453,8 @@ export interface components {
             /** @enum {string} */
             encoding: "base64" | "none";
             content: string | null;
+            /** @description The lane commit the blob was read at; null before lane/materialize. */
+            laneHead?: components["schemas"]["Sha"] | null;
         };
         LaneScopeRequest: {
             read: string[];
@@ -3394,8 +3500,10 @@ export interface components {
         /** @description Preview. The operations of one submission against the named open generation; at most 2000, unique by path. */
         LaneChanges: {
             generation: number;
+            /** @description The lane head these operations were made against (compare-and-set). Required on a lane with a lane repository (400 invalid-request, details.field expectedHead, without it); ignored on the candidate-per-submission path. */
+            expectedHead?: components["schemas"]["Sha"];
             operations: components["schemas"]["LaneChangeOperation"][];
-            /** @description Optional commit message body; the server appends its trailers. */
+            /** @description Optional commit message body; the server appends its trailers. On a save point it is the lane commit's message and a line of the wrap-up message. */
             message?: string;
         };
         /** @description Preview. The submission and candidate recorded for a changes submission. staged is always false; a materialized lane never stages behind a fence, it refuses with 409 fenced instead. */
@@ -3420,12 +3528,12 @@ export interface components {
         };
         CandidateApproveAction: {
             available: boolean;
-            /** @description Present exactly when available is false. Stable values: forbidden, human-required, reauth-required (authorization, including the route's recent sign-in); already-approved (the candidate has a live approval), candidate-not-active, fenced (a landing fence is held), stale-base, submission-superseded (a newer submission exists), checks-failed (the check policy is not satisfied). Clients treat an unknown value as unavailable. */
+            /** @description Present exactly when available is false. Stable values: forbidden, human-required, reauth-required (authorization, including the route's recent sign-in); already-approved (the candidate has a live approval), candidate-not-active, fenced (a landing fence is held), stale-base, submission-superseded (a newer submission exists), checks-failed (the check policy is not satisfied); candidate-superseded (a later save point or wrap-up on the lane superseded this wrap-up candidate, or was recorded after this stale one; wrap up again). Clients treat an unknown value as unavailable. */
             reason?: string;
         };
         CandidateLandAction: {
             available: boolean;
-            /** @description Present exactly when available is false. Stable values: forbidden, claim-inactive, reauth-required (authorization, including the route's recent sign-in); fenced, target-fenced (another task's landing holds the same target), approval-required (no active approval of this candidate), approval-invalidated, candidate-not-active, provider-landing-unsupported (no landing executor for this provider and lane kind), stale-base, submission-superseded, checks-failed, and a machine approval grant's denial code. Clients treat an unknown value as unavailable. */
+            /** @description Present exactly when available is false. Stable values: forbidden, claim-inactive, reauth-required (authorization, including the route's recent sign-in); fenced, target-fenced (another task's landing holds the same target), approval-required (no active approval of this candidate), approval-invalidated, candidate-not-active, provider-landing-unsupported (no landing executor for this provider and lane kind), stale-base, submission-superseded, checks-failed, a machine approval grant's denial code, and candidate-superseded. Clients treat an unknown value as unavailable. */
             reason?: string;
             /** @description The newest active approval of this candidate, the approvalId candidateLand would be called with. */
             approvalId?: components["schemas"]["Id"];
@@ -3442,6 +3550,26 @@ export interface components {
             baseSha: components["schemas"]["Sha"];
             /** @description refs/octocove/contributions/<submission id>. */
             contributionRef: string;
+            /** @description The wrap-up that produced this candidate; absent on a candidate written straight by changes. */
+            wrapUpId?: components["schemas"]["Id"];
+            /** @description The lane repository's record id (never a URL or credential). */
+            laneRepositoryId?: components["schemas"]["Id"];
+            /** @description The lane head that was squashed. */
+            laneHead?: components["schemas"]["Sha"];
+            /** @description The generation's snapshot commit in the lane repository. */
+            snapshotCommit?: components["schemas"]["Sha"];
+            /** @description Digest of the snapshot's entries (path, mode, blob id); lane path equals canonical path. */
+            mappingDigest?: string;
+            /** @description The canonical head the squash was built on, the candidate's only parent and its baseSha; baseSha above stays the generation's pinned base. */
+            squashedOnto?: components["schemas"]["Sha"];
+            /** @description The save points the squash covers, oldest first, at most 200 (savePointCount is exact). */
+            savePointIds?: components["schemas"]["Id"][];
+            /** @description How many save points the squash covers. */
+            savePointCount?: number;
+            /** @description The conflict resolutions the wrap-up applied, sorted by path. */
+            resolutions?: components["schemas"]["LaneResolution"][];
+            /** @description Planned. The reopen whose work this candidate carries; absent before any reopen. */
+            reopenId?: components["schemas"]["Id"];
         };
         /** @description Preview. One journaled operation, without its content; mode (a put's file mode, 100644 when the submission omitted it) is absent for a delete. */
         LaneFileOperation: {
@@ -3450,6 +3578,123 @@ export interface components {
             path: string;
             /** @enum {string} */
             mode?: "100644" | "100755" | "120000";
+        };
+        /** @description The record state of a lane's repository, one per lane (record role lane). Never carries a URL, a name or a credential; no client ever reads a lane repository over Git. */
+        LaneRepositoryState: {
+            id: components["schemas"]["Id"];
+            /** @enum {string} */
+            state: "ready" | "retiring" | "retired";
+            /** Format: date-time */
+            materializedAt: string;
+            retiredAt: string | null;
+        };
+        /** @description The lane's current generation, pinned base and lane head. A repeat call answers the same shape with the current values; it never resets the head. */
+        LaneMaterializeResult: {
+            claimAttemptId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            generation: number;
+            baseSha: components["schemas"]["Sha"];
+            laneHead: components["schemas"]["Sha"];
+            snapshotCommit: components["schemas"]["Sha"];
+            /** @description Files in the generation's snapshot (the complete read scope at the base). */
+            entryCount: number;
+            laneRepository: components["schemas"]["LaneRepositoryState"];
+            /** @description True exactly when this call created the lane repository. */
+            created: boolean;
+        };
+        /** @description One accepted changes submission on a lane with a lane repository: one commit on the lane branch, cumulative on previousHead. It is not a submission or a candidate. */
+        LaneSavePoint: {
+            savePointId: components["schemas"]["Id"];
+            claimAttemptId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            generation: number;
+            laneHead: components["schemas"]["Sha"];
+            previousHead: components["schemas"]["Sha"];
+            /** @description The active wrap-up candidate this save point superseded; null when there was none. A candidate already stale is terminal and is not superseded; its actions read candidate-superseded. */
+            supersededCandidateId: components["schemas"]["Id"] | null;
+        };
+        /** @description One path changed both in the lane and upstream (old base to new base: added, modified, deleted or changed type), where the paths are equal or one is an ancestor of the other; path is the shallower of the two. A path both sides brought to the identical result (both deleted, or the same blob id and mode) is not a conflict and is never listed. Blob ids are Git object ids, null where the path is absent (or a directory) on that side. */
+        LaneConflict: {
+            path: string;
+            /** @enum {string} */
+            kind: "modify/modify" | "add/add" | "delete/modify" | "modify/delete" | "file/directory";
+            oldBaseBlobId: components["schemas"]["Sha"] | null;
+            newBaseBlobId: components["schemas"]["Sha"] | null;
+            laneBlobId: components["schemas"]["Sha"] | null;
+            oldBaseMode?: ("100644" | "100755" | "120000" | "160000" | "040000") | null;
+            newBaseMode?: ("100644" | "100755" | "120000" | "160000" | "040000") | null;
+            laneMode?: ("100644" | "100755" | "120000" | "040000") | null;
+        };
+        /** @description The client's choice for one listed conflict path - lane keeps the lane's version, base takes the new base's, content writes an uploaded blob (blobId, the sha256 id from lane/blobs, required; mode defaults to 100644). For a file/directory conflict the choice covers the whole subtree. blobId and mode are only for content. */
+        LaneResolution: {
+            path: string;
+            /** @enum {string} */
+            take: "lane" | "base";
+        } | {
+            path: string;
+            /** @enum {string} */
+            take: "content";
+            blobId: string;
+            /** @enum {string} */
+            mode?: "100644" | "100755" | "120000";
+        };
+        /** @description A conflict a refresh resolved, as recorded in the rebase commit. */
+        LaneResolvedConflict: {
+            path: string;
+            /** @enum {string} */
+            kind: "modify/modify" | "add/add" | "delete/modify" | "modify/delete" | "file/directory";
+            /** @enum {string} */
+            take: "lane" | "base" | "content";
+        };
+        /** @description Wrap up the lane at exactly laneHead. */
+        LaneWrapUp: {
+            generation: number;
+            laneHead: components["schemas"]["Sha"];
+            /** @description Subject of the squash-style message; the first save point's message when omitted. */
+            message?: string;
+            /** @description One per path a 409 refresh-conflict listed; up to the snapshot entry limit, so every conflict set fits the schema. A request whose resolutions exceed the 1 MiB JSON body limit is refused 413 request-body-too-large; narrow the lane's changes (or its claim) instead. */
+            resolutions?: components["schemas"]["LaneResolution"][];
+        };
+        /** @description The submission and its one candidate, shaped like LaneChangeResult plus the wrap-up's identity. baseSha is the canonical head the squash was built on (the candidate's only parent). */
+        LaneWrapUpResult: {
+            wrapUpId: components["schemas"]["Id"];
+            id: components["schemas"]["Id"];
+            seq: number;
+            candidateId: components["schemas"]["Id"];
+            candidateSha: components["schemas"]["Sha"];
+            baseSha: components["schemas"]["Sha"];
+            /** @description refs/octocove/contributions/<id>, create-only. */
+            contributionRef: string;
+            /** @enum {string} */
+            candidateStatus: "active" | "stale";
+            laneHead: components["schemas"]["Sha"];
+            /** @description The earlier active wrap-up candidate this one superseded; null when there was none (a stale one is terminal and is not superseded). */
+            supersededCandidateId: components["schemas"]["Id"] | null;
+            /** @enum {boolean} */
+            staged: false;
+            provenance: components["schemas"]["WrapUpProvenance"];
+        };
+        /** @description A wrap-up candidate's provenance - MaterializedProvenance with the wrap-up fields required. Candidate reads of a wrap-up candidate carry the same fields (MaterializedProvenance requires them whenever wrapUpId is present). */
+        WrapUpProvenance: components["schemas"]["MaterializedProvenance"] & unknown;
+        /** @description Planned. Reopen the task's landed lane and authorize one agent for it, with the same agentId, verbs and expiresAt rules as claimAuthorize. */
+        LaneReopen: {
+            expectedReceiptId: components["schemas"]["Id"];
+            agentId: string;
+            verbs: components["schemas"]["AgentVerb"][];
+            /** Format: date-time */
+            expiresAt: string;
+            reason?: string;
+        };
+        /** @description Planned. Secret response, no-store. The reopen record and the agent's authorization; the reserved claim attempt continues the same lane repository. */
+        LaneReopenResult: {
+            reopenId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            /** @enum {string} */
+            status: "reopened";
+            reopenedFromReceiptId: components["schemas"]["Id"];
+            landingCount: number;
+            laneRepositoryId: components["schemas"]["Id"];
+            agentBootstrap: components["schemas"]["Authorization"];
         };
         ChainLane: {
             chainId: components["schemas"]["Id"];
@@ -3514,6 +3759,10 @@ export interface components {
     parameters: {
         /** @description Planned; runtime not yet shipped. The sole tenant selector for new organization-owned resource routes is /v1/orgs/{orgId}/... (no selector header or implicit current organization). Every referenced resource must match this tenant. Legacy unscoped resource routes resolve only to octocove and never fall back to another org. Selection grants no authority. This parameter is not attached to a shipped path. */
         TenantSelector: components["schemas"]["TenantId"];
+        /** @description A lane head (from a manifest's laneHead) to read at; it must be a commit of the open generation's recorded lineage (409 generation-superseded otherwise). Only for a materialized lane (409 lane-not-materialized before lane/materialize). */
+        LaneHeadQuery: components["schemas"]["Sha"];
+        /** @description Read the path at this canonical commit instead of the lane head - only the open generation's pinned base, or the newBaseSha the claim's latest refresh-conflict refusal recorded (409 generation-superseded for any other commit; 400 invalid-request together with head). The path must be inside the read scope (403 scope-refused); the answer's laneHead is null. */
+        LaneConflictBaseQuery: components["schemas"]["Sha"];
         /** @description Required on every Octocove POST. Scope/digest/replay rules. */
         IdempotencyKey: string;
         /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
@@ -5246,7 +5495,7 @@ export interface operations {
                     source?: components["schemas"]["ExternalRefSource"];
                     intentVersion: number;
                     /**
-                     * @description Preview. Request a materialized lane instead of a Git remote; the repository's lane policy must admit it (409 lane-kind-not-admitted), a public repository must have declared public-on-submit (409 publication-undeclared), the target ref must have a pinned head (409 base-unknown), and the claimant must be an agent with a delegation. Mutually exclusive with chain and source.
+                     * @description Preview. Request a materialized lane instead of a Git remote; the repository's lane policy must admit it (409 lane-kind-not-admitted), a public repository must have declared public-on-submit (409 publication-undeclared), the target ref must have a pinned head (409 base-unknown), and the claimant must be an agent with a delegation. Mutually exclusive with chain and source. Planned - on a reopened task only the bootstrap a laneReopen returned admits a claim; it continues the reopened lane, and the task stays reopened until the next wrap-up.
                      * @enum {string}
                      */
                     laneKind?: "materialized";
@@ -5340,6 +5589,10 @@ export interface operations {
                 "application/json": {
                     /** @enum {string} */
                     kind: "scope-expanded" | "base-refreshed";
+                    /** @description Optional compare-and-set on the lane head; lane repository only. */
+                    expectedHead?: components["schemas"]["Sha"];
+                    /** @description Base-refreshed only; one per path a 409 refresh-conflict listed. */
+                    resolutions?: components["schemas"]["LaneResolution"][];
                 };
             };
         };
@@ -5358,12 +5611,16 @@ export interface operations {
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
     laneManifestGet: {
         parameters: {
             query?: {
                 claim?: components["schemas"]["Id"];
+                /** @description A lane head (from a manifest's laneHead) to read at; it must be a commit of the open generation's recorded lineage (409 generation-superseded otherwise). Only for a materialized lane (409 lane-not-materialized before lane/materialize). */
+                head?: components["parameters"]["LaneHeadQuery"];
             };
             header?: never;
             path: {
@@ -5427,6 +5684,10 @@ export interface operations {
                 generation: number;
                 path: string;
                 claim?: components["schemas"]["Id"];
+                /** @description A lane head (from a manifest's laneHead) to read at; it must be a commit of the open generation's recorded lineage (409 generation-superseded otherwise). Only for a materialized lane (409 lane-not-materialized before lane/materialize). */
+                head?: components["parameters"]["LaneHeadQuery"];
+                /** @description Read the path at this canonical commit instead of the lane head - only the open generation's pinned base, or the newBaseSha the claim's latest refresh-conflict refusal recorded (409 generation-superseded for any other commit; 400 invalid-request together with head). The path must be inside the read scope (403 scope-refused); the answer's laneHead is null. */
+                base?: components["parameters"]["LaneConflictBaseQuery"];
             };
             header?: never;
             path: {
@@ -5620,18 +5881,137 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The recorded submission and candidate. */
+            /** @description The recorded submission and candidate (a GitHub canonical), or the save point (a lane of an Artifacts canonical with a lane repository). */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LaneChangeResult"];
+                    "application/json": components["schemas"]["LaneChangeResult"] | components["schemas"]["LaneSavePoint"];
                 };
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneMaterialize: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description The lane was already materialized; the current generation, base and lane head, unchanged. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneMaterializeResult"];
+                };
+            };
+            /** @description The lane repository was created by this call; the lane head is the snapshot. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneMaterializeResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneWrapUp: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneWrapUp"];
+            };
+        };
+        responses: {
+            /** @description The recorded submission and its one candidate. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneWrapUpResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneReopen: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LaneReopen"];
+            };
+        };
+        responses: {
+            /** @description The reopen record and the agent's secret one-use bootstrap. No-store. */
+            201: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneReopenResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];

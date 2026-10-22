@@ -71,6 +71,11 @@ export class Api {
     return { deadline, signal, ...(sleep ? { sleep: (ms: number) => sleep(ms) } : {}) };
   }
 
+  /** Waits between the CLI's own polls (the connection's injected timer when there is one). */
+  pause(ms: number): Promise<void> {
+    return this.options.sleep ? this.options.sleep(ms) : new Promise((done) => setTimeout(done, ms));
+  }
+
   /** Command options: one deadline `seconds` from now, and the caller's key (reused by every recovery resend). */
   write(seconds: number, idempotencyKey: string | undefined): CommandOptions {
     return { ...this.until(Date.now() + seconds * 1000), ...(idempotencyKey ? { idempotencyKey } : {}) };

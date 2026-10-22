@@ -111,27 +111,30 @@ reads credentials or starts network requests.
 | `task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON` | `POST /tasks` |
 | `task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]` | `POST /tasks/{id}/intent` |
 | `task publish ID` | `POST /tasks/{id}/publish` |
-| `task release ID [--claim ID]` | `POST /tasks/{id}/release` |
+| `task release ID [--claim ID] [--dir DIR]` | `POST /tasks/{id}/release`; in a materialized lane directory (DIR, or the working directory) unsaved edits are first written to a patch (`lane patch`) |
 | `task show ID` | `GET /tasks/{id}` |
 | `task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--base SHA] [--intent-version N] [--remote NAME] [--wait SECONDS] [--bootstrap-file FILE]` | `POST /tasks/{id}/claim` |
-| `lane materialize TASK [DIR] [--wait SECONDS]` | `GET /tasks/{id}`, `POST /tasks/{id}/lane/executions` when no execution is open, `GET /tasks/{id}/lane/materializations/{generation}`, `GET /tasks/{id}/lane/blob` per entry (materialized lanes, preview) |
+| `lane materialize TASK [DIR] [--wait SECONDS]` | `GET /tasks/{id}`, `POST /tasks/{id}/lane/executions` when no execution is open, `POST /tasks/{id}/lane/materialize` (idempotent), then `GET /tasks/{id}/lane/materializations/{generation}?head=` and `GET /tasks/{id}/lane/blob?head=` per entry at the lane head (materialized lanes, preview; a server without the route answers 404 and the directory holds the pinned base) |
 | `lane status [DIR]` | local only in a materialized directory (`.octocove/lane.json`); otherwise `GET /tasks/{id}/lane` |
-| `lane refresh [DIR] [--wait SECONDS]` | `POST /tasks/{id}/lane/materializations` (`base-refreshed`), then the manifest and changed blobs |
+| `lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]` | `POST /tasks/{id}/lane/materializations` (`base-refreshed`, `expectedHead`, `resolutions`), then the manifest and changed blobs at the new lane head; on `refresh-conflict`, `GET /tasks/{id}/lane/blob?base=` per conflict |
 | `lane resolve PATH --keep local|incoming [DIR]` | local only |
-| `lane submit [DIR] [--message TEXT] [--wait SECONDS]` | `POST /tasks/{id}/lane/blobs` per changed file, then `POST /tasks/{id}/lane/changes` |
+| `lane submit [DIR] [--message TEXT] [--wait SECONDS]` | `POST /tasks/{id}/lane/blobs` per changed file, then `POST /tasks/{id}/lane/changes` with `expectedHead` (a save point; a candidate on a lane without a lane repository); on `lane-not-materialized`, `POST /tasks/{id}/lane/materialize` first |
+| `lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]` | `POST /tasks/{id}/lane/wrap-up`; `POST /tasks/{id}/lane/blobs` for a FILE resolution; on `refresh-conflict`, `GET /tasks/{id}/lane/blob?base=` per conflict |
+| `lane patch [DIR] [--out FILE]` | local (the directory's own copies); `GET /tasks/{id}/lane/blob` only for a directory an older CLI wrote |
+| `lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]` | `GET /tasks/{id}`, then `POST /tasks/{id}/lane/reopen` (human, recent sign-in; not offered by every server yet: a 404 is reported as `lane-reopen-unavailable`) |
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `helper status [--json]` | Secret-free helper configuration and authenticated agent identity |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:918](src/cli.ts#L918 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:919](src/cli.ts#L919 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:920](src/cli.ts#L920 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:921](src/cli.ts#L921 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:922](src/cli.ts#L922 "\"task supersede\": governance")) |
-| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:923](src/cli.ts#L923 "\"task replace-claim\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:924](src/cli.ts#L924 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:925](src/cli.ts#L925 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:926](src/cli.ts#L926 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1041](src/cli.ts#L1041 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1042](src/cli.ts#L1042 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1043](src/cli.ts#L1043 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1044](src/cli.ts#L1044 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1045](src/cli.ts#L1045 "\"task supersede\": governance")) |
+| `task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N` | `POST /tasks/{id}/claim/replace` ([cli.ts:1046](src/cli.ts#L1046 "\"task replace-claim\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1047](src/cli.ts#L1047 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1048](src/cli.ts#L1048 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1049](src/cli.ts#L1049 "\"candidate reject\": governance")) |
 | `submit [--task ID] [--source SHA] [--base SHA] [--intent-version N]` | `POST /tasks/{id}/submissions` |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
@@ -139,12 +142,12 @@ reads credentials or starts network requests.
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1464](src/cli.ts#L1464 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1476](src/cli.ts#L1476 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1589](src/cli.ts#L1589 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1601](src/cli.ts#L1601 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1516](src/cli.ts#L1516 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1641](src/cli.ts#L1641 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:485](src/cli.ts#L485 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:504](src/cli.ts#L504 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -447,56 +450,86 @@ management is authorized separately.
 
 ## Materialized lanes (preview)
 
-> **Materialized lanes are in preview.** Scoped materialization, refresh, conflict resolution and candidate
-> submission are supported. Landing materialized candidates into GitHub-backed repositories is not yet available;
-> it is planned for a subsequent release. Until then, the materialized-lane workflow ends at candidate submission
-> and review.
+> **Materialized lanes are in preview.** Scoped materialization, save points, wrap-up, refresh with conflict
+> resolution, and landing need a server that offers them; `candidate show` says whether `land` is available to you,
+> and why not. Against a server without lane repositories, `lane materialize` says so, the directory holds the pinned
+> base and `lane submit` creates the candidate directly, as in CLI 0.3.x.
 
 Step by step: the [materialized lane walkthrough](https://github.com/yolo-labs-hq/octocove/blob/main/docs/examples/materialized-lane.md).
 
 - **Agent authorization.** Lane commands require an agent delegation: a human runs `task authorize TASK --agent ID
   --verbs ... --bootstrap-out FILE`, and the agent claims with `task claim TASK --lane materialized --read ... --write ...
-  --bootstrap-file FILE`. Human sessions are refused.
+  --bootstrap-file FILE`. Human sessions are refused (except `lane reopen`, which is human-only, and `lane patch`).
 - **Data handling.** `lane materialize` and `lane refresh` download the files the claim may read from the Octocove
-  API. `lane submit` uploads the contents of changed files inside the write scope, and nothing else.
+  API. `lane submit` and `--resolve FILE` upload the contents of changed files (or the named file), and nothing else.
+  The lane repository stays inside Octocove: the CLI never sees its URL or a credential for it.
 - **Local behavior.** A lane is an ordinary directory, with no Git clone and no Git credential helper. Refresh keeps
-  your local modifications and surfaces conflicts for you to resolve. A lane directory is not a sandbox: it does not
-  isolate the agent's process, and a submitted candidate is not landed until it is approved and landed.
+  your local modifications and surfaces conflicts for you to resolve. Unsaved edits are never discarded. A lane
+  directory is not a sandbox: it does not isolate the agent's process, and a candidate is not landed until it is
+  approved and landed.
 
 Materialized lanes, a preview of the hosted service, let an agent work on a scoped slice of a repository
-without Git, a clone or a credential helper: the control plane materializes the files it may read, and the
-agent submits explicit file operations. The CLI keeps that
-journey in a plain directory with a `.octocove/lane.json` sidecar (generation, pinned base, scope, one digest per
-file) and never a `.git`:
+without Git, a clone or a credential helper: Octocove keeps the lane in its own lane repository, the agent reads
+the files at the lane head and saves explicit file operations. The CLI keeps that journey in a plain directory with
+a `.octocove/lane.json` sidecar (lane head, generation, pinned base, scope, one digest per file) and never a `.git`:
 
 ```sh
 octocove task claim TASK --lane materialized --read src/,README.md --write src/
-octocove lane materialize TASK work/        # writes the open generation's files; begins an execution if none is open
+octocove lane materialize TASK work/        # creates or reuses the lane repository; writes the files at the lane head
 cd work && $EDITOR src/app.ts
-octocove lane status                        # modified, added (inside the write scope), deleted, unresolved conflicts
-octocove lane refresh                       # take the pinned head; see below
-octocove lane submit --message "..." --wait 60
+octocove lane status                        # lane head, modified, added (inside the write scope), deleted, conflicts
+octocove lane submit --message "Step 1"     # a save point on the lane head
+octocove lane wrap-up --message "Header layout"   # one candidate for review: id, SHA and base
+octocove lane refresh                       # rebase onto the target's current head; see below
 ```
 
-`lane refresh` requests a `base-refreshed` generation and applies it **non-destructively**: a file you did not
-edit follows the upstream change (updated, added or removed in place); a file you edited that also changed or
-disappeared upstream keeps your copy, and the upstream copy (where there is one) is kept at
-`.octocove/incoming/PATH`. `lane submit` refuses with `lane-conflicts-unresolved` until every conflict is decided with
-`lane resolve PATH --keep local|incoming`. An unchanged base is reported as nothing to refresh. Unsubmitted edits
-are never discarded. Upstream copies live under `.octocove/incoming/`, so they never collide with a repository
-path and are never submitted. A mode or type change counts as an edit; a directory where upstream now has a file,
-or a kept local file where upstream now has a directory, is a conflict. Every changed blob is downloaded before the
-directory is touched, so a failed refresh changes nothing. Lane commands refuse to work through a symlinked
-directory inside the lane (or a symlinked `.octocove`), create files without following links, and report a
-filesystem error rather than read it as a deleted file. `lane status DIR` works from outside the directory;
-`--task`/`--claim` always mean the chain lane.
+**Save points.** `lane submit` reads the sidecar's generation and lane head, refuses locally any change outside the
+write scope (`scope-refused`, nothing uploaded), uploads each changed file by its sha256 (`lane/blobs`, replayed by
+content) and posts one `changes` request (`put` with mode `100644`, `100755` or `120000` for symlinks, `delete`) with
+`expectedHead`. The answer is a save point: the new lane head is written to the sidecar and the saved files become
+the baseline (`lastSavePoint`). A `409 lane-head-moved` means another save moved the head: nothing local changes, and
+`lane refresh` takes the new head before you save again. On `409 lane-not-materialized` (a directory written without a
+lane repository) `lane submit` asks for the lane repository and saves there, when nothing was saved there yet. On a
+lane without a lane repository, or a provider that still makes one candidate per submission, the answer is a
+candidate as before (`--wait` follows it like `submit`; the sidecar records `lastSubmission`).
 
-`lane submit` reads the sidecar's generation, refuses locally any change outside the write scope
-(`scope-refused`, nothing uploaded), uploads each changed file by its sha256 (`lane/blobs`, replayed by content)
-and posts one `changes` request (`put` with mode `100644`, `100755` or `120000` for symlinks, `delete`), printing
-the submission and candidate; `--wait` follows the candidate like `submit`. A `generation-superseded` answer means
-the lane moved: run `lane refresh`, then submit again. The files stay as edited after a submission; the sidecar
-records `lastSubmission`.
+**Wrap-up.** `lane wrap-up` squashes the saved lane onto the target's current head into one candidate and prints the
+candidate id, its SHA, its base and the submission (`lastWrapUp`). Unsaved edits would not be part of it, so it
+refuses with `lane-unsaved-edits` unless `--allow-unsaved`. A server without the route answers
+`lane-wrap-up-unavailable`; on a provider without wrap-up, `lane submit` creates the candidate.
+
+**Conflicts with upstream.** When a path the lane saved also changed upstream, wrap-up and refresh answer `409
+refresh-conflict`. The CLI reads each upstream copy (`blob?base=`), writes it under `.octocove/incoming/PATH`, lists
+the conflicts and records them in the sidecar (`lane status` shows them). Run the same command again with one
+`--resolve PATH=lane|base|FILE` per listed path: `lane` keeps the saved lane version, `base` takes upstream, a FILE
+(relative to the working directory) is uploaded and becomes the result. The CLI checks the list before sending and
+retries under a new idempotency key.
+
+**Refresh.** `lane refresh` requests a `base-refreshed` generation (with `expectedHead` on a lane repository) and
+applies the new lane head **non-destructively**: a file you did not edit follows it (updated, added or removed in
+place); a file you edited that also changed or disappeared keeps your copy, and the other copy (where there is one)
+is kept at `.octocove/incoming/PATH`. `lane submit` refuses with `lane-conflicts-unresolved` until every such conflict
+is decided with `lane resolve PATH --keep local|incoming`. A lane head moved by another save is taken first, then the
+refresh is asked again under a new key. `409 operation-in-progress` (another save or refresh settling) is retried under
+the same key with a message, for up to 150 seconds by default (`--wait`). An unchanged base is reported as nothing
+to refresh. Upstream copies live under `.octocove/incoming/`, so they never collide with a repository path and are
+never submitted. A mode or type change counts as an edit; a directory where upstream now has a file, or a kept local
+file where upstream now has a directory, is a conflict. Every changed blob is downloaded before the directory is
+touched, so a failed refresh changes nothing. Lane commands refuse to work through a symlinked directory inside the
+lane (or a symlinked `.octocove`), create files without following links, and report a filesystem error rather than
+read it as a deleted file. `lane status DIR` works from outside the directory; `--task`/`--claim` always mean the
+chain lane.
+
+**Unsaved edits.** `lane patch` writes the directory's unsaved edits as a Git-format patch (text hunks, binary
+literals, symlinks and modes), to `.octocove/unsaved-TIME.patch` or `--out FILE`; apply it with `git apply` in a lane
+directory, then save. The old side comes from copies the CLI keeps under `.octocove/objects/`. `task release` in (or
+with `--dir`) a lane directory, and `lane reopen --dir`, write that patch first and report it.
+
+**Reopen.** `lane reopen TASK --agent ID --verbs a,b --expires-at TIME` (human, recent sign-in) reopens a landed
+lane for one agent, against the task's newest receipt (`--expected-receipt` to name it), and stores the agent's
+one-use bootstrap like `task authorize` (`--bootstrap-out PATH`); only its metadata is printed. The agent then claims
+and materializes as usual and continues the same lane. A server that does not offer it answers 404, reported as
+`lane-reopen-unavailable`.
 
 `candidate show` adds, for a materialized submission, where it came from (execution, generation, scope version and
 contribution ref, fixed at submission) and the file operations it journaled, and, when the server reports them,

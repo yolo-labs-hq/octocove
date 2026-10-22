@@ -519,5 +519,20 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
+  },
+  "laneMaterialize": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneWrapUp": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneReopen": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
   }
 }

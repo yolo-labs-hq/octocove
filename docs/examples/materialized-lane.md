@@ -1,14 +1,18 @@
 # Materialized lane walkthrough (preview)
 
 An agent works on a scoped slice of a repository in an ordinary directory, with no Git clone and no credential
-helper. This walkthrough goes **authorize → claim → materialize → edit → submit → review**.
+helper. This walkthrough goes **authorize → claim → materialize → edit → save → wrap up → review → approve → land**.
+It covers both kinds of canonical repository: on Artifacts the agent saves as often as it likes and wraps up once
+for review; on GitHub each `lane submit` is the candidate (steps 5 and 6 are one step there).
 
-> **Preview.** Landing materialized candidates into GitHub-backed repositories is not yet available; this workflow
-> ends at a reviewed candidate. See the [CLI guide](../../packages/cli/README.md#materialized-lanes-preview).
+> **Preview.** Lane repositories (save points, wrap-up, refresh with resolutions) need a server that offers them.
+> Against one that does not yet, `lane materialize` says so, the directory holds the pinned base, and `lane submit`
+> creates the candidate directly, as in CLI 0.3.x. `candidate show` always says whether `land` is available to you,
+> and why not when it isn't. See the [CLI guide](../../packages/cli/README.md#materialized-lanes-preview).
 
-You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.3.7 or later), and a project whose repository admits
+You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.4.0 or later), and a project whose repository admits
 materialized lanes. The service operator declares that per repository. A human with `tasks:create` and
-`tasks:authorize` on the project runs steps 1 and 6; the agent runs steps 2 to 5.
+`tasks:authorize` on the project runs steps 1, 7 and 8; the agent runs steps 2 to 6.
 
 ## 1. Authorize an agent (human)
 
@@ -42,10 +46,14 @@ The claim is ready at once. Nothing is cloned, and no helper starts.
 
 ```sh
 octocove lane materialize "$TASK" ./lane
-ls ./lane                  # only the files the claim may read, plus .octocove/lane.json
+ls ./lane                  # only the files the claim may read, plus .octocove/
 ```
 
-`.octocove/lane.json` records the generation, the pinned base commit, the scope and one digest per file.
+`lane materialize` asks Octocove for the lane's repository (`POST /tasks/{id}/lane/materialize`). The first call
+creates it from the pinned base; any later call, from this machine or another, answers the current lane head and
+never resets saved work. The CLI then reads the files at that lane head. `.octocove/lane.json` records the lane
+head, the generation, the pinned base, the scope and one digest per file. Octocove keeps the lane repository to
+itself: the agent never sees its URL or a credential for it.
 
 ## 4. Edit and check (agent)
 
@@ -53,35 +61,102 @@ Edit files with any tool, then check what changed:
 
 ```sh
 $EDITOR ./lane/docs/guide.md
-octocove lane status ./lane       # modified, added, deleted, unresolved conflicts
+octocove lane status ./lane       # lane head, modified, added, deleted, unresolved conflicts
 ```
 
-If the target branch moves while you work, `lane refresh ./lane` takes the new base without discarding anything.
-Files you didn't touch follow upstream. A file changed on both sides keeps your copy, and the upstream copy is
-saved under `.octocove/incoming/`. Decide each conflict with `octocove lane resolve PATH --keep local|incoming ./lane`.
-
-## 5. Submit (agent)
+## 5. Save (agent)
 
 ```sh
-octocove lane submit ./lane --message "Clarify the setup steps" --wait 60
+octocove lane submit ./lane --message "Clarify the setup steps"
 ```
 
-`lane submit` uploads only the changed files inside the write scope and records one candidate. It refuses an edit
-outside the write scope (`scope-refused`; nothing is uploaded) and any unresolved conflict
-(`lane-conflicts-unresolved`). Its output names the submission, the candidate, the candidate commit and the base.
+On Artifacts, `lane submit` uploads only the changed files inside the write scope and records a **save point** on the
+lane head: one commit with your message, made against the lane head in `lane.json` (`expectedHead`). The new lane
+head is written back, so the saved files are the directory's new baseline. Save as often as you like; nothing is
+reviewed yet.
 
-## 6. Review (human)
+- **`lane-head-moved`:** another save (for example a second environment on the same claim) moved the lane head.
+  Nothing local changes. Run `octocove lane refresh ./lane`: it takes the new head (files you did not touch follow
+  it, a file changed on both sides keeps your copy and gets the other under `.octocove/incoming/`), then save again.
+- **`lane-not-materialized`:** the directory was written without a lane repository (an older CLI, or before the
+  server offered one). `lane submit` asks for the lane repository itself and saves there, provided nothing was saved
+  there yet; otherwise it tells you to refresh first.
+
+It refuses an edit outside the write scope (`scope-refused`; nothing is uploaded) and any unresolved local conflict
+(`lane-conflicts-unresolved`).
+
+On GitHub, the same command records the candidate directly; continue with step 7.
+
+## 6. Wrap up (agent)
+
+```sh
+octocove lane wrap-up ./lane --message "Clarify the setup steps"
+```
+
+`lane wrap-up` squashes everything saved on the lane into **one** commit on the target branch's current head, records
+it as the candidate, and prints the candidate id, its SHA and its base (the head it was built on). The commit
+message takes `--message` (or the first save point's message) as its subject, with one line per save point.
+
+- **Unsaved edits:** they would not be part of the candidate, so wrap-up refuses (`lane-unsaved-edits`) and lists
+  them. Save them (step 5), keep them aside with `octocove lane patch ./lane`, or pass `--allow-unsaved`.
+- **`refresh-conflict`:** a path you changed also changed upstream. The CLI writes each upstream copy under
+  `.octocove/incoming/PATH`, lists the conflicts, and records them. Decide every listed path and run wrap-up again:
+
+  ```sh
+  octocove lane wrap-up ./lane --resolve docs/guide.md=lane --resolve docs/index.md=base
+  octocove lane wrap-up ./lane --resolve docs/guide.md=./merged-guide.md    # your merged file becomes the result
+  ```
+
+  `lane` keeps the saved lane version, `base` takes upstream, and a file uploads that content. The retry goes under a
+  new idempotency key, as the server requires.
+- Wrapping up again later (after more saves, or after the target branch moved) supersedes the earlier candidate.
+
+## Refresh onto a newer base (agent, any time)
+
+```sh
+octocove lane refresh ./lane
+```
+
+The lane stays on its pinned base until you ask. `lane refresh` rebases it onto the target branch's current head and
+keeps your local edits: untouched files follow the new lane head; a file you edited that also changed keeps your copy,
+with the other under `.octocove/incoming/`, until `octocove lane resolve PATH --keep local|incoming ./lane`. When saved
+lane changes collide with upstream, the refresh is refused with `refresh-conflict`, handled as for wrap-up:
+`lane refresh ./lane --resolve PATH=lane|base|FILE`. If another save or refresh is still settling
+(`operation-in-progress`), the CLI says so and retries for up to 150 seconds.
+
+## 7. Review and approve (human)
 
 ```sh
 octocove candidate show --submission SUBMISSION_ID
 ```
 
-The candidate is an exact commit on the pinned base, published as a contribution ref. Review that commit, not a
-moving branch.
-- **Approve:** `octocove approve CANDIDATE_ID --candidate-sha SHA --base-sha SHA --intent-version 1` binds the approval
-  to that exact candidate.
-- **Base moved:** if the base moves before landing, the candidate becomes `stale`. The agent refreshes (step 4),
-  resubmits (step 5), and the new candidate is reviewed again.
+The candidate is an exact commit, published as a contribution ref. Review that commit, not a moving branch.
+`candidate show` also says whether `approve` and `land` are available to you now, and why not when they aren't.
 
-Landing a materialized candidate is not yet available for GitHub-backed repositories; it will extend this
-walkthrough when it ships.
+```sh
+octocove approve CANDIDATE_ID --candidate-sha SHA --base-sha SHA --intent-version 1
+```
+
+The approval binds that exact candidate, base and intent. If the target branch moves before landing, the candidate
+becomes `stale` and the approval no longer applies: the agent wraps up again (step 6; on GitHub, submits again), and
+the new candidate is approved anew.
+
+## 8. Land (human, or a delegated agent where the project allows it)
+
+```sh
+octocove land CANDIDATE_ID --approval APPROVAL_ID --wait
+```
+
+Landing fast-forwards the target branch to the approved candidate, on Artifacts and on GitHub alike, and prints the
+receipt. Until a server offers landing for a repository's provider, `candidate show` reports `land` unavailable with
+the reason `provider-landing-unsupported`.
+
+## Ending or reopening the lane
+
+- **Release:** `octocove task release "$TASK" --dir ./lane` ends the claim. Unsaved edits in the lane directory are
+  first written to `.octocove/unsaved-TIME.patch` (the same as `octocove lane patch ./lane`), never dropped. Apply
+  that patch with `git apply` in a new lane directory, then save it.
+- **Reopen (human, recent sign-in):** `octocove lane reopen "$TASK" --agent docs-agent --verbs ... --expires-at TIME
+  --bootstrap-out ./agent/bootstrap.json` reopens a landed lane for one more agent, which claims and materializes as
+  in steps 2 and 3 and continues the same lane. With `--dir ./lane`, unsaved edits there are kept as a patch first. A
+  server that does not offer reopening yet answers `lane-reopen-unavailable`; start further work as a new task.

@@ -174,6 +174,7 @@ describe("octocove lane (materialized)", () => {
   it("refuses to submit an edit outside the write scope, with nothing uploaded", async () => {
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
     writeFileSync(join(dir, "README.md"), "readme local\n");
+    calls = [];
     expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
     expect(errText).toContain("scope-refused");
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);

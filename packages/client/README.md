@@ -57,7 +57,7 @@ const { body } = await client.call('taskGet', { path: { id: taskId } });
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 104 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 107 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -106,7 +106,7 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
 | `submissionCreate` | `network-only` | `stored-result` | ledgered, but the coordinator answers `409 claim-inactive` before the ledger when the caller's claim is no longer active |
 | `chainLanePush`, `chainLaneRetry` | `network-only` | `stored-result` | ledgered after the chain-specific gates: writer ownership and live membership for push (`403 chain-writer-denied`), writer ownership or administrative recovery eligibility for retry |
-| `laneExecutionBegin`, `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit` | `network-only` | `stored-result` | materialized lanes (preview): ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id or change (the change journal is keyed before any provider write, so a replay never writes twice); another body under the same key is `409 idempotency-conflict` |
+| `laneExecutionBegin`, `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | materialized lanes (preview): ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes) |
 | `chainLaneRetire` | `network-only` | `state` | the server discards the key; retirement consults lane phase and retention conditions and answers 202 / 200 `{phase:"retired"}` / a refusal from current state |
 | `webhookCreate`, `webhookReplay`, `webhookDeliveryRedrive`, `webhookSecretRotate`, `webhookReactivate` | `network-only` | `stored-result` | per-request scopes with `409 idempotency-conflict` on body mismatch; rotation replays key ids only, never the secret the caller supplied |
 | `webhookDisable` | `never` | `state` | a committed disable is deduplicated by its operation record; disabling an already-disabled webhook records the key without an audit row, so a retry of that key never disables a later reactivation; the answer is the current state, and the library never auto-retries it |
@@ -115,7 +115,7 @@ File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "
 | `candidateApproveWithGrant` | `network-only` | `guarded-result` | decision ledger keyed by principal and idempotency key; grant authority rechecked before the recorded result is returned |
 | `submitWithGrant` | `network-only` | `guarded-result` | **a different ledger**: the lifecycle ledger scoped to the claim actor and task (`<actorType>:<actorId>:<task>:submit`); a consumed grant without a prior row is `409 machine-authority-denied` |
 | `taskClaim` (**bootstrap** variant) | `network-only` | `bounded-recovery` | bounded by the **bootstrap expiry** (5 min) and the authorizer's membership recheck; the reply is the **original claim snapshot** plus the recovered delegation, not current readiness — read `claimGet` for that; after the window: `401 unauthenticated` / `401 bootstrap-consumed` |
-| `claimAuthorize` | `network-only` | `bounded-recovery` | 300 s window, valid only while the bootstrap is unconsumed and unrevoked, else `409 idempotency-result-expired` |
+| `claimAuthorize`, `laneReopen` | `network-only` | `bounded-recovery` | 300 s window, valid only while the bootstrap is unconsumed and unrevoked, else `409 idempotency-result-expired`; `laneReopen` (planned, not mounted yet) returns the same one-use agent bootstrap |
 | `authLogin` (browser and CLI modes) | `network-only` | `bounded-recovery` | **600 s** window, matching the login transaction lifetime (AUTH.md) |
 | `authCliExchange`, `sessionRenew`, `delegationRenew`, `authLogout`, `meSessionRevoke` | `network-only` | `bounded-recovery` | 120 s window; pending/polling answers are not final records; `meSessionRevoke` recovers like logout, and a fresh key on an already-revoked sign-in answers 204 from state |
 | `authCliConfirm`, `delegationRevoke`, `brokerTokenRevoke` | `never` | `state` | confirm checks transaction state; an agent's own successful revocation makes its credential unusable for a retry; broker revocation marks the token for revocation and drains |
@@ -150,7 +150,9 @@ browser-renewal rule — a `sessionRenew` over `browserCookie` whose headers arr
 lost is never resent (the browser already applied the rotated session and CSRF; a resend would mint a
 second renewal), whichever entry point issued it. It returns the raw response; prefer `auth.*` and the
 grant journeys for login, renewal, logout and grant exchanges, which also shape the issued credential,
-adopt it into a `CredentialSlot` and keep login transaction state.
+adopt it into a `CredentialSlot` and keep login transaction state. `command(operationId, input, options,
+{ busyIsFinal: true })` surfaces `429` and `operation-in-progress` instead of waiting them out, for a caller
+that polls under the same key with its own progress messages.
 
 - **One deadline.** Every journey takes `{deadline, signal?}`; the deadline bounds its first request,
   every poll, body read, retry, credential refresh and sleep, and every wait is cancellation-aware.
