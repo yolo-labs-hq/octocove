@@ -20,9 +20,6 @@ function client(fetch: ClientOptions['fetch'], extra: Partial<ClientOptions> = {
 }
 
 const offline = () => new TypeError('fetch failed');
-// Token prefixes, kept apart from the fixture text so these are never read as issued tokens.
-const BOOTSTRAP = ['ocb', ''].join('_');
-const SESSION = ['ocs', ''].join('_');
 
 export const transportCases: Case[] = [
   // ---- retry classes ----
@@ -61,10 +58,10 @@ export const transportCases: Case[] = [
     equal(first.calls.length, 1);
 
     const second = scriptedFetch(problem(500, 'internal'), json(201, {}));
-    const apiError = await rejects(() => client(second.fetch).call('brokerTokenCreate', { body: { taskId: 'task-1' } }), ApiError);
+    const apiError = await rejects(() => client(second.fetch).call('approvalTrustActivationChallenge', { path: { project: 'p', id: 'binding-1' } }), ApiError);
     equal(apiError.status, 500);
     equal(second.calls.length, 1);
-    equal(second.calls[0]!.headers['idempotency-key'], undefined, 'brokerTokenCreate declares no Idempotency-Key');
+    equal(second.calls[0]!.headers['idempotency-key'], undefined, 'approvalTrustActivationChallenge declares no Idempotency-Key');
   }),
   test('a body-read failure after a response is never resent and reports the response status', async () => {
     const broken = new Response(new ReadableStream({ start(controller) { controller.error(new Error('reset')); } }), { status: 200 });
@@ -74,11 +71,8 @@ export const transportCases: Case[] = [
     equal(error.responseStatus, 200);
     equal(calls.length, 1);
   }),
-  test('taskClaim selects its retry variant by credential: bootstrap is bounded-recovery, human is stored-result', async () => {
+  test('taskClaim is bounded-recovery: a lost answer is resent under the same key with the same bootstrap', async () => {
     const claim = { claim: { id: 'c' } };
-    const human = scriptedFetch(json(201, claim));
-    const humanRes = await client(human.fetch).call('taskClaim', { path: { id: 't' }, body: { intentVersion: 1 } });
-    equal(humanRes.retry, { autoRetry: 'network-only', replay: 'stored-result' });
     const boot = scriptedFetch(offline(), json(201, claim));
     const bootRes = await client(boot.fetch).call('taskClaim', {
       path: { id: 't' }, body: { intentVersion: 1 }, credential: bearer({ token: 'bootstrap-fixture-0123456789', kind: 'bootstrap' }),
@@ -86,22 +80,6 @@ export const transportCases: Case[] = [
     equal(bootRes.retry, { autoRetry: 'network-only', replay: 'bounded-recovery' });
     equal(boot.calls[1]!.headers.authorization, 'Bearer bootstrap-fixture-0123456789');
     equal(boot.calls[0]!.headers['idempotency-key'], boot.calls[1]!.headers['idempotency-key']);
-  }),
-  test('forwardedSession selects taskClaim\'s bootstrap variant from the stated bearer kind (ocb_ prefix as fallback)', async () => {
-    const claim = { claim: { id: 'c' } };
-    const claimVia = async (options: { token: string; bearerKind?: 'session' | 'bootstrap' }) => {
-      const { fetch, calls } = scriptedFetch(json(201, claim));
-      const res = await createClient({
-        baseUrl: BASE, fetch, ...fast,
-        transport: forwardedSession({ authorizationHeader: `Bearer ${options.token}`, bearerKind: options.bearerKind, onSetCookie: () => {} }),
-      }).call('taskClaim', { path: { id: 't' }, body: { intentVersion: 1 } });
-      equal(calls[0]!.headers.authorization, `Bearer ${options.token}`);
-      return res.retry.replay;
-    };
-    equal(await claimVia({ token: 'opaque-bootstrap-0123456789', bearerKind: 'bootstrap' }), 'bounded-recovery', 'stated kind');
-    equal(await claimVia({ token: `${BOOTSTRAP}bootstrap-fixture-0123456789` }), 'bounded-recovery', 'ocb_ fallback');
-    equal(await claimVia({ token: `${SESSION}session-fixture-0123456789` }), 'stored-result');
-    equal(await claimVia({ token: `${BOOTSTRAP}lookalike-0123456789`, bearerKind: 'session' }), 'stored-result', 'a stated kind wins over the prefix');
   }),
   test('server recovery refusals stay ApiError with their real status and code, and are not resent', async () => {
     for (const [status, code] of [[409, 'idempotency-result-expired'], [401, 'bootstrap-consumed'], [409, 'idempotency-conflict'], [401, 'unauthenticated']] as const) {
@@ -225,7 +203,7 @@ export const transportCases: Case[] = [
   test('navigation and excluded operations are not callable', async () => {
     const io = scriptedFetch();
     const c = client(io.fetch);
-    for (const id of ['authCallback', 'authCliStart', 'brokerHelperPush', 'projectRepositoryGitRefsGet', 'projectRepositoryGitUploadPack', 'collaborationEventDelivery']) {
+    for (const id of ['authCallback', 'authCliStart', 'projectRepositoryGitRefsGet', 'projectRepositoryGitUploadPack', 'collaborationEventDelivery']) {
       await rejects(() => (c.call as (id: string) => Promise<unknown>)(id), TypeError, id);
     }
     equal(io.calls.length, 0);

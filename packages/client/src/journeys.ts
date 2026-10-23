@@ -3,19 +3,15 @@
  * `deadline`; waits are cancellation-aware and stop with the ids needed to resume, never reissuing the
  * command. Outcomes (`conflict`, `stale-base`, `raced`, …) are values; server refusals are ApiErrors.
  */
-import { newIdempotencyKey, type ApiResponse, type CallableOperationId, type CallInput, type OctocoveClient, type OpenEnums, type SuccessBody } from './client.js';
+import type { ApiResponse, CallableOperationId, CallInput, OctocoveClient, OpenEnums, SuccessBody } from './client.js';
 import {
   approvalGrantFromExchange,
   bearerFor,
-  submitGrantFromExchange,
   type AgentDelegation,
   type ApprovalGrant,
   type ApprovalGrantExchangeResult,
   type ApprovalGrantScope,
   type ClaimBootstrap,
-  type SubmitGrant,
-  type SubmitGrantExchangeResult,
-  type SubmitGrantScope,
 } from './credentials.js';
 import { ApiError, isBoundTo, staleFenceDetails } from './errors.js';
 import type { components } from './generated/openapi.js';
@@ -23,14 +19,11 @@ import {
   isObject,
   isString,
   journeyScope,
-  journeySecrets,
   offShape,
   again,
   done,
   pollDelay,
-  pinnedCredential,
   pollUntil,
-  scopeError,
   send,
   type CommandOptions,
   type JourneyOptions,
@@ -52,10 +45,11 @@ export type Candidate = OpenEnums<Schemas['Candidate']>;
 export type Receipt = OpenEnums<Schemas['Receipt']>;
 /** The `202` body of an unresolved receipt. */
 export type ReceiptPending = OpenEnums<Schemas['ReceiptPending']>;
-export type ChainLane = OpenEnums<Schemas['ChainLane']>;
 export type Submission = OpenEnums<Schemas['Submission']>;
 export type Approval = OpenEnums<Schemas['Approval']>;
 export type BoundTo = Schemas['BoundTo'];
+/** `laneRetire`'s answer: `202` while the task's lane repositories are being deleted, `200` once all of them are retired. */
+export type LaneRetirement = OpenEnums<Schemas['LaneRetirement']> | OpenEnums<Schemas['LaneRetired']>;
 /** `projectCreate`'s answer: the created project. */
 export type Project = Schemas['Project'];
 /** A project's canonical repository and target ref (`repositoryCreate`'s answer). */
@@ -123,31 +117,6 @@ export function staleBaseRefusal(error: unknown): StaleBaseRefusal | undefined {
   return error.details === undefined ? { variant: 'detail-less' } : undefined;
 }
 
-// ---- chain ----
-
-/** What the caller's Git adapter receives: publish `sourceSha`'s objects for this push, then return. */
-export interface ChainStageInput {
-  readonly taskId: string;
-  readonly claimId: string;
-  readonly pushId: string;
-  readonly sourceSha: string;
-  readonly baseSha: string;
-}
-
-/**
- * The caller's Git adapter: ref resolution and object publication stay outside the library. `signal`
- * aborts when the journey ends and `deadline` is its absolute bound (epoch ms): stop every phase and
- * subprocess on abort, and never start one after it. The journey rejects at the deadline either way.
- */
-export interface GitAdapter {
-  stage(input: ChainStageInput, signal: AbortSignal, deadline: number): Promise<void>;
-}
-
-export type ChainPushResult =
-  | { readonly state: 'delivered'; readonly pushId: string; readonly lane: ChainLane }
-  /** The push is queued; resume by reading `chain.get(taskId)` or `chain.waitForDelivery`. Never re-push. */
-  | { readonly state: 'pending-timeout'; readonly pushId: string; readonly lane: ChainLane | undefined; readonly reason: WaitStop };
-
 // ---- claims ----
 
 export interface ClaimResult {
@@ -164,9 +133,6 @@ export type ProvisioningResult =
 export const CANDIDATE_POLL_MS = { first: 1000, max: 5000 } as const;
 export const RECEIPT_POLL_MS = 2000;
 export const PROVISIONING_POLL_MS = 2000;
-export const CHAIN_POLL_MS = 1000;
-
-const SHA = /^[a-f0-9]{40}([a-f0-9]{24})?$/;
 
 /** Fails before sending when the client's credential is known not to be a human session. */
 function requireHuman(client: OctocoveClient, what: string): void {
@@ -300,20 +266,12 @@ export function journeys(client: OctocoveClient) {
      * bootstrap window (the original claim snapshot plus the recovered delegation); after it the server's
      * `401 unauthenticated` / `bootstrap-consumed` is surfaced, never a fresh claim.
      */
-    async claim(bootstrap: ClaimBootstrap, taskId: string, input: { readonly intentVersion: number; readonly chain?: Schemas['ChainClaim']; readonly source?: Schemas['ExternalRefSource'] }, options: CommandOptions): Promise<ClaimResult> {
+    async claim(bootstrap: ClaimBootstrap, taskId: string, input: { readonly intentVersion: number; readonly scope?: Schemas['LaneScope'] }, options: CommandOptions): Promise<ClaimResult> {
       if (bootstrap.taskId !== taskId) throw new TypeError('the bootstrap names a different task');
-      const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { ...input } }, { credential: bearerFor(bootstrap) });
+      const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { intentVersion: input.intentVersion, ...(input.scope ? { scope: input.scope } : {}) } }, { credential: bearerFor(bootstrap) });
       const r: unknown = response.body;
       if (!isObject(r) || !isObject(r.claim) || !isString(r.claim.id)) throw offShape(response, 'the claim response carries no claim');
       return { claim: r.claim as Claim, delegation: delegationOf(response, r.delegation) };
-    },
-    /** A direct human claim (the CLI's path). */
-    async claimAsHuman(taskId: string, input: { readonly intentVersion: number; readonly chain?: Schemas['ChainClaim']; readonly source?: Schemas['ExternalRefSource'] }, options: CommandOptions): Promise<Claim> {
-      requireHuman(client, 'claims.claimAsHuman');
-      const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { ...input } });
-      const r: unknown = response.body;
-      if (!isObject(r) || !isObject(r.claim) || !isString(r.claim.id)) throw offShape(response, 'the claim response carries no claim');
-      return r.claim as Claim;
     },
     status: (claimId: string, options: JourneyOptions & { readonly credential?: BearerTransport }) =>
       body(options, 'claimGet', { path: { id: claimId } }, { credential: options.credential }),
@@ -334,24 +292,6 @@ export function journeys(client: OctocoveClient) {
     },
     release: (taskId: string, input: { readonly claimAttemptId?: string }, options: CommandOptions & { readonly credential?: BearerTransport }) =>
       body(options, 'taskRelease', { path: { id: taskId }, body: { ...input } }, { credential: options.credential }),
-    /** Human governance only. */
-    replace(taskId: string, input: Expectation & { readonly claimId: string; readonly expiresAt: string }, options: CommandOptions) {
-      requireHuman(client, 'claims.replace');
-      return body(options, 'claimReplace', { path: { id: taskId }, body: { ...input } });
-    },
-  };
-
-  // ---- submissions and candidates ----
-  const submissions = {
-    /** Ref resolution and object publication are the caller's Git adapter's job; this records the exact SHAs. */
-    create: (taskId: string, input: { readonly sourceSha: string; readonly baseSha: string; readonly intentVersion: number; readonly message?: string; readonly claimAttemptId?: string },
-      options: CommandOptions & { readonly credential?: BearerTransport }) => {
-      if (!SHA.test(input.sourceSha) || !SHA.test(input.baseSha)) throw new TypeError('submissions.create takes exact commit SHAs');
-      return body(options, 'submissionCreate', { path: { id: taskId }, body: { ...input } }, { credential: options.credential });
-    },
-    /** Spends a single-use submit grant on the submission it names. */
-    createWithGrant: (grant: SubmitGrant, options: CommandOptions) =>
-      body(options, 'submitWithGrant', { path: { id: grant.scope.taskId }, body: { ...grant.scope } }, { credential: bearerFor(grant) }),
   };
 
   const candidates = {
@@ -427,12 +367,6 @@ export function journeys(client: OctocoveClient) {
         { credential: bearer({ token: assertion, kind: 'identity-assertion' }) });
       return approvalGrantFromExchange(response.body, response);
     },
-    /** `submitGrantExchange`; same single-send and recovery rules as `exchangeApproval`. */
-    async exchangeSubmit(assertion: string, scope: SubmitGrantScope, options: CommandOptions): Promise<SubmitGrantExchangeResult> {
-      const response = await command(options, 'submitGrantExchange', { body: { ...scope } },
-        { credential: bearer({ token: assertion, kind: 'identity-assertion' }) });
-      return submitGrantFromExchange(response.body, response);
-    },
   };
 
   // ---- landings and receipts ----
@@ -485,53 +419,17 @@ export function journeys(client: OctocoveClient) {
       body(options, 'receiptGet', { path: { id: receiptId } }, { credential: options.credential }),
   };
 
-  // ---- chain lanes ----
-  async function deliveryWait(taskId: string, pushId: string, options: WaitOptions & { readonly credential?: BearerTransport }, scope = journeyScope(options)): Promise<ChainPushResult> {
-    let lane: ChainLane | undefined;
-    try {
-      const result = await pollUntil<ChainLane>(scope, (retryAfter) => pollDelay(retryAfter, options.pollMs, CHAIN_POLL_MS), async () => {
-        const r = await send(client, scope, options, 'chainLaneGet', { path: { id: taskId } }, { credential: options.credential });
-        lane = r.body as ChainLane;
-        return lane.pushes?.some((p) => p.pushId === pushId && p.status === 'delivered') ? done(lane) : again(r.retryAfter);
-      });
-      return result.kind === 'done' ? { state: 'delivered', pushId, lane: result.value } : { state: 'pending-timeout', pushId, lane, reason: result.reason };
-    } finally { scope.dispose(); }
-  }
-
-  const chain = {
-    get: (taskId: string, options: JourneyOptions & { readonly credential?: BearerTransport }) =>
-      body(options, 'chainLaneGet', { path: { id: taskId } }, { credential: options.credential }),
+  // ---- lanes ----
+  const lanes = {
     /**
-     * Stages the source through the caller's Git adapter, queues the push once, then waits for its
-     * delivery inside the same deadline. `pushId` defaults to one derived from the idempotency key, so a
-     * resumed call (same key) names the same push.
+     * Human only, `project:admin` with a recent sign-in: retires every lane repository of the task once its
+     * retention guards hold (`409 lane-retention-pending` names the first that does not, in `details.reason`).
+     * `202` while the deletion settles, `200` once every lane repository is retired. `state` replay: the server
+     * discards the key, and any later call answers the current retirement.
      */
-    async push(taskId: string, input: { readonly claimAttemptId: string; readonly sourceSha: string; readonly baseSha: string; readonly pushId?: string; readonly git: GitAdapter },
-      options: WaitOptions & { readonly idempotencyKey?: string; readonly credential?: BearerTransport }): Promise<ChainPushResult> {
-      if (!SHA.test(input.sourceSha) || !SHA.test(input.baseSha)) throw new TypeError('chain.push takes exact commit SHAs');
-      const scope = journeyScope(options);
-      try {
-        const key = options.idempotencyKey ?? newIdempotencyKey();
-        const pushId = input.pushId ?? `push-${key.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 150)}`;
-        const secrets = journeySecrets(client, 'POST', pinnedCredential(client, options.credential));
-        // An ended scope never reaches the adapter; one that ends while staging never queues the push.
-        try {
-          scope.throwIfEnded();
-          await scope.guard(input.git.stage({ taskId, claimId: input.claimAttemptId, pushId, sourceSha: input.sourceSha, baseSha: input.baseSha }, scope.signal, scope.deadline!));
-          scope.throwIfEnded();
-        } catch (error) { throw scopeError(error, scope, secrets); }
-        await send(client, scope, options, 'chainLanePush', { path: { id: taskId }, body: { claimAttemptId: input.claimAttemptId, pushId, sourceSha: input.sourceSha } },
-          { idempotencyKey: key, credential: options.credential });
-        return await deliveryWait(taskId, pushId, options, scope);
-      } finally { scope.dispose(); }
-    },
-    waitForDelivery: (taskId: string, pushId: string, options: WaitOptions & { readonly credential?: BearerTransport }) => deliveryWait(taskId, pushId, options),
-    retry: (taskId: string, input: { readonly claimAttemptId: string }, options: CommandOptions & { readonly credential?: BearerTransport }) =>
-      body(options, 'chainLaneRetry', { path: { id: taskId }, body: { ...input } }, { credential: options.credential }),
-    /** Human only; `state` replay: a lost answer is followed by `chain.get`, not a resend. */
-    retire(taskId: string, options: CommandOptions) {
-      requireHuman(client, 'chain.retire');
-      return body(options, 'chainLaneRetire', { path: { id: taskId }, body: {} });
+    retire(taskId: string, options: CommandOptions): Promise<LaneRetirement> {
+      requireHuman(client, 'lanes.retire');
+      return body(options, 'laneRetire', { path: { id: taskId }, body: {} });
     },
   };
 
@@ -561,7 +459,7 @@ export function journeys(client: OctocoveClient) {
 
   /**
    * One keyed command with no shaped journey (a direct agent claim, a landing request read without its
-   * receipt wait, a chain push staged by the caller, an administrator revocation): the same bounded
+   * receipt wait, a lane operation, an administrator revocation): the same bounded
    * replay rule as every other journey command — same key, body and credential, resent only after a
    * lost answer when the operation's ledger makes that a replay. With `busyIsFinal`, `429` and
    * `operation-in-progress` are surfaced to the caller (which polls with its own messaging) instead of
@@ -571,7 +469,7 @@ export function journeys(client: OctocoveClient) {
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) =>
     command(options, operationId, input, extra.busyIsFinal ? { busyIsFinal: true } : {});
 
-  return { client, command: keyed, tasks, projects, repositories, claims, submissions, candidates, approvals, grants, landings, receipts, chain, webhooks, log, audit, events, auth: authJourneys(client) };
+  return { client, command: keyed, tasks, projects, repositories, claims, candidates, approvals, grants, landings, receipts, lanes, webhooks, log, audit, events, auth: authJourneys(client) };
 }
 
 export type Journeys = ReturnType<typeof journeys>;

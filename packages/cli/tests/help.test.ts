@@ -21,7 +21,7 @@ async function help(argv: string[]) {
   let stdout = "", stderr = "";
   const unexpected = () => { throw new Error("unexpected command execution"); };
   const fetch = vi.fn(unexpected), git = vi.fn(unexpected), stdin = vi.fn(unexpected), sleep = vi.fn(unexpected);
-  const code = await run({ argv, env: { OCTOCOVE_API_URL: "invalid", OCTOCOVE_CONFIG_DIR: "/nonexistent", OCTOCOVE_HELPER_SOCK: "/nonexistent/socket" },
+  const code = await run({ argv, env: { OCTOCOVE_API_URL: "invalid", OCTOCOVE_CONFIG_DIR: "/nonexistent" },
     fetch, git, stdin, sleep, stdout: (s) => { stdout += s; }, stderr: (s) => { stderr += s; } });
   expect(code).toBe(EXIT.ok);
   expect(stderr).toBe("");
@@ -62,14 +62,16 @@ describe("command help before execution", () => {
 });
 
 
-it.each(["claim", "task claim"])("%s help advertises canonical and wait options", async command => {
+it.each(["claim", "task claim"])("%s help advertises the bootstrap claim and its scope", async command => {
   const text = await help([...command.split(" "), "--help"]);
-  expect(text).toContain("--canonical URL");
-  expect(text).toContain("--wait SECONDS");
+  for (const part of ["--intent-version N", "--read a,b", "--write a,b", "--bootstrap-file FILE", "claim bootstrap", "octocove lane materialize"]) expect(text).toContain(part);
+  for (const removed of ["--lane", "--canonical", "--source-ref", "--remote", "--wait", "chain"]) expect(text).not.toContain(removed);
 });
 
-it("lane push help advertises exact source selection", async () => {
-  expect(await help(["lane", "push", "--help"])).toContain("--source SHA");
+it("lane retire help names its one argument", async () => {
+  const text = await help(["lane", "retire", "--help"]);
+  expect(text).toContain("Usage: octocove lane retire TASK");
+  expect(text).not.toContain("--task");
 });
 
 
@@ -85,16 +87,13 @@ it("authorize help distinguishes each scope, agent label, bootstrap window and d
  for(const verb of ["tasks:list","tasks:read","tasks:claim","claims:read","submissions:create","candidates:read","receipts:read"]) expect(text).toContain(verb);
  for(const part of ["at most 128", "No agent registration", "5 minutes", "--expires-at controls", "human alone approves"]) expect(text).toContain(part);
 });
-it("workspace and claim help cover flags omitted by the root summary",async()=>{
- const workspace=await help(["workspace","open","--help"]);
- for(const flag of ["--canonical-id","--ref","--source","--count","--sparse","--worktree"]) expect(workspace).toContain(flag);
- const claim=await help(["task","claim","--help"]);
- for(const flag of ["--chain-id","--previous-task","--base","--bootstrap-file"]) expect(claim).toContain(flag);
- expect(claim).toContain("chain (default)");
+it("root help lists no Git-native command",async()=>{
+ const text=await help(["--help"]);
+ for(const removed of ["lane push","lane sync","lane retry","workspace ","helper status","replace-claim","\n  submit ","--purpose","76 stale"]) expect(text).not.toContain(removed);
 });
 it.each(['candidate show','task show'])('%s explains typed state/status/outcome vocabulary and next actions',async command=>{
  const text=await help([...command.split(' '),'--help']);
  for(const value of ['pending','complete','active','approved','landing','landed','stale','fenced','superseded','conflict','failed','draft','ready','claimed','submitted','rejected','raced','withdrawn','computed','stale-base','stale-head','error'])expect(text).toContain(value);
  expect(text).toContain('Task status:');expect(text).toContain('Candidate status:');expect(text).toContain('Candidate compute outcome:');
- expect(text).toContain('Next: wait');expect(text).toContain('push again');expect(text).toContain('stop');expect(text).toContain('"reviewable" describes active, not another status');
+ expect(text).toContain('Next: wait');expect(text).toContain('wrap up again');expect(text).toContain('stop');expect(text).toContain('"reviewable" describes active, not another status');
 });

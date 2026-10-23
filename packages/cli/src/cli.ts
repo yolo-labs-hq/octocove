@@ -7,29 +7,18 @@ import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
 import { humanSessionFetch, renewHuman, agentSessionFetch, renewAgent } from "./session.js";
-import { CallScope } from "../../client/src/scope.js";
 import { machineCommand } from "./machine.js";
-import { stageChain } from "./chain-stage.js";
 import { handover as handoverLane, hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
-import { startManagedHelper, requireAgentCredential } from "./managed-helper.mjs";
 import { followEvents } from './event-follow.js';
-import { workspace } from "./workspace.mjs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { sameRemoteIdentity } from "../../shared/src/remote-identity.js";
-import type { components } from "../../client/src/generated/openapi.js";
-import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type CandidateWaitResult, type ClaimBootstrap, type CommandOptions, type FetchLike, type Journeys } from "./http.js";
+import { Api, ApiError, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Journeys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
-import { HelperRequiredError, validateClaimRemote, requireHelperTransport, setupHelperTransport, managedHelperRemote, preflightConnector, helperStatus, helperRemoteMatches } from "./helper.js";
-import { getConfig, type GitRunner } from "./git.js";
+import type { GitRunner } from "./git.js";
 
-type ChainClaim = components["schemas"]["ChainClaim"];
-
-export const EXIT = { ok: 0, failure: 1, usage: 2, candidateFailed: 74, pending: 75, stale: 76, humanRequired: 77, config: 78 } as const;
+export const EXIT = { ok: 0, failure: 1, usage: 2, candidateFailed: 74, pending: 75, humanRequired: 77, config: 78 } as const;
 
 export interface Deps {
   argv: string[];
@@ -46,8 +35,6 @@ export interface Deps {
   /** Working directory and human Git helper overrides for isolated clone tests. */
   cwd?: string;
   humanCredentialPath?: string;
-  /** Bundled connector location override for source-level tests. */
-  connectorPath?: string;
 }
 
 class UsageError extends Error {}
@@ -66,14 +53,8 @@ class CandidateFailedError extends Error {
   readonly code = "candidate-failed";
   constructor(conflict: boolean) {
     super(conflict
-      ? "Candidate has conflicts: resolve the listed files, commit the fix, then run `octocove lane push` again."
-      : "Candidate failed: inspect its checks and error, resolve the failure, then run `octocove lane push` again.");
-  }
-}
-class StaleCandidateError extends Error {
-  readonly code = "candidate-stale";
-  constructor(readonly currentHead: string) {
-    super(`main moved to ${currentHead}: run \`git fetch\` and \`git merge\` the current canonical, then \`octocove lane push\` again`);
+      ? "Candidate has conflicts: run `octocove lane wrap-up` again with one --resolve PATH=lane|base|FILE for each listed path."
+      : "Candidate failed: inspect its checks and error, fix the cause in the lane directory, save it with `octocove lane submit`, then run `octocove lane wrap-up` again.");
   }
 }
 
@@ -93,45 +74,39 @@ Commands:
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
-  auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]
+  auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
-  auth revoke --grant ID                       (human administrator)
+  auth revoke --grant ID                       (human administrator: revoke an approval grant)
   auth renew                                  (rotate active session or delegation)
   auth revoke [DELEGATION_ID]                  (revoke delegation; defaults to active one)
-  workspace prepare|open|refresh|retire --canonical URL [--cache DIR] [--worktree ID] [--base SHA]
-  helper status                               (secret-free configuration)
   task list --project ID [--status S] [--cursor C] [--limit N]
   task show ID
   task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON
   task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]
   task publish ID
-  task release ID [--claim ID] [--dir DIR]       (a materialized lane directory keeps its unsaved edits as a patch first)
-  claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]  (default lane: chain)
-  lane sync                                   (fetch authenticated canonical refs; preserve local edits)
-  lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
-  lane status|retry [--task ID] [--claim ID]
-  lane retire [TASK] [--task ID]                (human project admin, recent sign-in: retire a lane; a materialized lane's repository is deleted, its landed result kept)
-  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (materialized lane: create or reuse the lane repository, write the files at the lane head into DIR, no .git)
-  lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (materialized lane: rebase onto the pinned head; edits kept, upstream copies in .octocove/incoming)
+  task release ID [--claim ID] [--dir DIR]       (a lane directory keeps its unsaved edits as a patch first)
+  claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]  (agent, with the claim bootstrap: claim the task's lane with its read and write scope)
+  lane status [DIR]                              (the lane directory's edits and conflicts, and the task's lane repository when a credential is at hand)
+  lane retire TASK                              (human project admin, recent sign-in: retire a lane; its lane repositories are deleted, its landed result kept)
+  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (create or reuse the lane repository, write the files at the lane head into DIR, no .git)
+  lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (rebase the lane onto the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
-  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point on the lane head)
-  lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (materialized lane: squash the saved lane into one candidate for review)
-  lane patch [DIR] [--out FILE]                 (materialized lane: write unsaved edits as a Git-format patch)
+  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (save changed files as a save point on the lane head)
+  lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (squash the saved lane into one candidate for review)
+  lane patch [DIR] [--out FILE]                 (write the lane directory's unsaved edits as a Git-format patch)
   lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]  (human, recent sign-in: reopen a landed lane for one agent)
-  lane scope-requests ID [--status pending|granted|refused]  (materialized lane: the task's scope requests, newest first; project member)
-  task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
+  lane scope-requests ID [--status pending|granted|refused]  (the task's scope requests, newest first; project member)
+  task claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]  (agent, with the claim bootstrap; --read is required except when continuing a reopened lane)
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
   task dependency-add ID --upstream ID --expected-status S --intent-version N
   task dependency-remove ID --upstream ID --expected-status S --intent-version N
   task reject ID --expected-status S --intent-version N
   task supersede ID --replacement ID --expected-status S --intent-version N
-  task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N
   approval withdraw ID --expected-status S --intent-version N
   candidate withdraw ID --expected-status S --intent-version N
   candidate reject ID --expected-status landed --intent-version N
   task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
-  submit [REF] [--task ID] [--source SHA] [--base SHA] [--intent-version N] [--claim ID] [--wait SECONDS]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
   land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octocove land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
@@ -157,7 +132,7 @@ Global options:
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else ${DEFAULT_API_ORIGIN}; other commands use the origin stored with their credential.
-Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 76 stale, 77 sign-in or human credential required, 78 config or read access denied.
+Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 77 sign-in or human credential required, 78 config or read access denied.
 `;
 
 const GLOBAL = { verbose: { type: "boolean" }, json: { type: "boolean" }, "idempotency-key": { type: "string" }, help: { type: "boolean" } } as const;
@@ -184,19 +159,6 @@ function intentInput(v: Record<string, any>) {
   if (!Array.isArray(acceptanceCriteria) || !acceptanceCriteria.every(x => typeof x === "string")) throw new UsageError("--acceptance must be a JSON array of strings");
   return { title: need(v, "title"), description: need(v, "description"), acceptanceCriteria };
 }
-async function sourceRemoteMatches(git: GitRunner, name: string, remote: string) {
-  const fetchRemote = await git(["remote", "get-url", name]);
-  const pushRemotes = (await git(["remote", "get-url", "--push", "--all", name])).split("\n");
-  return sameRemoteIdentity(fetchRemote, remote) && pushRemotes.length > 0 && pushRemotes.every(url => sameRemoteIdentity(url, remote));
-}
-async function resolveCommit(git: GitRunner, ref: string) {
-  try { return await git(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]); }
-  catch (error) {
-    if (error instanceof TransportError) throw error;
-    throw new UsageError("REF must resolve to a commit in the current clone");
-  }
-}
-
 function need(v: Record<string, any>, name: string): string {
   if (!v[name]) throw new UsageError(`--${name} is required`);
   return v[name];
@@ -258,7 +220,6 @@ const RETENTION_PENDING: Record<string, string> = {
   "task-not-terminal": "the task is not landed, rejected or superseded (or a landing is fenced); a lane is retired only after its task is final",
   "journal-in-flight": "a save, refresh, materialize or head transition is still settling",
   "wrap-up-in-flight": "a wrap-up is still settling",
-  "push-unresolved": "a push to the lane is not resolved yet",
   "write-token-live": "a write token for the lane repository or a lane claim is still live; it expires within minutes",
   "custody-unverified": "a submission of a lane claim is neither a recorded wrap-up nor in verified source custody",
 };
@@ -276,22 +237,16 @@ function report(d: Deps, err: unknown, json: boolean): number {
   }
   if (err instanceof CloneError) return emit(err.code, err.message, { status: err.status }), err.exitCode;
   if (err instanceof HumanRequiredError) return emit("human-required", err.message), EXIT.humanRequired;
-  if (err instanceof HelperRequiredError) return emit(err.code, err.message, { hint: err.hint }), EXIT.config;
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
   if (err instanceof CandidateFailedError) return emit(err.code, err.message), EXIT.candidateFailed;
-  if (err instanceof StaleCandidateError) return emit(err.code, err.message, { currentHead: err.currentHead }), EXIT.stale;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
   // No server answer: a client-side failure, reported in the CLI's own wording.
   if (err instanceof TransportError) return emit(err.code, `${err.code}: ${TRANSPORT_DETAIL[err.code] ?? err.message}`, { status: 0 }), EXIT.failure;
   if (err instanceof ApiError) {
     const nextSteps = err.code === "credential-expired"
       ? "Run `octocove auth renew` to recover the expired credential. If a human session cannot be renewed, run `octocove login`. For an agent delegation, ask the delegating human for a new task authorization and import its bootstrap into the agent config directory."
-      : err.code === "lane-chain-required"
-        ? "This task requires a chain lane; retry with --lane chain: octocove task claim TASK_ID --lane chain."
-      : err.code === "chain-base-mismatch"
-        ? "Run `octocove task show TASK_ID` and `octocove lane status` to inspect the pinned base. Use that immutable base and a source containing it; do not rewrite the lane pin."
-        : ["stale-base", "stale-head"].includes(err.code)
-          ? "Run `octocove task show TASK_ID` to inspect the current base and replacement candidate. Obtain a fresh approval for the current candidate before landing."
+      : ["stale-base", "stale-head"].includes(err.code)
+        ? "Run `octocove task show TASK_ID` to inspect the current base and replacement candidate. Obtain a fresh approval for the current candidate before landing."
         : err.code === "generation-superseded"
         ? "Run `octocove lane refresh` to take the current generation (local edits are kept), then submit again."
       : err.code === "lane-head-moved"
@@ -340,7 +295,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "lane-conflicts-unresolved"
         ? "Run `octocove lane status`, then `octocove lane resolve PATH --keep local|incoming` for each conflict."
       : err.code === "already-claimed"
-          ? "Run `octocove task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to replace the claim."
+          ? "Run `octocove task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octocove task release TASK_ID --claim ID`)."
           : undefined;
     emit(err.code, nextSteps ? err.code === "credential-expired" ? `credential-expired: ${nextSteps}` : `${err.message} ${nextSteps}` : err.message,
       { status: err.status, requestId: err.requestId, details: err.details, ...(nextSteps ? { nextSteps, hint: nextSteps } : {}) });
@@ -353,7 +308,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
   return EXIT.failure;
 }
 
-const GROUPS = new Set(["project", "repo", "task", "candidate", "receipt", "events", "webhook", "helper", "auth", "approval", "workspace", "lane"]);
+const GROUPS = new Set(["project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane"]);
 
 async function dispatch(d: Deps) {
   const globals = globalOptions(d.argv);
@@ -382,7 +337,7 @@ async function dispatch(d: Deps) {
   const lead = globals.flags;
   const argv = globals.argv;
   const [a = "", b, ...tail] = argv;
-  if (!d.credentials && !["version", "--version", "-v", "login", "workspace"].includes(a)) {
+  if (!d.credentials && !["version", "--version", "-v", "login"].includes(a)) {
     const stored = await activeCredentials(d.env);
     if (stored?.kind === "human" || stored?.kind === "agent") d = { ...d, fetch: (stored.kind === "human" ? humanSessionFetch : agentSessionFetch)(d.env, stored, d.fetch) };
   }
@@ -436,13 +391,6 @@ function claimOf(body: unknown) {
   return body;
 }
 
-/** A candidate wait's result as the `GET /submissions/{id}/candidate` body it was read from. */
-function candidateBody(result: CandidateWaitResult) {
-  if (result.state === "complete") return { state: result.state, candidate: result.candidate };
-  if (result.state === "superseded") return { state: result.state, submissionId: result.submissionId, replacementSubmissionId: result.replacementSubmissionId };
-  return { state: "pending", submissionId: result.submissionId, jobId: result.jobId };
-}
-
 const kv = (rows: [string, unknown][]) =>
   rows
     .filter(([, v]) => v !== undefined && v !== null)
@@ -470,7 +418,7 @@ function actionRows(actions: any): [string, unknown][] {
   return [["Approve", row(actions.approve)], ["Land", row(actions.land, typeof actions.land?.approvalId === "string" ? `approval ${actions.land.approvalId}` : undefined)]];
 }
 
-/** Where a materialized submission came from, and the file operations it journaled (preview). */
+/** Where a lane submission came from, and the file operations it journaled. */
 function materializedRows(c: any): [string, unknown][] {
   const p = c.provenance;
   const rows: [string, unknown][] = isRecord(p)
@@ -539,7 +487,7 @@ function contractText(task: any, dependencyResults?: any[]) {
 
 type Handler = (d: Deps, args: string[]) => Promise<void>;
 
-type GovernanceOperation = "taskUnpublish" | "taskDependencyAdd" | "taskDependencyRemove" | "taskReject" | "taskSupersede" | "claimReplace" | "approvalWithdraw" | "candidateWithdraw" | "candidateReject";
+type GovernanceOperation = "taskUnpublish" | "taskDependencyAdd" | "taskDependencyRemove" | "taskReject" | "taskSupersede" | "approvalWithdraw" | "candidateWithdraw" | "candidateReject";
 /** Each governance command through its ledgered journey (`stored-result`: a lost answer is replayed under the same key). */
 const GOVERNANCE: Record<GovernanceOperation, (j: Journeys, id: string, body: any, o: CommandOptions) => Promise<any>> = {
   taskUnpublish: (j, id, body, o) => j.tasks.unpublish(id, body, o),
@@ -547,7 +495,6 @@ const GOVERNANCE: Record<GovernanceOperation, (j: Journeys, id: string, body: an
   taskDependencyRemove: (j, id, body, o) => j.tasks.dependencies.remove(id, body, o),
   taskReject: (j, id, body, o) => j.tasks.reject(id, body, o),
   taskSupersede: (j, id, body, o) => j.tasks.supersede(id, body, o),
-  claimReplace: (j, id, body, o) => j.claims.replace(id, body, o),
   approvalWithdraw: (j, id, body, o) => j.approvals.withdraw(id, body, o),
   candidateWithdraw: (j, id, body, o) => j.candidates.withdraw(id, body, o),
   candidateReject: (j, id, body, o) => j.candidates.reject(id, body, o),
@@ -568,24 +515,6 @@ function governance(operationId: GovernanceOperation, fields: Record<string, str
     out(d, v.json, r, () => kv(Object.entries(r)));
   };
 }
-
-const workspaceHandler = (action: string): Handler => async (d, args) => {
-  const {v} = opts(args, {
-    canonical:{type:"string"}, "canonical-id":{type:"string"}, cache:{type:"string"},
-    ref:{type:"string"}, worktree:{type:"string"}, base:{type:"string"}, head:{type:"string"},
-    source:{type:"string"}, sparse:{type:"string"}, count:{type:"string"},
-  }, 0);
-  const count = v.count === undefined ? 1 : Number(v.count);
-  if (!Number.isInteger(count) || count < 1 || count > 16) throw new UsageError("--count must be 1..16");
-  const result = await workspace(action, {
-    canonical:need(v,"canonical"), canonicalId:v["canonical-id"],
-    cache:v.cache ?? join(d.env.XDG_CACHE_HOME ?? join(homedir(),".cache"),"octocove","workspaces"),
-    ref:v.ref, worktree:v.worktree, base:v.base, head:v.head, source:v.source,
-    sparse:v.sparse ? v.sparse.split(",") : [], count,
-  });
-  out(d, v.json, result, () => kv(Object.entries(result)));
-  if(result.ok === false) throw new Emitted(new Error("workspace refresh conflict; task head retained"));
-};
 
 const eventsFollow: Handler = async (d,args) => {
   const { v } = opts(args, { follow:{type:'boolean'},project:{type:'string'},task:{type:'string'},from:{type:'string'},checkpoint:{type:'string'},limit:{type:'string'} },0);
@@ -630,15 +559,10 @@ function laneOut(d: Deps, json: boolean, action: string, taskId: string, project
         return kv([["Task", taskId], ["Phase", data?.phase === "retired" ? "retired" : `${data?.phase} (deletion is confirmed by the server; run the same command again to check)`],
           ...repos.map((r: any) => ["Lane repository", `${r.id} (${r.state}${r.retiredAt ? `, retired at ${r.retiredAt}` : ""})`] as [string, unknown])]);
       }
-      if (action !== "push") return kv([["Task", taskId], ...Object.entries(data)]);
-      const c = data.candidate?.candidate;
-      return kv([["Task", taskId], ["Agent", data.submission?.context?.actorType === "agent" ? data.submission.context.actorId : d.credentials?.kind === "agent" ? d.credentials.agentId : undefined],
-        ["Push", data.push?.pushId], ["Status", c?.status ?? data.candidate?.state ?? data.push?.status],
-        ["Submission", data.submission?.id], ["Candidate", c?.id], ["Candidate SHA", c?.candidateSha],
-        ["Base SHA", c?.baseSha ?? data.lane?.baseSha], ["Outcome", c?.outcome]]);
+      return kv([["Task", taskId], ...Object.entries(data)]);
     });
 }
-/** Materialized lanes (preview) live in a plain directory with a sidecar; no Git, helper or broker is involved. */
+/** A lane lives in a plain directory with a sidecar; no Git remote or provider credential is involved. */
 type MaterializedAction = "materialize" | "status" | "refresh" | "resolve" | "submit" | "wrap-up" | "patch";
 const MATERIALIZED_FLAGS: Record<MaterializedAction, Record<string, { type: "string" | "boolean"; multiple?: boolean }>> = {
   materialize: { wait: { type: "string" }, handover: { type: "boolean" } },
@@ -693,7 +617,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
     return;
   }
   const { api, creds } = await client(d);
-  if (creds.kind !== "agent") throw new ConfigError(`lane ${action} requires an agent delegation for a materialized claim`);
+  if (creds.kind !== "agent") throw new ConfigError(`lane ${action} requires the agent delegation of a claim`);
   const notify = (line: string) => d.stderr(v.json ? JSON.stringify({ notice: line }) + "\n" : `octocove: ${line}\n`);
   const options = { deadline, idempotencyKey: v["idempotency-key"], notify };
   if (action === "materialize") {
@@ -747,7 +671,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
  */
 async function keepUnsaved(d: Deps, taskId: string, dirArg: string | undefined) {
   const dir = resolve(d.cwd ?? process.cwd(), dirArg ?? ".");
-  if (!hasSidecar(dir)) { if (dirArg !== undefined) throw new ConfigError(`${dirArg} is not a materialized lane directory`); return null; }
+  if (!hasSidecar(dir)) { if (dirArg !== undefined) throw new ConfigError(`${dirArg} is not a lane directory`); return null; }
   const st = await laneDirStatus(dir);
   if (st.taskId !== taskId) { if (dirArg !== undefined) throw new ConfigError(`${dirArg} holds task ${st.taskId}, not ${taskId}`); return null; }
   if (!st.modified.length && !st.added.length && !st.deleted.length) return null;
@@ -755,144 +679,40 @@ async function keepUnsaved(d: Deps, taskId: string, dirArg: string | undefined) 
   if (r.path) d.stderr(`octocove: ${r.files.length} unsaved edit(s) in ${dir} kept as a patch: ${r.path} (git apply it in a lane directory, then octocove lane submit)\n`);
   return r.path;
 }
-const laneHandler = (action: "status" | "retry" | "push"): Handler => async (d, args) => {
-  const { v, pos } = opts(args, { task: { type: "string" }, claim: { type: "string" },
-    ...(action === "push" ? { source: { type: "string" as const }, base: { type: "string" as const },
-      "push-id": { type: "string" as const }, wait: { type: "string" as const } } : {}),
-  }, action === "push" ? 1 : 0, 0);
-  const deadline = action === "push" ? Date.now() + (intFlag(v, "wait") ?? 60) * 1000 : undefined;
-  const scope = deadline === undefined ? undefined : new CallScope([d.signal], [deadline]);
-  let managed: Awaited<ReturnType<typeof startManagedHelper>> | undefined;
-  const originalGit = d.git;
-  if (scope) d = { ...d, git: args => {
-    scope.throwIfEnded();
-    return scope.guard(originalGit(args, { signal: scope.signal }));
-  } };
-  try {
-    const taskId = v.task ?? await getConfig(d.git, "octocove.taskId");
-    if (!taskId) throw new UsageError("--task is required (no claimed task in this repository's git config)");
-    if (action === "push" && !d.env.OCTOCOVE_HELPER_SOCK) requireAgentCredential((d.credentials ?? await activeCredentials(d.env))?.kind ?? "missing");
-    const { api, creds } = await client(d);
-    if (action === "push" && !d.env.OCTOCOVE_HELPER_SOCK) requireAgentCredential(creds.kind);
-    const projectId = await getConfig(d.git, "octocove.projectId") ?? null;
-    const path = { id: taskId };
-    if (action === "status") {
-      const r = (await api.call("chainLaneGet", { path, deadline: Date.now() + READ_SECONDS * 1000 })).body;
-      laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
-    }
-    const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
-    if (!claimAttemptId) throw new UsageError("--claim is required");
-    if (action === "retry") {
-      const r = await api.j.chain.retry(taskId, { claimAttemptId }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-      laneOut(d, v.json, action, taskId, projectId, r, v["idempotency-key"]); return;
-    }
-    if (pos[0] && v.source) throw new UsageError("use REF or --source, not both");
-    if (v.source && !/^[a-f0-9]{40}$/.test(v.source)) throw new UsageError("--source must be an exact commit SHA");
-    if (v["push-id"] && !/^[A-Za-z0-9_-]{1,160}$/.test(v["push-id"])) throw new UsageError("invalid --push-id");
-    const sourceSha = await resolveCommit(d.git, v.source ?? pos[0] ?? "HEAD");
-    const baseSha = v.base ?? await getConfig(d.git, "octocove.baseSha");
-    if (!baseSha || !/^[a-f0-9]{40}$/.test(baseSha)) throw new UsageError("--base must be an exact commit SHA (or claim first)");
-    const lane = (await api.call("chainLaneGet", { path, deadline })).body;
-    if (lane.claimAttemptId !== claimAttemptId || lane.writerClaimId !== claimAttemptId) throw new ConfigError("claim does not own this lane");
-    if (lane.baseSha !== baseSha) throw new ApiError({ status: 409, code: "chain-base-mismatch", detail: "recorded base differs from the lane's immutable base" });
-    await d.git(["merge-base", "--is-ancestor", baseSha, sourceSha]).catch((error) => {
-      if (error instanceof TransportError) throw error;
-      throw new ApiError({ status: 409, code: "chain-base-mismatch", detail: "source commit does not contain the pinned base" });
-    });
-    const intentVersion = Number(await getConfig(d.git, "octocove.intentVersion"));
-    if (!Number.isInteger(intentVersion) || intentVersion < 1) throw new UsageError("claim first to record the intent version");
-    const key = v["idempotency-key"] ?? newIdempotencyKey();
-    const pushId = v["push-id"] ?? `push-${createHash("sha256").update(taskId + "\0" + claimAttemptId + "\0" + key).digest("hex")}`;
-    const externalSocket = d.env.OCTOCOVE_HELPER_SOCK;
-    const claim = claimOf((await api.call("claimGet", { path: { id: claimAttemptId }, deadline })).body);
-    const ref = claim.workspace?.ref;
-    if (claim.id !== claimAttemptId || claim.taskId !== taskId || !ref) throw new ConfigError("claim workspace does not match this attempt");
-    if (ref !== `refs/octocove/claims/${claimAttemptId}`) {
-      requireHelperTransport(d.env);
-      if (ref !== await getConfig(d.git, "octocove.ref")) throw new ConfigError("claim workspace does not match the configured lane");
-      await stageChain(originalGit, externalSocket, { taskId, claimId: claimAttemptId, pushId, sourceSha, baseSha }, { deadline, signal: d.signal });
-      const queued = (await api.j.command("chainLanePush", { path, body: { claimAttemptId, pushId, sourceSha } }, { ...api.until(deadline!), idempotencyKey: key })).body;
-      const delivery = await api.j.chain.waitForDelivery(taskId, pushId, api.until(deadline!));
-      if (delivery.state !== "delivered") {
-        laneOut(d, v.json, action, taskId, projectId, { push: queued, lane: delivery.lane ?? lane }, key);
-        throw new Emitted(new PendingError("lane push is remote-pending; inspect lane status and retry"));
-      }
-      const submission = await api.j.submissions.create(taskId, { claimAttemptId, sourceSha, baseSha, intentVersion },
-        { ...api.until(deadline!), idempotencyKey: `submission-${createHash("sha256").update(key).digest("hex")}` });
-      const candidate = candidateBody(await api.j.candidates.waitFor(submission.id, api.until(deadline!)));
-      laneOut(d, v.json, action, taskId, projectId, { push: { ...queued, ...delivery.lane.pushes.find(push => push.pushId === pushId) }, lane: delivery.lane, submission, candidate }, key);
-      if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
-      return;
-    }
-    const remoteName = await getConfig(d.git, "octocove.remote") ?? "octocove";
-    if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("claim first to configure the octocove helper remote");
-    if (!externalSocket) {
-      const boundProject = projectId ?? (await api.call("taskGet", { path })).body.projectId;
-      managed = await startManagedHelper({ ...d, ...creds, fetch: credentialFetch(d, creds), taskId, claimId: claimAttemptId, projectId: boundProject, baseSha, deadline, signal: scope?.signal });
-      d = { ...d, env: { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath } };
-    }
-    try {
-      await scope!.guard(originalGit(["-c", "pack.window=0", "-c", "pack.depth=0", "push", "--no-thin", "--", remoteName, `${sourceSha}:${ref}`],
-        { signal: scope!.signal, env: d.env, stderr: d.stderr }));
-    } catch (error) { throw managed?.failure ?? error; }
-    const task = (await api.call("taskGet", { path, deadline })).body;
-    if (task.liveAttempt?.claimId !== claimAttemptId || !task.liveAttempt?.submissionId) throw new ConfigError("push accepted; run task show to inspect the submission");
-    const submission = { id: task.liveAttempt.submissionId, taskId, sourceSha, baseSha };
-    const candidate = candidateBody(await api.j.candidates.waitFor(submission.id, api.until(deadline!)));
-    if (candidate.candidate?.submissionId !== undefined && candidate.candidate.submissionId !== submission.id)
-      throw new ConfigError("push accepted but the live submission moved; inspect task show for this claim");
-    laneOut({ ...d, credentials: creds }, v.json, action, taskId, projectId, { push: { pushId, sourceSha, status: "delivered" }, lane, submission, candidate }, key);
-    if (candidate.state === "complete" && candidate.candidate?.status === "stale") {
-      const current = await api.call("taskGet", { path, deadline }).then(r => r.body.canonicalHeadSha).catch(() => task.canonicalHeadSha);
-      throw new StaleCandidateError(typeof current === "string" ? current : "unavailable");
-    }
-    if (candidate.state === "pending") throw new Emitted(new PendingError("candidate computation is pending"));
-  } finally { await managed?.close(); scope?.dispose(); }
-};
-
-/** A materialized claim (preview): the scope travels with the claim; nothing is cloned and no helper starts. */
-async function claimMaterialized(d: Deps, taskId: string, v: Record<string, any>) {
-  for (const flag of ["source-ref", "repository", "chain-id", "previous-task", "base", "canonical", "remote"]) if (v[flag]) throw new UsageError(`--${flag} cannot be combined with --lane materialized`);
+/**
+ * Claims a task with its one-use claim bootstrap: the only credential the claim route accepts. The scope travels
+ * with the claim; nothing is cloned. The bootstrap is replaced by the claim's agent delegation, saved privately.
+ */
+async function claimTask(d: Deps, taskId: string, v: Record<string, any>) {
   const list = (flag: string) => String(v[flag] ?? "").split(",").map(s => s.trim()).filter(Boolean);
   const read = list("read"), write = list("write");
-  // A reopened lane continues at its latest granted scope, so the bootstrap `lane reopen` stored may leave it out.
-  if (!read.length && (write.length || !v["bootstrap-file"])) throw new UsageError("--read is required with --lane materialized (comma-separated path prefixes); only a claim that continues a reopened lane (--bootstrap-file) may leave out the scope");
+  // A reopened lane continues at its latest granted scope, so the claim may leave it out.
+  if (!read.length && write.length) throw new UsageError("--write needs --read (comma-separated path prefixes; each write prefix lies inside a read prefix)");
+  const intentVersion = intFlag(v, "intent-version");
+  if (intentVersion === undefined) throw new UsageError("--intent-version is required: a claim bootstrap cannot read the task");
   const creds = v["bootstrap-file"] ? await importBootstrap(d.env, v["bootstrap-file"]) : (await client(d)).creds;
+  if (creds.kind !== "bootstrap") throw new ConfigError("task claim needs the claim bootstrap a human issued with `octocove task authorize` (or `octocove lane reopen`): pass --bootstrap-file FILE");
   const api = connect(d, creds);
-  let intentVersion = intFlag(v, "intent-version");
-  if (intentVersion === undefined) {
-    if (creds.kind === "bootstrap") throw new UsageError("--intent-version is required with a claim bootstrap credential");
-    intentVersion = (await api.call("taskGet", { path: { id: taskId } })).body.intentVersion as number;
-  }
-  const body = { intentVersion, laneKind: "materialized", ...(read.length ? { scope: { read, write } } : {}) };
-  let claim: ReturnType<typeof claimOf>;
-  let delegation: { delegationId: string; token: string; expiresAt: string; revocationId: string } | undefined;
-  if (creds.kind === "bootstrap") {
-    const bootstrap: ClaimBootstrap = { kind: "claim-bootstrap", token: creds.token, taskId, authorizationId: "", projectId: "", claimAttemptId: "", delegationId: "", expiresAt: "", authorizationExpiresAt: "", verbs: [] };
-    const issued = await api.j.claims.claim(bootstrap, taskId, body as never, { ...api.until(Date.now() + BOOTSTRAP_CLAIM_SECONDS * 1000), idempotencyKey: v["idempotency-key"] })
-      .catch(offShapeAs("claim did not return a delegation"));
-    claim = claimOf(issued.claim);
-    delegation = issued.delegation;
-  } else {
-    const options = api.write(COMMAND_SECONDS, v["idempotency-key"]);
-    const granted = creds.kind === "human"
-      ? await api.j.claims.claimAsHuman(taskId, body as never, options).catch(offShapeAs("invalid claim response from the control plane"))
-      : (await api.j.command("taskClaim", { path: { id: taskId }, body: body as never }, options)).body?.claim;
-    if (!isRecord(granted)) throw new ConfigError("invalid claim response from the control plane");
-    claim = claimOf(granted);
-  }
-  let credentialsFile: string | undefined;
-  if (delegation) {
-    const activeCreds: Credentials = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt, issuedAt: new Date().toISOString(), ...(creds.absoluteExpiresAt ? { absoluteExpiresAt: creds.absoluteExpiresAt } : {}) };
-    credentialsFile = await saveCredentials(d.env, activeCreds);
-  }
+  const bootstrap: ClaimBootstrap = { kind: "claim-bootstrap", token: creds.token, taskId, authorizationId: "", projectId: "", claimAttemptId: "", delegationId: "", expiresAt: "", authorizationExpiresAt: "", verbs: [] };
+  // A lost answer is recovered under the same key and bootstrap within its five minutes, never claimed afresh.
+  const issued = await api.j.claims.claim(bootstrap, taskId, { intentVersion, ...(read.length ? { scope: { read, write } } : {}) },
+    { ...api.until(Date.now() + BOOTSTRAP_CLAIM_SECONDS * 1000), idempotencyKey: v["idempotency-key"] })
+    .catch(offShapeAs("claim did not return a delegation"));
+  const claim = claimOf(issued.claim);
+  const delegation = issued.delegation;
+  // A successful claim consumes the bootstrap: its replacement is saved before anything else happens.
+  const credentialsFile = await saveCredentials(d.env, { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt,
+    issuedAt: new Date().toISOString(), ...(creds.absoluteExpiresAt ? { absoluteExpiresAt: creds.absoluteExpiresAt } : {}),
+    ...(typeof claim.expiresAt === "string" ? { claimExpiresAt: claim.expiresAt } : {}), ...(creds.agentId ? { agentId: creds.agentId } : {}) });
   const lane = isRecord(claim.lane) ? claim.lane : undefined;
   const granted = isRecord(lane?.scope) ? lane!.scope as { read?: string[]; write?: string[] } : { read, write };
-  const body2 = { claim, ...(credentialsFile ? { credentialsFile } : {}) };
+  // Never expose the access token, even in JSON output.
+  const shown = { claim, delegation: { delegationId: delegation.delegationId, tokenType: "Bearer", expiresAt: delegation.expiresAt, revocationId: delegation.revocationId }, credentialsFile };
   // A reopened lane is rebased onto its landing before it is ready; lane materialize resumes that and waits for it.
   const pending = claim.provisioningState === "pending";
-  out(d, v.json, body2, () => kv([["Claim", claim.id], ["Task", taskId], ["Lane", "materialized"], ["Generation", lane?.generation], ["Base", lane?.baseSha], ["Scope version", lane?.scopeVersion],
+  out(d, v.json, shown, () => kv([["Claim", claim.id], ["Task", taskId], ["Agent", creds.agentId], ["Expires", claim.expiresAt], ["Generation", lane?.generation], ["Base", lane?.baseSha], ["Scope version", lane?.scopeVersion],
     ["Read", granted.read?.join(", ")], ["Write", granted.write?.join(", ") || "(none)"],
+    ["Upstream results", (Array.isArray(claim.dependencyResults) ? claim.dependencyResults : []).map((r: any) => `${r.upstreamTaskId} receipt ${r.receiptId} landed ${r.landedSha}`).join("; ") || "(none)"],
     ...(typeof lane?.reopenId === "string" ? [["Reopen", `${lane.reopenId} (continues the landed lane)`], ["Lane head", lane.laneHead]] as [string, unknown][] : []),
     ...(pending ? [["Provisioning", "pending (the lane is still being prepared)"]] as [string, unknown][] : []),
     ["Credentials", credentialsFile], ["Next", `octocove lane materialize ${taskId} DIR${pending ? " (it finishes preparing the lane first)" : ""}`]]));
@@ -905,26 +725,7 @@ const COMMANDS: Record<string, Handler> = {
     const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     out(d, v.json, { version }, () => `octocove ${version}`);
   },
-  "lane sync": async (d, args) => {
-    const { v } = opts(args, {}, 0);
-    const creds = d.credentials ?? await activeCredentials(d.env);
-    requireAgentCredential(creds?.kind ?? "missing");
-    const [taskId,claimId,projectId,baseSha,remoteName] = await Promise.all(["taskId","claimId","projectId","baseSha","remote"].map(k => getConfig(d.git,`octocove.${k}`)));
-    if (!taskId || !claimId || !projectId || !remoteName) throw new ConfigError("claim first to configure this agent's workspace");
-    if (!await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("workspace remote is not the claimed helper transport");
-    const managed = d.env.OCTOCOVE_HELPER_SOCK ? undefined : await startManagedHelper({ ...d, ...creds!,fetch: credentialFetch(d, creds!),taskId,claimId,projectId,baseSha });
-    try {
-      await d.git(["fetch","--no-tags","--",remoteName,"+refs/heads/*:refs/remotes/"+remoteName+"/*"],
-        {env:{...d.env,...(managed ? {OCTOCOVE_HELPER_SOCK:managed.socketPath} : {})},signal:d.signal,stderr:d.stderr});
-      out(d,v.json,{taskId,claimId,remote:remoteName,synced:true},()=>`Fetched canonical through ${remoteName}. Merge its current target branch locally, then run octocove lane push.`);
-    }catch(error){throw managed?.failure ?? error;}finally{await managed?.close();}
-  },
-  // A materialized directory (its own sidecar, or DIR's) answers locally; --task/--claim always mean the chain lane.
-  "lane status": (d, args) => {
-    const positional = args.find(a => !a.startsWith("-"));
-    const chain = args.includes("--task") || args.includes("--claim") || args.some(a => a.startsWith("--task=") || a.startsWith("--claim="));
-    return !chain && hasSidecar(resolve(d.cwd ?? process.cwd(), positional ?? ".")) ? materializedLane("status")(d, args) : laneHandler("status")(d, args);
-  },
+  "lane status": materializedLane("status"),
   "lane materialize": materializedLane("materialize"),
   "lane refresh": materializedLane("refresh"),
   "lane resolve": materializedLane("resolve"),
@@ -960,14 +761,14 @@ const COMMANDS: Record<string, Handler> = {
       const metadata = { reopenId: r.reopenId, taskId, status: r.status, reopenedFromReceiptId: r.reopenedFromReceiptId, landingCount: r.landingCount, laneRepositoryId: r.laneRepositoryId,
         claimAttemptId: b.claimAttemptId, delegationId: b.delegationId, verbs: b.verbs, bootstrapExpiresAt: b.bootstrapExpiresAt, intentVersion, bootstrapFile, unsavedPatch: saved };
       // The lane keeps its granted scope, so the agent's claim names none; this bootstrap is the only one a reopened task admits.
-      const claimLine = `octocove task claim ${taskId} --lane materialized --intent-version ${intentVersion ?? "N"} --bootstrap-file ${shq(bootstrapFile)}`;
+      const claimLine = `octocove task claim ${taskId} --intent-version ${intentVersion ?? "N"} --bootstrap-file ${shq(bootstrapFile)}`;
       out(d, v.json, metadata, () => kv([["Reopen", metadata.reopenId], ["Task", taskId], ["Status", metadata.status], ["Reopened from receipt", metadata.reopenedFromReceiptId], ["Landings", metadata.landingCount],
         ["Claim attempt", metadata.claimAttemptId], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile],
         ...(saved ? [["Unsaved edits", `kept as ${saved}`] as [string, string]] : []),
         ["Next", `hand the bootstrap file to the agent, which claims within 5 minutes: ${claimLine}, then octocove lane materialize ${taskId} DIR (it continues the lane head)`]]));
     } finally { await output?.close(); }
   },
-  // The authoritative scope-request record of the task's materialized claims (preview); agent delegations are refused.
+  // The authoritative scope-request record of the task's claims; agent delegations are refused.
   "lane scope-requests": async (d, args) => {
     const { v, pos } = opts(args, { status: { type: "string" } }, 1, 1);
     if (v.status !== undefined && !["pending", "granted", "refused"].includes(v.status)) throw new UsageError("--status must be pending, granted or refused");
@@ -983,26 +784,17 @@ const COMMANDS: Record<string, Handler> = {
       return [...blocks, ...(footer.length ? [footer.join("\n")] : [])].join("\n\n");
     });
   },
-  "lane push": laneHandler("push"),
-  "lane retry": laneHandler("retry"),
-  // Retiring a lane (human project:admin, recent sign-in). On a materialized lane every lane repository of the task is
-  // deleted once its retention guards hold (409 lane-retention-pending names the first that does not); the canonical,
-  // its landed commits and receipts are never touched. A replay under any key answers the completed retirement.
+  // Retiring a lane (human project:admin, recent sign-in): every lane repository of the task is deleted once its
+  // retention guards hold (409 lane-retention-pending names the first that does not); the canonical, its landed
+  // commits and receipts are never touched. A later call under any key answers the current retirement.
   "lane retire": async (d, args) => {
-    const { v, pos } = opts(args, { task: { type: "string" } }, 1, 0);
-    if (pos[0] && v.task && pos[0] !== v.task) throw new UsageError("use TASK or --task, not both");
-    const taskId = pos[0] ?? v.task ?? await getConfig(d.git, "octocove.taskId").catch(() => undefined);
-    if (!taskId) throw new UsageError("lane retire needs TASK (or --task, or a claimed task in this repository's git config)");
+    const { v, pos } = opts(args, {}, 1);
+    const taskId = pos[0]!;
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("lane retire requires a human credential (project:admin, with a recent sign-in)");
-    const projectId = await getConfig(d.git, "octocove.projectId").catch(() => undefined) ?? null;
-    const r = await api.j.chain.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    laneOut(d, v.json, "retire", taskId, projectId, r, v["idempotency-key"]);
+    const r = await api.j.lanes.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    laneOut(d, v.json, "retire", taskId, null, r, v["idempotency-key"]);
   },
-  "workspace prepare": workspaceHandler("prepare"),
-  "workspace open": workspaceHandler("open"),
-  "workspace refresh": workspaceHandler("refresh"),
-  "workspace retire": workspaceHandler("retire"),
   login: async (d, args) => {
     const { v } = opts(args, { wait: { type: "string" } }, 0);
     const waitSeconds = intFlag(v, "wait") ?? 600;
@@ -1126,22 +918,11 @@ const COMMANDS: Record<string, Handler> = {
     ].join("\n"));
   },
 
-  "helper status": async (d, args) => {
-    const { v } = opts(args, {}, 0);
-    const status = await helperStatus(d.git, d.env, d.connectorPath);
-    const creds = d.credentials ?? await activeCredentials(d.env);
-    const me = creds?.kind === "agent" ? await connect(d, creds).j.auth.me({ deadline: Date.now() + READ_SECONDS * 1000, signal: d.signal }) : undefined;
-    const shown = me ? { ...status, principal: me.principal, credential: me.credential, scopes: me.memberships } : status;
-    out(d, v.json, shown, () => kv([...Object.entries(status),
-      ...(me ? [["Agent", creds?.agentId ?? me.principal.displayName ?? me.principal.id], ["Principal", me.principal.id],
-        ["Expires", me.credential.expiresAt], ["Scopes", me.memberships.map(m => `${m.projectId}: ${m.verbs.join(", ")}`).join("\n")]] as [string,unknown][] : [])]));
-  },
   "task unpublish": governance("taskUnpublish"),
   "task dependency-add": governance("taskDependencyAdd", { upstream: "upstreamTaskId" }),
   "task dependency-remove": governance("taskDependencyRemove", { upstream: "upstreamTaskId" }),
   "task reject": governance("taskReject"),
   "task supersede": governance("taskSupersede", { replacement: "replacementTaskId" }),
-  "task replace-claim": governance("claimReplace", { claim: "claimId", "expires-at": "expiresAt" }),
   "approval withdraw": governance("approvalWithdraw"),
   "candidate withdraw": governance("candidateWithdraw", {}, false),
   "candidate reject": governance("candidateReject"),
@@ -1252,7 +1033,7 @@ const COMMANDS: Record<string, Handler> = {
     try {
     const { v, pos } = opts(args, {}, 3, 1);
     const { api, creds } = await client(d);
-    if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agent workspaces are prepared by task claim; no human credential fallback is used.");
+    if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agents work in lane directories (`octocove lane materialize`); no human credential fallback is used.");
     const me = await api.j.auth.me(api.until(Date.now() + READ_SECONDS * 1000));
     if (me.principal.kind !== "human") throw new HumanRequiredError("repo clone requires a human session.");
     const project = cloneProject(me.memberships, pos[0]!);
@@ -1313,248 +1094,28 @@ const COMMANDS: Record<string, Handler> = {
   "task release": async (d, args) => {
     const { v, pos } = opts(args, { claim: { type: "string" }, dir: { type: "string" } }, 1);
     const { api, creds } = await client(d);
-    // A materialized lane directory (DIR, or the working directory) keeps its unsaved edits as a patch first.
+    // A lane directory (DIR, or the working directory) keeps its unsaved edits as a patch first.
     const saved = await keepUnsaved(d, pos[0]!, v.dir);
-    const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
+    // An agent's claim comes from its delegation; a human names it.
+    const claimAttemptId: string | undefined = v.claim;
     if (!claimAttemptId && creds.kind === "human") throw new UsageError("--claim is required");
     const r = await api.j.claims.release(pos[0]!, claimAttemptId ? { claimAttemptId } : {}, api.write(COMMAND_SECONDS, v["idempotency-key"]));
     out(d, v.json, saved ? { ...r, unsavedPatch: saved } : r, () => kv([["Claim", r.claimId], ["Status", r.status], ...(saved ? [["Unsaved edits", `kept as ${saved}`] as [string, string]] : [])]));
   },
 
   "task claim": async (d, args) => {
-    const { v, pos } = opts(args, { "intent-version": { type: "string" }, remote: { type: "string" }, wait: { type: "string" }, "bootstrap-file": { type: "string" }, "source-ref": { type: "string" }, repository: { type: "string" }, read: { type: "string" }, write: { type: "string" }, lane: { type: "string" }, "chain-id": { type: "string" }, base: { type: "string" }, "previous-task": { type: "string" }, canonical: { type: "string" } }, 1);
-    const taskId = pos[0]!;
-    if (v.lane && !["chain", "ref", "materialized"].includes(v.lane)) throw new UsageError("--lane must be chain, ref or materialized");
-    if (v.lane === "materialized") { await claimMaterialized(d, taskId, v); return; }
-    if (v.read || v.write) throw new UsageError("--read and --write apply to --lane materialized");
-    if (v.lane === "chain" && v["source-ref"]) throw new UsageError("--lane chain cannot use --source-ref");
-    if (v.lane === "ref" && (v["chain-id"] || v["previous-task"])) throw new UsageError("chain options cannot use --lane ref");
-    let managed: Awaited<ReturnType<typeof startManagedHelper>> | undefined;
-    try {
-    let remoteName: string = v.remote ?? (v["source-ref"] ? "origin" : "octocove");
-    const creds = v["bootstrap-file"] ? await importBootstrap(d.env, v["bootstrap-file"]) : (await client(d)).creds;
-    if (!v["source-ref"] && !d.env.OCTOCOVE_HELPER_SOCK && creds.kind !== "bootstrap") requireAgentCredential(creds.kind);
-    if (!v["source-ref"] && !d.env.OCTOCOVE_HELPER_SOCK) await preflightConnector(d.connectorPath);
-    const api = connect(d, creds);
-    if (v.canonical) await validateClaimRemote(v.canonical, d.env, creds.apiUrl);
-    const waitSeconds = intFlag(v, "wait") ?? 60;
-
-    const readTask = async () => {
-      try { return (await api.call("taskGet", { path:{id:taskId} })).body; }
-      catch(error) {
-        if(creds.kind === "agent" && error instanceof ApiError && error.status === 403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
-        throw error;
-      }
-    };
-    let task: any;
-    let intentVersion = intFlag(v, "intent-version");
-    if (intentVersion === undefined) {
-      // A claim bootstrap only reaches the claim route, so it cannot read the task to learn the version.
-      if (creds.kind === "bootstrap") throw new UsageError("--intent-version is required with a claim bootstrap credential");
-      task = await readTask();
-      intentVersion = task.intentVersion as number;
-    }
-
-    const strategy = v.lane ?? (v["source-ref"] ? "ref" : "chain");
-    if (!task && creds.kind !== "bootstrap" && strategy === "chain") task = await readTask();
-    if (strategy === "chain" && v["source-ref"]) throw new UsageError("chain cannot use --source-ref; pass --lane ref");
-    if (strategy !== "chain" && (v["chain-id"] || v["previous-task"])) throw new UsageError("chain options require --lane chain");
-    let chain: ChainClaim | undefined;
-    if (strategy === "chain") {
-      const previousTaskId = v["previous-task"] ?? task?.lane?.previousTaskId;
-      let previousLane, previousTask;
-      if (previousTaskId) {
-        if (creds.kind === "bootstrap" && (!v["chain-id"] || !v.base)) throw new UsageError("bootstrap successors require --chain-id and --base");
-        if (creds.kind !== "bootstrap") {
-          previousLane = (await api.call("chainLaneGet", { path: { id: previousTaskId } })).body;
-          previousTask = (await api.call("taskGet", { path: { id: previousTaskId } })).body;
-          if (!previousTask.acceptedReceiptId) throw new ConfigError("previous task has no accepted landed receipt");
-        }
-      }
-      const receipt = previousTask ? (await api.call("receiptGet", { path: { id: previousTask.acceptedReceiptId } })).body : undefined;
-      if (receipt && (receipt.taskId !== previousTaskId || receipt.outcome !== "landed")) throw new ConfigError("previous task receipt is not landed");
-      const id = v["chain-id"] ?? previousLane?.chainId ?? task?.lane?.chainId ?? taskId;
-      const baseSha = v.base ?? receipt?.landedSha ?? task?.canonicalHeadSha;
-      if (!/^[A-Za-z0-9_-]{1,120}$/.test(id) || !/^[a-f0-9]{40}$/.test(baseSha ?? "")) throw new UsageError("chain requires a valid --chain-id and exact --base (or a readable task/receipt)");
-      chain = { id, baseSha, ...(previousTaskId ? { previousTaskId } : {}) };
-    }
-    let source;
-    if (v["source-ref"]) {
-      const ref = await d.git(["rev-parse", "--symbolic-full-name", "--verify", "--end-of-options", v["source-ref"]]);
-      if (!ref.startsWith("refs/heads/")) throw new UsageError("--source-ref must resolve to a local branch");
-      const remote = await d.git(["remote", "get-url", remoteName]).catch(() => {
-        throw new ConfigError(`source remote '${remoteName}' is unavailable; configure it before claiming with --source-ref`);
-      });
-      const repositoryId = v.repository ?? task?.repositoryId;
-      if (!repositoryId) throw new UsageError("--repository is required with --source-ref");
-      source = { kind: "external-ref", repositoryId, remote, ref, expectedSha: await resolveCommit(d.git, ref) };
-    }
-    const body = { intentVersion, ...(source ? { source } : {}), ...(chain ? { chain } : {}) };
-    let granteeClaim: ReturnType<typeof claimOf>;
-    let delegation: { delegationId: string; token: string; expiresAt: string; revocationId: string } | undefined;
-    if (creds.kind === "bootstrap") {
-      // A bootstrap's one claim goes through the library's claim journey: an issuance whose answer was
-      // lost (even after its headers arrived) is recovered under the same key and bootstrap, never claimed afresh.
-      // The hand-off file carries only the token; the journey sends that and checks the task id.
-      const bootstrap: ClaimBootstrap = { kind: "claim-bootstrap", token: creds.token, taskId, authorizationId: "", projectId: "",
-        claimAttemptId: "", delegationId: "", expiresAt: "", authorizationExpiresAt: "", verbs: [] };
-      const issued = await api.j.claims.claim(bootstrap, taskId, body as never,
-        { ...api.until(Date.now() + BOOTSTRAP_CLAIM_SECONDS * 1000), idempotencyKey: v["idempotency-key"] })
-        .catch(offShapeAs("claim did not return a delegation"));
-      granteeClaim = claimOf(issued.claim);
-      delegation = issued.delegation;
-    } else {
-      // A direct claim (human or agent): the `stored-result` variant, replayed under the same key after a lost answer.
-      const options = api.write(COMMAND_SECONDS, v["idempotency-key"]);
-      const granted = creds.kind === "human"
-        ? await api.j.claims.claimAsHuman(taskId, body as never, options).catch(offShapeAs("invalid claim response from the control plane"))
-        // ClaimResponse { claim, delegation? }: the delegation is only present on bootstrap issuance.
-        : (await api.j.command("taskClaim", { path: { id: taskId }, body: body as never }, options)).body?.claim;
-      if (!isRecord(granted)) throw new ConfigError("invalid claim response from the control plane");
-      granteeClaim = claimOf(granted);
-    }
-    const claimId: string = granteeClaim.id;
-    // A successful claim consumes the bootstrap. Save its replacement before any polling/I/O.
-    let credentialsFile: string | undefined;
-    let activeCreds = creds;
-    if (delegation) {
-      activeCreds = { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt, issuedAt: new Date().toISOString(), ...(creds.absoluteExpiresAt ? { absoluteExpiresAt: creds.absoluteExpiresAt } : {}), ...(granteeClaim.expiresAt ? { claimExpiresAt: granteeClaim.expiresAt } : {}), ...(creds.agentId ? { agentId: creds.agentId } : {}) };
-      credentialsFile = await saveCredentials(d.env, activeCreds);
-      if (!d.credentials) d = { ...d, fetch: agentSessionFetch(d.env, activeCreds, d.fetch) };
-    }
-    let claim = granteeClaim;
-    if (claim.provisioningState === "pending") {
-      // Polls with the replacement credential; a timeout keeps the last state read (or the grant's).
-      const pollApi = connect(d, activeCreds);
-      const settled = await pollApi.j.claims.waitForProvisioning(claimId, pollApi.until(Date.now() + waitSeconds * 1000));
-      if (settled.claim) claim = claimOf(settled.claim);
-    }
-    if (delegation && claim.provisioningState === "ready") {
-      // The bootstrap cannot read tasks. Its saved replacement delegation can read
-      // this scoped task, whose project binding the helper needs for agent pushes.
-      task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } }).catch(error => {
-        if (error instanceof ApiError && error.status===403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
-        throw error;
-      })).body;
-      if (typeof task?.projectId !== "string" || !task.projectId) throw new ConfigError("claimed task has no project binding; run octocove task show to inspect it");
-    }
-    const ws = claim.workspace;
-    if (claim.provisioningState === "ready" && ws && ws.credentialSource?.kind !== "external" && !d.env.OCTOCOVE_HELPER_SOCK) {
-      if (ws.ref !== `refs/octocove/claims/${claimId}`) throw new HelperRequiredError();
-      if (!task) task = (await connect(d, activeCreds).call("taskGet", { path: { id: taskId } }).catch(error => {
-        if (error instanceof ApiError && error.status===403) throw new ConfigError("this agent's grant lacks tasks:read (needed to clone)");
-        throw error;
-      })).body;
-      managed = await startManagedHelper({ ...d, ...activeCreds, fetch: credentialFetch(d, activeCreds), taskId, claimId, projectId: task.projectId, baseSha: claim.lane?.baseSha ?? chain?.baseSha });
-      const env = { ...d.env, OCTOCOVE_HELPER_SOCK: managed.socketPath };
-      const git = d.git;
-      d = { ...d, env, git: (args, options) => git(args, { ...options, env }) };
-    }
-    const external = ws?.credentialSource?.kind === "external";
-    // Validate allocated remotes before git mutations, even if helper metadata is absent.
-    if (ws && !external) await validateClaimRemote(ws.remote, d.env, creds.apiUrl);
-
-    if (managed && await d.git(["rev-parse","--is-inside-work-tree"]).catch(() => "false") !== "true") await d.git(["init"]);
-    const conf = async (k: string, val: string | number) => void (await d.git(["config", "--local", k, String(val)]));
-    await conf("octocove.taskId", taskId);
-    await conf("octocove.claimId", claimId);
-    await conf("octocove.intentVersion", claim.intentVersion);
-    await conf("octocove.apiUrl", creds.apiUrl);
-    if (task?.projectId) await conf("octocove.projectId", task.projectId);
-    if (chain) {
-      await conf("octocove.chainId", chain.id);
-      await conf("octocove.baseSha", claim.lane?.baseSha ?? chain.baseSha);
-    }
-
-    if (claim.provisioningState === "ready" && ws) {
-      if (!external) {
-        const names = await d.git(["remote"]).then(x => x.split("\n")).catch(() => [] as string[]);
-        let have = names.includes(remoteName);
-        requireHelperTransport(d.env);
-        if (have && !v.remote && !await helperRemoteMatches(d.git, remoteName, d.connectorPath, managed ? {} : d.env)) {
-          const prefix = `octocove-${createHash("sha256").update(ws.mappingId).digest("hex").slice(0, 12)}`;
-          remoteName = prefix;
-          for (let suffix = 1; names.includes(remoteName); suffix++) remoteName = `${prefix}-${suffix}`;
-          have = false;
-        }
-        await setupHelperTransport(d.git, remoteName, have, managed ? managedHelperRemote(d.connectorPath) : undefined);
-      } else {
-        if (!await sourceRemoteMatches(d.git, remoteName, ws.remote)) throw new ConfigError("source remote does not match the registered lane");
-      }
-      if (managed) {
-        await conf("pack.window", 0);
-        await conf("pack.depth", 0);
-        await conf("remote." + remoteName + ".push", `HEAD:${ws.ref}`);
-      }
-      await conf("octocove.remote", remoteName);
-      await conf("octocove.ref", ws.ref);
-      await conf("octocove.mappingId", ws.mappingId);
-      await conf("octocove.topology", ws.kind);
-      // The base the claimant starts from, used as the default stated base by `submit`.
-      const head = await d.git(["rev-parse", "--verify", "HEAD"]).catch(() => undefined);
-      const initialBase = claim.lane?.baseSha ?? chain?.baseSha ?? (external ? task?.canonicalHeadSha ?? head : head);
-      if (initialBase) await conf("octocove.baseSha", initialBase);
-      if (managed) {
-        const base = claim.lane?.baseSha ?? chain?.baseSha ?? initialBase;
-        if (!base || !/^[a-f0-9]{40}$/.test(base)) throw new ConfigError("claim has no exact base for workspace preparation");
-        await d.git(["diff","--quiet"]).catch(() => { throw new ConfigError("workspace has local edits; commit or stash them before preparing the claim base"); });
-        await d.git(["diff","--cached","--quiet"]).catch(() => { throw new ConfigError("workspace has staged edits; commit or stash them before preparing the claim base"); });
-        try {
-          await d.git(["fetch","--no-tags","--",remoteName,`+refs/heads/*:refs/remotes/${remoteName}/*`],{signal:d.signal,stderr:d.stderr});
-          await d.git(["cat-file","-e",`${base}^{commit}`]);
-          await d.git(["checkout","--no-overwrite-ignore","--detach",base],{signal:d.signal,stderr:d.stderr}).catch(error=>{
-            if (error instanceof Error && /would be overwritten by checkout/.test(error.message)) {
-              throw new ConfigError("workspace has local files (including ignored files) that would be overwritten; move them aside before preparing the claim base");
-            }
-            throw error;
-          });
-        }catch(error){throw managed.failure ?? error;}
-        await conf("octocove.baseSha",base);
-      }
-    }
-
-    const lane = claim.lane;
-    const canonical = v.canonical ?? task?.repository?.remote ?? task?.canonicalRemote;
-    if (canonical) await validateClaimRemote(canonical, d.env, creds.apiUrl);
-    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-    const recipe = chain && managed ? ["octocove lane sync", "git merge " + remoteName + "/" + (task?.targetRef ?? "refs/heads/main").replace(/^refs\/heads\//, "")] : chain ? [
-      `octocove workspace prepare --canonical ${canonical ? quote(canonical) : "<canonical-url>"} --ref ${quote(task?.targetRef ?? "refs/heads/main")}`,
-      `octocove workspace open --canonical ${canonical ? quote(canonical) : "<canonical-url>"} --ref ${quote(task?.targetRef ?? "refs/heads/main")} --worktree ${quote(chain.id)} --base ${quote(lane?.baseSha ?? chain.baseSha)}`,
-    ] : undefined;
-    // Never expose the access token, even in JSON output.
-    const shown = { claim, delegation: delegation && { delegationId: delegation.delegationId, tokenType: "Bearer",
-      expiresAt: delegation.expiresAt, revocationId: delegation.revocationId }, ...(recipe ? { recipe } : {}) };
-    const terminal =
-      claim.provisioningState === "blocked"
-        ? new ApiError({ status: 409, code: "provisioning-blocked", detail: claim.blockedReason ?? "provisioning is blocked" })
-        : claim.provisioningState === "pending"
-          ? new PendingError(`provisioning still pending; poll with \`octocove task claim-status ${claimId}\``)
-          : undefined;
-    // --json: one terminal envelope (claim metadata + final state/error) on stdout, nothing on stderr.
-    if (v.json && terminal) {
-      const error = terminal instanceof ApiError
-        ? { code: terminal.code, message: terminal.message, status: terminal.status }
-        : { code: "pending", message: terminal.message };
-      d.stdout(JSON.stringify({ ...shown, error }, null, 2) + "\n");
-      throw new Emitted(terminal);
-    }
-    out(d, v.json, shown, () => {
-      const lines = [contractText(task ? { ...task, intentVersion: claim.intentVersion } : { intent: undefined, intentVersion: claim.intentVersion }, claim.dependencyResults)];
-      if (!task) lines[0] = `Claim ${claimId} for task ${taskId} (intent v${claim.intentVersion})\n\nUpstream results:\n${(claim.dependencyResults ?? []).map((r: any) => `  ${r.upstreamTaskId}  receipt ${r.receiptId}  landed ${r.landedSha}`).join("\n") || "  (none)"}`;
-      lines.push("", kv([["Task", task?.key ?? taskId], ["Agent", activeCreds.agentId], ["Claim", claimId], ["Status", claim.status], ["Provisioning", claim.provisioningState], ["Blocked reason", claim.blockedReason], ["Expires", claim.expiresAt], ["Remote", ws ? `${remoteName} -> ${ws.remote}` : undefined], ["Ref", ws?.ref], ["Credentials saved", credentialsFile]]));
-      if (chain) lines.push("", kv([["Chain", chain.id], ["Pointer version", lane?.pointerVersion], ["Pointer SHA", lane?.proofSha], ["Base SHA", lane?.baseSha ?? chain.baseSha]]), "", ...recipe!);
-      return lines.join("\n");
-    });
-    if (terminal) throw terminal;
-    } finally { await managed?.close(); }
+    const { v, pos } = opts(args, { "intent-version": { type: "string" }, "bootstrap-file": { type: "string" }, read: { type: "string" }, write: { type: "string" } }, 1);
+    await claimTask(d, pos[0]!, v);
   },
 
   "task claim-status": async (d, args) => {
     const { v, pos } = opts(args, {}, 1);
     const { api } = await client(d);
-    const r = await api.call("claimGet", { path: { id: pos[0]! } });
+    const r = await api.call("claimGet", { path: { id: pos[0]! }, deadline: Date.now() + READ_SECONDS * 1000 });
     const c = claimOf(r.body);
-    out(d, v.json, r.body, () => kv([["Claim", c.id], ["Task", c.taskId], ["Status", c.status], ["Provisioning", c.provisioningState], ["Blocked reason", c.blockedReason], ["Remote", c.workspace?.remote], ["Ref", c.workspace?.ref]]));
+    const lane = isRecord(c.lane) ? c.lane : undefined;
+    out(d, v.json, r.body, () => kv([["Claim", c.id], ["Task", c.taskId], ["Status", c.status], ["Provisioning", c.provisioningState], ["Blocked reason", c.blockedReason],
+      ["Expires", c.expiresAt], ["Generation", lane?.generation], ["Base", lane?.baseSha], ["Lane head", lane?.laneHead], ["Scope version", lane?.scopeVersion]]));
   },
 
   "task authorize": async (d, args) => {
@@ -1576,55 +1137,6 @@ const COMMANDS: Record<string, Handler> = {
         verbs: issued.verbs, bootstrapExpiresAt: issued.expiresAt, bootstrapFile };
       out(d, v.json, metadata, () => kv([["Authorization", metadata.id], ["Claim attempt", metadata.claimAttemptId], ["Delegation", metadata.delegationId], ["Verbs", metadata.verbs?.join(",")], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile]]));
     } finally { await output?.close(); }
-  },
-
-  submit: async (d, args) => {
-    const { v, pos } = opts(args, { task: { type: "string" }, source: { type: "string" }, base: { type: "string" }, "intent-version": { type: "string" }, claim: { type: "string" }, wait: { type: "string" } }, 1, 0);
-    const waitSeconds = intFlag(v, "wait");
-    const { api, creds } = await client(d);
-    const taskId = v.task ?? (await getConfig(d.git, "octocove.taskId"));
-    if (!taskId) throw new UsageError("--task is required (no claimed task in this repository's git config)");
-    // Source defaults to the current HEAD, as a full object id.
-    if (pos[0] && v.source) throw new UsageError("use REF or --source, not both");
-    const sourceSha = pos[0] ? await resolveCommit(d.git, pos[0]) : v.source ?? (await d.git(["rev-parse", "--verify", "HEAD"]).catch(() => { throw new UsageError("no commit at HEAD; commit first or pass --source"); }));
-    const baseSha = v.base ?? (await getConfig(d.git, "octocove.baseSha"));
-    if (!baseSha) throw new UsageError("--base is required (no recorded base in this repository's git config)");
-    const intentVersion = intFlag(v, "intent-version") ?? Number(await getConfig(d.git, "octocove.intentVersion"));
-    if (!Number.isInteger(intentVersion) || intentVersion < 1) throw new UsageError("--intent-version is required");
-    if (![sourceSha, baseSha].every(sha => /^[a-f0-9]{40}([a-f0-9]{24})?$/.test(sha))) throw new UsageError("--source and --base must be exact commit SHAs");
-    const claimAttemptId = v.claim ?? await getConfig(d.git, "octocove.claimId");
-    if (pos[0]) {
-      if (!claimAttemptId) throw new UsageError("claim first or pass --claim");
-      const claim = claimOf((await api.call("claimGet", { path: { id: claimAttemptId } })).body);
-      if (claim.taskId !== taskId || claim.status !== "active" || !claim.workspace) throw new ConfigError("claim does not match this task");
-      const ws = claim.workspace;
-      const remoteName = await getConfig(d.git, "octocove.remote");
-      if (!remoteName) throw new ConfigError("source remote does not match the registered lane");
-      if (ws.credentialSource?.kind === "external") {
-        if (!await sourceRemoteMatches(d.git, remoteName, ws.remote)) throw new ConfigError("source remote does not match the registered lane");
-      } else {
-        // Claim installs a socket connector for allocated lanes, not ws.remote's
-        // upstream URL. Keep it bound to this claim's mapping and exact ref.
-        requireHelperTransport(d.env);
-        await validateClaimRemote(ws.remote, d.env, creds.apiUrl);
-        const [configuredClaim, mapping, ref] = await Promise.all([
-          getConfig(d.git, "octocove.claimId"), getConfig(d.git, "octocove.mappingId"), getConfig(d.git, "octocove.ref"),
-        ]);
-        if (configuredClaim !== claim.id || mapping !== ws.mappingId || ref !== ws.ref ||
-            !await helperRemoteMatches(d.git, remoteName, d.connectorPath, d.env)) throw new ConfigError("source remote does not match the registered lane");
-      }
-      // Publish this exact commit through the registered source transport.
-      await d.git(["push", "--", remoteName, `${sourceSha}:${ws.ref}`]);
-    }
-    const r = await api.j.submissions.create(taskId, { sourceSha, baseSha, intentVersion, ...(claimAttemptId ? { claimAttemptId } : {}) }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    if (waitSeconds !== undefined) {
-      // The wait never resubmits; a timeout reports the submission and its pending candidate.
-      const candidate = candidateBody(await api.j.candidates.waitFor(r.id, api.until(Date.now() + waitSeconds * 1000)));
-      out(d, v.json, { submission: r, candidate }, () => JSON.stringify(candidate));
-      if (candidate.state === "pending") throw new PendingError("candidate computation is pending");
-      return;
-    }
-    out(d, v.json, r, () => kv([["Submission", r.id], ["Task", r.taskId], ["Sequence", r.seq], ["Source", r.sourceSha], ["Base", r.baseSha], ["Intent version", r.intentVersion], ["Staged behind", r.stagedBehindFenceId]]));
   },
 
   "candidate show": async (d, args) => {

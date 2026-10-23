@@ -112,17 +112,6 @@ it('separate agent CLI processes serialize proactive renewal',async()=>{
     expect(rotations).toBe(1);expect(wrongIdentity).toBe(false);expect((await loadCredentials(f.env)).token).toBe('new-delegation');
   } finally {await new Promise<void>(resolve=>server.close(()=>resolve()));}
 },15000);
-it('renewal keeps successful authenticated Git bytes intact',async()=>{
-  const f=await fixture({expiresAt:future(30000)}),raw=f.deps.fetch,bytes=new Uint8Array([0,255,128,10]);
-  const fetch=agentSessionFetch(f.env,f.credential,async(url,init)=>{
-    if(url.endsWith('/renew'))return raw(url,init);
-    expect(new Headers(init.headers).get('authorization')).toBe('Bearer new-delegation');
-    expect((await loadCredentials(f.env)).token).toBe('new-delegation');
-    return new Response(bytes,{headers:{'content-type':'application/x-git-receive-pack-result'}});
-  });
-  const response=await fetch(f.credential.apiUrl+'/tasks/T1/lane/receive-pack',{method:'POST',headers:authHeader('Bearer '+f.credential.token),body:new Uint8Array([1,2,3])});
-  expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);expect(f.rotations).toBe(1);
-});
 it('server refusal never replaces the predecessor or falls back to a human',async()=>{
  const f=await fixture({expiresAt:future(30000)});f.deps.fetch=async()=>Response.json({code:'credential-revoked'},{status:401});
  expect(await run(f.deps)).not.toBe(0);expect((await loadCredentials(f.env)).token).toBe('old-delegation');expect(f.output).toContain('new task authorization');

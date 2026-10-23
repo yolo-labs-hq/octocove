@@ -12,8 +12,6 @@ export async function typeChecks(): Promise<void> {
   await c.call('tasksList', { query: { limit: 5 } });
   // @ts-expect-error -- navigation GETs are not callable
   await c.call('authCallback');
-  // @ts-expect-error -- excluded operations are not callable
-  await c.call('brokerHelperPush', { path: { taskId: 't' } });
   // @ts-expect-error -- raw human Git advertisement is excluded from CallableOperationId
   const rawRefs: CallableOperationId = 'projectRepositoryGitRefsGet';
   // @ts-expect-error -- raw human upload-pack is excluded from CallableOperationId

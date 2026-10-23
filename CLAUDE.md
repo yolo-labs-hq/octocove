@@ -1,6 +1,6 @@
 # Octocove — agent notes
 
-Octocove is an open-source GitHub alternative for the AI era by YOLO Labs (Apache-2.0), designed for workspace adapters, own-clone CLI agents and CI with policy-bot approvers. This repository contains the `octocove` CLI and its npm libraries under `packages/` (CLI, client library, credential helper, shared code) and the client guides under `docs/`. The service and its API contract are maintained separately. Start with `README.md` and [how the client talks to the service](docs/README.md#how-the-client-talks-to-the-service).
+Octocove is an open-source GitHub alternative for the AI era by YOLO Labs (Apache-2.0), designed for workspace adapters, CLI agents working in lanes and CI with policy-bot approvers. This repository contains the `octocove` CLI and its npm libraries under `packages/` (CLI, client library, shared code) and the client guides under `docs/`. The service and its API contract are maintained separately. Start with `README.md` and [how the client talks to the service](docs/README.md#how-the-client-talks-to-the-service).
 
 ## Working rules
 

@@ -11,7 +11,6 @@ import {
   redact,
   redactText,
   staleFenceDetails,
-  submitGrantFromExchange,
   TransportError,
 } from '../../src/index.js';
 import { dumpError, equal, json, ok, problem, rejects, scriptedFetch, test, type Case } from '../harness.js';
@@ -33,7 +32,6 @@ const approvalScope = {
   projectId: 'p', claimAttemptId: 'att', candidateId: 'cand',
   boundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 2 }, checkRunIds: ['run-1', 'run-2'],
 };
-const submitScope = { projectId: 'p', taskId: 't', claimAttemptId: 'att', sourceSha: SHA_A, baseSha: SHA_B, intentVersion: 1 };
 
 export const errorCases: Case[] = [
   // ---- ApiError code preservation ----
@@ -309,18 +307,9 @@ export const errorCases: Case[] = [
     ok(Object.isFrozen(issued.grant) && Object.isFrozen(issued.grant.scope.boundTo), 'grants are immutable');
     equal(bearerFor(issued.grant).kind, 'approval-grant');
 
-    const submitRecovered = submitGrantFromExchange({ id: 's1', principalId: 'pr', expiresAt: '2026-10-09T00:05:00Z', scope: submitScope, policyVersion: 'pv1' });
-    equal([submitRecovered.outcome, (submitRecovered as { purpose: string }).purpose], ['recovered-without-token', 'submit']);
-    const submitIssued = submitGrantFromExchange({ id: 's1', principalId: 'pr', token: 'submit-grant-fixture', expiresAt: '2026-10-09T00:05:00Z', scope: submitScope, policyVersion: 'pv1' });
-    ok(submitIssued.outcome === 'issued' && submitIssued.grant.kind === 'submit-grant');
-    equal(submitIssued.grant.principalId, 'pr');
   }),
   test('an exchange response without principalId is an incomplete ApiError, never a grant', () => {
-    const cases: Array<[typeof approvalGrantFromExchange | typeof submitGrantFromExchange, unknown]> = [
-      [approvalGrantFromExchange, approvalScope],
-      [submitGrantFromExchange, submitScope],
-    ];
-    for (const [exchange, scope] of cases) {
+    for (const [exchange, scope] of [[approvalGrantFromExchange, approvalScope]] as const) {
       for (const principalId of [undefined, '', 7]) {
         let error: unknown;
         try { exchange({ id: 'g1', principalId, token: 'grant-token-fixture-0123', expiresAt: '2026-10-09T00:05:00Z', scope, policyVersion: 'pv1' }, { status: 201, requestId: 'req-9' }); } catch (e) { error = e; }
@@ -332,11 +321,10 @@ export const errorCases: Case[] = [
   }),
   test('grant scopes are distinct wire objects: extra or missing fields are refused', () => {
     let refused = 0;
-    for (const scope of [{ ...approvalScope, taskId: 't' }, { ...submitScope }, { ...approvalScope, boundTo: { ...approvalScope.boundTo, extra: 1 } }]) {
+    for (const scope of [{ ...approvalScope, taskId: 't' }, { projectId: 'p', taskId: 't', claimAttemptId: 'att', sourceSha: SHA_A, baseSha: SHA_B, intentVersion: 1 }, { ...approvalScope, boundTo: { ...approvalScope.boundTo, extra: 1 } }]) {
       try { approvalGrantFromExchange({ id: 'g', principalId: 'pr', expiresAt: 'x', scope, policyVersion: 'pv' }); } catch (error) { ok(error instanceof ApiError && error.incomplete); refused++; }
     }
-    try { submitGrantFromExchange({ id: 's', principalId: 'pr', expiresAt: 'x', scope: { ...submitScope, candidateId: 'c' }, policyVersion: 'pv' }); } catch { refused++; }
-    equal(refused, 4);
+    equal(refused, 3);
   }),
   test('a browser cookie session has no bearer', () => {
     let threw = false;

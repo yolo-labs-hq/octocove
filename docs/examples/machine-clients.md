@@ -21,18 +21,18 @@ the public API (all writes require an Idempotency-Key):
 3. Append approval-policies for each principal and a null-principal project
    target policy. Bind exact canonical/source repository IDs and target ref,
    checkIdentity and acceptableEvidence. Opt in with allowMachine:true and
-   operations:["approve"] or ["submit"]. Version starts at 1 and increments.
+   operations:["approve"] (approval is the only machine operation). Version
+   starts at 1 and increments.
    No wildcard repositories or refs. Human-only targets remain closed.
-4. A submitter needs an already-authorized, live owned claim and reachable
-   registered source. Registration does not create a claim. The trusted
-   integrator computes the candidate and records actual check evidence.
-   The approval scope is projectId, claimAttemptId, candidateId,
+4. The candidate comes from a lane's wrap-up by an authorized agent; machine
+   registration does not create a claim or a candidate. Octocove computes the
+   candidate and records actual check evidence. The approval scope is projectId, claimAttemptId, candidateId,
    boundTo:{candidateSha,baseSha,intentVersion}, and sorted latest required
    checkRunIds. Obtain these from the authenticated record, never from a
    job's assertion that checks passed.
 
 The proof audience is the exact singleton string
-<configured APPROVAL_API_ORIGIN>/auth/approval-grants (also for submit).
+<configured APPROVAL_API_ORIGIN>/auth/approval-grants.
 iat, nbf and exp are required; lifetime must be at most five minutes.
 GitHub's configured workflow/environment subject must match literally.
 Cron scheduling itself confers no identity.
@@ -48,18 +48,10 @@ caller; it cannot select the server's actor kind or identity.
     octocove auth approve --as PRINCIPAL --grant GRANT_ID
     octocove approve --grant GRANT_ID
 
-For source submission use a fresh proof and independent submit scope:
+An approval grant cannot save, wrap up, land or claim; the server refuses
+canonical self-approval, including immutable delegated on-behalf-of provenance.
 
-    octocove auth exchange --purpose submit --as SUBMITTER --scope "$SUBMIT_SCOPE" --token-stdin
-    octocove submit --grant SUBMIT_GRANT_ID
-
-Submit scope is {projectId,taskId,claimAttemptId,sourceSha,baseSha,intentVersion}.
-This headless submit sends the exact registered source; push it first using the
-runtime's authorized Git path. A submit grant cannot approve, land or claim.
-Approval grants cannot submit; the server refuses canonical self-approval,
-including immutable delegated on-behalf-of provenance.
-
-Exchange prints a JSON descriptor with id, principalId, purpose, expiresAt,
+Exchange prints a JSON descriptor with id, principalId, expiresAt,
 scope and policyVersion, never the workload proof or grant bearer. Bearers
 are stored with mode 0600 below OCTOCOVE_CONFIG_DIR/grants in directories
 with mode 0700; keep that directory private to the job and remove it at job
@@ -72,9 +64,7 @@ Ordinary human/delegation commands retain their existing exit codes.
     octocove --json auth revoke --grant GRANT_ID
 
 Revocation requires a current human administrator session against the same API;
-no bearer possession is needed. For a remote submit grant, pass --purpose submit.
-The default for an uncached grant ID is approve;
-a bot cannot revoke or provision itself. Landing and receipt reads require
+no bearer possession is needed; a bot cannot revoke or provision itself. Landing and receipt reads require
 independent existing authorization. Use octocove land CANDIDATE --approval ID
 and receipt show with that credential. Verify both the remote target Git object
 and exported receipt object; a successful HTTP approval is not a landing.

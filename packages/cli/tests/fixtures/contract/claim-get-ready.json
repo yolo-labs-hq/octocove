@@ -3,27 +3,41 @@
   "method": "get",
   "status": 200,
   "body": {
-    "id": "claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A",
-    "taskId": "task-Wgtl08-vXT2c5hIXqaYW5m2zg1O05lgWZg6w0nxEopo",
+    "id": "01M5KHQFKWAPG75X0Y3B21QGPC",
+    "taskId": "task-R1CBA2KpPpupX5D72Ato7-gSO4rZ6-8EhVWyH6x_Xko",
     "intentVersion": 1,
     "status": "active",
-    "expiresAt": "2026-10-11T07:33:00.805Z",
+    "expiresAt": "2026-10-23T05:53:53.000Z",
     "dependencyResults": [],
     "provisioningState": "ready",
-    "workspace": {
-      "mappingId": "108f08ac-614a-43d1-9012-c8185639f639",
-      "kind": "task-repo",
-      "remote": "https://artifacts.example/git/claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A.git",
-      "ref": "refs/heads/main",
-      "credentialSource": {
-        "kind": "artifacts-broker",
-        "helper": "octocove-helper-connect",
-        "grantId": "grant-claim-DXGO0RpeBcg8Q1DTRYbJQ47Ek-dtDBhm1ugxYZbGX0A",
-        "identitySource": "octocove-session",
-        "scope": "write",
-        "brokerUrl": "https://control.example/v1/broker/token"
+    "blockedReason": null,
+    "lane": {
+      "kind": "materialized",
+      "executionId": "e00a4a5e-176c-4c84-8b63-1dfde45143cb",
+      "executionNumber": 1,
+      "executionEnded": null,
+      "generation": 1,
+      "generationKind": "initial",
+      "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "scopeVersion": 1,
+      "superseded": null,
+      "scope": {
+        "read": [
+          "t/a/"
+        ],
+        "write": [
+          "t/a/"
+        ]
+      },
+      "latestGrantedScope": {
+        "version": 1,
+        "read": [
+          "t/a/"
+        ],
+        "write": [
+          "t/a/"
+        ]
       }
-    },
-    "blockedReason": null
+    }
   }
 }

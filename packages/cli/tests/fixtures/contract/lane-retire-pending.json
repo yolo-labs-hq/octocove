@@ -1,0 +1,18 @@
+{
+  "path": "/tasks/{id}/lane/retire",
+  "method": "post",
+  "status": 409,
+  "body": {
+    "type": "urn:octocove:problem:lane-retention-pending",
+    "title": "lane-retention-pending",
+    "status": 409,
+    "code": "lane-retention-pending",
+    "detail": "lane-retention-pending",
+    "requestId": "request-fixture",
+    "details": {
+      "reason": "write-token-live",
+      "laneRepositoryId": "lane-repository-fixture",
+      "retryable": true
+    }
+  }
+}

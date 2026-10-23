@@ -4,28 +4,49 @@
   "status": 201,
   "body": {
     "claim": {
-      "id": "claim-0w8ffe6xTom8-lAg9Vt2MbyMZzt9Yw5FlXub3aO0pf8",
-      "taskId": "task-MGgy16rI1gXpIk94VtFVLmwAZMSNNZbGmz8ClY_n5sQ",
+      "id": "01M5KHQFKWAPG75X0Y3B21QGPC",
+      "taskId": "task-R1CBA2KpPpupX5D72Ato7-gSO4rZ6-8EhVWyH6x_Xko",
       "intentVersion": 1,
       "status": "active",
-      "expiresAt": "2026-10-11T07:33:01.977Z",
+      "expiresAt": "2026-10-23T05:53:53.000Z",
       "dependencyResults": [],
       "provisioningState": "ready",
-      "workspace": {
-        "mappingId": "2c822fe4-9dea-4fcd-b7a3-44aada2d7a9c",
-        "kind": "task-repo",
-        "remote": "https://artifacts.example/git/claim-0w8ffe6xTom8-lAg9Vt2MbyMZzt9Yw5FlXub3aO0pf8.git",
-        "ref": "refs/heads/main",
-        "credentialSource": {
-          "kind": "artifacts-broker",
-          "helper": "octocove-helper-connect",
-          "grantId": "grant-claim-0w8ffe6xTom8-lAg9Vt2MbyMZzt9Yw5FlXub3aO0pf8",
-          "identitySource": "octocove-session",
-          "scope": "write",
-          "brokerUrl": "https://control.example/v1/broker/token"
+      "blockedReason": null,
+      "lane": {
+        "kind": "materialized",
+        "executionId": "e00a4a5e-176c-4c84-8b63-1dfde45143cb",
+        "executionNumber": 1,
+        "executionEnded": null,
+        "generation": 1,
+        "generationKind": "initial",
+        "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "scopeVersion": 1,
+        "superseded": null,
+        "scope": {
+          "read": [
+            "t/a/"
+          ],
+          "write": [
+            "t/a/"
+          ]
+        },
+        "latestGrantedScope": {
+          "version": 1,
+          "read": [
+            "t/a/"
+          ],
+          "write": [
+            "t/a/"
+          ]
         }
-      },
-      "blockedReason": null
+      }
+    },
+    "delegation": {
+      "accessToken": "fixture-access-token",
+      "revocationId": "zAafpbVHOhHxoeKWVhERmh1fGEH-BRzSu_OUJZa3wRY",
+      "tokenType": "Bearer",
+      "delegationId": "01M5KHQFKWKSP6SKB2PRS5ZSBC",
+      "expiresAt": "2026-10-23T05:08:53.000Z"
     }
   }
 }

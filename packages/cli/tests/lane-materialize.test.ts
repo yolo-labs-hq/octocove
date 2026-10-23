@@ -8,7 +8,7 @@ import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
 
-// The materialized lane journey (preview) against a stub control plane: no Git, no helper, no broker. The lane head
+// The lane journey against a stub control plane: no Git, no helper, no broker. The lane head
 // of generation N is HEAD(N); a save point moves it to SAVED.
 interface Call { method: string; url: URL; headers: Record<string, string>; body?: any }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -109,10 +109,10 @@ describe("octocove lane (materialized)", () => {
     expect(calls.some((c) => c.url.pathname.endsWith("/lane/executions"))).toBe(false);
   });
 
-  it("refuses a task without a materialized lane", async () => {
-    routes["GET /tasks/T1"] = () => json(200, { id: "T1", intentVersion: 3, lane: { chainId: "T1", strategy: "chain" } });
+  it("refuses a task without an active lane", async () => {
+    routes["GET /tasks/T1"] = () => json(200, { id: "T1", intentVersion: 3 });
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.config);
-    expect(errText).toContain("--lane materialized");
+    expect(errText).toContain("this task has no active lane; claim it first");
     expect(existsSync(dir)).toBe(false);
   });
 
@@ -200,20 +200,21 @@ describe("octocove lane (materialized)", () => {
     expect(sidecar().lastSavePoint).toBeUndefined();
   });
 
-  it("claims a materialized lane with its scope and no clone", async () => {
-    routes["POST /tasks/T1/claim"] = (c) => json(201, { claim: { id: "C1", taskId: "T1", status: "active", provisioningState: "ready", lane: { kind: "materialized", claimAttemptId: "C1", generation: 1, baseSha: base1, scopeVersion: 1, scope } } });
-    expect(await cli(["task", "claim", "T1", "--lane", "materialized", "--read", "src/,README.md", "--write", "src/"])).toBe(EXIT.ok);
+  it("claims the lane with its scope and no clone", async () => {
+    routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id: "C1", taskId: "T1", status: "active", provisioningState: "ready", lane: { kind: "materialized", claimAttemptId: "C1", generation: 1, baseSha: base1, scopeVersion: 1, scope } },
+      delegation: { delegationId: "D1", accessToken: "claimed-delegation", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1" } });
+    const bootstrap = { credentials: { apiUrl: API, token: "boot", kind: "bootstrap" as const } };
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/,README.md", "--write", "src/"], bootstrap)).toBe(EXIT.ok);
     const claim = calls.find((c) => c.method === "POST" && c.url.pathname.endsWith("/claim"))!;
-    expect(claim.body).toEqual({ intentVersion: 3, laneKind: "materialized", scope: { read: ["src/", "README.md"], write: ["src/"] } });
+    expect(claim.body).toEqual({ intentVersion: 3, scope: { read: ["src/", "README.md"], write: ["src/"] } });
     expect(outText).toContain("octocove lane materialize T1");
-    expect(await cli(["task", "claim", "T1", "--lane", "materialized"])).toBe(EXIT.usage);
-    expect(await cli(["task", "claim", "T1", "--lane", "chain", "--read", "src/"])).toBe(EXIT.usage);
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--lane", "materialized", "--read", "src/"], bootstrap)).toBe(EXIT.usage);
   });
 
-  it("without a sidecar, lane status is the chain lane status", async () => {
+  it("without a sidecar, lane status says the directory is not a lane directory", async () => {
     mkdirSync(dir);
-    expect(await cli(["lane", "status"], { cwd: dir })).toBe(EXIT.usage);
-    expect(errText).toContain("--task is required");
+    expect(await cli(["lane", "status"], { cwd: dir })).toBe(EXIT.config);
+    expect(errText).toContain("is not a lane directory");
   });
 
   describe("review fixes", () => {

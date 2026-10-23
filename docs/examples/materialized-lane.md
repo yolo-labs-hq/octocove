@@ -1,16 +1,16 @@
-# Materialized lane walkthrough (preview)
+# Lane walkthrough
 
-An agent works on a scoped slice of a repository in an ordinary directory, with no Git clone and no credential
-helper. This walkthrough goes **authorize → claim → materialize → edit → save → wrap up → review → approve → land**.
+An agent works on a scoped slice of a repository in an ordinary directory, with no Git clone, no credential helper
+and no provider credential. This walkthrough goes **authorize → claim → materialize → edit → save → wrap up → review → approve → land**.
 It covers both kinds of canonical repository, Artifacts and GitHub, which work the same way: the agent saves as often
 as it likes and wraps up once for review.
 
-> **Preview.** Every materialized lane has a lane repository (save points, wrap-up, refresh with resolutions, reopen
-> and retirement). `candidate show` always says whether `land` is available to you, and why not when it isn't. See the
-> [CLI guide](../../packages/cli/README.md#materialized-lanes-preview).
+Every claim is a lane, and every lane that materializes has a lane repository (save points, wrap-up, refresh with
+resolutions, reopen and retirement). `candidate show` always says whether `land` is available to you, and why not
+when it isn't. See the [CLI guide](../../packages/cli/README.md#lanes).
 
-You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.4.0 or later), and a project whose repository admits
-materialized lanes. The service operator declares that per repository. A human with `tasks:create` and
+You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.5.0 or later), and a project whose repository admits
+lanes. The service operator declares that per repository. A human with `tasks:create` and
 `tasks:authorize` on the project runs steps 1, 7 and 8; the agent runs steps 2 to 6.
 
 ## 1. Authorize an agent (human)
@@ -29,17 +29,18 @@ octocove task authorize "$TASK" --agent docs-agent \
 
 The bootstrap file is written privately (mode 0600). Give it to the agent's runtime, never to a shared directory.
 
-## 2. Claim a materialized lane (agent)
+## 2. Claim the lane (agent)
 
 The claim carries the scope: what the agent may read, and what it may change (always inside the read scope).
 
 ```sh
 export OCTOCOVE_CONFIG_DIR=./agent/config     # the agent's own credential store
-octocove task claim "$TASK" --lane materialized --read README.md,docs/ --write docs/ \
+octocove task claim "$TASK" --read README.md,docs/ --write docs/ \
   --intent-version 1 --bootstrap-file ./agent/bootstrap.json
 ```
 
-The claim is ready at once. Nothing is cloned, and no helper starts.
+The claim bootstrap is the only credential the claim accepts; the claim replaces it with the agent's delegation,
+stored privately in `OCTOCOVE_CONFIG_DIR`. The claim is ready at once. Nothing is cloned.
 
 - **`write-scope-claimed`:** the first claim keeps its write scope. If a write prefix overlaps the write scope another
   task holds on the same repository and target, the claim is refused, nothing is recorded and the bootstrap stays
@@ -178,7 +179,7 @@ the reason `provider-landing-unsupported`.
   materializes into a new directory:
 
   ```sh
-  octocove task claim "$TASK" --lane materialized --intent-version 1 --bootstrap-file ./agent/bootstrap.json
+  octocove task claim "$TASK" --intent-version 1 --bootstrap-file ./agent/bootstrap.json
   octocove lane materialize "$TASK" ./lane2   # the lane head, already rebased onto the landing
   ```
 

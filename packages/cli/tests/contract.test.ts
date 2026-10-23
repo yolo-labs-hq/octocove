@@ -1,4 +1,4 @@
-// CLI claim and candidate paths against recorded API responses: the contract
+// CLI claim, lane retire and candidate paths against recorded API responses: the contract
 // examples in tests/fixtures/contract/, response bodies of the Octocove API contract.
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -21,7 +21,7 @@ const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "u
 async function cli(argv: string[], credentials: Partial<Credentials> = {}) {
   out = err = "";
   return run({
-    argv, env: { OCTOCOVE_CONFIG_DIR: cfg, OCTOCOVE_HELPER_SOCK: join(repo, "..", "attempt.sock") },
+    argv, env: { OCTOCOVE_CONFIG_DIR: cfg },
     credentials: { apiUrl: API, token: "tok", kind: "agent", ...credentials },
     git: systemGit(repo),
     fetch: async (url, init) => {
@@ -41,72 +41,54 @@ beforeEach(() => {
 });
 
 describe("task claim against recorded responses", () => {
-  it("ready ClaimResponse: records the claim and workspace in git config", async () => {
+  const boot = { kind: "bootstrap" as const, token: "boot" };
+  it("ready ClaimResponse: saves the delegation privately, prints the lane and writes no Git configuration", async () => {
     const { claim } = fixture("claim-post-ready").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-ready");
-    expect(await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.ok);
-    expect(JSON.parse(out).claim.id).toBe(claim.id);
-    expect(git("config", "--local", "octocove.claimId")).toBe(claim.id);
-    expect(git("config", "--local", "octocove.mappingId")).toBe(claim.workspace.mappingId);
-    expect(git("remote")).toBe("octocove");
-    expect(git("remote", "get-url", "octocove")).toBe("ext::octocove-helper-connect %s");
+    expect(await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1", "--read", "t/a/", "--write", "t/a/"], boot)).toBe(EXIT.ok);
+    const shown = JSON.parse(out);
+    expect(shown.claim.id).toBe(claim.id);
+    expect(shown.claim.lane).toEqual(claim.lane);
+    expect(out + err).not.toContain("fixture-access-token");
+    expect(JSON.parse(readFileSync(join(cfg, "credentials", "cli.json"), "utf8"))).toMatchObject({ token: "fixture-access-token", kind: "agent", delegationId: fixture("claim-post-ready").body.delegation.delegationId });
+    expect(() => git("config", "--local", "--get-regexp", "^octocove")).toThrow();
     expect(calls).toEqual([`POST /tasks/${claim.taskId}/claim`]);
   });
 
-  it("pending claim: polls bare GET /claims/{id} Claims until ready", async () => {
-    const pending = fixture("claim-get-pending").body, ready = { ...fixture("claim-get-ready").body, id: pending.id, taskId: pending.taskId };
-    let polls = 0;
-    routes[`POST /tasks/${pending.taskId}/claim`] = () => recorded("claim-post-pending");
-    routes[`GET /claims/${pending.id}`] = () => (++polls < 2 ? recorded("claim-get-pending") : reply(200, ready));
-    expect(await cli(["task", "claim", pending.taskId, "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.ok);
-    expect(polls).toBe(2);
-    expect(git("config", "--local", "octocove.ref")).toBe(ready.workspace.ref);
-  });
-
-  it("claim that stays pending exits 75 after recording the claim", async () => {
-    const pending = fixture("claim-get-pending").body;
-    routes[`POST /tasks/${pending.taskId}/claim`] = () => recorded("claim-post-pending");
-    routes[`GET /claims/${pending.id}`] = () => recorded("claim-get-pending");
-    expect(await cli(["task", "claim", pending.taskId, "--intent-version", "1", "--wait", "1", "--lane", "ref"])).toBe(EXIT.pending);
-    expect(git("config", "--local", "octocove.claimId")).toBe(pending.id);
-  });
-
-  it("a blocked POST snapshot fails with the reason", async () => {
-    const { claim } = fixture("claim-post-blocked").body;
-    routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-blocked");
-    expect(await cli(["task", "claim", claim.taskId, "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.failure);
-    expect(err).toContain("provisioner-unconfigured");
-  });
-
-  it("bootstrap claim stores the delegation privately and never prints it", async () => {
+  it("text output names the generation, scope and next step", async () => {
     const { claim } = fixture("claim-post-bootstrap").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-bootstrap");
-    routes[`GET /claims/${claim.id}`] = () => recorded("claim-get-pending");
-    await cli(["--json", "task", "claim", claim.taskId, "--intent-version", "1", "--wait", "1", "--lane", "ref"], { kind: "bootstrap", token: "boot" });
+    expect(await cli(["task", "claim", claim.taskId, "--intent-version", "1", "--read", "t/a/", "--write", "t/a/"], boot)).toBe(EXIT.ok);
+    for (const text of [claim.id, claim.lane.baseSha, "t/a/", `octocove lane materialize ${claim.taskId} DIR`]) expect(out).toContain(text);
     expect(out + err).not.toContain("fixture-access-token");
-    expect(JSON.parse(readFileSync(join(cfg, "credentials", "cli.json"), "utf8"))).toMatchObject({ token: "fixture-access-token", kind: "agent" });
   });
 
-  it("without --intent-version, reads the recorded task for its intentVersion", async () => {
-    const task = fixture("task-fresh").body, { claim } = fixture("claim-post-ready").body;
-    routes[`GET /tasks/${task.id}`] = () => recorded("task-fresh");
-    routes[`POST /tasks/${task.id}/claim`] = () => recorded("claim-post-ready");
-    await cli(["task", "claim", task.id, "--lane", "ref"]);
-    expect(calls).toEqual([`GET /tasks/${task.id}`, `POST /tasks/${task.id}/claim`]);
-    expect(git("config", "--local", "octocove.intentVersion")).toBe(String(claim.intentVersion));
-  });
-
-  it.each([["claim-get-pending", "pending"], ["claim-get-ready", "ready"]])("claim-status prints %s", async (name, state) => {
-    const claim = fixture(name).body;
-    routes[`GET /claims/${claim.id}`] = () => recorded(name);
+  it("claim-status prints the recorded claim and its lane", async () => {
+    const claim = fixture("claim-get-ready").body;
+    routes[`GET /claims/${claim.id}`] = () => recorded("claim-get-ready");
     expect(await cli(["task", "claim-status", claim.id])).toBe(EXIT.ok);
-    expect(out).toContain(claim.id);
-    expect(out).toContain(state);
+    for (const text of [claim.id, "ready", claim.lane.baseSha]) expect(out).toContain(text);
   });
 
   it("rejects a malformed claim response instead of reading undefined ids", async () => {
     routes["POST /tasks/T1/claim"] = () => reply(201, { id: "C1", provisioningState: "ready" });
-    expect(await cli(["task", "claim", "T1", "--intent-version", "1", "--lane", "ref"])).toBe(EXIT.config);
+    expect(await cli(["task", "claim", "T1", "--intent-version", "1", "--read", "src/"], boot)).toBe(EXIT.config);
+  });
+});
+
+describe("lane retire against recorded responses", () => {
+  it("prints each retired lane repository", async () => {
+    routes["POST /tasks/T1/lane/retire"] = () => recorded("lane-retire");
+    expect(await cli(["lane", "retire", "T1"], { kind: "human" })).toBe(EXIT.ok);
+    expect(out).toContain("lane-repository-fixture (retired");
+    expect(calls).toEqual(["POST /tasks/T1/lane/retire"]);
+  });
+  it("explains the retention guard that holds", async () => {
+    routes["POST /tasks/T1/lane/retire"] = () => recorded("lane-retire-pending");
+    // A session token long enough not to occur inside the refusal text (redaction scrubs it everywhere).
+    expect(await cli(["lane", "retire", "T1"], { kind: "human", token: "session-fixture-0123456789" })).toBe(EXIT.failure);
+    expect(err).toContain("write token");
+    expect(err).toContain("Nothing was deleted");
   });
 });
 
@@ -135,8 +117,8 @@ describe("candidate show against recorded responses", () => {
     expect(await show("candidate-conflict")).toBe(EXIT.candidateFailed);
     expect(out).toContain("src/file.ts");
     expect(out).toContain("conflict");
-    expect(err).toContain("resolve the listed files");
-    expect(err).toContain("octocove lane push");
+    expect(err).toContain("--resolve PATH=lane|base|FILE");
+    expect(err).toContain("octocove lane wrap-up");
     expect(await show("candidate-conflict", "--json")).toBe(EXIT.candidateFailed);
     expect(out).toBe(JSON.stringify(fixture("candidate-conflict").body, null, 2) + "\n");
     expect(JSON.parse(err).error.code).toBe("candidate-failed");
@@ -148,7 +130,7 @@ describe("candidate show against recorded responses", () => {
       expect(await cli(["candidate","show","--submission","S1",...(json?["--json"]:[])])).toBe(EXIT.candidateFailed);
       if(json)expect(out).toBe(JSON.stringify(body,null,2)+"\n");
       else expect(out).toContain("Compute needs recovery");
-      expect(err).toContain("octocove lane push");
+      expect(err).toContain("octocove lane wrap-up");
     }
   });
   it("a computed active candidate with a failed check retains retrieval success", async () => {

@@ -73,7 +73,7 @@ async function scenario(s: Scenario) {
   });
   const code = await run({
     argv: s.argv,
-    env: { OCTOCOVE_CONFIG_DIR: join(root, "cfg"), OCTOCOVE_HELPER_SOCK: join(root, "attempt.sock"), ...s.env },
+    env: { OCTOCOVE_CONFIG_DIR: join(root, "cfg"), ...s.env },
     ...(s.credentials === null ? {} : { credentials: { apiUrl: API, token: TOKEN, kind: "human", ...s.credentials } }),
     git: systemGit(repo),
     fetch,
@@ -97,10 +97,12 @@ const claim = {
   id: "C1", taskId: "T1", intentVersion: 3, status: "active", expiresAt: "2030-01-01T00:00:00Z",
   dependencyResults: [{ upstreamTaskId: "T0", receiptId: "R0", landedSha: SHA_B }],
   provisioningState: "ready", blockedReason: null,
-  workspace: { mappingId: "M1", kind: "task-repo", remote: "https://git.example.invalid/t1.git", ref: "refs/heads/task/t1", credentialSource: {} },
+  lane: { kind: "materialized", executionId: "E1", generation: 1, baseSha: SHA_B, scopeVersion: 1, scope: { read: ["src/"], write: ["src/app/"] } },
 };
-const pendingClaim = { ...claim, provisioningState: "pending", workspace: null };
-const submission = { id: "S1", taskId: "T1", seq: 1, sourceSha: SHA_A, baseSha: SHA_B, intentVersion: 3, stagedBehindFenceId: null };
+const pendingClaim = { ...claim, provisioningState: "pending", lane: { ...claim.lane, reopenId: "RO1", laneHead: SHA_A } };
+const delegation = { delegationId: "D1", accessToken: "golden-delegation-secret", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1" };
+const bootstrap = { kind: "bootstrap" as const, agentId: "worker-one" };
+const claimArgs = ["task", "claim", "T1", "--intent-version", "3", "--read", "src/", "--write", "src/app/"];
 const candidate = { id: "CA1", outcome: "computed", status: "active", candidateSha: SHA_A, baseSha: SHA_B, latestCheck: { result: "passed" }, conflictFiles: [], reviewBoundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 3 } };
 const accepted = { fenceId: "F1", receiptId: "F1", status: "pending", receiptUrl: `${API}/receipts/F1` };
 const pendingReceipt = { receiptId: "F1", fenceId: "F1", integratorRunId: "run1", status: "pending" };
@@ -126,11 +128,11 @@ const cases: Record<string, () => Scenario> = {
   "task show network error --json": () => ({ argv: ["task", "show", "T1", "--json"], fetch: async () => { throw new Error("ECONNRESET"); } }),
   "task show insecure API URL --json": () => ({ argv: ["task", "show", "T1", "--json"], credentials: { apiUrl: "http://api.example.invalid/v1" } }),
   "task show without credentials": () => ({ argv: ["task", "show", "T1"], credentials: null }),
-  "task claim": () => ({ argv: ["task", "claim", "T1", "--lane", "ref"], credentials: { kind: "agent" }, routes: { "GET /tasks/T1": json(200, task), "POST /tasks/T1/claim": json(202, { claim: pendingClaim }), "GET /claims/C1": [json(202, pendingClaim), json(200, claim)] } }),
-  "task claim blocked --json": () => ({ argv: ["--json", "task", "claim", "T1", "--lane", "ref"], credentials: { kind: "agent" }, routes: { "GET /tasks/T1": json(200, task), "POST /tasks/T1/claim": json(201, { claim: { ...claim, provisioningState: "blocked", workspace: null, blockedReason: "adapter unconfigured" } }) } }),
-  "task claim blocked": () => ({ argv: ["task", "claim", "T1", "--lane", "ref"], credentials: { kind: "agent" }, routes: { "GET /tasks/T1": json(200, task), "POST /tasks/T1/claim": json(201, { claim: { ...claim, provisioningState: "blocked", workspace: null, blockedReason: "adapter unconfigured" } }) } }),
-  "task claim pending --json": () => ({ argv: ["--json", "task", "claim", "T1", "--intent-version", "3", "--wait", "1", "--lane", "ref"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/claim": json(202, { claim: pendingClaim }), "GET /claims/C1": json(202, pendingClaim) } }),
-  "task claim refused": () => ({ argv: ["task", "claim", "T1", "--lane", "ref"], credentials: { kind: "agent" }, routes: { "GET /tasks/T1": json(200, task), "POST /tasks/T1/claim": json(409, { code: "dependency-unlanded", status: 409, detail: "blocked", details: { claimResult: "refused-dependency-unlanded" } }) } }),
+  "task claim": () => ({ argv: claimArgs, credentials: bootstrap, routes: { "POST /tasks/T1/claim": json(201, { claim, delegation }) } }),
+  "task claim --json": () => ({ argv: ["--json", ...claimArgs], credentials: bootstrap, routes: { "POST /tasks/T1/claim": json(201, { claim, delegation }) } }),
+  "task claim reopened, pending": () => ({ argv: ["task", "claim", "T1", "--intent-version", "3"], credentials: bootstrap, routes: { "POST /tasks/T1/claim": json(202, { claim: pendingClaim, delegation }) } }),
+  "task claim refused": () => ({ argv: claimArgs, credentials: bootstrap, routes: { "POST /tasks/T1/claim": json(409, { code: "dependency-unlanded", status: 409, detail: "blocked", details: { claimResult: "refused-dependency-unlanded" } }) } }),
+  "task claim as agent --json": () => ({ argv: ["--json", ...claimArgs], credentials: { kind: "agent" } }),
   "task claim-status": () => ({ argv: ["task", "claim-status", "C1"], routes: { "GET /claims/C1": json(200, claim) } }),
   "task authorize --json": () => ({ argv: ["task", "authorize", "T1", "--agent", "ag1", "--verbs", "tasks:claim, submissions:create", "--expires-at", "2030-01-01T00:00:00Z", "--json"], routes: { "POST /tasks/T1/authorizations": json(201, { id: "A1", taskId: "T1", projectId: "P1", claimAttemptId: "CA", delegationId: "D", bootstrapToken: "PRIVATE-BOOTSTRAP", bootstrapExpiresAt: "2030-01-01T00:05:00Z", authorizationExpiresAt: "2030-01-01T00:00:00Z", verbs: ["tasks:claim", "submissions:create"] }) } }),
   "task create": () => ({ argv: ["task", "create", "--project", "P1", "--repository", "R1", "--target-ref", "refs/heads/main", "--key", "own", "--title", "Own", "--description", "Submit", "--acceptance", '["exact"]'], routes: { "POST /tasks": json(201, { id: "T1", intentVersion: 1, status: "draft" }) } }),
@@ -139,13 +141,7 @@ const cases: Record<string, () => Scenario> = {
   "task publish as agent": () => ({ argv: ["task", "publish", "T1"], credentials: { kind: "agent" } }),
   "task release": () => ({ argv: ["task", "release", "T1", "--claim", "C1"], routes: { "POST /tasks/T1/release": json(200, { claimId: "C1", status: "released" }) } }),
   "task reject --json": () => ({ argv: ["task", "reject", "T1", ...governance, "--json"], routes: { "POST /tasks/T1/reject": json(200, { id: "T1", status: "rejected" }) } }),
-  "task replace-claim": () => ({ argv: ["task", "replace-claim", "T1", "--claim", "C1", "--expires-at", "2030-01-01T00:00:00Z", ...governance], routes: { "POST /tasks/T1/claim/replace": json(202, { id: "T1", claimId: "C2", status: "claimed" }) } }),
   "candidate withdraw as agent": () => ({ argv: ["candidate", "withdraw", "CA1", ...governance], credentials: { kind: "agent" }, routes: { "POST /candidates/CA1/withdraw": json(200, { id: "CA1", status: "withdrawn" }) } }),
-  "submit": () => ({ argv: ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "3"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/submissions": json(201, submission) } }),
-  "submit --wait complete --json": () => ({ argv: ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "3", "--wait", "5", "--json"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/submissions": json(201, submission), "GET /submissions/S1/candidate": [json(202, { state: "pending", submissionId: "S1", jobId: "J1" }), json(200, { state: "complete", candidate })] } }),
-  "submit --wait complete": () => ({ argv: ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "3", "--wait", "5"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/submissions": json(201, submission), "GET /submissions/S1/candidate": json(200, { state: "superseded", submissionId: "S1", replacementSubmissionId: "S2" }) } }),
-  "submit --wait pending --json": () => ({ argv: ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "3", "--wait", "1", "--json"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/submissions": json(201, submission), "GET /submissions/S1/candidate": json(202, { state: "pending", submissionId: "S1", jobId: "J1" }) } }),
-  "submit intent mismatch": () => ({ argv: ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "2"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/submissions": json(409, { code: "intent-version-mismatch", status: 409, detail: "intent moved to v3" }) } }),
   "candidate show complete": () => ({ argv: ["candidate", "show", "--submission", "S1"], routes: { "GET /submissions/S1/candidate": json(200, { state: "complete", candidate }) } }),
   "candidate show pending": () => ({ argv: ["candidate", "show", "--submission", "S1"], routes: { "GET /submissions/S1/candidate": json(202, { state: "pending", submissionId: "S1", jobId: null }) } }),
   "candidate show superseded": () => ({ argv: ["candidate", "show", "--submission", "S1"], routes: { "GET /submissions/S1/candidate": json(200, { state: "superseded", submissionId: "S1", replacementSubmissionId: "S2" }) } }),
@@ -195,9 +191,9 @@ const cases: Record<string, () => Scenario> = {
   "webhook deliveries --json": () => ({ argv: ["webhook", "deliveries", "W1", "--status", "cancelled", "--after", "D0", "--limit", "5", "--json"], routes: { "GET /webhooks/W1/deliveries": json(200, { items: [{ id: "D1", status: "cancelled" }], nextAfter: null }) } }),
   "webhook redrive": () => ({ argv: ["webhook", "redrive", "W1", "--delivery", "D1"], routes: { "POST /webhooks/W1/deliveries/D1/redrive": json(202, { jobId: "J2" }) } }),
   "webhook rotate-secret": () => ({ argv: ["webhook", "rotate-secret", "W1", "--secret-stdin", "--overlap-seconds", "60"], stdin: "bm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm4=", routes: { "POST /webhooks/W1/rotate-secret": json(200, { signingKeyId: "K1", previousSigningKeyId: "initial", overlapUntil: 1800000060 }) } }),
-  "lane status --json": () => ({ argv: ["lane", "status", "--task", "T1", "--json"], credentials: { kind: "agent" }, routes: { "GET /tasks/T1/lane": json(200, { taskId: "T1", chainId: "chain-1", baseSha: SHA_A, pushes: [] }) } }),
-  "lane retry": () => ({ argv: ["lane", "retry", "--task", "T1", "--claim", "C1"], credentials: { kind: "agent" }, routes: { "POST /tasks/T1/lane/retry": json(202, { taskId: "T1", status: "retrying" }) } }),
-  "lane retire as agent": () => ({ argv: ["lane", "retire", "--task", "T1"], credentials: { kind: "agent" } }),
+  "lane retire": () => ({ argv: ["lane", "retire", "T1"], routes: { "POST /tasks/T1/lane/retire": json(202, { phase: "retiring", laneRepositories: [{ id: "LR1", state: "retiring", materializedAt: "2030-01-01T00:00:00Z", retiredAt: null }] }) } }),
+  "lane retire pending": () => ({ argv: ["lane", "retire", "T1"], routes: { "POST /tasks/T1/lane/retire": json(409, { code: "lane-retention-pending", status: 409, detail: "lane-retention-pending", details: { reason: "claim-active", laneRepositoryId: "LR1" } }) } }),
+  "lane retire as agent": () => ({ argv: ["lane", "retire", "T1"], credentials: { kind: "agent" } }),
   "login": () => ({ argv: ["login"], credentials: null, env: { OCTOCOVE_API_URL: API }, routes: {
     "POST /auth/login": json(200, { mode: "cli", deviceCode: "device-secret", userCode: "CONSENT", verificationUrl: "https://api.example.invalid/auth/cli/start?userCode=CONSENT", expiresAt: "2030-01-01T00:00:00Z", intervalSeconds: 5 }),
     "POST /auth/cli/exchange": [json(400, { code: "authorization-pending" }, { "retry-after": "5" }), json(400, { code: "slow-down" }, { "retry-after": "8" }), json(200, { sessionToken: "golden-session-value", principalId: "u1", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" })],

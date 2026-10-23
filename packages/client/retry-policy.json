@@ -92,20 +92,6 @@
     "autoRetry": "network-only",
     "replay": "bounded-recovery"
   },
-  "brokerHelperPush": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "brokerTokenCreate": {
-    "callable": true,
-    "autoRetry": "never",
-    "replay": "none"
-  },
-  "brokerTokenRevoke": {
-    "callable": true,
-    "autoRetry": "never",
-    "replay": "state"
-  },
   "candidateApprove": {
     "callable": true,
     "autoRetry": "network-only",
@@ -136,34 +122,6 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
-  "chainLaneGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "chainLanePush": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "chainLaneReceivePack": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "chainLaneReceivePackRefs": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "chainLaneRetire": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "state"
-  },
-  "chainLaneRetry": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
   "claimAuthorize": {
     "callable": true,
     "autoRetry": "network-only",
@@ -173,11 +131,6 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
-  },
-  "claimReplace": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
   },
   "codeBlobGet": {
     "callable": true,
@@ -341,39 +294,10 @@
     "autoRetry": "network-only",
     "replay": "bounded-recovery"
   },
-  "submissionCreate": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "submitGrantExchange": {
-    "callable": true,
-    "autoRetry": "never",
-    "replay": "metadata-without-token"
-  },
-  "submitGrantRevoke": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "submitWithGrant": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "guarded-result"
-  },
   "taskClaim": {
     "callable": true,
-    "selector": "credential",
-    "variants": {
-      "human": {
-        "autoRetry": "network-only",
-        "replay": "stored-result"
-      },
-      "bootstrap": {
-        "autoRetry": "network-only",
-        "replay": "bounded-recovery"
-      }
-    }
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
   },
   "taskCreate": {
     "callable": true,
@@ -534,5 +458,10 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "bounded-recovery"
+  },
+  "laneRetire": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
   }
 }

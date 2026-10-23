@@ -31,7 +31,7 @@ async function cli(argv: string[], credentials: Partial<Credentials> = {}, env: 
   outText = errText = "";
   const code = await run({
     argv,
-    env: { OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-" + Math.random().toString(36).slice(2)), OCTOCOVE_HELPER_SOCK: join(repo, "..", "attempt.sock"), ...env },
+    env: { OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-" + Math.random().toString(36).slice(2)), ...env },
     credentials: { apiUrl: API, token: "tok", kind: "agent", ...credentials },
     git: systemGit(repo),
     fetch: async (url, init) => {
@@ -71,7 +71,7 @@ const task = {
 describe("help and usage", () => {
   it("--help lists every verb", async () => {
     expect(await cli(["--help"])).toBe(0);
-    for (const verb of ["task list", "task show", "task claim", "task claim-status", "task authorize", "submit", "candidate show", "approve", "land", "receipt show", "log", "events replay", "webhook create", "webhook replay", "webhook disable"]) {
+    for (const verb of ["task list", "task show", "task claim", "task claim-status", "task authorize", "lane materialize", "lane submit", "lane wrap-up", "lane retire", "candidate show", "approve", "land", "receipt show", "log", "events replay", "webhook create", "webhook replay", "webhook disable"]) {
       expect(outText).toContain(verb);
     }
   });
@@ -365,181 +365,85 @@ describe("task list / show", () => {
 });
 
 describe("task claim", () => {
+  const lane = { kind: "materialized", executionId: "E1", generation: 1, baseSha: SHA_B, scopeVersion: 1, scope: { read: ["src/"], write: ["src/app/"] } };
   const ready = {
     claim: {
       id: "C1", taskId: "T1", intentVersion: 3, status: "active", expiresAt: "2030-01-01T00:00:00Z",
       dependencyResults: [{ upstreamTaskId: "T0", receiptId: "R0", landedSha: SHA_B }],
-      provisioningState: "ready", blockedReason: null,
-      workspace: { mappingId: "M1", kind: "task-repo", remote: "https://git.example.invalid/t1.git", ref: "refs/heads/task/t1", credentialSource: {} },
+      provisioningState: "ready", blockedReason: null, lane,
     },
+    delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" },
   };
+  const boot = { kind: "bootstrap" as const, token: "boot", agentId: "worker" };
+  const cfg = () => join(repo, "..", "cfg-claim");
 
-  it("claims at the current intent version, prints the contract and writes git config", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
+  it("claims with the bootstrap and the declared scope, saves the delegation privately and never prints it", async () => {
     routes["POST /tasks/T1/claim"] = () => json(201, ready);
-    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(0);
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/", "--write", "src/app/"], boot, { OCTOCOVE_CONFIG_DIR: cfg() })).toBe(0);
     const post = calls.find((c) => c.method === "POST")!;
-    expect(post.body).toEqual({ intentVersion: 3 });
+    expect(post.headers.authorization).toBe("Bearer boot");
+    expect(post.body).toEqual({ intentVersion: 3, scope: { read: ["src/"], write: ["src/app/"] } });
     expect(post.headers["idempotency-key"]).toMatch(/^oc-[0-9a-f]{32}$/);
-    expect(outText).toContain("Add CLI");
-    expect(outText).toContain("tests pass");
-    expect(outText).toContain("intent v3");
-    expect(outText).toContain("landed " + SHA_B);
-    expect(git("remote", "get-url", "octocove")).toBe("ext::octocove-helper-connect %s");
-    expect(git("config", "--local", "octocove.taskId")).toBe("T1");
-    expect(git("config", "--local", "octocove.claimId")).toBe("C1");
-    expect(git("config", "--local", "octocove.ref")).toBe("refs/heads/task/t1");
-    expect(git("config", "--local", "octocove.mappingId")).toBe("M1");
-    expect(git("config", "--local", "octocove.intentVersion")).toBe("3");
-    expect(git("config", "--local", "octocove.baseSha")).toBe(git("rev-parse", "HEAD"));
-    // Socket transport configures no Git credential helper.
-    expect(() => git("config", "--local", "--get-regexp", "^credential")).toThrow();
+    expect(outText).toContain("Claim:");
+    expect(outText).toContain("octocove lane materialize T1 DIR");
+    expect(outText + errText).not.toContain("SECRET-JWT");
+    const file = join(cfg(), "credentials", "cli.json");
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ token: "SECRET-JWT", kind: "agent", delegationId: "D1", agentId: "worker", claimExpiresAt: "2030-01-01T00:00:00Z" });
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Nothing is cloned and no Git configuration is written.
+    expect(() => git("config", "--local", "--get-regexp", "^octocove")).toThrow();
   });
 
-  it("preserves an existing origin and configures the Octocove remote URL", async () => {
-    git("remote", "add", "origin", "https://old.example.invalid/x.git");
-    routes["GET /tasks/T1"] = () => json(200, task);
+  it("--json prints the claim and delegation metadata without the token", async () => {
     routes["POST /tasks/T1/claim"] = () => json(201, ready);
-    await cli(["task", "claim", "T1", "--lane", "ref"]);
-    expect(git("remote", "get-url", "octocove")).toBe("ext::octocove-helper-connect %s");
-    expect(git("remote", "get-url", "origin")).toBe("https://old.example.invalid/x.git");
+    expect(await cli(["--json", "claim", "T1", "--intent-version", "3", "--read", "src/"], boot, { OCTOCOVE_CONFIG_DIR: cfg() })).toBe(0);
+    const body = JSON.parse(outText);
+    expect(body.claim.lane).toEqual(lane);
+    expect(body.delegation).toEqual({ delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" });
+    expect(outText).not.toContain("SECRET-JWT");
   });
 
-  it("polls claim status while provisioning is pending", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } }, { "retry-after": "1" });
-    let polls = 0;
-    routes["GET /claims/C1"] = () => (++polls < 2 ? json(202, { ...ready.claim, provisioningState: "pending", workspace: null }) : json(200, ready.claim));
-    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(0);
-    expect(polls).toBe(2);
-    expect(git("remote", "get-url", "octocove")).toBe("ext::octocove-helper-connect %s");
+  it("continues a reopened lane without a scope, and reports a lane still being prepared", async () => {
+    routes["POST /tasks/T1/claim"] = () => json(202, { ...ready, claim: { ...ready.claim, provisioningState: "pending", lane: { ...lane, reopenId: "RO1", laneHead: SHA_A } } });
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3"], boot, { OCTOCOVE_CONFIG_DIR: cfg() })).toBe(0);
+    expect(calls[0]!.body).toEqual({ intentVersion: 3 });
+    expect(outText).toContain("pending (the lane is still being prepared)");
+    expect(outText).toContain("RO1 (continues the landed lane)");
+    expect(calls).toHaveLength(1);
   });
 
-  it("exits 75 and records the claim when provisioning stays pending", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } });
-    routes["GET /claims/C1"] = () => json(202, { ...ready.claim, provisioningState: "pending", workspace: null });
-    expect(await cli(["task", "claim", "T1", "--wait", "1", "--lane", "ref"], {}, {})).toBe(EXIT.pending);
-    expect(git("config", "--local", "octocove.claimId")).toBe("C1");
-    expect(() => git("remote", "get-url", "origin")).toThrow();
-  });
-
-  it("--json emits exactly one envelope when provisioning is blocked", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(201, { claim: { ...ready.claim, provisioningState: "blocked", workspace: null, blockedReason: "adapter unconfigured" } });
-    expect(await cli(["--json", "task", "claim", "T1", "--lane", "ref"])).toBe(EXIT.failure);
-    expect(errText).toBe("");
-    const env = JSON.parse(outText);
-    expect(env.claim.provisioningState).toBe("blocked");
-    expect(env.error).toMatchObject({ code: "provisioning-blocked", status: 409 });
-    expect(env.error.message).toContain("adapter unconfigured");
-  });
-
-  it("--json emits exactly one envelope when the wait times out pending", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } });
-    routes["GET /claims/C1"] = () => json(202, { ...ready.claim, provisioningState: "pending", workspace: null });
-    expect(await cli(["--json", "task", "claim", "T1", "--wait", "1", "--lane", "ref"])).toBe(EXIT.pending);
-    expect(errText).toBe("");
-    const env = JSON.parse(outText);
-    expect(env.claim.provisioningState).toBe("pending");
-    expect(env.error.code).toBe("pending");
-  });
-
-  it("--wait is enforced on a stalled claim GET", async () => {
-    const stalled = new Promise<Response>(() => {});
-    let out = "", err = "";
-    const started = Date.now();
-    const code = await run({
-      argv: ["task", "claim", "T1", "--wait", "1", "--lane", "ref"],
-      env: { OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-stall"), OCTOCOVE_HELPER_SOCK: join(repo, "..", "attempt.sock") },
-      credentials: { apiUrl: API, token: "tok", kind: "agent" },
-      git: systemGit(repo),
-      fetch: async (url, init) => {
-        const u = new URL(url);
-        if (init.method === "POST") return json(202, { claim: { ...ready.claim, provisioningState: "pending", workspace: null } });
-        if (u.pathname.endsWith("/tasks/T1")) return json(200, task);
-        return stalled;
-      },
-      stdout: (x) => (out += x),
-      stderr: (x) => (err += x),
-      stdin: async () => "",
-      sleep: async () => {},
-    });
-    expect(code).toBe(EXIT.pending);
-    expect(Date.now() - started).toBeLessThan(5000);
-    expect(err).toContain("provisioning still pending");
-  });
-
-  it("fails on blocked provisioning", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(201, { claim: { ...ready.claim, provisioningState: "blocked", workspace: null, blockedReason: "adapter unconfigured" } });
-    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(EXIT.failure);
-    expect(errText).toContain("adapter unconfigured");
-  });
-
-  it("reports a refused claim and leaves git untouched", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
+  it("reports a refused claim and keeps the bootstrap", async () => {
     routes["POST /tasks/T1/claim"] = () => json(409, { code: "dependency-unlanded", status: 409, detail: "blocked", details: { claimResult: "refused-dependency-unlanded" } });
-    expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(EXIT.failure);
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/"], boot, { OCTOCOVE_CONFIG_DIR: cfg() })).toBe(EXIT.failure);
     expect(errText).toContain("dependency-unlanded");
-    expect(() => git("config", "--local", "octocove.taskId")).toThrow();
   });
 
   it("reuses an explicit idempotency key", async () => {
     routes["POST /tasks/T1/claim"] = () => json(201, ready);
-    await cli(["task", "claim", "T1", "--intent-version", "3", "--idempotency-key", "k".repeat(20), "--lane", "ref"]);
+    await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/", "--idempotency-key", "k".repeat(20)], boot, { OCTOCOVE_CONFIG_DIR: cfg() });
     expect(calls.map((c) => c.method)).toEqual(["POST"]);
     expect(calls[0]!.headers["idempotency-key"]).toBe("k".repeat(20));
   });
 
-  it("with a bootstrap, stores the delegation privately and never prints it", async () => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(201, { ...ready, delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
-    const cfg = join(repo, "..", "cfg-bootstrap");
-    expect(await cli(["--json", "task", "claim", "T1", "--intent-version", "3", "--lane", "ref"], { kind: "bootstrap", token: "boot" }, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(0);
-    expect(outText).not.toContain("SECRET-JWT");
-    expect(errText).not.toContain("SECRET-JWT");
-    const file = join(cfg, "credentials", "cli.json");
-    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ token: "SECRET-JWT", kind: "agent" });
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(git("config", "--local", "--list")).not.toContain("SECRET-JWT");
-  });
-
   it("a bootstrap cannot read the task, so it requires --intent-version", async () => {
-    expect(await cli(["task", "claim", "T1", "--lane", "ref"], { kind: "bootstrap" })).toBe(EXIT.usage);
-    expect(calls).toHaveLength(0);
-  });
-});
-
-describe("submit", () => {
-  const submission = { id: "S1", taskId: "T1", seq: 1, sourceSha: SHA_A, baseSha: SHA_B, intentVersion: 3 };
-
-  it("records the submission from current HEAD with the claimed base and intent version", async () => {
-    git("config", "--local", "octocove.taskId", "T1");
-    git("config", "--local", "octocove.baseSha", SHA_B);
-    git("config", "--local", "octocove.intentVersion", "3");
-    routes["POST /tasks/T1/submissions"] = () => json(201, submission);
-    expect(await cli(["submit"])).toBe(0);
-    expect(calls[0]!.body).toEqual({ sourceSha: git("rev-parse", "HEAD"), baseSha: SHA_B, intentVersion: 3 });
-    expect(outText).toContain("S1");
-  });
-
-  it("accepts explicit flags", async () => {
-    routes["POST /tasks/T9/submissions"] = () => json(201, submission);
-    expect(await cli(["submit", "--task", "T9", "--source", SHA_A, "--base", SHA_B, "--intent-version", "4"])).toBe(0);
-    expect(calls[0]!.body).toEqual({ sourceSha: SHA_A, baseSha: SHA_B, intentVersion: 4 });
-  });
-
-  it("asks for a base when none is recorded", async () => {
-    expect(await cli(["submit", "--task", "T1", "--intent-version", "1"])).toBe(EXIT.usage);
+    expect(await cli(["task", "claim", "T1", "--read", "src/"], boot)).toBe(EXIT.usage);
     expect(calls).toHaveLength(0);
   });
 
-  it("reports an intent-version mismatch", async () => {
-    routes["POST /tasks/T1/submissions"] = () => json(409, { code: "intent-version-mismatch", status: 409 });
-    expect(await cli(["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "2"])).toBe(EXIT.failure);
-    expect(errText).toContain("intent-version-mismatch");
+  it("refuses --write without --read before sending anything", async () => {
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--write", "src/"], boot)).toBe(EXIT.usage);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each(["agent", "human"] as const)("refuses a %s credential: only a claim bootstrap claims", async (kind) => {
+    expect(await cli(["--json", "task", "claim", "T1", "--intent-version", "3", "--read", "src/"], { kind })).toBe(EXIT.config);
+    expect(JSON.parse(errText).error.message).toContain("claim bootstrap");
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([["--lane", "materialized"], ["--source-ref", "main"], ["--remote", "origin"], ["--wait", "5"]])("no longer accepts %s", async (...flag) => {
+    expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/", ...flag], boot)).toBe(EXIT.usage);
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -756,18 +660,19 @@ describe("transport", () => {
     outText = "";
     const keys: string[] = [];
     const code = await run({
-      argv: ["task", "claim", "T1", "--intent-version", "3", "--lane", "ref"],
-      env: { OCTOCOVE_HELPER_SOCK: join(repo, "..", "attempt.sock") }, credentials: { apiUrl: API, token: "t", kind: "agent" }, git: systemGit(repo),
+      argv: ["task", "release", "T1"],
+      env: {}, credentials: { apiUrl: API, token: "t", kind: "agent" }, git: systemGit(repo), cwd: repo,
       fetch: async (_u, init) => {
         keys.push((init.headers as any)["idempotency-key"]);
         if (++n < 3) throw new Error("ECONNRESET");
-        return json(201, { claim: { id: "C1", taskId: "T1", intentVersion: 3, status: "active", expiresAt: "x", dependencyResults: [], provisioningState: "blocked", blockedReason: "r", workspace: null } });
+        return json(200, { claimId: "C1", status: "released" });
       },
-      stdout: () => {}, stderr: () => {}, stdin: async () => "", sleep: async () => {},
+      stdout: (x) => (outText += x), stderr: () => {}, stdin: async () => "", sleep: async () => {},
     });
     expect(n).toBe(3);
     expect(new Set(keys).size).toBe(1);
-    expect(code).toBe(EXIT.failure); // blocked, but the request itself recovered
+    expect(code).toBe(EXIT.ok);
+    expect(outText).toContain("released");
   });
 
   it("gives up after repeated network failure", async () => {
@@ -784,14 +689,13 @@ describe("governance CLI verbs", () => {
     [["task", "dependency-remove", "T1", "--upstream", "T2"], "/tasks/T1/dependencies/remove", { upstreamTaskId: "T2" }],
     [["task", "reject", "T1"], "/tasks/T1/reject", {}],
     [["task", "supersede", "T1", "--replacement", "T2"], "/tasks/T1/supersede", { replacementTaskId: "T2" }],
-    [["task", "replace-claim", "T1", "--claim", "C1", "--expires-at", "2026-10-04T23:00:00Z"], "/tasks/T1/claim/replace", { claimId: "C1", expiresAt: "2026-10-04T23:00:00Z" }],
     [["approval", "withdraw", "A1"], "/approvals/A1/withdraw", {}],
     [["candidate", "withdraw", "K1"], "/candidates/K1/withdraw", {}],
     [["candidate", "reject", "K1"], "/candidates/K1/reject", {}],
   ];
   for (const [argv, path, extra] of commands) {
     it(`sends expected state and idempotency key for ${argv.slice(0, 2).join(" ")}`, async () => {
-      routes[`POST ${path}`] = () => json(path.endsWith("/claim/replace") ? 202 : 200, { id: "result", status: "done" });
+      routes[`POST ${path}`] = () => json(200, { id: "result", status: "done" });
       const args = [...argv, "--expected-status", "ready", "--intent-version", "3", "--idempotency-key", "governance-test-key", "--json"];
       expect(await cli(args, { kind: "human" })).toBe(EXIT.ok);
       expect(calls).toHaveLength(1);
@@ -836,8 +740,7 @@ describe("task governance and webhook reactivation", () => {
     routes["POST /tasks/T1/publish"] = c => { expect(c.body).toEqual({}); return json(200, { id: "T1", status: "ready" }); };
     routes["POST /tasks/T1/release"] = c => { expect(c.body).toEqual({ claimAttemptId: "C1" }); return json(200, { claimId: "C1", status: "released" }); };
     routes["POST /webhooks/W1/reactivate"] = c => { expect(c.body).toBeUndefined(); return json(200, { id: "W1", status: "active" }); };
-    git("config", "octocove.claimId", "C1");
-    for (const args of [["task", "publish", "T1"], ["task", "release", "T1"], ["webhook", "reactivate", "W1"]]) {
+    for (const args of [["task", "publish", "T1"], ["task", "release", "T1", "--claim", "C1"], ["webhook", "reactivate", "W1"]]) {
       expect(await cli([...args, "--json", "--idempotency-key", "stable-own-write-key"], { kind: "human" })).toBe(0);
       expect(calls.at(-1)!.headers["idempotency-key"]).toBe("stable-own-write-key");
       expect(errText).toBe(""); expect(JSON.parse(outText)).toBeTruthy();
@@ -851,56 +754,13 @@ describe("task governance and webhook reactivation", () => {
   });
 });
 
-describe("submit candidate waits", () => {
-  it("bounds a stalled initial candidate read and emits pending JSON", async () => {
-    let text = "", errors = "";
-    const code = await run({ argv: ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "1", "--wait", "1", "--json"],
-      env: {}, credentials: { apiUrl: API, token: "tok", kind: "agent" }, git: systemGit(repo),
-      fetch: async (_url, init) => init.method === "POST" ? json(201, { id: "S1", seq: 1 }) : new Promise(() => {}),
-      stdout: s => { text += s; }, stderr: s => { errors += s; }, stdin: async () => "" });
-    expect(code).toBe(EXIT.pending); expect(JSON.parse(text).candidate.state).toBe("pending");
-    expect(JSON.parse(errors).error.code).toBe("pending");
-  });
-  it("refuses invalid wait budgets before submission", async () => {
-    expect(await cli(["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "1", "--wait", "0"])).toBe(EXIT.usage);
+describe("removed Git-native commands", () => {
+  it.each([["submit"], ["lane", "push"], ["lane", "sync"], ["lane", "retry"], ["helper", "status"], ["workspace", "prepare"], ["task", "replace-claim"]])("%j is an unknown command", async (...argv) => {
+    expect(await cli(argv)).toBe(EXIT.usage);
+    expect(errText).toContain("unknown command");
     expect(calls).toHaveLength(0);
   });
 });
-
-it("refuses a push URL outside the registered source before publishing", async () => {
-  const remote = "https://git.example.invalid/repo.git";
-  git("remote", "add", "origin", remote); git("config", "remote.origin.pushurl", "https://other.example.invalid/repo.git");
-  for (const [key, value] of Object.entries({ taskId: "T1", claimId: "C1", remote: "origin", intentVersion: "1", baseSha: SHA_A }))
-    git("config", `octocove.${key}`, value);
-  routes["GET /claims/C1"] = () => json(200, { id: "C1", taskId: "T1", status: "active", provisioningState: "ready",
-    workspace: { mappingId: "M1", kind: "lane-ref", remote, ref: "refs/heads/topic", credentialSource: { kind: "external" } } });
-  expect(await cli(["submit", "HEAD"])).toBe(EXIT.config);
-  expect(calls).toHaveLength(1); expect(calls[0]!.method).toBe("GET");
-  expect(git("remote", "get-url", "origin")).toBe(remote);
-});
-
-it("external-ref claim without origin exits 78 with a clear configuration error before claiming", async () => {
-  const branch = git("symbolic-ref", "HEAD");
-  expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--source-ref", branch, "--repository", "R1"])).toBe(EXIT.config);
-  expect(errText).toContain("source remote 'origin' is unavailable");
-  expect(errText).toContain("configure it before claiming with --source-ref");
-  expect(calls).toEqual([]);
-  expect(git("remote")).toBe("");
-});
-
-it("chooses an unused allocated-source remote without replacing existing names", async () => {
-  git("remote", "add", "origin", "https://owned.example.invalid/clone.git");
-  git("remote", "add", "octocove", "https://owned.example.invalid/another.git");
-  routes["GET /tasks/T1"] = () => json(200, task);
-  routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id: "C1", intentVersion: 3, provisioningState: "ready",
-    workspace: { mappingId: "M1", kind: "task-repo", remote: "https://git.example.invalid/task.git", ref: "refs/heads/task", credentialSource: {} } } });
-  expect(await cli(["task", "claim", "T1", "--lane", "ref"])).toBe(0);
-  expect(git("remote", "get-url", "origin")).toBe("https://owned.example.invalid/clone.git");
-  expect(git("remote", "get-url", "octocove")).toBe("https://owned.example.invalid/another.git");
-  const selected = git("config", "octocove.remote"); expect(selected).toMatch(/^octocove-[a-f0-9]{12}$/);
-  expect(git("remote", "get-url", selected)).toBe("ext::octocove-helper-connect %s");
-});
-
 
 describe("webhook operations CLI", () => {
   it("inspects terminal deliveries, re-drives with a stable key and rotates from stdin without echoing secrets", async () => {
@@ -926,68 +786,6 @@ describe("webhook operations CLI", () => {
     calls=[];
     expect(await cli(["webhook","rotate-secret","W1","--overlap-seconds","60"],{kind:"human"})).toBe(EXIT.usage);
     expect(calls).toHaveLength(0);
-  });
-});
-
-describe('chain claim options', () => {
-  const ready = (baseSha: string) => ({ claim: { id: 'C1', taskId: 'T1', intentVersion: 3,
-    provisioningState: 'ready', lane: { strategy: 'chain', chainId: 'chain-1', baseSha, proofSha: baseSha, pointerVersion: 2 },
-    workspace: { mappingId: 'M1', kind: 'task-repo', remote: 'https://git.example.invalid/chain.git', ref: 'refs/heads/oc/C1', credentialSource: {} } } });
-
-  it('explicit chain pins the declared canonical head and prints pointer/base plus the cache recipe', async () => {
-    routes['GET /tasks/T1'] = () => json(200, task);
-    routes['POST /tasks/T1/claim'] = () => json(201, ready(SHA_A));
-    expect(await cli(['claim', 'T1', '--lane', 'chain', '--chain-id', 'chain-1'])).toBe(EXIT.ok);
-    expect(calls.find(c => c.method === 'POST')!.body).toEqual({ intentVersion: 3, chain: { id: 'chain-1', baseSha: SHA_A } });
-    expect(outText).toContain('Pointer SHA'); expect(outText).toContain(SHA_A);
-    expect(outText).toContain('workspace prepare'); expect(outText).toContain('workspace open');
-    expect(git('config', 'octocove.baseSha')).toBe(SHA_A);
-  });
-
-  it('reads the scoped project after saving a bootstrap chain delegation', async () => {
-    const cfg = join(repo, '..', 'chain-agent');
-    const bootstrapFile = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(repo, '..', 'bootstrap') }, { apiUrl: API, token: 'boot', kind: 'bootstrap', agentId: 'worker-one' });
-    routes['POST /tasks/T1/claim'] = () => json(201, { ...ready(SHA_A), delegation: {
-      delegationId: 'D1', accessToken: 'testAgentCredential', tokenType: 'Bearer', expiresAt: '2030-01-01T00:00:00Z', revocationId: 'r',
-    } });
-    routes['GET /tasks/T1'] = c => {
-      expect(c.headers.authorization).toBe('Bearer testAgentCredential');
-      expect(JSON.parse(readFileSync(join(cfg, 'credentials', 'cli.json'), 'utf8')).kind).toBe('agent');
-      return json(200, task);
-    };
-    expect(await cli(['task', 'claim', 'T1', '--intent-version', '3', '--lane', 'chain', '--chain-id', 'chain-1', '--base', SHA_A,
-      '--bootstrap-file', bootstrapFile], {}, { OCTOCOVE_CONFIG_DIR: cfg })).toBe(EXIT.ok);
-    expect(calls.map(c => `${c.method} ${c.url.pathname}`)).toEqual(['POST /v1/tasks/T1/claim', 'GET /v1/tasks/T1']);
-    expect(git('config', '--local', 'octocove.projectId')).toBe('P1');
-    expect(await loadCredentials({ OCTOCOVE_CONFIG_DIR: cfg })).toMatchObject({ kind: 'agent', agentId: 'worker-one', delegationId: 'D1' });
-    expect(git('config', '--local', 'octocove.baseSha')).toBe(SHA_A);
-    expect(outText + errText).not.toContain('testAgentCredential');
-  });
-
-  it('explicit ref overrides a chain declaration and retains the existing request shape', async () => {
-    routes['GET /tasks/T1'] = () => json(200, { ...task, lane: { strategy: 'chain' } });
-    routes['POST /tasks/T1/claim'] = () => json(201, ready(SHA_A));
-    expect(await cli(['claim', 'T1', '--lane', 'ref'])).toBe(EXIT.ok);
-    expect(calls.find(c => c.method === 'POST')!.body).toEqual({ intentVersion: 3 });
-  });
-
-  it('pins a successor to the accepted receipt and inherits its chain id', async () => {
-    routes['GET /tasks/T1'] = () => json(200, task);
-    routes['GET /tasks/T0/lane'] = () => json(200, { chainId: 'chain-1' });
-    routes['GET /tasks/T0'] = () => json(200, { acceptedReceiptId: 'R0' });
-    routes['GET /receipts/R0'] = () => json(200, { taskId: 'T0', outcome: 'landed', landedSha: SHA_B });
-    routes['POST /tasks/T1/claim'] = () => json(201, ready(SHA_B));
-    expect(await cli(['claim', 'T1', '--lane', 'chain', '--previous-task', 'T0', '--json'])).toBe(EXIT.ok);
-    expect(calls.find(c => c.method === 'POST')!.body.chain).toEqual({ id: 'chain-1', baseSha: SHA_B, previousTaskId: 'T0' });
-    expect(JSON.parse(outText).recipe.join('\n')).toContain(SHA_B);
-  });
-
-  it('refuses a successor without an accepted landed receipt before claiming', async () => {
-    routes['GET /tasks/T1'] = () => json(200, task);
-    routes['GET /tasks/T0/lane'] = () => json(200, { chainId: 'chain-1' });
-    routes['GET /tasks/T0'] = () => json(200, { acceptedReceiptId: null });
-    expect(await cli(['claim', 'T1', '--lane', 'chain', '--previous-task', 'T0'])).toBe(EXIT.config);
-    expect(calls.some(c => c.method === 'POST')).toBe(false);
   });
 });
 
@@ -1060,8 +858,8 @@ describe("recovery after a committed answer whose body was lost", () => {
   const ledgered: [string, string[], Partial<Credentials>, string, object, string][] = [
     ["task create", ["task", "create", "--project", "P1", "--repository", "R1", "--target-ref", "refs/heads/main", "--key", "k", "--title", "T", "--description", "D", "--acceptance", "[]"],
       { kind: "human" }, "POST /tasks", { id: "T1", status: "draft" }, "T1"],
-    ["submit", ["submit", "--task", "T1", "--source", SHA_A, "--base", SHA_B, "--intent-version", "3"],
-      { kind: "agent" }, "POST /tasks/T1/submissions", { id: "S1", taskId: "T1", seq: 1, sourceSha: SHA_A, baseSha: SHA_B, intentVersion: 3 }, "S1"],
+    ["task release", ["task", "release", "T1", "--claim", "C1"],
+      { kind: "human" }, "POST /tasks/T1/release", { claimId: "C1", status: "released" }, "released"],
     ["approve", ["approve", "CA1", "--candidate-sha", SHA_A, "--base-sha", SHA_B, "--intent-version", "3"],
       { kind: "human" }, "POST /candidates/CA1/approve", { id: "AP1", candidateId: "CA1", approvedBy: "u", status: "active" }, "AP1"],
     ["land", ["land", "CA1", "--approval", "AP1"],
@@ -1069,7 +867,7 @@ describe("recovery after a committed answer whose body was lost", () => {
   ];
 
   it.each(ledgered)("%s: the same-key replay returns the stored result", async (_name, argv, creds, route, stored, shown) => {
-    routes[route] = lostThen(() => json(route.endsWith("/land") ? 202 : 201, stored));
+    routes[route] = lostThen(() => json(route.endsWith("/land") ? 202 : route.endsWith("/release") ? 200 : 201, stored));
     routes["GET /receipts/F1"] = () => json(202, { receiptId: "F1", fenceId: "F1", status: "pending" });
     expect(await cli(argv, creds)).toBe(EXIT.ok);
     oneLogicalOperation();
@@ -1137,7 +935,7 @@ describe("agent presentation and recovery", () => {
     expect(outText).toContain("https://issuer.example.invalid|alice");
     expect(outText).not.toContain("Bearer");
   });
-  it.each(["stale-base", "chain-base-mismatch", "already-claimed"])("adds a recovery hint for %s without discarding the problem", async code => {
+  it.each(["stale-base", "already-claimed"])("adds a recovery hint for %s without discarding the problem", async code => {
     routes["GET /tasks/T1"] = () => json(409, { code, status: 409, detail: "original refusal", requestId: "request-1" });
     expect(await cli(["--json", "task", "show", "T1"])).toBe(EXIT.failure);
     expect(JSON.parse(errText).error).toMatchObject({ code, status: 409, requestId: "request-1", hint: expect.stringContaining("octocove task show"), message: expect.stringContaining("original refusal") });
@@ -1248,26 +1046,7 @@ describe("presenter output", () => {
 });
 
 
-describe("default chain and publication guidance", () => {
-  it.each([["task", "claim"], ["claim"]])("defaults %j to chain without topology", async (...command) => {
-    routes["GET /tasks/T1"] = () => json(200, task);
-    routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id:"C1",taskId:"T1",intentVersion:3,provisioningState:"ready",workspace:null } });
-    expect(await cli([...command,"T1","--intent-version","3"])).toBe(0);
-    expect(calls.find(c=>c.method==="POST")!.body).toEqual({intentVersion:3,chain:{id:"T1",baseSha:SHA_A}});
-  });
-  it("bootstrap defaults to chain without reading under bootstrap authority", async () => {
-    routes["POST /tasks/T1/claim"] = c => { expect(c.body.chain).toEqual({id:"T1",baseSha:SHA_A}); return json(201,{claim:{id:"C1",taskId:"T1",intentVersion:3,provisioningState:"ready",workspace:null},delegation:{delegationId:"D1",accessToken:"replacement",tokenType:"Bearer",expiresAt:"2030-01-01T00:00:00Z",revocationId:"r"}}); };
-    routes["GET /tasks/T1"] = c => { expect(c.headers.authorization).toBe("Bearer replacement"); return json(200,task); };
-    expect(await cli(["task","claim","T1","--intent-version","3","--base",SHA_A],{kind:"bootstrap",token:"bootstrap"})).toBe(0);
-    expect(calls[0]!.method).toBe("POST");
-  });
-  it("recognizes lane-chain-required and keeps the server problem in JSON", async () => {
-    routes["GET /tasks/T1"] = () => json(200,task);
-    routes["POST /tasks/T1/claim"] = () => json(409,{code:"lane-chain-required",detail:"chain only"});
-    expect(await cli(["task","claim","T1","--lane","ref","--json"])).toBe(1);
-    expect(JSON.parse(errText).error).toMatchObject({code:"lane-chain-required",status:409});
-    expect(errText).toContain("--lane chain");
-  });
+describe("publication guidance", () => {
   it("explains dependency-blocked publication without changing JSON", async () => {
     routes["POST /tasks/T1/publish"] = () => json(200,{id:"T1",status:"draft"});
     routes["GET /tasks/T1"] = () => json(200,{...task,dependencies:[{upstreamTaskId:"A",status:"ready",acceptedResult:null},{upstreamTaskId:"B",status:"claimed",acceptedResult:null},...task.dependencies]});

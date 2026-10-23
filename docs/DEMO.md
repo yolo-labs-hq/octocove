@@ -2,8 +2,9 @@
 
 Use the [hosted or self-hosted setup](../README.md#run-with-the-hosted-service)
 first. The hosted walkthrough uses the web app for human review and landing;
-workers use the current published CLI and local Git. Your agent runtime
-chooses and launches agents; Octocove records their intent, authority and results.
+workers use the current published CLI in plain lane directories, with no Git clone.
+Your agent runtime chooses and launches agents; Octocove records their intent,
+authority and results.
 
 ## Plan three tracks
 
@@ -32,49 +33,53 @@ receipt**, not by an agent finishing, a candidate appearing or an approval.
 ## Delegate and work concurrently
 
 Authorize A and B just before dispatch with the README's seven-verb grant and a
-future UTC expiry. Give each agent a unique ID, config directory, work directory,
-bootstrap and chain ID. Read the current canonical base and task intent version
-for each claim. Agents claim with `--lane chain`, verify `whoami` and the base,
-branch locally, implement/test/commit, then `git push octocove`. The managed helper
-fetches canonical under a scoped read lease and sends pushes through the Worker.
+future UTC expiry. Give each agent a unique ID, config directory, lane directory
+and bootstrap. Each agent claims with the read and write scope its task needs,
+then materializes, edits, saves and wraps up:
 
-A chain lane keeps attempt history and an immutable base under one-writer rules.
-Independent tasks use separate chains; they can push concurrently. Shared Git
-history and versioned intent carry context across attempts. Provider credentials
-remain outside agent prompts and public Git config.
+```sh
+npx @yolo-labs/octocove --json task claim TASK_A --intent-version INTENT_VERSION \
+  --read src/,package.json --write src/tokenizer/ --bootstrap-file /path/to/protected/bootstrap-a.json
+npx @yolo-labs/octocove lane materialize TASK_A ./lane-a
+# Implement and test inside ./lane-a; only paths under src/tokenizer/ can be saved.
+npx @yolo-labs/octocove lane submit ./lane-a --message 'Tokenizer, first pass'
+npx @yolo-labs/octocove lane wrap-up ./lane-a --message 'Add the tokenizer'
+```
 
-Use `task show TASK_ID` to find the live submission, then:
+The first claim keeps its write scope: B's claim must not overlap A's write
+prefixes (`write-scope-claimed` otherwise; nothing is recorded and the bootstrap
+stays unused). Independent tasks with disjoint write scopes work concurrently.
+Agents never hold a Git remote or provider credential; files come in and changes
+go out only through the API.
+
+`lane wrap-up` prints the candidate and its submission. Inspect it with:
 
 ```sh
 npx @yolo-labs/octocove --json candidate show --submission SUBMISSION_ID
 ```
 
 Read the candidate's outcome/status and exact SHA/base/intent tuple. A successful
-command exit alone does not prove a candidate is reviewable. Renew an active
-agent delegation before expiry with `auth renew`; if expired, stop and ask the
-delegating human to recover the claim rather than borrowing human credentials.
+command exit alone does not prove a candidate is reviewable. Agent delegations
+renew automatically within their ceiling; if one has ended, stop and ask the
+delegating human for a new authorization rather than borrowing human credentials.
 
 ## Human review and stale recovery
 
 The human reviews A's candidate in the web app, approves its exact tuple and
-lands it. If canonical movement invalidates B's candidate, stale approval/landing
-is refused. The owning agent must preserve published history and merge canonical:
+lands it. When the canonical moves, B's candidate turns `stale` and its approval
+no longer applies. Usually B just wraps up again: wrap-up always squashes the
+saved lane onto the canonical's current head.
 
 ```sh
-npx @yolo-labs/octocove lane sync
-git merge --no-edit refs/remotes/octocove/main
-# Resolve conflicts, retaining both tracks' work, and commit the merge if needed.
-# Rerun acceptance checks.
-npx @yolo-labs/octocove lane push --base ORIGINAL_BASE_SHA \
-  --push-id UNIQUE_NEW_PUSH_ID --idempotency-key UNIQUE_NEW_KEY --wait 180
+npx @yolo-labs/octocove lane wrap-up ./lane-b --message 'Add the token counter'
 ```
 
-For another target branch, merge its corresponding `refs/remotes/octocove/...`
-tracking ref. Sync fetches without moving HEAD. Never merge an old tracking ref
-if sync fails; never rebase or force a published lane. Preserve the **original**
-claim base on re-push. Exit 76 indicates a stale candidate; HTTP 409
-`chain-push-non-fast-forward` indicates a refused rewrite. Other errors require
-inspection. Exit 75 means pending: inspect state before retrying an uncertain write.
+If a path B changed also changed upstream, wrap-up answers `refresh-conflict`
+and writes each upstream copy under `.octocove/incoming/`. Decide every listed
+path and run it again with one `--resolve PATH=lane|base|FILE` each. To read the
+upstream changes in the lane itself, run `lane refresh ./lane-b` first. Exit 75
+means pending: inspect `lane status` or `task show` before retrying an uncertain
+write.
 
 The replacement candidate needs fresh human review and approval. Once A and B
 both have accepted landed receipts, authorize and start C at the current base.

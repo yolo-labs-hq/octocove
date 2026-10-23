@@ -182,7 +182,7 @@ export async function renewAgent(env: NodeJS.ProcessEnv, expected: Credentials, 
 const agentFetches = new WeakMap<FetchLike, { initial: Credentials; directory: string; fetch: FetchLike }>();
 const sameAgent = (a: Credentials, b: Credentials) => a.kind === 'agent' && b.kind === 'agent'
   && a.apiUrl === b.apiUrl && a.delegationId === b.delegationId && a.agentId === b.agentId;
-/** Per-request bounded recovery; successful Git transfers remain byte-for-byte streams. */
+/** Per-request bounded recovery for the agent delegation. */
 export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike): FetchLike {
   const existing = agentFetches.get(fetch), directory = resolve(configDir(env));
   if (existing && existing.directory === directory && sameAgent(existing.initial, initial)) return fetch;
@@ -195,7 +195,7 @@ export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, 
   const wrapped: FetchLike = async (url, init) => {
     const headers = new Headers(init.headers);
     const token = headers.get('authorization')?.replace(/^Bearer /, '');
-    // Artifact leases and machine proofs belong to different transports; never replace them.
+    // Machine proofs and other origins' bearers are never replaced.
     if (!token || !headers.get('authorization')?.startsWith('Bearer ') || new URL(url).origin !== new URL(initial.apiUrl).origin) return fetch(url, init);
     if (/\/delegations\/[^/]+\/renew$/.test(new URL(url).pathname)) return fetch(url, init);
     try {
@@ -231,15 +231,12 @@ export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, 
       const safeHeaders = new Headers(response.headers);
       safeHeaders.forEach((value,key)=>safeHeaders.set(key,scrub(value)));
       safeHeaders.delete('content-length');
-      const type = response.headers.get('content-type') ?? '';
-      const stream = response.status === 200 && /^application\/x-git-/i.test(type)
-        && /\/tasks\/[^/]+\/lane\/receive-pack(?:\/refs)?$/.test(new URL(url).pathname);
       const empty = [204,205,304].includes(response.status);
-      return new Response(empty ? null : stream ? response.body : scrub(await response.text()), {
+      return new Response(empty ? null : scrub(await response.text()), {
         status: response.status, statusText: scrub(response.statusText), headers: safeHeaders,
       });
     } catch (error) {
-      if (error instanceof ConfigError) return Response.json({ code: 'agent-renewal-required', detail: error.message }, { status: 401 });
+      if (error instanceof ConfigError) return Response.json({ code: 'delegation-renewal-required', detail: error.message }, { status: 401 });
       // Fetch exceptions can contain a replacement token unknown to the pinned SDK credential.
       throw new Error('Agent request failed; check connectivity and retry.');
     }

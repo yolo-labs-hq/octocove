@@ -120,11 +120,11 @@ export function checkBaseUrl(baseUrl: string): string {
   return base;
 }
 
-/** The retry class for an operation and credential variant (retry-policy.json). */
-export function retryClassFor(route: RouteEntry, variant: 'human' | 'bootstrap'): RetryClass {
+/** The retry class for an operation (retry-policy.json). */
+export function retryClassFor(route: RouteEntry): RetryClass {
   const policy = route.policy;
   if (policy.callable !== true) throw new TypeError(`${route.operationId} is not callable (${policy.reason})`);
-  return 'selector' in policy ? policy.variants[variant] : { autoRetry: policy.autoRetry, replay: policy.replay };
+  return { autoRetry: policy.autoRetry, replay: policy.replay };
 }
 
 /** Builds the request URL from the generated route: server base path, path template, query. */
@@ -183,7 +183,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
     let secrets: string[] = secretValues(input.body);
     try {
       const credential = credentialHeaders(transport, route.method, input.credential);
-      const retry = retryClassFor(route, credential.variant);
+      const retry = retryClassFor(route);
       const url = buildUrl(base, route, input.path as Record<string, unknown>, input.query as Record<string, unknown>);
       const headers: Record<string, string> = { accept: 'application/json, application/problem+json', ...credential.headers };
       let body: string | undefined;

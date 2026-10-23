@@ -151,7 +151,7 @@ export async function send<K extends CallableOperationId>(
 ): Promise<ApiResponse<SuccessBody<K>>> {
   const route = routeOf(operationId);
   const credential = pinnedCredential(client, sendOptions.credential);
-  const retry = retryClassFor(route, credentialHeaders(client.transport, route.method, credential).variant);
+  const retry = retryClassFor(route);
   const local = (sendOptions.localSecrets ?? []).filter((secret) => typeof secret === 'string' && secret.length > 0);
   const secrets = [...journeySecrets(client, route.method, credential, (input as { body?: unknown }).body), ...local];
   const idempotencyKey = route.idempotencyKey ? (sendOptions.idempotencyKey ?? newIdempotencyKey()) : undefined;

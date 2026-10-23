@@ -7,11 +7,8 @@
 export const SESSION_COOKIE = '__Host-octocove_session';
 export const CSRF_COOKIE = '__Host-octocove_csrf';
 const AUTH_HEADER = 'authorization';
-/** Claim bootstrap tokens are issued as `ocb_…`; used only when a forwarded bearer's kind is not stated. */
-const BOOTSTRAP_PREFIX = 'ocb_';
-
-/** Which credential the bearer is; selects `taskClaim`'s retry variant (bootstrap vs human). */
-export type BearerKind = 'session' | 'bootstrap' | 'delegation' | 'approval-grant' | 'submit-grant' | 'event-assertion'
+/** Which credential the bearer is; human-only journeys refuse anything but a session before sending. */
+export type BearerKind = 'session' | 'bootstrap' | 'delegation' | 'approval-grant' | 'event-assertion'
   /** A signed identity assertion presented to a grant exchange (`ApprovalIdentityProof`). */
   | 'identity-assertion';
 
@@ -36,10 +33,7 @@ export interface ForwardedSessionTransport {
   readonly cookie: string | undefined;
   /** The caller's `Authorization` header, forwarded verbatim; a bearer request carries no cookie. */
   readonly authorizationHeader: string | undefined;
-  /**
-   * Which credential the forwarded bearer is (selects `taskClaim`'s retry variant). The proxy states it;
-   * when omitted, an `ocb_` token is taken as a claim bootstrap and anything else as a session.
-   */
+  /** Which credential the forwarded bearer is, as the proxy states it; when omitted it is taken as a session. */
   readonly bearerKind: BearerKind | undefined;
   /** Origin the control plane checks on cookie POSTs (the proxy's own allowlist stays in the proxy). */
   readonly origin: string | undefined;
@@ -115,8 +109,6 @@ export interface CredentialHeaders {
   readonly headers: Record<string, string>;
   /** Values to scrub from anything surfaced to the caller. */
   readonly secrets: string[];
-  /** The credential class for credential-selected retry policy. */
-  readonly variant: 'human' | 'bootstrap';
   /**
    * The fetch credentials mode. Bearer requests use `omit` so a browser on the API origin
    * never adds its ambient session cookie (cookie plus bearer is refused as `ambiguous-credential`).
@@ -135,23 +127,22 @@ export function credentialHeaders(transport: Transport, method: string, override
     case 'bearer': {
       const token = typeof active.token === 'function' ? active.token() : active.token;
       if (!token) throw new TypeError('bearer transport token is empty');
-      return { headers: { [AUTH_HEADER]: `Bearer ${token}` }, secrets: [token], variant: active.kind === 'bootstrap' ? 'bootstrap' : 'human', credentials: 'omit' };
+      return { headers: { [AUTH_HEADER]: `Bearer ${token}` }, secrets: [token], credentials: 'omit' };
     }
     case 'browserCookie': {
       const headers: Record<string, string> = {};
       const csrf = post ? active.csrfToken() : undefined;
       if (post) headers.origin = active.origin;
       if (csrf) headers['x-csrf-token'] = csrf;
-      return { headers, secrets: csrf ? [csrf] : [], variant: 'human', credentials: 'same-origin' };
+      return { headers, secrets: csrf ? [csrf] : [], credentials: 'same-origin' };
     }
     case 'unauthenticated':
-      return { headers: {}, secrets: [], variant: 'human', credentials: 'omit' };
+      return { headers: {}, secrets: [], credentials: 'omit' };
     case 'forwardedSession': {
       const forwarded = active.authorizationHeader;
       if (forwarded) {
         const token = forwarded.replace(/^Bearer\s+/i, '');
-        const kind = active.bearerKind ?? (token.startsWith(BOOTSTRAP_PREFIX) ? 'bootstrap' : 'session');
-        return { headers: { [AUTH_HEADER]: forwarded }, secrets: [forwarded, token], variant: kind === 'bootstrap' ? 'bootstrap' : 'human', credentials: 'omit' };
+        return { headers: { [AUTH_HEADER]: forwarded }, secrets: [forwarded, token], credentials: 'omit' };
       }
       const headers: Record<string, string> = {};
       const secrets: string[] = [];
@@ -160,7 +151,7 @@ export function credentialHeaders(transport: Transport, method: string, override
         if (active.origin) headers.origin = active.origin;
         if (active.csrfToken) { headers['x-csrf-token'] = active.csrfToken; secrets.push(active.csrfToken); }
       }
-      return { headers, secrets, variant: 'human', credentials: 'omit' };
+      return { headers, secrets, credentials: 'omit' };
     }
   }
 }

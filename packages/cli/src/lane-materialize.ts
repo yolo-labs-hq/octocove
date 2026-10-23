@@ -1,5 +1,5 @@
 /**
- * Materialized lanes (preview): the client journey over a plain directory, no `.git`.
+ * Lanes: the client journey over a plain directory, no `.git`.
  *
  * `materialize` asks the control plane for the lane's repository (idempotent), then writes the files at the lane
  * head beside a `.octocove/lane.json` sidecar that records the lane head, the generation, its pinned base, the
@@ -100,7 +100,7 @@ const validIncoming = (p: string) => p.startsWith(`${INCOMING}/`) && validLanePa
 /** A recorded upstream copy's location; only names under `.octocove/incoming/` are ever honoured. */
 const incomingTarget = (dir: string, rel: string) => safeUnder(dir, rel, validIncoming);
 
-/** Synchronous on purpose: the dispatcher decides between the chain and materialized `lane status` before any I/O or timer. */
+/** Whether DIR is a lane directory (it holds the sidecar). */
 export const hasSidecar = (dir: string) => existsSync(join(dir, SIDECAR));
 /** Null-prototype maps: a repository file named `constructor` or `__proto__` is an ordinary key. */
 const dict = <T>(from: Record<string, T> = {}): Record<string, T> => Object.assign(Object.create(null), from);
@@ -113,7 +113,7 @@ async function load(dir: string): Promise<Sidecar> {
   await sidecarDir(dir);
   let text: string;
   try { text = await readFile(join(dir, SIDECAR), 'utf8'); }
-  catch { throw new ConfigError(`${dir} is not a materialized lane directory (no ${SIDECAR}); run octocove lane materialize first`); }
+  catch { throw new ConfigError(`${dir} is not a lane directory (no ${SIDECAR}); run octocove lane materialize first`); }
   let sc: unknown;
   try { sc = JSON.parse(text); } catch { throw new ConfigError(`${SIDECAR} is not valid JSON`); }
   if (!isRecord(sc) || sc.version !== 1 || typeof sc.taskId !== 'string' || !Number.isInteger(sc.generation) || !isRecord(sc.files) || !isRecord(sc.conflicts) || !isRecord(sc.scope))
@@ -353,7 +353,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   const task = (await api.call('taskGet', { path: { id: taskId }, deadline: options.deadline })).body;
   const lane = isRecord(task) ? task.lane : undefined;
   if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string')
-    throw new ConfigError('this task has no active materialized lane; claim it with --lane materialized first');
+    throw new ConfigError('this task has no active lane; claim it first (octocove task claim TASK --intent-version N --read PREFIXES --bootstrap-file FILE)');
   // One key for every attempt: a lane repository that is still being created, or a reopened lane still being
   // rebased onto its landing, resumes under it (503 lane-repository-unavailable).
   const key = keyed(options);

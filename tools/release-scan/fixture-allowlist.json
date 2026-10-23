@@ -3,41 +3,6 @@
   "policy": "Exact file, pattern kind, match SHA-256 and full line SHA-256. No path wildcards or blanket token exemptions. Changes require review. Digests avoid copying raw ledger identities into the public scanner.",
   "entries": [
     {
-      "context_sha256": "8bdce91488e877aa2d3e541a1355482a62600fd7fc2e574ea7b6df3e91cf4f69",
-      "file": "docs/HELPER_BROKER_CONTRACT.md",
-      "kind": "secret_assignment",
-      "reason": "Documentation placeholder, environment-variable name or prose matched by the assignment detector; no credential value.",
-      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
-    },
-    {
-      "context_sha256": "aabde156e221e9ccad6f6b8ccc62ffb1abd99393c5b7be8e34dec57ff8b35193",
-      "file": "packages/helper/src/gateway-authority.mjs",
-      "kind": "secret_assignment",
-      "reason": "Credential plumbing: the header, field or variable takes its value from a runtime binding, argument or environment variable; no credential value is embedded.",
-      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
-    },
-    {
-      "context_sha256": "610988270ab5ac929dc86d60e0a42e8d02d60b7b06c8d06f595603a887fb4912",
-      "file": "packages/helper/src/proof-authority.mjs",
-      "kind": "secret_assignment",
-      "reason": "Credential plumbing: the header, field or variable takes its value from a runtime binding, argument or environment variable; no credential value is embedded.",
-      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
-    },
-    {
-      "context_sha256": "df87e78617028ccd96ad5f6317d189fedc1298d04d275268f93d01e47627f11b",
-      "file": "packages/helper/src/proof-authority.mjs",
-      "kind": "secret_assignment",
-      "reason": "Credential plumbing: the header, field or variable takes its value from a runtime binding, argument or environment variable; no credential value is embedded.",
-      "value_sha256": "d7bf06313395b67aa95f651e8c6c1a5a35e8cf3a0d8951ebbfe110fef4cd0e0b"
-    },
-    {
-      "context_sha256": "d100ed4b75ed05b767a34e7c2eb2582bd2c18ccb19e84188da71b3d02cd5d6c5",
-      "file": "packages/helper/src/git-config.mjs",
-      "kind": "secret_assignment",
-      "reason": "Trusted helper Git-config template interpolates the supplied lease; no credential value is embedded.",
-      "value_sha256": "877bd9039096fd897e1aa1830313956b8c6978033eedeabe18afb57b26c4cc02"
-    },
-    {
       "context_sha256": "29e5132183d37ed06c95d831b013077ecdf934dbaead3ab55504590c3d4c4ae3",
       "file": "packages/shared/src/remote-identity.ts",
       "kind": "secret_assignment",
