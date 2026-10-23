@@ -16,12 +16,7 @@ export interface RetryClass {
 
 export type PolicyEntry =
   | { readonly callable: true; readonly autoRetry: AutoRetry; readonly replay: Replay }
-  | { readonly callable: false; readonly reason: 'navigation' | 'excluded' }
-  | {
-      readonly callable: true;
-      readonly selector: 'credential';
-      readonly variants: { readonly human: RetryClass; readonly bootstrap: RetryClass };
-    };
+  | { readonly callable: false; readonly reason: 'navigation' | 'excluded' };
 
 export interface ParameterRoute {
   readonly name: string;

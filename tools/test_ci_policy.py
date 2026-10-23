@@ -602,14 +602,14 @@ class PolicyTests(unittest.TestCase):
             return shlex.split(line.split("python3 tools/ci-scope.py ", 1)[1])
 
         cases = [
-            # The CLI bundles client and shared sources.
+            # The CLI bundles the client sources.
             ("ci.yml", "npm-pack", "packages/cli/src/cli.ts", True),
             ("ci.yml", "npm-pack", "packages/client/README.md", True),
-            ("ci.yml", "npm-pack", "packages/shared/src/merge.mjs", True),
+            ("ci.yml", "npm-pack", "packages/shared/src/merge.mjs", False),
             ("ci.yml", "npm-pack", "NOTICE", True),
             # Every frozen-lockfile install checks each workspace manifest.
             ("ci.yml", "npm-pack", "pnpm-lock.yaml", True),
-            ("ci.yml", "npm-pack", "packages/helper/src/index.ts", False),
+            ("ci.yml", "npm-pack", "docs/DEMO.md", False),
             ("ci.yml", "npm-pack", "docs/RELEASING.md", False),
             ("ci.yml", "licenses", "packages/cli/package.json", True),
             ("ci.yml", "licenses", "THIRD_PARTY_NOTICES.md", True),

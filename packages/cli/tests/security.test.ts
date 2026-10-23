@@ -6,8 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { run, EXIT, type Deps } from "../src/cli.js";
 import { loadCredentials, saveCredentials, importBootstrap } from "../src/config.js";
 import { atomicSecret } from "../src/store.js";
-// @ts-expect-error The local JavaScript helper package has no declaration file.
-import { AttemptHelper } from "../../helper/src/index.mjs";
 
 const API = "https://api.example.invalid/v1";
 const BOOT = "private-bootstrap-value";
@@ -24,17 +22,13 @@ type Handler = (init: RequestInit, url: URL) => Response | Promise<Response>;
 let dir: string, env: NodeJS.ProcessEnv, stdout: string, stderr: string;
 let routes: Record<string, Handler>, calls: { route: string; init: RequestInit }[], gitArgs: string[][];
 let extraSecrets: string[];
-let helper: { socketPath: string; close(): Promise<void> } | undefined;
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "octocove-security-"));
   env = { OCTOCOVE_CONFIG_DIR: dir, OCTOCOVE_API_URL: API };
   stdout = stderr = ""; routes = {}; calls = []; gitArgs = []; extraSecrets = [];
 });
-afterEach(async () => {
-  try { await helper?.close(); }
-  finally { helper = undefined; await rm(dir, { recursive: true, force: true }); }
-});
+afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 const activeFile = () => join(dir, "credentials", "cli.json");
 const active = async () => JSON.parse(await readFile(activeFile(), "utf8"));
 const saved = (kind: "human" | "agent" | "bootstrap", token: string, delegationId?: string) => saveCredentials(env, { apiUrl: API, kind, token, delegationId });
@@ -60,31 +54,12 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
   }
   return code;
 }
-const claim = { id: "C1", taskId: "T1", intentVersion: 1, provisioningState: "pending", workspace: null };
+const claim = { id: "C1", taskId: "T1", intentVersion: 1, provisioningState: "pending", blockedReason: null,
+  lane: { kind: "materialized", executionId: "E1", generation: 1, baseSha: "b".repeat(40), scopeVersion: 1, scope: { read: ["src/"], write: [] } } };
 const delegation = { delegationId: "D1", accessToken: AGENT, tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1" };
-const claimArgs = ["task", "claim", "T1", "--intent-version", "1", "--lane", "ref"];
+const claimArgs = ["task", "claim", "T1", "--intent-version", "1", "--read", "src/"];
 
 describe("bootstrap hand-off", () => {
-  beforeEach(async () => {
-    // The same local fixture helper as async-provisioning.test.ts.
-    // Git is mocked: this grant/peer attestation covers runtime setup only,
-    // not claim-bound transport or actual runtime isolation.
-    const grant = { tenant: "fixture", project: "p", attempt: "C1", repo: "C1",
-      ref: "refs/heads/lane/C1", operation: "write", policyVersion: "fixture",
-      expiresAt: Date.now() + 60_000 };
-    const noTransport = async () => { throw new Error("this fixture must not transport Git"); };
-    const attemptHelper = new AttemptHelper({ grant, runtimeDir: join(dir, "runtime"),
-      authority: { live: async () => grant, seed: noTransport, deliver: noTransport },
-      peer: { domainConfinedByRuntime: true } });
-    helper = attemptHelper;
-    await attemptHelper.start();
-    env.OCTOCOVE_HELPER_SOCK = attemptHelper.socketPath;
-    routes["GET /v1/tasks/T1"] = (init) => {
-      expect((init.headers as any).authorization).toBe(`Bearer ${AGENT}`);
-      return response({ id: "T1", projectId: "P1", intentVersion: 1 });
-    };
-  });
-
   it("carries the authorization ceiling and claim lease into the saved delegation", async () => {
     await saveCredentials(env, { apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "worker", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" });
     routes["POST /v1/tasks/T1/claim"] = () => response({ claim: { ...claim, provisioningState: "ready", expiresAt: "2030-01-01T12:00:00Z" }, delegation }, 201);
@@ -103,7 +78,7 @@ describe("bootstrap hand-off", () => {
     expect(await active()).toMatchObject({ kind: "agent", agentId: "new-worker", delegationId: "D1", token: AGENT });
   });
 
-  it("persists a 202 delegation before polling with it and uses it on the next invocation", async () => {
+  it("persists a 202 delegation, reports the pending lane and uses the delegation on the next invocation", async () => {
     const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
     env.OCTOCOVE_BOOTSTRAP_FILE = file;
     routes["POST /v1/tasks/T1/claim"] = (init) => {
@@ -111,16 +86,17 @@ describe("bootstrap hand-off", () => {
       return response({ claim, delegation }, 202);
     };
     routes["GET /v1/claims/C1"] = async (init) => {
-      expect(await active()).toMatchObject({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1", expiresAt: delegation.expiresAt, issuedAt: expect.any(String) });
       expect((init.headers as any).authorization).toBe(`Bearer ${AGENT}`);
       return response({ ...claim, provisioningState: "ready" });
     };
     expect(await cli([...claimArgs, "--json"])).toBe(EXIT.ok);
+    expect(await active()).toMatchObject({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1", expiresAt: delegation.expiresAt, issuedAt: expect.any(String) });
     expect(JSON.parse(stdout).delegation).toEqual({ delegationId: "D1", tokenType: "Bearer", expiresAt: delegation.expiresAt, revocationId: "R1" });
+    expect(JSON.parse(stdout).claim.provisioningState).toBe("pending");
     expect((await stat(activeFile())).mode & 0o777).toBe(0o600);
     expect((await stat(join(dir, "credentials"))).mode & 0o777).toBe(0o700);
     expect(await cli(["task", "claim-status", "C1"])).toBe(EXIT.ok);
-    expect(calls.map((c) => c.route)).toEqual(["POST /v1/tasks/T1/claim", "GET /v1/claims/C1", "GET /v1/tasks/T1", "GET /v1/claims/C1"]);
+    expect(calls.map((c) => c.route)).toEqual(["POST /v1/tasks/T1/claim", "GET /v1/claims/C1"]);
   });
 
   it.each([undefined, "k".repeat(20)])("recovers a lost issuance body under the same key and bootstrap: one logical claim, delegation saved (key=%s)", async (key) => {
@@ -128,7 +104,7 @@ describe("bootstrap hand-off", () => {
     const keys: string[] = [];
     routes["POST /v1/tasks/T1/claim"] = (init) => {
       expect((init.headers as any).authorization).toBe(`Bearer ${BOOT}`);
-      expect(JSON.parse(init.body as string)).toEqual({ intentVersion: 1 });
+      expect(JSON.parse(init.body as string)).toEqual({ intentVersion: 1, scope: { read: ["src/"], write: [] } });
       keys.push((init.headers as any)["idempotency-key"]);
       return keys.length === 1 ? lostBody(201) : response({ claim: { ...claim, provisioningState: "ready" }, delegation }, 201);
     };
@@ -138,19 +114,6 @@ describe("bootstrap hand-off", () => {
     if (key) expect(keys[0]).toBe(key);
     expect(await active()).toMatchObject({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1", expiresAt: delegation.expiresAt, issuedAt: expect.any(String) });
     expect(JSON.parse(stdout).claim.id).toBe("C1");
-  });
-
-  it("retains the delegation even when the poll fails", async () => {
-    await saved("bootstrap", BOOT);
-    routes["POST /v1/tasks/T1/claim"] = () => response({ claim, delegation }, 202);
-    routes["GET /v1/claims/C1"] = (init) => {
-      expect((init.headers as any).authorization).toBe(`Bearer ${AGENT}`);
-      return response({ code: "temporarily-unavailable" }, 503);
-    };
-    expect(await cli(claimArgs)).toBe(EXIT.failure);
-    expect(stderr).toContain("temporarily-unavailable");
-    expect(calls.map((c) => c.route)).toEqual(["POST /v1/tasks/T1/claim", "GET /v1/claims/C1"]);
-    expect((await active()).token).toBe(AGENT);
   });
 
   it("reports a refused delegation with exit 1 after reaching the claim API", async () => {
@@ -175,7 +138,7 @@ describe("bootstrap hand-off", () => {
     if (json) expect(JSON.parse(stdout)).not.toHaveProperty("bootstrapToken");
     // The receiving job imports the file without a secret in argv or environment.
     const jobDir = join(dir, "job");
-    env = { OCTOCOVE_CONFIG_DIR: jobDir, OCTOCOVE_API_URL: API, OCTOCOVE_HELPER_SOCK: helper!.socketPath };
+    env = { OCTOCOVE_CONFIG_DIR: jobDir, OCTOCOVE_API_URL: API };
     routes["POST /v1/tasks/T1/claim"] = (init) => {
       expect((init.headers as any).authorization).toBe(`Bearer ${BOOT}`);
       return response({ claim: { ...claim, provisioningState: "ready" }, delegation }, 201);
@@ -187,12 +150,10 @@ describe("bootstrap hand-off", () => {
 });
 
 describe("protected credential imports", () => {
-  it("imports the bootstrap and surfaces claim-held after connector preflight", async () => {
-    const connectorPath = join(dir, "bundled-connector.mjs");
-    await writeFile(connectorPath, "// installed connector fixture\n");
+  it("imports the bootstrap and surfaces claim-held without touching Git", async () => {
     const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
     routes["POST /v1/tasks/T1/claim"] = () => response({ code: "claim-held" }, 409);
-    expect(await cli([...claimArgs, "--bootstrap-file", file], { connectorPath })).toBe(EXIT.failure);
+    expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.failure);
     expect(stderr).toContain("claim-held");
     expect(calls.map(c => c.route)).toEqual(["POST /v1/tasks/T1/claim"]);
     expect(gitArgs).toHaveLength(0);

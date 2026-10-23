@@ -1,0 +1,16 @@
+{
+  "path": "/tasks/{id}/lane/retire",
+  "method": "post",
+  "status": 202,
+  "body": {
+    "phase": "retired",
+    "laneRepositories": [
+      {
+        "id": "lane-repository-fixture",
+        "state": "retired",
+        "materializedAt": "2026-10-22T09:00:00.000Z",
+        "retiredAt": "2026-10-22T12:00:00.000Z"
+      }
+    ]
+  }
+}

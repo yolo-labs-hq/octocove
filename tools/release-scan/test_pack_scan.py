@@ -14,7 +14,7 @@ import pack_scan  # noqa: E402
 MANIFEST = {
     'name': '@yolo-labs/octocove', 'version': '0.1.0', 'engines': {'node': '>=20'},
     'repository': {'type': 'git', 'url': pack_scan.REPOSITORY, 'directory': 'packages/cli'},
-    'bin': {'octocove': 'dist/octocove.mjs', 'octocove-helper-connect': 'dist/octocove-helper-connect.mjs', 'octocove-human-credential': 'dist/octocove-human-credential.mjs'}, 'publishConfig': dict(pack_scan.PUBLISH_CONFIG),
+    'bin': {'octocove': 'dist/octocove.mjs', 'octocove-human-credential': 'dist/octocove-human-credential.mjs'}, 'publishConfig': dict(pack_scan.PUBLISH_CONFIG),
 }
 # Detector-shaped values are assembled at runtime so this file itself stays scan-clean.
 TOKEN = 'gh' + 'p_' + 'A1b2' * 9
@@ -27,15 +27,13 @@ def files(overrides=None):
         'LICENSE': b'Apache License\n',
         'NOTICE': b'Octocove\n',
         'dist/octocove.mjs': b'#!/usr/bin/env node\nconsole.log(1);\n',
-        'dist/octocove-helper-connect.mjs': b'#!/usr/bin/env node\nconsole.log(2);\n',
         'dist/octocove-human-credential.mjs': b'#!/usr/bin/env node\nconsole.log(4);\n',
-        'dist/pre-receive-hook.mjs': b'#!/usr/bin/env node\nconsole.log(3);\n',
     }
     base.update(overrides or {})
     return {key: value for key, value in base.items() if value is not None}
 
 
-def bundle_metafile(bundle, inputs=('src/bin.ts', '../client/src/index.ts', '../shared/src/merge.mjs'), imports=()):
+def bundle_metafile(bundle, inputs=('src/bin.ts', '../client/src/index.ts'), imports=()):
     """An esbuild-shaped metafile describing `bundle` (paths relative to packages/cli)."""
     return {
         'inputs': {path: {'bytes': 1, 'imports': [{'path': i, 'kind': 'import-statement', 'external': True}
@@ -80,9 +78,7 @@ class PackScanTest(unittest.TestCase):
     def test_file_set(self):
         self.assertRejected(files({'src/cli.ts': b'x'}), 'unexpected file: src/cli.ts')
         self.assertRejected(files({'NOTICE': None}), 'missing file: NOTICE')
-        self.assertRejected(files({'dist/octocove-helper-connect.mjs': None}), 'missing file: dist/octocove-helper-connect.mjs')
         self.assertRejected(files({'dist/octocove-human-credential.mjs': None}), 'missing file: dist/octocove-human-credential.mjs')
-        self.assertRejected(files({'dist/pre-receive-hook.mjs': None}), 'missing file: dist/pre-receive-hook.mjs')
         self.assertRejected(files(), 'not a regular file', symlink='dist/link.mjs')
 
     def test_release_scan_detectors(self):
@@ -103,10 +99,10 @@ class PackScanTest(unittest.TestCase):
     def test_bundle_inputs(self):
         bundle = files()['dist/octocove.mjs']
         self.assertEqual(self.errors(files(), bundle_metafile(bundle, imports=('node:fs',))), [])
-        self.assertEqual(self.errors(files(), bundle_metafile(bundle, inputs=('src/bin.ts', '../helper/src/attempt-helper.mjs'))), [])
+        self.assertEqual(self.errors(files(), bundle_metafile(bundle, inputs=('src/bin.ts', '../client/src/journeys.ts'))), [])
         for path in ('../../node_modules/.pnpm/left-pad@1.3.0/node_modules/left-pad/index.js',
                      '../client/node_modules/yaml/dist/index.js', '../client/src/../../../vendor/x.js',
-                     '../helper/private/runtime.mjs'):
+                     '../shared/src/merge.mjs', '../client/private/runtime.mjs'):
             self.assertRejected(files(), f'inlines {path}', metafile=bundle_metafile(bundle, inputs=('src/bin.ts', path)))
         self.assertRejected(files(), "imports 'yaml' at runtime", metafile=bundle_metafile(bundle, imports=('yaml',)))
         self.assertRejected(files(), 'metafile is stale', metafile=bundle_metafile(bundle + b'x'))

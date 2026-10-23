@@ -583,7 +583,7 @@ export const authCases: Case[] = [
     equal(calls.length, 2);
   }),
   test('auth.me: a machine grant bearer gets principal kind machine with its policy version; nothing in the answer is secret', async () => {
-    const GRANT = 'submit-grant-fixture-0123456789';
+    const GRANT = 'approval-grant-fixture-0123456789';
     const answer = {
       principal: { kind: 'machine', id: 'principal-bot', issuer: 'urn:octocove:machine', sub: 'principal-bot', policyVersion: 'policy-7' },
       credential: { kind: 'bearer', expiresAt: '2026-10-10T00:05:00Z' },
@@ -591,7 +591,7 @@ export const authCases: Case[] = [
       capabilities: { createProjects: false },
     };
     const { fetch, calls } = scriptedFetch(json(200, answer, { 'x-request-id': 'req-me-machine' }));
-    const c = createClient({ baseUrl: BASE, fetch, transport: bearer({ token: GRANT, kind: 'submit-grant' }) });
+    const c = createClient({ baseUrl: BASE, fetch, transport: bearer({ token: GRANT, kind: 'approval-grant' }) });
     const me = await journeys(c).auth.me({ deadline: soon() });
     equal(me, answer);
     equal([me.principal.kind, me.principal.policyVersion, me.capabilities.createProjects], ['machine', 'policy-7', false]);

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { sameRemoteIdentity } from '../../shared/src/remote-identity';
+import { sameRemoteIdentity } from '../src/remote-identity';
 it('compares HTTPS/SSH repository identities without accepting another host, path or embedded secret', () => {
   for (let i = 0; i < 20; i++) {
     const registered = 'https://github.example/owner/repo.git';

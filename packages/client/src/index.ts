@@ -8,8 +8,6 @@ export {
   approvalGrantFromExchange,
   bearerFor,
   isApprovalGrantScope,
-  isSubmitGrantScope,
-  submitGrantFromExchange,
 } from './credentials.js';
 export type {
   AgentDelegation,
@@ -24,26 +22,20 @@ export type {
   GrantIssued,
   GrantRecoveredWithoutToken,
   HumanSession,
-  SubmitGrant,
-  SubmitGrantExchangeResult,
-  SubmitGrantScope,
 } from './credentials.js';
 export { redact, redactText, SECRET_KEY } from './redact.js';
-export { journeys, staleBaseRefusal, CANDIDATE_POLL_MS, CHAIN_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS } from './journeys.js';
+export { journeys, staleBaseRefusal, CANDIDATE_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS } from './journeys.js';
 export type {
   Approval,
   BoundTo,
   Candidate,
   CandidateWaitResult,
-  ChainLane,
-  ChainPushResult,
-  ChainStageInput,
   Claim,
   ClaimResult,
   Expectation,
-  GitAdapter,
   Journeys,
   LandResult,
+  LaneRetirement,
   ProvisioningResult,
   Project,
   Repository,

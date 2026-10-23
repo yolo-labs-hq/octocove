@@ -24,7 +24,7 @@ describe('headless grant commands', () => {
     const f = await fixture();
     f.deps.argv = ['auth','exchange','--as','principal','--scope',JSON.stringify(f.scope),'--token-stdin'];
     expect(await run(f.deps)).toBe(0);
-    expect(JSON.parse(f.output())).toMatchObject({id:'grant-1',principalId:'principal',purpose:'approve'});
+    expect(JSON.parse(f.output())).toEqual({id:'grant-1',principalId:'principal',scope:f.scope,expiresAt:expect.any(String),policyVersion:'policy'});
     expect(f.output()).not.toContain(f.proof); expect(f.output()).not.toContain(f.grantToken);
     const stored = JSON.parse(await readFile(join(f.dir,'grants/grant-1.json'),'utf8'));
     expect(stored.token).toBe(f.grantToken);
@@ -34,7 +34,7 @@ describe('headless grant commands', () => {
     expect(JSON.parse(f.calls[0].init.body)).toEqual(f.scope);
     expect(f.output()).not.toContain(f.grantToken);
     f.reset(); f.deps.argv = ['submit','--grant','grant-1'];
-    expect(await run(f.deps)).toBe(1); expect(f.calls).toHaveLength(0);
+    expect(await run(f.deps)).toBe(2); expect(f.calls).toHaveLength(0);
     f.reset(); f.deps.argv = ['approve','other-candidate','--grant','grant-1'];
     expect(await run(f.deps)).toBe(1); expect(f.calls).toHaveLength(0);
   });
@@ -53,9 +53,9 @@ describe('headless grant commands', () => {
     const f = await fixture(), adminSession = ['ocs','admin-secret'].join('_');
     f.deps.credentials = {kind:'human',apiUrl:'https://api.invalid/v1',token:adminSession};
     f.deps.fetch = async (url,init) => {f.calls.push({url,init});return new Response(null,{status:204});};
-    f.deps.argv = ['auth','revoke','--grant','remote-grant','--purpose','submit'];
+    f.deps.argv = ['auth','revoke','--grant','remote-grant'];
     expect(await run(f.deps)).toBe(0);
-    expect(f.calls[0].url).toBe('https://api.invalid/v1/auth/submit-grants/remote-grant/revoke');
+    expect(f.calls[0].url).toBe('https://api.invalid/v1/auth/approval-grants/remote-grant/revoke');
     expect(JSON.parse(f.output())).toEqual({id:'remote-grant',revoked:true});
     expect(f.output()).not.toContain(adminSession);
   });

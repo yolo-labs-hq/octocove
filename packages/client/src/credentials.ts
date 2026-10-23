@@ -44,16 +44,6 @@ export interface ApprovalGrantScope {
   readonly checkRunIds: readonly string[];
 }
 
-/** A submit grant precedes the submission and candidate, so it cannot name them. */
-export interface SubmitGrantScope {
-  readonly projectId: string;
-  readonly taskId: string;
-  readonly claimAttemptId: string;
-  readonly sourceSha: string;
-  readonly baseSha: string;
-  readonly intentVersion: number;
-}
-
 interface GrantMetadata<S> {
   /** The wire field `id`. */
   readonly id: string;
@@ -70,12 +60,6 @@ export interface ApprovalGrant extends GrantMetadata<ApprovalGrantScope> {
   readonly token: string;
 }
 
-/** Single-use submit grant (`ocsg_`): exactly one `submitWithGrant`. */
-export interface SubmitGrant extends GrantMetadata<SubmitGrantScope> {
-  readonly kind: 'submit-grant';
-  readonly token: string;
-}
-
 /** A registered machine principal's externally signed event assertion (≤ 300 s, reusable): `/events` and webhook administration. */
 export interface EventAssertion {
   readonly kind: 'event-assertion';
@@ -83,7 +67,7 @@ export interface EventAssertion {
   readonly expiresAt?: string;
 }
 
-export type Credential = HumanSession | ClaimBootstrap | AgentDelegation | ApprovalGrant | SubmitGrant | EventAssertion;
+export type Credential = HumanSession | ClaimBootstrap | AgentDelegation | ApprovalGrant | EventAssertion;
 
 /** The raw exchange response `{id, principalId, token?, expiresAt, scope, policyVersion}`. */
 export interface GrantExchangeBody<S> {
@@ -95,7 +79,7 @@ export interface GrantExchangeBody<S> {
   readonly policyVersion: string;
 }
 
-export interface GrantIssued<G extends ApprovalGrant | SubmitGrant> {
+export interface GrantIssued<G extends ApprovalGrant> {
   readonly outcome: 'issued';
   readonly grant: G;
 }
@@ -106,11 +90,10 @@ export interface GrantIssued<G extends ApprovalGrant | SubmitGrant> {
  */
 export interface GrantRecoveredWithoutToken<S> extends GrantMetadata<S> {
   readonly outcome: 'recovered-without-token';
-  readonly purpose: 'approval' | 'submit';
+  readonly purpose: 'approval';
 }
 
 export type ApprovalGrantExchangeResult = GrantIssued<ApprovalGrant> | GrantRecoveredWithoutToken<ApprovalGrantScope>;
-export type SubmitGrantExchangeResult = GrantIssued<SubmitGrant> | GrantRecoveredWithoutToken<SubmitGrantScope>;
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
@@ -122,13 +105,6 @@ export function isApprovalGrantScope(v: unknown): v is ApprovalGrantScope {
     && isString(v.projectId) && isString(v.claimAttemptId) && isString(v.candidateId) && isBoundTo(v.boundTo)
     && exactKeys(v.boundTo as Record<string, unknown>, ['candidateSha', 'baseSha', 'intentVersion'])
     && Array.isArray(v.checkRunIds) && v.checkRunIds.every(isString);
-}
-
-export function isSubmitGrantScope(v: unknown): v is SubmitGrantScope {
-  return isObject(v) && exactKeys(v, ['projectId', 'taskId', 'claimAttemptId', 'sourceSha', 'baseSha', 'intentVersion'])
-    && isString(v.projectId) && isString(v.taskId) && isString(v.claimAttemptId)
-    && typeof v.sourceSha === 'string' && /^[a-f0-9]{40,64}$/.test(v.sourceSha)
-    && typeof v.baseSha === 'string' && /^[a-f0-9]{40,64}$/.test(v.baseSha) && isVersion(v.intentVersion);
 }
 
 function deepFreeze<T>(value: T): T {
@@ -185,19 +161,10 @@ export function approvalGrantFromExchange(body: unknown, response?: ExchangeResp
     : { outcome: 'recovered-without-token' as const, purpose: 'approval' as const, ...meta });
 }
 
-/** `submitGrantExchange` result → `GrantIssued` only when the token is present; see `approvalGrantFromExchange`. */
-export function submitGrantFromExchange(body: unknown, response?: ExchangeResponseInfo): SubmitGrantExchangeResult {
-  const { token, ...meta } = metadata(body, isSubmitGrantScope, 'submit', response);
-  return deepFreeze(token
-    ? { outcome: 'issued' as const, grant: { kind: 'submit-grant' as const, token, ...meta } }
-    : { outcome: 'recovered-without-token' as const, purpose: 'submit' as const, ...meta });
-}
-
 const BEARER_KIND: Record<Exclude<Credential['kind'], 'human-session'>, BearerKind> = {
   'claim-bootstrap': 'bootstrap',
   'agent-delegation': 'delegation',
   'approval-grant': 'approval-grant',
-  'submit-grant': 'submit-grant',
   'event-assertion': 'event-assertion',
 };
 

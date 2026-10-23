@@ -1210,187 +1210,6 @@ export const routing = {
       "replay": "bounded-recovery"
     }
   },
-  "brokerHelperPush": {
-    "operationId": "brokerHelperPush",
-    "kind": "path",
-    "method": "POST",
-    "path": "/broker/push/{taskId}",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "taskId",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "X-Octocove-Runtime-Proof",
-          "required": true
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": false,
-    "csrfHeader": false,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/x-git-receive-pack-request"
-      ]
-    },
-    "responses": {
-      "200": [
-        "application/x-git-receive-pack-result"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "502": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      200
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": false,
-      "reason": "excluded"
-    }
-  },
-  "brokerTokenCreate": {
-    "operationId": "brokerTokenCreate",
-    "kind": "path",
-    "method": "POST",
-    "path": "/broker/token",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [],
-      "query": [],
-      "header": [],
-      "cookie": []
-    },
-    "idempotencyKey": false,
-    "csrfHeader": false,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "201": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      201
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "never",
-      "replay": "none"
-    }
-  },
-  "brokerTokenRevoke": {
-    "operationId": "brokerTokenRevoke",
-    "kind": "path",
-    "method": "DELETE",
-    "path": "/broker/token/{id}",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [],
-      "cookie": []
-    },
-    "idempotencyKey": false,
-    "csrfHeader": false,
-    "requestBody": null,
-    "responses": {
-      "204": [],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      204
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "never",
-      "replay": "state"
-    }
-  },
   "candidateApprove": {
     "operationId": "candidateApprove",
     "kind": "path",
@@ -1853,416 +1672,6 @@ export const routing = {
       "replay": "stored-result"
     }
   },
-  "chainLaneGet": {
-    "operationId": "chainLaneGet",
-    "kind": "path",
-    "method": "GET",
-    "path": "/tasks/{id}/lane",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [],
-      "cookie": []
-    },
-    "idempotencyKey": false,
-    "csrfHeader": false,
-    "requestBody": null,
-    "responses": {
-      "200": [
-        "application/json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      200
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": null
-    }
-  },
-  "chainLanePush": {
-    "operationId": "chainLanePush",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/lane/pushes",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        },
-        {
-          "name": "X-CSRF-Token",
-          "required": false
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": true,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "202": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      202
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "stored-result"
-    }
-  },
-  "chainLaneReceivePack": {
-    "operationId": "chainLaneReceivePack",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/lane/receive-pack",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [],
-      "cookie": []
-    },
-    "idempotencyKey": false,
-    "csrfHeader": false,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/x-git-receive-pack-request"
-      ]
-    },
-    "responses": {
-      "200": [
-        "application/x-git-receive-pack-result"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "422": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      200
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation"
-    ],
-    "policy": {
-      "callable": false,
-      "reason": "excluded"
-    }
-  },
-  "chainLaneReceivePackRefs": {
-    "operationId": "chainLaneReceivePackRefs",
-    "kind": "path",
-    "method": "GET",
-    "path": "/tasks/{id}/lane/receive-pack/refs",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [],
-      "cookie": []
-    },
-    "idempotencyKey": false,
-    "csrfHeader": false,
-    "requestBody": null,
-    "responses": {
-      "200": [
-        "application/x-git-receive-pack-advertisement"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      200
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation"
-    ],
-    "policy": {
-      "callable": false,
-      "reason": "excluded"
-    }
-  },
-  "chainLaneRetire": {
-    "operationId": "chainLaneRetire",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/lane/retire",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        },
-        {
-          "name": "X-CSRF-Token",
-          "required": false
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": true,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "200": [
-        "application/json"
-      ],
-      "202": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      200,
-      202
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "state"
-    }
-  },
-  "chainLaneRetry": {
-    "operationId": "chainLaneRetry",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/lane/retry",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        },
-        {
-          "name": "X-CSRF-Token",
-          "required": false
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": true,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "202": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      202
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "stored-result"
-    }
-  },
   "claimAuthorize": {
     "operationId": "claimAuthorize",
     "kind": "path",
@@ -2367,9 +1776,6 @@ export const routing = {
       "200": [
         "application/json"
       ],
-      "202": [
-        "application/json"
-      ],
       "400": [
         "application/problem+json"
       ],
@@ -2393,8 +1799,7 @@ export const routing = {
       ]
     },
     "successStatuses": [
-      200,
-      202
+      200
     ],
     "redirectStatuses": [],
     "security": [
@@ -2406,86 +1811,6 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
-    }
-  },
-  "claimReplace": {
-    "operationId": "claimReplace",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/claim/replace",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        },
-        {
-          "name": "X-CSRF-Token",
-          "required": false
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": true,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "202": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      202
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "stored-result"
     }
   },
   "codeBlobGet": {
@@ -3871,6 +3196,90 @@ export const routing = {
       "replay": "bounded-recovery"
     }
   },
+  "laneRetire": {
+    "operationId": "laneRetire",
+    "kind": "path",
+    "method": "POST",
+    "path": "/tasks/{id}/lane/retire",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "202": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "408": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      202
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "state"
+    }
+  },
   "laneScopeGrant": {
     "operationId": "laneScopeGrant",
     "kind": "path",
@@ -4222,8 +3631,7 @@ export const routing = {
       "AgentDelegation",
       "ApprovalGrant",
       "HumanCliSession",
-      "HumanSession",
-      "SubmitGrant"
+      "HumanSession"
     ],
     "policy": {
       "callable": true,
@@ -5457,284 +4865,6 @@ export const routing = {
       "replay": "bounded-recovery"
     }
   },
-  "submissionCreate": {
-    "operationId": "submissionCreate",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/submissions",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        },
-        {
-          "name": "X-CSRF-Token",
-          "required": false
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": true,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "201": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ],
-      "503": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      201
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "AgentDelegation",
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "stored-result"
-    }
-  },
-  "submitGrantExchange": {
-    "operationId": "submitGrantExchange",
-    "kind": "path",
-    "method": "POST",
-    "path": "/auth/submit-grants",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": false,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "201": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "default": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      201
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "ApprovalIdentityProof"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "never",
-      "replay": "metadata-without-token"
-    }
-  },
-  "submitGrantRevoke": {
-    "operationId": "submitGrantRevoke",
-    "kind": "path",
-    "method": "POST",
-    "path": "/auth/submit-grants/{id}/revoke",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        },
-        {
-          "name": "X-CSRF-Token",
-          "required": false
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": true,
-    "requestBody": null,
-    "responses": {
-      "204": [],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "default": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      204
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "HumanCliSession",
-      "HumanSession"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "stored-result"
-    }
-  },
-  "submitWithGrant": {
-    "operationId": "submitWithGrant",
-    "kind": "path",
-    "method": "POST",
-    "path": "/tasks/{id}/submissions-with-grant",
-    "basePath": "/v1",
-    "parameters": {
-      "path": [
-        {
-          "name": "id",
-          "required": true
-        }
-      ],
-      "query": [],
-      "header": [
-        {
-          "name": "Idempotency-Key",
-          "required": true
-        }
-      ],
-      "cookie": []
-    },
-    "idempotencyKey": true,
-    "csrfHeader": false,
-    "requestBody": {
-      "required": true,
-      "mediaTypes": [
-        "application/json"
-      ]
-    },
-    "responses": {
-      "201": [
-        "application/json"
-      ],
-      "400": [
-        "application/problem+json"
-      ],
-      "401": [
-        "application/problem+json"
-      ],
-      "403": [
-        "application/problem+json"
-      ],
-      "404": [
-        "application/problem+json"
-      ],
-      "408": [
-        "application/problem+json"
-      ],
-      "409": [
-        "application/problem+json"
-      ],
-      "413": [
-        "application/problem+json"
-      ],
-      "429": [
-        "application/problem+json"
-      ],
-      "default": [
-        "application/problem+json"
-      ]
-    },
-    "successStatuses": [
-      201
-    ],
-    "redirectStatuses": [],
-    "security": [
-      "SubmitGrant"
-    ],
-    "policy": {
-      "callable": true,
-      "autoRetry": "network-only",
-      "replay": "guarded-result"
-    }
-  },
   "taskClaim": {
     "operationId": "taskClaim",
     "kind": "path",
@@ -5810,24 +4940,12 @@ export const routing = {
     ],
     "redirectStatuses": [],
     "security": [
-      "AgentDelegation",
-      "ClaimBootstrap",
-      "HumanCliSession",
-      "HumanSession"
+      "ClaimBootstrap"
     ],
     "policy": {
       "callable": true,
-      "selector": "credential",
-      "variants": {
-        "human": {
-          "autoRetry": "network-only",
-          "replay": "stored-result"
-        },
-        "bootstrap": {
-          "autoRetry": "network-only",
-          "replay": "bounded-recovery"
-        }
-      }
+      "autoRetry": "network-only",
+      "replay": "bounded-recovery"
     }
   },
   "taskCreate": {

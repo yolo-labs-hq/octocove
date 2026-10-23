@@ -1,7 +1,7 @@
 /**
  * The CLI's binding to the client library (packages/client). Every request goes through the library's typed
  * client — bearer transport, generated routing, retry policy, deadlines and redaction — and every wait
- * through its journeys. The CLI keeps argument parsing, output, Git and helper orchestration.
+ * through its journeys. The CLI keeps argument parsing, output, the lane directory and the human read-only clone.
  */
 import {
   ApiError,
@@ -21,9 +21,9 @@ import {
 import type { CredentialKind } from "./config.js";
 
 export { ApiError, TransportError, ProtectedStoreError, newIdempotencyKey } from "../../client/src/node.js";
-export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, ApprovalGrantScope, CandidateWaitResult, FetchLike, SubmitGrant, SubmitGrantScope } from "../../client/src/node.js";
+export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, ApprovalGrantScope, CandidateWaitResult, FetchLike } from "../../client/src/node.js";
 
-/** The local credential label selects the bearer kind (and with it `taskClaim`'s retry variant). */
+/** The local credential label selects the bearer kind. */
 const BEARER: Record<CredentialKind, BearerKind> = { human: "session", agent: "delegation", bootstrap: "bootstrap", machine: "event-assertion" };
 
 /** Stored API URLs name the `/v1` API; the library takes the origin and adds each operation's server path. */

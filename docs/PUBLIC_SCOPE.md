@@ -6,11 +6,10 @@ Apache-2.0 [LICENSE](../LICENSE):
 - the `octocove` CLI ([`packages/cli`](../packages/cli/README.md), published as `@yolo-labs/octocove`);
 - the typed client library ([`packages/client`](../packages/client/README.md), published as
   `@yolo-labs/octocove-client`), including its retry table, which code and checks read;
-- the local credential helper ([`packages/helper`](../packages/helper/README.md)) and the code the packages
-  share ([`packages/shared`](../packages/shared/README.md));
+- shared runtime utilities ([`packages/shared`](../packages/shared/README.md));
 - the tooling that builds, tests, scans and publishes them (`tools/`, `.github/workflows/`);
 - the client guides under [`docs/`](README.md): the [multi-agent walkthrough](DEMO.md), the
-  [helper/broker contract](HELPER_BROKER_CONTRACT.md), [examples](examples/machine-clients.md) and the
+  [lane walkthrough](examples/materialized-lane.md), [examples](examples/machine-clients.md) and the
   [release process](RELEASING.md).
 
 The Octocove service, its API contract, its design documents and its web application are maintained separately

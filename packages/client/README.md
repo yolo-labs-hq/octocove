@@ -38,16 +38,15 @@ const { body } = await client.call('taskGet', { path: { id: taskId } });
 ## Transports
 
 - `bearer({token, kind})`: sends the token as a bearer `Authorization` header with fetch `credentials: 'omit'`, so a
-  browser on the API origin never adds its session cookie too. `kind: 'bootstrap'` selects `taskClaim`'s
-  bootstrap retry variant; pass a per-call `credential` (for example `bearerFor(bootstrap)`) to
-  claim with a bootstrap from a client whose transport is a different bearer.
+  browser on the API origin never adds its session cookie too. `kind` names the credential (human-only
+  journeys refuse anything but `'session'` before sending); pass a per-call `credential` (for example
+  `bearerFor(bootstrap)`) to claim with a bootstrap from a client whose transport is a different bearer.
 - `browserCookie({origin?, csrfToken?})`: same-origin pages only (the API origin must equal the page
   origin). Cookie POSTs carry `Origin` and the session-bound `X-CSRF-Token`, read per request from
   `__Host-octocove_csrf` so renewal's rotation is picked up. Never sends a bearer.
 - `forwardedSession({cookie, authorizationHeader, bearerKind, origin, csrfToken, onSetCookie})`: a server-side
   proxy forwarding the caller's credentials. `Authorization` wins and is sent alone; `bearerKind` says
-  which credential it is (`'bootstrap'` selects `taskClaim`'s bootstrap variant; when omitted, an
-  `ocb_` token is taken as a bootstrap). Cookie POSTs carry Origin and CSRF. `onSetCookie` is required
+  which credential it is (taken as a session when omitted). Cookie POSTs carry Origin and CSRF. `onSetCookie` is required
   and receives every `Set-Cookie` (renewal, logout).
 
 - `unauthenticated()`: no credential, for the public auth routes (`authLogin`, `authCliExchange`)
@@ -57,7 +56,7 @@ const { body } = await client.call('taskGet', { path: { id: taskId } });
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 107 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 94 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -91,41 +90,35 @@ the now-revoked predecessor credential is accepted for that one operation).
 - `null`: reads; nothing to replay.
 
 File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "replay": …}`;
-`{"callable": false, "reason": "navigation" | "excluded"}` for the eight uncallable ids; and for
-`taskClaim` one entry `{"callable": true, "selector": "credential", "variants": {"human": {…},
-"bootstrap": {…}}}` chosen by the credential type the caller presents.
+and `{"callable": false, "reason": "navigation" | "excluded"}` for the five uncallable ids.
 
 ### Retry classes by operation
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `chainLaneGet`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet` | `network-only` | `null` | safe reads (`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet` | `network-only` | `null` | safe reads (`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
-| `taskCreate`, `projectCreate`, `repositoryCreate`, `repositoryVerify`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `claimReplace`, `taskClaim` (**human** variant), `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation and repository registration and verification, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); human claim replays its saved HTTP snapshot; `candidateLand` replays its committed `409 stale-base` too |
+| `taskCreate`, `projectCreate`, `repositoryCreate`, `repositoryVerify`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation and repository registration and verification, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `meNotificationPreferencesPut` | `network-only` | `stored-result` | the per-principal admin-operation ledger, checked before membership, so a replay answers the committed body even after the caller left a muted project; another body under the same key is `409 idempotency-conflict` |
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
-| `submissionCreate` | `network-only` | `stored-result` | ledgered, but the coordinator answers `409 claim-inactive` before the ledger when the caller's claim is no longer active |
-| `chainLanePush`, `chainLaneRetry` | `network-only` | `stored-result` | ledgered after the chain-specific gates: writer ownership and live membership for push (`403 chain-writer-denied`), writer ownership or administrative recovery eligibility for retry |
-| `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | materialized lanes (preview): ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes). On a GitHub canonical, `laneMaterialize`, `laneGenerationCreate` and `laneWrapUp` answer `429 rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After` while the provider's request budget is low, retried like any `429` under the same key (nothing was created); the lane manifest and blob reads can answer that `429` too, and `413` with `details.reason: rest-budget` when one operation would need too many provider requests (never retried); `laneChangesSubmit` answers a `LaneSavePoint` and refuses `409 lane-not-materialized` before `laneMaterialize`. `laneScopeGrant` (like `taskClaim` and `laneReopen`) answers `409 write-scope-claimed` with `details.requested` and, to a human with `tasks:read`, `details.holders` |
-| `laneExecutionBegin` | `network-only` | `bounded-recovery` | materialized lanes (preview): a handover ends the open execution and returns the delegation bound to the new one (`delegation`), so the answer carries a credential: a lost answer replays under the same key with the superseded token for 120 s, returning the same credential, then `409 idempotency-result-expired` (issuance is never rerun); the same key with the new credential answers the recorded execution without `delegation`. `409 operation-in-progress` (retryable) while a change, save point, wrap-up, head transition or a concurrent handover settles; every token of the superseded execution answers `409 execution-superseded` |
-| `chainLaneRetire` | `network-only` | `state` | the server discards the key; retirement consults lane phase and retention conditions and answers 202 `LaneRetirement` / 200 `LaneRetired` (a materialized lane lists its `laneRepositories`) / a refusal from current state (`409 chain-retention-pending`, `409 lane-retention-pending` with `details.reason`, `403 reauth-required`) |
+| `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | lanes: ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes). On a GitHub canonical, `laneMaterialize`, `laneGenerationCreate` and `laneWrapUp` answer `429 rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After` while the provider's request budget is low, retried like any `429` under the same key (nothing was created); the lane manifest and blob reads can answer that `429` too, and `413` with `details.reason: rest-budget` when one operation would need too many provider requests (never retried); `laneChangesSubmit` answers a `LaneSavePoint` and refuses `409 lane-not-materialized` before `laneMaterialize`. `laneScopeGrant` (like `taskClaim` and `laneReopen`) answers `409 write-scope-claimed` with `details.requested` and, to a human with `tasks:read`, `details.holders` |
+| `laneExecutionBegin` | `network-only` | `bounded-recovery` | lanes: a handover ends the open execution and returns the delegation bound to the new one (`delegation`), so the answer carries a credential: a lost answer replays under the same key with the superseded token for 120 s, returning the same credential, then `409 idempotency-result-expired` (issuance is never rerun); the same key with the new credential answers the recorded execution without `delegation`. `409 operation-in-progress` (retryable) while a change, save point, wrap-up, head transition or a concurrent handover settles; every token of the superseded execution answers `409 execution-superseded` |
+| `laneRetire` | `network-only` | `state` | the server discards the key; retirement consults the lane repositories' state and the retention guards and answers 202 `LaneRetirement` / 200 `LaneRetired` (each with its `laneRepositories`) / a refusal from current state (`409 lane-retention-pending` with `details.reason`, `404 not-found` for a task without a lane repository, `403 reauth-required`); a `503 lane-repository-unavailable` is retried, and any later call resumes the deletion |
 | `webhookCreate`, `webhookReplay`, `webhookDeliveryRedrive`, `webhookSecretRotate`, `webhookReactivate` | `network-only` | `stored-result` | per-request scopes with `409 idempotency-conflict` on body mismatch; rotation replays key ids only, never the secret the caller supplied |
 | `webhookDisable` | `never` | `state` | a committed disable is deduplicated by its operation record; disabling an already-disabled webhook records the key without an audit row, so a retry of that key never disables a later reactivation; the answer is the current state, and the library never auto-retries it |
-| `approvalPrincipalRegister`, `approvalPolicyRegister`, `approvalTrustRotate`, `approvalPrincipalDisable`, `approvalPolicyDisable`, `approvalTrustDisable`, `eventPermissionCreate`, `eventPermissionRevoke`, `submitGrantRevoke` | `network-only` | `stored-result` | administrator write ledger keyed by administrator + key, after re-authenticating the administrator |
+| `approvalPrincipalRegister`, `approvalPolicyRegister`, `approvalTrustRotate`, `approvalPrincipalDisable`, `approvalPolicyDisable`, `approvalTrustDisable`, `eventPermissionCreate`, `eventPermissionRevoke` | `network-only` | `stored-result` | administrator write ledger keyed by administrator + key, after re-authenticating the administrator |
 | `approvalGrantRevoke` | `network-only` | `stored-result` | recorded on the task; an already-revoked grant answers `204` from state **before** the ledger lookup |
 | `candidateApproveWithGrant` | `network-only` | `guarded-result` | decision ledger keyed by principal and idempotency key; grant authority rechecked before the recorded result is returned |
-| `submitWithGrant` | `network-only` | `guarded-result` | **a different ledger**: the lifecycle ledger scoped to the claim actor and task (`<actorType>:<actorId>:<task>:submit`); a consumed grant without a prior row is `409 machine-authority-denied` |
-| `taskClaim` (**bootstrap** variant) | `network-only` | `bounded-recovery` | bounded by the **bootstrap expiry** (5 min) and the authorizer's membership recheck; the reply is the **original claim snapshot** plus the recovered delegation, not current readiness — read `claimGet` for that; after the window: `401 unauthenticated` / `401 bootstrap-consumed` |
+| `taskClaim` | `network-only` | `bounded-recovery` | a claim bootstrap is the only credential the route accepts (any other is `401 unauthenticated`); the replay is bounded by the **bootstrap expiry** (5 min) and the authorizer's membership recheck; the reply is the **original claim snapshot** plus the recovered delegation, not current readiness — read `claimGet` for that; after the window: `401 unauthenticated` / `401 bootstrap-consumed` |
 | `claimAuthorize`, `laneReopen` | `network-only` | `bounded-recovery` | 300 s window, valid only while the bootstrap is unconsumed and unrevoked, else `409 idempotency-result-expired`; `laneReopen` returns the same one-use agent bootstrap (`agentBootstrap`) for the reopened lane, and replays it under the same key and body only while it is unused and inside its window |
 | `authLogin` (browser and CLI modes) | `network-only` | `bounded-recovery` | **600 s** window, matching the login transaction lifetime (AUTH.md) |
 | `authCliExchange`, `sessionRenew`, `delegationRenew`, `authLogout`, `meSessionRevoke` | `network-only` | `bounded-recovery` | 120 s window; pending/polling answers are not final records; `meSessionRevoke` recovers like logout, and a fresh key on an already-revoked sign-in answers 204 from state |
-| `authCliConfirm`, `delegationRevoke`, `brokerTokenRevoke` | `never` | `state` | confirm checks transaction state; an agent's own successful revocation makes its credential unusable for a retry; broker revocation marks the token for revocation and drains |
+| `authCliConfirm`, `delegationRevoke` | `never` | `state` | confirm checks transaction state; an agent's own successful revocation makes its credential unusable for a retry |
 | `approvalTrustActivationChallenge` | `never` | `none` | mints a fresh single-use challenge each call |
 | `approvalTrustActivate` | `never` | `state` | an already-activated binding answers with its activation record, provided the binding still qualifies |
-| `brokerTokenCreate` | `never` | `none` | fresh token on every call; the token ledger does not deduplicate by key |
-| `approvalGrantExchange`, `submitGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
+| `approvalGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
 | `authCallback`, `authCliStart` | `callable: false` | `navigation` | browser navigation, never fetched by the library |
-| `brokerHelperPush`, `chainLaneReceivePack`, `chainLaneReceivePackRefs`, `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery` | `callable: false` | `excluded` | raw Git transports are outside the JSON client; the webhook id is typed for receivers |
+| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery` | `callable: false` | `excluded` | the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers |
 
 ## Journeys
 
@@ -138,11 +131,9 @@ const candidate = await oc.candidates.waitFor(submissionId, { deadline });   // 
 const landing = await oc.landings.land(candidateId, { approvalId, deadline }); // final (receipt.outcome) | pending-timeout
 ```
 
-`tasks.*`, `claims.authorize/claim/claimAsHuman/status/waitForProvisioning/release/replace`,
-`submissions.create/createWithGrant`, `candidates.get/waitFor/withdraw/reject`,
-`approvals.approve/approveWithGrant/withdraw`, `grants.exchangeApproval/exchangeSubmit`,
-`landings.land/waitForReceipt`, `receipts.get`, `chain.get/push/waitForDelivery/retry/retire`,
-`webhooks.*`, `log.task`, `audit.list`, `events.follow`, `command` (one keyed operation without a
+`tasks.*`, `projects.create`, `repositories.*`, `claims.authorize/claim/status/waitForProvisioning/release`,
+`candidates.get/waitFor/withdraw/reject`, `approvals.approve/approveWithGrant/withdraw`,
+`grants.exchangeApproval`, `landings.land/waitForReceipt`, `receipts.get`, `lanes.retire`, `webhooks.*`, `log.task`, `audit.list`, `events.follow`, `command` (one keyed operation without a
 shaped journey, under the same replay rule), and `auth.*` (below).
 
 `command(operationId, input, options)` accepts every callable operation and runs it through the same
@@ -161,7 +152,7 @@ that polls under the same key with its own progress messages.
   that schedule their own clock); it must honour the signal.
 - **Waits never reissue.** A wait that runs out (`reason: 'deadline-exceeded'`) or is cancelled
   (`'aborted'`) returns `pending-timeout` with the ids to resume — the submission id, the fence and
-  receipt ids, the push id — and the command is never sent again. Polling uses the server's
+  receipt ids, the claim id — and the command is never sent again. Polling uses the server's
   `Retry-After` first, then `pollMs`, then the defaults: candidate waits back off 1 s → 5 s, receipts
   every 2 s.
 - **Outcomes are values.** Candidate `outcome` (`computed`, `conflict`, `stale-base`, `stale-head`,
@@ -179,12 +170,12 @@ that polls under the same key with its own progress messages.
   `401 unauthenticated`, `401 bootstrap-consumed`, a guarded grant refused after revocation, or a
   current authorization refusal (`claim-inactive`, `membership-revoked`, …). A journey never answers
   one by issuing the command again under a new key. `never` operations (`webhookDisable`, the grant
-  exchanges, …) are sent exactly once; `state` operations (`chainLaneRetire`, …) are followed by a read.
-- **Human-only** journeys (`approvals.approve`, `claims.replace`, `candidates.reject`, `chain.retire`, …)
+  exchange, …) are sent exactly once; `state` operations (`laneRetire`, …) are followed by a read.
+- **Human-only** journeys (`approvals.approve`, `candidates.reject`, `lanes.retire`, …)
   fail before sending when the client presents a delegation, bootstrap or grant.
-- **Chain pushes** go through the caller's `GitAdapter.stage(input, signal, deadline)`: ref resolution and
-  object publication stay outside the library. An already-ended deadline never invokes the adapter; the
-  adapter must stop its phases and subprocesses when `signal` aborts.
+- **Lanes** are materialized: an agent reads files from the lane manifest and blob routes and saves
+  through `laneBlobUpload`, `laneChangesSubmit` and `laneWrapUp` (through `command`). No Git remote,
+  provider credential or push transport is involved.
 
 ### `events.follow`
 
@@ -307,7 +298,7 @@ any structure nested deeper than the structural depth bound is masked.
 
 ## Credentials
 
-`HumanSession`, `ClaimBootstrap`, `AgentDelegation`, `ApprovalGrant`, `SubmitGrant`, `EventAssertion`. `approvalGrantFromExchange` / `submitGrantFromExchange` turn an exchange response into
+`HumanSession`, `ClaimBootstrap`, `AgentDelegation`, `ApprovalGrant`, `EventAssertion`. `approvalGrantFromExchange` turns an exchange response into
 `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken` (metadata only;
 recovery is a new exchange with a fresh assertion). `principalId` is required: a response without it
 (or otherwise off-shape) is an incomplete `ApiError`, never a grant. Grants are frozen.
@@ -335,7 +326,6 @@ The cases in `tests/cases/` are runtime-neutral and shared by both runners; Node
 `tests/store.test.ts`.
 
 Direct library conformance: `pnpm demo:walkthrough --library` drives the local walkthrough itinerary
-through this package (auth journeys, author authorization and bootstrap claim, a chain push through the
-caller's Git adapter, approval, landing with wait, receipt equals canonical, dependent admitted) on
+through this package (auth journeys, author authorization and bootstrap claim, approval, landing with wait, receipt equals canonical, dependent admitted) on
 `demo:up` with the local OIDC fixture. It is library conformance only — not archetype, runtime or
 identity-provider qualification.

@@ -46,12 +46,11 @@ Run **one test file or one package at a time, sequentially**. Recursive builds a
 ```sh
 pnpm --filter @yolo-labs/octocove exec vitest run tests/cli.test.ts --maxWorkers=1
 pnpm --filter @yolo-labs/octocove-client test
-pnpm --filter @octocove/helper test
 ```
 
 These are examples, not mandatory checks for every PR; `pnpm -r test` runs every package's tests. Keep Vitest at one worker where supported. For Node tests, name one file; if it uses concurrent subtests, also set `--test-concurrency=1`. Scope any necessary build/typecheck to the changed package. Documentation-only changes generally need link, syntax and diff checks, not runtime tests.
 
-Contributions go to the CLI, the client library, the helper, the shared package and the client docs. The client's generated modules are regenerated from the hosted service's contract by the maintainers (`pnpm --filter @yolo-labs/octocove-client generate -- --spec PATH`); `check:generated` and `check:policy` then check the retry-policy join, the operation set and the build record.
+Contributions go to the CLI, the client library, the shared package and the client docs. The client's generated modules are regenerated from the hosted service's contract by the maintainers (`pnpm --filter @yolo-labs/octocove-client generate -- --spec PATH`); `check:generated` and `check:policy` then check the retry-policy join, the operation set and the build record.
 
 Docs line links (`#L<n> "token"`) drift when a concurrent change shifts their target file: after merging the target branch, run `python3 tools/reanchor-evidence-links.py`, then `python3 -B tools/check-evidence-links.py`. The first moves each broken link to the one line holding its token and reports any it cannot place; fix those by hand.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Validates packages/client/retry-policy.json: every operationId of the generated routing table exactly
-// once, one of the three entry shapes, values from the closed sets, `replay: null` only on reads, and the
+// once, one of the two entry shapes, values from the closed sets, `replay: null` only on reads, and the
 // same classes the README's "Retry classes by operation" table assigns (so coverage cannot pass with
 // invented values).
 import { readFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 export const AUTO_RETRY = ['never', 'network-only'];
 export const REPLAY = ['stored-result', 'guarded-result', 'bounded-recovery', 'metadata-without-token', 'state', 'none', null];
 export const REASONS = ['navigation', 'excluded'];
-export const EXPECTED_IDS = 107;
+export const EXPECTED_IDS = 94;
 
 const same = (keys, expected) => keys.length === expected.length && expected.every((key) => keys.includes(key));
 
@@ -44,7 +44,7 @@ export function topLevelKeys(text) {
 export const TABLE_HEADING = '### Retry classes by operation';
 const TABLE = 'the README retry table';
 
-/** Parses the README table into operationId[/variant] → {autoRetry, replay} or {callable:false, reason}. */
+/** Parses the README table into operationId → {autoRetry, replay} or {callable:false, reason}. */
 export function readmeTable(markdown) {
   const start = markdown.indexOf(`\n${TABLE_HEADING}\n`);
   if (start < 0) throw new Error(`${TABLE_HEADING} not found in packages/client/README.md`);
@@ -62,8 +62,8 @@ export function readmeTable(markdown) {
     const klass = value(retry) === 'callable: false'
       ? { callable: false, reason: value(replay) }
       : { autoRetry: value(retry), replay: value(replay) };
-    for (const match of ops.matchAll(/`(\w+)`(?: \(\*\*(\w+)\*\* variant\))?/g)) {
-      const key = match[2] ? `${match[1]}/${match[2]}` : match[1];
+    for (const match of ops.matchAll(/`(\w+)`/g)) {
+      const key = match[1];
       if (expected.has(key)) throw new Error(`${TABLE} lists ${key} twice`);
       expected.set(key, klass);
     }
@@ -100,16 +100,6 @@ export function check({ policyText, spec, readme }) {
       if (!same(fields, ['callable', 'reason'])) errors.push(`${id}: uncallable shape is exactly {callable:false, reason}`);
       if (!REASONS.includes(entry.reason)) errors.push(`${id}: reason ${JSON.stringify(entry.reason)} not in ${REASONS.join('|')}`);
       flat.set(id, { callable: false, reason: entry.reason });
-    } else if (entry.callable === true && 'selector' in entry) {
-      if (!same(fields, ['callable', 'selector', 'variants'])) errors.push(`${id}: selector shape is exactly {callable, selector, variants}`);
-      if (entry.selector !== 'credential') errors.push(`${id}: selector must be "credential"`);
-      if (id !== 'taskClaim') errors.push(`${id}: only taskClaim is credential-selected`);
-      const variants = entry.variants ?? {};
-      if (!same(Object.keys(variants), ['human', 'bootstrap'])) errors.push(`${id}: variants are exactly human and bootstrap`);
-      for (const name of ['human', 'bootstrap']) {
-        retryClass(variants[name], `${id}.variants.${name}`, errors);
-        flat.set(`${id}/${name}`, variants[name]);
-      }
     } else if (entry.callable === true) {
       if (!same(fields, ['callable', 'autoRetry', 'replay'])) errors.push(`${id}: callable shape is exactly {callable:true, autoRetry, replay}`);
       retryClass({ autoRetry: entry.autoRetry, replay: entry.replay }, id, errors);
@@ -117,7 +107,7 @@ export function check({ policyText, spec, readme }) {
     } else errors.push(`${id}: callable must be true or false`);
   }
   for (const [key, klass] of flat) {
-    const id = key.split('/')[0];
+    const id = key;
     if (klass && 'replay' in klass && klass.replay === null && methods.get(id) !== 'get') errors.push(`${key}: replay null is reserved for reads`);
     if (methods.get(id) === 'get' && klass?.replay !== null && klass?.callable !== false && id !== 'authLoginBinding') {
       errors.push(`${key}: reads replay null (only authLoginBinding, a cookie-replacing GET, is classified otherwise)`);
@@ -163,5 +153,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     process.stderr.write(`retry-policy.json check failed:\n${errors.map((e) => `  ${e}`).join('\n')}\n`);
     process.exit(1);
   }
-  process.stdout.write(`retry-policy.json covers all ${EXPECTED_IDS} operationIds once, in the three shapes, matching the README retry table.\n`);
+  process.stdout.write(`retry-policy.json covers all ${EXPECTED_IDS} operationIds once, in the two shapes, matching the README retry table.\n`);
 }

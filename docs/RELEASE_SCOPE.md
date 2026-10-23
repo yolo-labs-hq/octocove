@@ -54,19 +54,18 @@ built-in modules (`node:*`). Publishing follows [RELEASING.md](RELEASING.md).
 
 **`@yolo-labs/octocove`** (`packages/cli`) contains exactly:
 
-- `dist/octocove.mjs`: an ESM executable that esbuild bundles from `packages/cli/src`,
-  `packages/client/src`, `packages/shared/src` and `packages/helper/src`. These are all first-party
-  sources from this repository. The bundle contains no source map and no code
-  from `node_modules`. Its only imports are Node.js built-ins.
-- `dist/octocove-helper-connect.mjs`: the bundled connector and on-demand same-user runtime.
-- `dist/pre-receive-hook.mjs`: the helper mirror hook, loaded beside the executable.
+- `dist/octocove.mjs`: an ESM executable that esbuild bundles from `packages/cli/src` and
+  `packages/client/src`. These are all first-party sources from this repository. The bundle
+  contains no source map and no code from `node_modules`. Its only imports are Node.js built-ins.
+- `dist/octocove-human-credential.mjs`: the Git credential helper `repo clone` installs for the
+  human read-only clone, bundled from the same sources.
 - `package.json`, `README.md`, `LICENSE`, `NOTICE`.
 
 The CLI tarball needs no `THIRD_PARTY_NOTICES` file because nothing third-party
 is inlined. The CLI build writes an esbuild metafile to
 `packages/cli/build-meta/`, which is never packed. `tools/release-scan/pack_scan.py`
 (the `npm-pack` CI job and the publish workflow) fails if any metafile input
-falls outside those three source directories, including any `node_modules`
+falls outside those two source directories, including any `node_modules`
 path. It also fails if the bundle imports anything other than a `node:` module
 at runtime, or if the metafile does not match the packed bundle. A change that
 starts bundling third-party code must ship that code's licence and copyright

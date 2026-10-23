@@ -13,11 +13,7 @@
       "types": "./src/merge.d.mts",
       "default": "./src/merge.mjs"
     },
-    "./remote-identity": "./src/remote-identity.ts",
-    "./tree-seed": {
-      "types": "./src/tree-seed.d.mts",
-      "default": "./src/tree-seed.mjs"
-    }
+    "./remote-identity": "./src/remote-identity.ts"
   },
   "scripts": {
     "typecheck": "timeout 300 tsc -p tsconfig.json",

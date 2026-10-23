@@ -34,29 +34,29 @@ describe('retry-policy.json validator', () => {
     expect(run(edit((p) => { p.taskCreate.replay = 'cached'; }))).toContainEqual(expect.stringContaining('taskCreate: replay "cached"'));
     expect(run(edit((p) => { p.authCallback.reason = 'redirect'; }))).toContainEqual(expect.stringContaining('authCallback: reason'));
     expect(run(edit((p) => { p.taskCreate.extra = 1; }))).toContainEqual(expect.stringContaining('taskCreate: callable shape'));
-    expect(run(edit((p) => { p.taskClaim.variants = { human: p.taskClaim.variants.human }; }))).toContainEqual(expect.stringContaining('variants are exactly human and bootstrap'));
-    expect(run(edit((p) => { p.taskCreate = { callable: true, selector: 'credential', variants: p.taskClaim.variants }; }))).toContain('taskCreate: only taskClaim is credential-selected');
+    expect(run(edit((p) => { p.taskClaim = { callable: true, selector: 'credential', variants: { bootstrap: { autoRetry: 'network-only', replay: 'bounded-recovery' } } }; })))
+      .toContainEqual(expect.stringContaining('taskClaim: callable shape'));
   });
   it('reserves replay null for reads', () => {
     expect(run(edit((p) => { p.taskCreate.replay = null; }))).toContain('taskCreate: replay null is reserved for reads');
   });
   it('rejects classes that differ from the README retry table, even when the shape is valid', () => {
     expect(run(edit((p) => { p.webhookDisable.autoRetry = 'network-only'; }))).toContainEqual(expect.stringContaining('webhookDisable: retry-policy.json'));
-    expect(run(edit((p) => { p.taskClaim.variants.bootstrap.replay = 'stored-result'; }))).toContainEqual(expect.stringContaining('taskClaim/bootstrap'));
+    expect(run(edit((p) => { p.taskClaim.replay = 'stored-result'; }))).toContainEqual(expect.stringContaining('taskClaim'));
   });
-  it('parses all 107 ids plus the taskClaim variants from the README table', () => {
+  it('parses all 94 ids from the README table', () => {
     const table = readmeTable(readme) as Map<string, unknown>;
-    expect(table.size).toBe(108);
-    expect(table.get('taskClaim/bootstrap')).toEqual({ autoRetry: 'network-only', replay: 'bounded-recovery' });
+    expect(table.size).toBe(94);
+    expect(table.get('taskClaim')).toEqual({ autoRetry: 'network-only', replay: 'bounded-recovery' });
     expect(table.get('collaborationEventDelivery')).toEqual({ callable: false, reason: 'excluded' });
   });
 });
 
 describe('generated routing and build record', () => {
-  it('joins exactly the policy into the routing table: 107 operations, 106 path operations', () => {
+  it('joins exactly the policy into the routing table: 94 operations, 93 path operations', () => {
     const policy = JSON.parse(policyText);
-    expect(Object.keys(routing)).toHaveLength(107);
-    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(106);
+    expect(Object.keys(routing)).toHaveLength(94);
+    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(93);
     for (const [id, route] of Object.entries(routing)) expect(route.policy).toEqual(policy[id]);
   });
   it('records the same OpenAPI version and generator revisions in package.json and at runtime', () => {

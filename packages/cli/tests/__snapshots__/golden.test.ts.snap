@@ -82,7 +82,7 @@ exports[`auth exchange and approve --grant 1`] = `
     "POST /auth/approval-grants",
   ],
   "stderr": "",
-  "stdout": "{"id":"grant-1","expiresAt":"2030-01-01T00:00:00Z","scope":{"projectId":"P1","claimAttemptId":"C1","candidateId":"CA1","boundTo":{"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3},"checkRunIds":[]},"policyVersion":"policy","principalId":"principal","purpose":"approve"}
+  "stdout": "{"id":"grant-1","expiresAt":"2030-01-01T00:00:00Z","scope":{"projectId":"P1","claimAttemptId":"C1","candidateId":"CA1","boundTo":{"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3},"checkRunIds":[]},"policyVersion":"policy","principalId":"principal"}
 ",
 }
 `;
@@ -252,45 +252,39 @@ Commands:
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
-  auth exchange --as ID --scope JSON [--purpose submit|approve] [--token-stdin]
+  auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
-  auth revoke --grant ID                       (human administrator)
+  auth revoke --grant ID                       (human administrator: revoke an approval grant)
   auth renew                                  (rotate active session or delegation)
   auth revoke [DELEGATION_ID]                  (revoke delegation; defaults to active one)
-  workspace prepare|open|refresh|retire --canonical URL [--cache DIR] [--worktree ID] [--base SHA]
-  helper status                               (secret-free configuration)
   task list --project ID [--status S] [--cursor C] [--limit N]
   task show ID
   task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON
   task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]
   task publish ID
-  task release ID [--claim ID] [--dir DIR]       (a materialized lane directory keeps its unsaved edits as a patch first)
-  claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--chain-id ID --base SHA --previous-task ID] [--canonical URL] [--wait SECONDS]  (default lane: chain)
-  lane sync                                   (fetch authenticated canonical refs; preserve local edits)
-  lane push [REF | --source SHA] [--task ID] [--claim ID] [--base SHA] [--push-id ID] [--wait SECONDS]
-  lane status|retry [--task ID] [--claim ID]
-  lane retire [TASK] [--task ID]                (human project admin, recent sign-in: retire a lane; a materialized lane's repository is deleted, its landed result kept)
-  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (materialized lane: create or reuse the lane repository, write the files at the lane head into DIR, no .git)
-  lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (materialized lane: rebase onto the pinned head; edits kept, upstream copies in .octocove/incoming)
+  task release ID [--claim ID] [--dir DIR]       (a lane directory keeps its unsaved edits as a patch first)
+  claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]  (agent, with the claim bootstrap: claim the task's lane with its read and write scope)
+  lane status [DIR]                              (the lane directory's edits and conflicts, and the task's lane repository when a credential is at hand)
+  lane retire TASK                              (human project admin, recent sign-in: retire a lane; its lane repositories are deleted, its landed result kept)
+  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (create or reuse the lane repository, write the files at the lane head into DIR, no .git)
+  lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (rebase the lane onto the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
-  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (materialized lane: save changed files as a save point on the lane head)
-  lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (materialized lane: squash the saved lane into one candidate for review)
-  lane patch [DIR] [--out FILE]                 (materialized lane: write unsaved edits as a Git-format patch)
+  lane submit [DIR] [--message TEXT] [--wait SECONDS]  (save changed files as a save point on the lane head)
+  lane wrap-up [DIR] [--message TEXT] [--resolve PATH=lane|base|FILE] [--allow-unsaved] [--wait SECONDS]  (squash the saved lane into one candidate for review)
+  lane patch [DIR] [--out FILE]                 (write the lane directory's unsaved edits as a Git-format patch)
   lane reopen TASK --agent ID --verbs a,b --expires-at TIME [--reason TEXT] [--expected-receipt ID] [--bootstrap-out PATH] [--dir DIR]  (human, recent sign-in: reopen a landed lane for one agent)
-  lane scope-requests ID [--status pending|granted|refused]  (materialized lane: the task's scope requests, newest first; project member)
-  task claim ID [--lane chain|ref|materialized] [--read a,b --write a,b] [--source-ref REF --repository ID] [--intent-version N] [--remote NAME] [--canonical URL] [--wait SECONDS] [--bootstrap-file FILE]  (default lane: chain; --source-ref selects ref)
+  lane scope-requests ID [--status pending|granted|refused]  (the task's scope requests, newest first; project member)
+  task claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]  (agent, with the claim bootstrap; --read is required except when continuing a reopened lane)
   task claim-status ID                          (ID is the claim ID)
   task unpublish ID --expected-status ready --intent-version N
   task dependency-add ID --upstream ID --expected-status S --intent-version N
   task dependency-remove ID --upstream ID --expected-status S --intent-version N
   task reject ID --expected-status S --intent-version N
   task supersede ID --replacement ID --expected-status S --intent-version N
-  task replace-claim ID --claim ID --expires-at TIME --expected-status S --intent-version N
   approval withdraw ID --expected-status S --intent-version N
   candidate withdraw ID --expected-status S --intent-version N
   candidate reject ID --expected-status landed --intent-version N
   task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
-  submit [REF] [--task ID] [--source SHA] [--base SHA] [--intent-version N] [--claim ID] [--wait SECONDS]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
   land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octocove land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
@@ -316,7 +310,7 @@ Global options:
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.
-Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 76 stale, 77 sign-in or human credential required, 78 config or read access denied.
+Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 77 sign-in or human credential required, 78 config or read access denied.
 ",
 }
 `;
@@ -400,6 +394,20 @@ Integrator run:   run1
 }
 `;
 
+exports[`lane retire 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/lane/retire",
+  ],
+  "stderr": "",
+  "stdout": "Task:             T1
+Phase:            retiring (deletion is confirmed by the server; run the same command again to check)
+Lane repository:  LR1 (retiring)
+",
+}
+`;
+
 exports[`lane retire as agent 1`] = `
 {
   "code": 77,
@@ -410,42 +418,16 @@ exports[`lane retire as agent 1`] = `
 }
 `;
 
-exports[`lane retry 1`] = `
+exports[`lane retire pending 1`] = `
 {
-  "code": 0,
+  "code": 1,
   "requests": [
-    "POST /tasks/T1/lane/retry",
+    "POST /tasks/T1/lane/retire",
   ],
-  "stderr": "",
-  "stdout": "Task:             T1
-taskId:           T1
-status:           retrying
+  "stderr": "octocove: lane-retention-pending: lane-retention-pending The lane cannot be retired yet: a claim of the task is still active; it must be released, revoked or expire first. Nothing was deleted. Run the same command again once it settles.
+details: {"reason":"claim-active","laneRepositoryId":"LR1"}
 ",
-}
-`;
-
-exports[`lane status --json 1`] = `
-{
-  "code": 0,
-  "requests": [
-    "GET /tasks/T1/lane",
-  ],
-  "stderr": "",
-  "stdout": "{
-  "id": "<key>",
-  "type": "lane.status",
-  "schemaVersion": 1,
-  "projectId": null,
-  "taskId": "T1",
-  "occurredAt": "<now>",
-  "data": {
-    "taskId": "T1",
-    "chainId": "chain-1",
-    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "pushes": []
-  }
-}
-",
+  "stdout": "",
 }
 `;
 
@@ -625,119 +607,6 @@ Integrator run:   run1
 }
 `;
 
-exports[`submit --wait complete --json 1`] = `
-{
-  "code": 0,
-  "requests": [
-    "POST /tasks/T1/submissions",
-    "GET /submissions/S1/candidate",
-  ],
-  "stderr": "",
-  "stdout": "{
-  "submission": {
-    "id": "S1",
-    "taskId": "T1",
-    "seq": 1,
-    "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "intentVersion": 3,
-    "stagedBehindFenceId": null
-  },
-  "candidate": {
-    "state": "complete",
-    "candidate": {
-      "id": "CA1",
-      "outcome": "computed",
-      "status": "active",
-      "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "latestCheck": {
-        "result": "passed"
-      },
-      "conflictFiles": [],
-      "reviewBoundTo": {
-        "candidateSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        "intentVersion": 3
-      }
-    }
-  }
-}
-",
-}
-`;
-
-exports[`submit --wait complete 1`] = `
-{
-  "code": 0,
-  "requests": [
-    "POST /tasks/T1/submissions",
-    "GET /submissions/S1/candidate",
-  ],
-  "stderr": "",
-  "stdout": "{"state":"superseded","submissionId":"S1","replacementSubmissionId":"S2"}
-",
-}
-`;
-
-exports[`submit --wait pending --json 1`] = `
-{
-  "code": 75,
-  "requests": [
-    "POST /tasks/T1/submissions",
-    "GET /submissions/S1/candidate",
-  ],
-  "stderr": "{"error":{"code":"pending","message":"candidate computation is pending"}}
-",
-  "stdout": "{
-  "submission": {
-    "id": "S1",
-    "taskId": "T1",
-    "seq": 1,
-    "sourceSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "intentVersion": 3,
-    "stagedBehindFenceId": null
-  },
-  "candidate": {
-    "state": "pending",
-    "submissionId": "S1",
-    "jobId": "J1"
-  }
-}
-",
-}
-`;
-
-exports[`submit 1`] = `
-{
-  "code": 0,
-  "requests": [
-    "POST /tasks/T1/submissions",
-  ],
-  "stderr": "",
-  "stdout": "Submission:       S1
-Task:             T1
-Sequence:         1
-Source:           aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Base:             bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-Intent version:   3
-",
-}
-`;
-
-exports[`submit intent mismatch 1`] = `
-{
-  "code": 1,
-  "requests": [
-    "POST /tasks/T1/submissions",
-  ],
-  "stderr": "octocove: intent-version-mismatch: intent moved to v3
-",
-  "stdout": "",
-}
-`;
-
 exports[`task authorize --json 1`] = `
 {
   "code": 0,
@@ -760,137 +629,87 @@ exports[`task authorize --json 1`] = `
 }
 `;
 
+exports[`task claim --json 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/claim",
+  ],
+  "stderr": "",
+  "stdout": "{
+  "claim": {
+    "id": "C1",
+    "taskId": "T1",
+    "intentVersion": 3,
+    "status": "active",
+    "expiresAt": "2030-01-01T00:00:00Z",
+    "dependencyResults": [
+      {
+        "upstreamTaskId": "T0",
+        "receiptId": "R0",
+        "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ],
+    "provisioningState": "ready",
+    "blockedReason": null,
+    "lane": {
+      "kind": "materialized",
+      "executionId": "E1",
+      "generation": 1,
+      "baseSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scopeVersion": 1,
+      "scope": {
+        "read": [
+          "src/"
+        ],
+        "write": [
+          "src/app/"
+        ]
+      }
+    }
+  },
+  "delegation": {
+    "delegationId": "D1",
+    "tokenType": "Bearer",
+    "expiresAt": "2030-01-01T00:00:00Z",
+    "revocationId": "RV1"
+  },
+  "credentialsFile": "<root>/cfg/credentials/cli.json"
+}
+",
+}
+`;
+
 exports[`task claim 1`] = `
 {
   "code": 0,
   "requests": [
-    "GET /tasks/T1",
     "POST /tasks/T1/claim",
-    "GET /claims/C1",
   ],
   "stderr": "",
-  "stdout": "Task T1 (intent v3)
-Title: Add CLI
-
-Build it
-
-Acceptance criteria:
-  - tests pass
-  - help lists verbs
-
-Upstream results:
-  T0  receipt R0  landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-
-Task:             k
-Claim:            C1
-Status:           active
-Provisioning:     ready
+  "stdout": "Claim:            C1
+Task:             T1
+Agent:            worker-one
 Expires:          2030-01-01T00:00:00Z
-Remote:           octocove -> https://git.example.invalid/t1.git
-Ref:              refs/heads/task/t1
+Generation:       1
+Base:             bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Scope version:    1
+Read:             src/
+Write:            src/app/
+Upstream results: T0 receipt R0 landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Credentials:      <root>/cfg/credentials/cli.json
+Next:             octocove lane materialize T1 DIR
 ",
 }
 `;
 
-exports[`task claim blocked --json 1`] = `
+exports[`task claim as agent --json 1`] = `
 {
-  "code": 1,
-  "requests": [
-    "GET /tasks/T1",
-    "POST /tasks/T1/claim",
-  ],
-  "stderr": "",
-  "stdout": "{
-  "claim": {
-    "id": "C1",
-    "taskId": "T1",
-    "intentVersion": 3,
-    "status": "active",
-    "expiresAt": "2030-01-01T00:00:00Z",
-    "dependencyResults": [
-      {
-        "upstreamTaskId": "T0",
-        "receiptId": "R0",
-        "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      }
-    ],
-    "provisioningState": "blocked",
-    "blockedReason": "adapter unconfigured",
-    "workspace": null
-  },
-  "error": {
-    "code": "provisioning-blocked",
-    "message": "provisioning-blocked: adapter unconfigured",
-    "status": 409
-  }
-}
+  "code": 78,
+  "requests": [],
+  "stderr": "{"error":{"code":"config","message":"task claim needs the claim bootstrap a human issued with \`octocove task authorize\` (or \`octocove lane reopen\`): pass --bootstrap-file FILE"}}
 ",
-}
-`;
-
-exports[`task claim blocked 1`] = `
-{
-  "code": 1,
-  "requests": [
-    "GET /tasks/T1",
-    "POST /tasks/T1/claim",
-  ],
-  "stderr": "octocove: provisioning-blocked: adapter unconfigured
-",
-  "stdout": "Task T1 (intent v3)
-Title: Add CLI
-
-Build it
-
-Acceptance criteria:
-  - tests pass
-  - help lists verbs
-
-Upstream results:
-  T0  receipt R0  landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-
-Task:             k
-Claim:            C1
-Status:           active
-Provisioning:     blocked
-Blocked reason:   adapter unconfigured
-Expires:          2030-01-01T00:00:00Z
-",
-}
-`;
-
-exports[`task claim pending --json 1`] = `
-{
-  "code": 75,
-  "requests": [
-    "POST /tasks/T1/claim",
-    "GET /claims/C1",
-  ],
-  "stderr": "",
-  "stdout": "{
-  "claim": {
-    "id": "C1",
-    "taskId": "T1",
-    "intentVersion": 3,
-    "status": "active",
-    "expiresAt": "2030-01-01T00:00:00Z",
-    "dependencyResults": [
-      {
-        "upstreamTaskId": "T0",
-        "receiptId": "R0",
-        "landedSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-      }
-    ],
-    "provisioningState": "pending",
-    "blockedReason": null,
-    "workspace": null
-  },
-  "error": {
-    "code": "pending",
-    "message": "provisioning still pending; poll with \`octocove task claim-status C1\`"
-  }
-}
-",
+  "stdout": "",
 }
 `;
 
@@ -898,13 +717,38 @@ exports[`task claim refused 1`] = `
 {
   "code": 1,
   "requests": [
-    "GET /tasks/T1",
     "POST /tasks/T1/claim",
   ],
   "stderr": "octocove: dependency-unlanded: blocked
 details: {"claimResult":"refused-dependency-unlanded"}
 ",
   "stdout": "",
+}
+`;
+
+exports[`task claim reopened, pending 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /tasks/T1/claim",
+  ],
+  "stderr": "",
+  "stdout": "Claim:            C1
+Task:             T1
+Agent:            worker-one
+Expires:          2030-01-01T00:00:00Z
+Generation:       1
+Base:             bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Scope version:    1
+Read:             src/
+Write:            src/app/
+Upstream results: T0 receipt R0 landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Reopen:           RO1 (continues the landed lane)
+Lane head:        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Provisioning:     pending (the lane is still being prepared)
+Credentials:      <root>/cfg/credentials/cli.json
+Next:             octocove lane materialize T1 DIR (it finishes preparing the lane first)
+",
 }
 `;
 
@@ -919,8 +763,10 @@ exports[`task claim-status 1`] = `
 Task:             T1
 Status:           active
 Provisioning:     ready
-Remote:           https://git.example.invalid/t1.git
-Ref:              refs/heads/task/t1
+Expires:          2030-01-01T00:00:00Z
+Generation:       1
+Base:             bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Scope version:    1
 ",
 }
 `;
@@ -1061,20 +907,6 @@ exports[`task release 1`] = `
   "stderr": "",
   "stdout": "Claim:            C1
 Status:           released
-",
-}
-`;
-
-exports[`task replace-claim 1`] = `
-{
-  "code": 0,
-  "requests": [
-    "POST /tasks/T1/claim/replace",
-  ],
-  "stderr": "",
-  "stdout": "id:               T1
-claimId:          C2
-status:           claimed
 ",
 }
 `;

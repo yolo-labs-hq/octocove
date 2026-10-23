@@ -2,7 +2,7 @@
 
 **Git hosting for humans and agents.** By YOLO Labs.
 
-Octocove is an open-source GitHub alternative for the AI era, backed by Cloudflare Workers and Artifacts. It carries intent, exact-candidate approvals and attributable landing receipts across three client archetypes: a workspace adapter, an agent working in its own clone through the CLI, and CI with a policy-bot approver. Octocove is designed to be independently usable; YOLO Studio is its first integration and remains a separate, closed application.
+Octocove is an open-source GitHub alternative for the AI era, backed by Cloudflare Workers and Artifacts. It carries intent, exact-candidate approvals and attributable landing receipts across three client archetypes: a workspace adapter, an agent working in a lane through the CLI, and CI with a policy-bot approver. Octocove is designed to be independently usable; YOLO Studio is its first integration and remains a separate, closed application.
 
 
 - Intent travels with the task
@@ -13,7 +13,7 @@ Octocove is an open-source GitHub alternative for the AI era, backed by Cloudfla
 
 ## Octocove and your agents
 
-Octocove does not orchestrate your agents. It records versioned intent, enforces dependencies on accepted landed results, and preserves the authority and exact approval behind each result. Chain lanes let successive attempts share a Git repository under one-writer rules, with each successor pinned to the preceding accepted result. Events and webhooks report recorded changes so your client can read the authoritative state and decide what work to run next. Octocove schedules and retries its own record operations, but it will never choose, launch, or schedule your participant agents or select their models and prompts. The glossary's scope fence is the committed boundary.
+Octocove does not orchestrate your agents. It records versioned intent, enforces dependencies on accepted landed results, and preserves the authority and exact approval behind each result. Each claim is a scoped lane: the agent reads and changes only the paths its claim names, saves through the API and wraps up one candidate for review, without a Git remote or provider credential. Events and webhooks report recorded changes so your client can read the authoritative state and decide what work to run next. Octocove schedules and retries its own record operations, but it will never choose, launch, or schedule your participant agents or select their models and prompts. The glossary's scope fence is the committed boundary.
 
 ## This repository
 
@@ -23,18 +23,16 @@ This repository contains the Octocove command-line client and the npm libraries 
 | --- | --- |
 | [`packages/cli`](packages/cli/README.md) | The `octocove` command-line client (`@yolo-labs/octocove`). |
 | [`packages/client`](packages/client/README.md) | The typed API client library (`@yolo-labs/octocove-client`). |
-| [`packages/helper`](packages/helper/README.md) | The local credential helper. |
 | [`packages/shared`](packages/shared/README.md) | Code shared by the packages. |
-| [`docs/`](docs/README.md) | Client guides: the multi-agent walkthrough, examples, the helper/broker contract and the release process. |
+| [`docs/`](docs/README.md) | Client guides: the multi-agent walkthrough, the lane walkthrough, examples and the release process. |
 
 **Open-source scope.** Everything in this repository is Apache-2.0. The hosted service, its web application and YOLO Studio are separate and are not included here. See [public scope](docs/PUBLIC_SCOPE.md).
 
 ## Run with the hosted service
 
-Use Node 20 or newer, Git and an agent runtime of your choice. The managed Git
-transport uses the current published CLI. At [app.octocove.com](https://app.octocove.com),
-create a project and a **seeded Artifacts repository**. Record its project and
-repository IDs, target ref and seeded head SHA.
+Use Node 20 or newer and an agent runtime of your choice. At
+[app.octocove.com](https://app.octocove.com), create a project and a **seeded
+Artifacts repository**. Record its project and repository IDs and target ref.
 
 Sign in as the human project administrator:
 
@@ -60,43 +58,41 @@ npx @yolo-labs/octocove --json task authorize TASK_ID \
   --expires-at EXPIRY_ISO
 ```
 
-Give the agent the returned protected `bootstrapFile` path, task ID, intent
-version and exact base SHA. The bootstrap is short-lived; authorize just before
-the agent starts. It is exchanged for a scoped delegation at claim. Do not share
-the human credential or print the bootstrap's contents.
+Give the agent the returned protected `bootstrapFile` path, the task ID and its
+intent version. The bootstrap is short-lived; authorize just before the agent
+starts. It is exchanged for a scoped delegation at claim. Do not share the human
+credential or print the bootstrap's contents.
 
-In the agent's own directory, with its **own** protected config directory:
+As the agent, with its **own** protected config directory:
 
 ```sh
 umask 077
 export OCTOCOVE_CONFIG_DIR=/path/to/private/agent-config
-mkdir -p "$OCTOCOVE_CONFIG_DIR" /path/to/agent-work
+mkdir -p "$OCTOCOVE_CONFIG_DIR"
 chmod 700 "$OCTOCOVE_CONFIG_DIR"
-cd /path/to/agent-work
-git init
-npx @yolo-labs/octocove --json task claim TASK_ID \
-  --bootstrap-file /path/to/protected/bootstrap.json --intent-version INTENT_VERSION \
-  --lane chain --chain-id example-chain --base BASE_SHA --remote octocove --wait 180
+npx @yolo-labs/octocove --json task claim TASK_ID --intent-version INTENT_VERSION \
+  --read README.md --write README.md --bootstrap-file /path/to/protected/bootstrap.json
 npx @yolo-labs/octocove --json whoami
-git rev-parse HEAD
-git switch -c work/example
-# Implement and test the task; configure your local Git author if necessary.
-git add README.md
-git commit -m 'Add a usage example'
-git push octocove
-npx @yolo-labs/octocove --json task show TASK_ID
+npx @yolo-labs/octocove lane materialize TASK_ID ./lane
+# Implement and test the task in ./lane (a plain directory, no .git).
+npx @yolo-labs/octocove lane status ./lane
+npx @yolo-labs/octocove lane submit ./lane --message 'Add a usage example'
+npx @yolo-labs/octocove lane wrap-up ./lane --message 'Add a usage example'
 ```
 
-Claim prepares the worktree at the exact base and binds the helper remote's push
-default to the claim ref. Verify readiness, scoped identity and `HEAD == BASE_SHA`
-before editing. The CLI supplies its managed helper; agents do not receive
-Artifacts write tokens. `lane push --wait 180` is an alternative that waits for
-and displays the submission/candidate. Inspect outcome/status, not just exit code.
+The claim carries the scope: what the agent may read, and what it may change.
+`lane materialize` writes the files at the lane head; `lane submit` saves the
+changed files as a save point, as often as you like; `lane wrap-up` squashes the
+saved lane into one candidate for review and prints its candidate and submission.
+Agents never receive a Git remote or a provider credential. Inspect the candidate's
+outcome/status with `candidate show --submission SUBMISSION_ID`, not just the exit
+code.
 
 In the web app, the human reviews the candidate diff and checks, clicks
 **Approve**, then **Land**, and opens the resulting receipt. Agents never approve
 or land in this walkthrough. See [the multi-agent walkthrough](docs/DEMO.md) for
-concurrency, dependencies and merge recovery.
+concurrency, dependencies and stale recovery, and [the lane walkthrough](docs/examples/materialized-lane.md)
+for every lane command.
 
 ## Scope of evidence
 
@@ -108,7 +104,6 @@ Package tests run against fixtures and provider doubles. They do not qualify a d
 pnpm install --frozen-lockfile
 pnpm --filter @yolo-labs/octocove exec vitest run tests/cli.test.ts --maxWorkers=1
 pnpm --filter @yolo-labs/octocove-client test
-pnpm --filter @octocove/helper test
 ```
 
 Use Node 22 and pnpm 10.34.5. Run one test file at a time with one worker; `pnpm -r test` runs every package's tests. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and scope rules and the [documentation index](docs/README.md) for the client guides.

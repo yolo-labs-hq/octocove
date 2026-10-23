@@ -7,7 +7,6 @@ import {
   TransportError,
   type ClaimBootstrap,
   type ClientOptions,
-  type GitAdapter,
 } from '../../src/index.js';
 import { dumpError, equal, hang, json, ok, problem, rejects, scriptedFetch, sleep, test, type Case, type Recorded } from '../harness.js';
 
@@ -32,7 +31,7 @@ const bootstrap: ClaimBootstrap = Object.freeze({
   claimAttemptId: 'attempt-1', delegationId: 'del-1', expiresAt: '2026-10-09T00:05:00Z', authorizationExpiresAt: '2026-10-09T01:00:00Z', verbs: ['tasks:read'],
 });
 const delegationWire = { delegationId: 'del-1', accessToken: 'delegation-access-fixture-0123', tokenType: 'Bearer', expiresAt: '2026-10-09T00:15:00Z', revocationId: 'rev-1' };
-const claimSnapshot = { id: 'attempt-1', taskId: 't', intentVersion: 1, status: 'active', expiresAt: '2026-10-09T01:00:00Z', dependencyResults: [], provisioningState: 'pending', workspace: null, blockedReason: null };
+const claimSnapshot = { id: 'attempt-1', taskId: 't', intentVersion: 1, status: 'active', expiresAt: '2026-10-09T01:00:00Z', dependencyResults: [], provisioningState: 'pending', blockedReason: null, lane: { kind: 'materialized', executionId: 'exec-1', generation: 1, baseSha: 'b'.repeat(40), scopeVersion: 1, scope: { read: ['src/'], write: ['src/'] } } };
 const candidate = (outcome: string) => ({ id: 'cand-1', taskId: 't', submissionId: 'sub-1', outcome, status: 'active', candidateSha: A, candidateRef: 'refs/x', baseSha: B, reviewBoundTo: { candidateSha: A, baseSha: B, intentVersion: 1 } });
 const receipt = (outcome: string) => ({ id: 'fence-1', fenceId: 'fence-1', taskId: 't', candidateId: 'cand-1', outcome, landedSha: outcome === 'landed' ? C : null, baseShaBefore: B, baseShaAfter: C });
 const approvalScope = { projectId: 'p', claimAttemptId: 'attempt-1', candidateId: 'cand-1', boundTo: { candidateSha: A, baseSha: B, intentVersion: 1 }, checkRunIds: [] as string[] };
@@ -94,7 +93,7 @@ export const journeyCases: Case[] = [
   test('a replay refused by the current authorization gate surfaces that refusal, never the earlier result', async () => {
     for (const [status, code] of [[409, 'claim-inactive'], [403, 'membership-revoked']] as const) {
       const { fetch, calls } = scriptedFetch(lost(201), problem(status, code), json(201, {}));
-      const error = await rejects(() => journeys(client(fetch)).submissions.create('t', { sourceSha: A, baseSha: B, intentVersion: 1 }, { deadline: soon() }), ApiError);
+      const error = await rejects(() => journeys(client(fetch)).claims.release('t', { claimAttemptId: 'attempt-1' }, { deadline: soon() }), ApiError);
       equal(error.code, code);
       equal(calls.length, 2);
     }
@@ -119,13 +118,14 @@ export const journeyCases: Case[] = [
       equal(calls.length, 1);
     }
     const lostExchange = scriptedFetch(lost(201), json(201, {}));
-    await rejects(() => journeys(client(lostExchange.fetch)).grants.exchangeSubmit('signed-assertion-fixture-0123', { projectId: 'p', taskId: 't', claimAttemptId: 'a', sourceSha: A, baseSha: B, intentVersion: 1 }, { deadline: soon() }), TransportError);
+    await rejects(() => journeys(client(lostExchange.fetch)).grants.exchangeApproval('signed-assertion-fixture-0123', approvalScope, { deadline: soon() }), TransportError);
     equal(lostExchange.calls.length, 1, 'a lost exchange answer is not resent either');
   }),
   test('a state-replay command is not replayed after a lost answer (the follow-up is a read)', async () => {
-    const { fetch, calls } = scriptedFetch(lost(202), json(200, { phase: 'retired' }));
-    await rejects(() => journeys(client(fetch)).chain.retire('t', { deadline: soon() }), TransportError);
+    const { fetch, calls } = scriptedFetch(lost(202), json(200, { phase: 'retired', laneRepositories: [] }));
+    await rejects(() => journeys(client(fetch)).lanes.retire('t', { deadline: soon() }), TransportError);
     equal(calls.length, 1);
+    equal(calls[0]!.url, `${BASE}/v1/tasks/t/lane/retire`);
   }),
   test('operation-in-progress and 429 are consumed with Retry-After under the same key', async () => {
     const task = { projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] };
@@ -285,52 +285,11 @@ export const journeyCases: Case[] = [
     equal(staleBaseRefusal(new ApiError({ status: 409, code: 'conflict' })), undefined);
   }),
 
-  // ---- chain ----
-  test('chain.push stages through the caller\'s Git adapter, queues once, and waits for delivery', async () => {
-    const staged: unknown[] = [];
-    const git: GitAdapter = { async stage(input) { staged.push(input); } };
-    const lane = (status: string) => ({ chainId: 'chain', claimAttemptId: 'attempt-1', pushes: [{ pushId: 'push-fixed', sourceSha: A, status, attempts: 1, error: null }] });
-    const { fetch, calls } = scriptedFetch(json(202, { pushId: 'push-fixed' }), json(200, lane('remote-pending')), json(200, lane('delivered')));
-    const result = await journeys(client(fetch)).chain.push('t', { claimAttemptId: 'attempt-1', sourceSha: A, baseSha: B, pushId: 'push-fixed', git }, { deadline: soon(), pollMs: 1 });
-    equal(result.state, 'delivered');
-    equal(staged, [{ taskId: 't', claimId: 'attempt-1', pushId: 'push-fixed', sourceSha: A, baseSha: B }]);
-    equal(calls.map((c) => c.method), ['POST', 'GET', 'GET']);
-    const timeout = scriptedFetch(json(202, { pushId: 'p' }), ...Array.from({ length: 50 }, () => json(200, lane('remote-pending'))));
-    const pending = await journeys(client(timeout.fetch)).chain.push('t', { claimAttemptId: 'attempt-1', sourceSha: A, baseSha: B, pushId: 'push-fixed', git }, { deadline: Date.now() + 80, pollMs: 10 });
-    equal(pending.state === 'pending-timeout' && pending.pushId, 'push-fixed');
-    equal(timeout.calls.filter((c) => c.method === 'POST').length, 1);
-  }),
-  test('chain.push with an already-ended deadline or signal never invokes the Git adapter', async () => {
-    let invoked = 0;
-    const git: GitAdapter = { async stage() { invoked += 1; } };
-    const { fetch, calls } = scriptedFetch();
-    const push = (options: { deadline: number; signal?: AbortSignal }) =>
-      journeys(client(fetch)).chain.push('t', { claimAttemptId: 'attempt-1', sourceSha: A, baseSha: B, pushId: 'push-fixed', git }, options);
-    equal((await rejects(() => push({ deadline: Date.now() - 1 }), TransportError)).code, 'deadline-exceeded');
-    equal((await rejects(() => push({ deadline: soon(), signal: AbortSignal.abort() }), TransportError)).code, 'aborted');
-    equal([invoked, calls.length], [0, 0]);
-  }),
-  test('chain.push hands the adapter the scope\'s signal and deadline; ending mid-stage rejects and never queues', async () => {
-    let seen: { signal: AbortSignal; deadline: number } | undefined;
-    let settled = false;
-    const git: GitAdapter = {
-      stage(_input, signal, deadline) {
-        seen = { signal, deadline };
-        // A cooperative adapter: stops when the signal aborts.
-        return new Promise((_, reject) => signal.addEventListener('abort', () => { settled = true; reject(new Error('stopped')); }, { once: true }));
-      },
-    };
-    const { fetch, calls } = scriptedFetch();
-    const deadline = Date.now() + 40;
-    const error = await rejects(() => journeys(client(fetch)).chain.push('t', { claimAttemptId: 'attempt-1', sourceSha: A, baseSha: B, pushId: 'push-fixed', git }, { deadline }), TransportError);
-    equal(error.code, 'deadline-exceeded');
-    equal([seen?.deadline, seen?.signal.aborted, settled, calls.length], [deadline, true, true, 0]);
-  }),
   test('human-only journeys fail before sending with a non-human credential', async () => {
     const { fetch, calls } = scriptedFetch();
     const agent = createClient({ baseUrl: BASE, transport: bearer({ token: 'delegation-fixture-0123', kind: 'delegation' }), fetch });
     await rejects(async () => journeys(agent).approvals.approve('cand-1', { candidateSha: A, baseSha: B, intentVersion: 1 }, { deadline: soon() }), TypeError);
-    await rejects(async () => journeys(agent).claims.replace('t', { expectedStatus: 'claimed', expectedIntentVersion: 1, claimId: 'c', expiresAt: 'x' }, { deadline: soon() }), TypeError);
+    await rejects(async () => journeys(agent).lanes.retire('t', { deadline: soon() }), TypeError);
     equal(calls.length, 0);
   }),
   // Errors the journey scope raises itself (pre-aborted call, cancellation during a replay or a stage)
@@ -386,18 +345,6 @@ export const journeyCases: Case[] = [
     equal(result, { state: 'pending-timeout', submissionId: 'sub-1', jobId: 'job-9', reason: 'aborted' });
     equal(calls.length, 1);
     ok(!dumpError(result).includes(TOKEN));
-  }),
-  test('cancellation while chain.push stages surfaces a sanitized aborted error', async () => {
-    const git: GitAdapter = { stage: () => new Promise<void>(() => {}) };
-    const controller = new AbortController();
-    const pending = rejects(() => journeys(client(scriptedFetch().fetch)).chain.push('t', { claimAttemptId: 'attempt-1', sourceSha: A, baseSha: B, git },
-      { deadline: soon(), signal: controller.signal }), TransportError);
-    await sleep(10);
-    controller.abort({ detail: `stage cancelled for ${TOKEN}` });
-    const error = await pending;
-    equal(error.code, 'aborted');
-    ok(!dumpError(error).includes(TOKEN));
-    equal(error.cause, { detail: 'stage cancelled for [redacted]' });
   }),
   test('a journey whose deadline already passed surfaces deadline-exceeded without sending', async () => {
     const { fetch, calls } = scriptedFetch(json(200, {}));
