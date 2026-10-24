@@ -1099,7 +1099,7 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo add requires a human credential");
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), r.provider === "github" ? r.repoId : `${r.namespace}/${r.repoId}`], ["Name", r.name],
+    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), r.provider === "github" ? `${r.namespace}/${r.name}` : `${r.namespace}/${r.repoId}`], ["Name", r.name],
       ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable (not observed yet)"],
       ...(r.provider === "github" ? [["Next", `verify it against GitHub: octocove repo verify ${pos[0]} ${r.id}`]] as [string, unknown][] : [])]));
   },
