@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EXIT, run } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import type { Credentials } from "../src/config.js";
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 
 const fixture = (name: string) =>
   JSON.parse(readFileSync(join(process.cwd(), "tests/fixtures/contract", `${name}.json`), "utf8")) as { status: number; body: any };
@@ -21,11 +22,11 @@ const git = (...a: string[]) => execFileSync("git", a, { cwd: repo, encoding: "u
 async function cli(argv: string[], credentials: Partial<Credentials> = {}) {
   out = err = "";
   return run({
-    argv, env: { OCTOCOVE_CONFIG_DIR: cfg },
-    credentials: { apiUrl: API, token: "tok", kind: "agent", ...credentials },
+    argv, env: { OCTOCOVE_CONFIG_DIR: cfg, OCTOCOVE_ORG: ORG },
+    credentials: { apiUrl: API, token: "tok", kind: "agent", orgId: ORG, ...credentials },
     git: systemGit(repo),
     fetch: async (url, init) => {
-      const route = `${init.method ?? "GET"} ${new URL(url).pathname.replace("/v1", "")}`;
+      const route = `${init.method ?? "GET"} ${new URL(url).pathname.replace(`/v1/orgs/${ORG}`, "").replace("/v1", "")}`;
       calls.push(route);
       return routes[route]?.() ?? reply(404, { code: "not-found", status: 404 });
     },
@@ -41,7 +42,7 @@ beforeEach(() => {
 });
 
 describe("task claim against recorded responses", () => {
-  const boot = { kind: "bootstrap" as const, token: "boot" };
+  const boot = { kind: "bootstrap" as const, orgId: ORG, token: "boot" };
   it("ready ClaimResponse: saves the delegation privately, prints the lane and writes no Git configuration", async () => {
     const { claim } = fixture("claim-post-ready").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-ready");

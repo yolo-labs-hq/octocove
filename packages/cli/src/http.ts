@@ -7,21 +7,28 @@ import {
   ApiError,
   bearer,
   createClient,
+  isTenantId,
+  isTenantScoped,
   journeys,
   unauthenticated,
   type ApiResponse,
   type BearerKind,
   type CallableOperationId,
-  type CallInput,
+  type TenantCallInput,
   type CommandOptions,
   type FetchLike,
   type JourneyOptions,
   type Journeys,
+  type TenantJourneys,
 } from "../../client/src/node.js";
-import type { CredentialKind } from "./config.js";
+import { ConfigError, type CredentialKind } from "./config.js";
 
 export { ApiError, TransportError, ProtectedStoreError, newIdempotencyKey } from "../../client/src/node.js";
-export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, ApprovalGrantScope, CandidateWaitResult, FetchLike } from "../../client/src/node.js";
+export { isTenantId } from "../../client/src/node.js";
+export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike } from "../../client/src/node.js";
+
+/** Why a tenant-scoped command could not run: no org was given. */
+export const ORG_REQUIRED = "this command acts in one organization: pass --org ORG_ID or set OCTOCOVE_ORG (`octocove projects` lists each project's org)";
 
 /** The local credential label selects the bearer kind. */
 const BEARER: Record<CredentialKind, BearerKind> = { human: "session", agent: "delegation", bootstrap: "bootstrap", machine: "event-assertion" };
@@ -38,16 +45,26 @@ export interface ConnectOptions {
   /** Absolute epoch-ms deadline for every call, body read and resend. */
   deadline?: number;
   signal?: AbortSignal;
+  /**
+   * The org (tenant id, `org_<uuid>`) every tenant-scoped call of this connection goes to: `/v1/orgs/{orgId}/...`.
+   * Undefined for a connection that only uses the global routes (sign-in, `/me`, `/me/projects`).
+   */
+  orgId?: string;
 }
 
-type Input<K extends CallableOperationId> = {} extends CallInput<K> ? [input?: CallInput<K>] : [input: CallInput<K>];
+type Input<K extends CallableOperationId> = {} extends TenantCallInput<K> ? [input?: TenantCallInput<K>] : [input: TenantCallInput<K>];
 
-/** One API origin and credential. The client is built on first use, so local checks still run first. */
+/** One API origin, credential and org. The client is built on first use, so local checks still run first. */
 export class Api {
   #journeys: Journeys | undefined;
-  constructor(private readonly options: ConnectOptions) {}
+  constructor(private readonly options: ConnectOptions) {
+    if (options.orgId !== undefined && !isTenantId(options.orgId)) throw new ConfigError("--org must be an org id (org_ followed by a UUID); `octocove projects` lists each project's org");
+  }
 
-  get j(): Journeys {
+  get orgId(): string | undefined { return this.options.orgId; }
+
+  /** The global routes: sign-in, `/me`, the caller's projects across every org, project creation. */
+  get root(): Journeys {
     const { apiUrl, credential, fetch, sleep, deadline, signal } = this.options;
     return this.#journeys ??= journeys(createClient({
       baseUrl: baseUrlOf(apiUrl),
@@ -57,12 +74,20 @@ export class Api {
     }));
   }
 
+  /** The connection's org: every resource route. Refused before anything is sent when no org was given. */
+  get j(): TenantJourneys {
+    if (this.options.orgId === undefined) throw new ConfigError(ORG_REQUIRED);
+    return this.root.org(this.options.orgId);
+  }
+
   /**
-   * Reads only. Request inputs are checked against the OpenAPI; bodies are left to the formatting code.
-   * Writes go through the journeys (`j`), which own each operation's same-key recovery after a lost answer.
+   * Reads only. Request inputs are checked against the OpenAPI; bodies are left to the formatting code. A tenant-scoped
+   * read goes to the connection's org. Writes go through the journeys (`j`), which own each operation's same-key
+   * recovery after a lost answer.
    */
   call<K extends CallableOperationId>(operationId: K, ...input: Input<K>): Promise<ApiResponse<any>> {
-    return (this.j.client.call as (id: K, input?: CallInput<K>) => Promise<ApiResponse<any>>)(operationId, ...input);
+    const client = isTenantScoped(operationId) ? this.j.client : this.root.client;
+    return (client.call as (id: K, input?: unknown) => Promise<ApiResponse<any>>)(operationId, ...input);
   }
 
   /** Journey options for one absolute deadline, sharing this connection's signal and timer. */

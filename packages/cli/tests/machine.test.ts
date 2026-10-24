@@ -3,6 +3,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { run, type Deps } from '../src/cli';
+const ORG = 'org_00000000-0000-4000-8000-000000000001';
 const dirs: string[] = [];
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d,{recursive:true,force:true}); });
 async function fixture() {
@@ -10,7 +11,7 @@ async function fixture() {
   const proof = 'raw-workload-proof-sensitive', grantToken = 'ocg_' + 's'.repeat(40);
   const scope = {projectId:'p',claimAttemptId:'attempt',candidateId:'candidate',boundTo:{candidateSha:'a'.repeat(40),baseSha:'b'.repeat(40),intentVersion:1},checkRunIds:[]};
   let stdout = '', stderr = '', calls: any[] = [];
-  const deps: Deps = {argv:[],env:{OCTOCOVE_CONFIG_DIR:dir,OCTOCOVE_API_URL:'https://api.invalid/v1',OCTOCOVE_WORKLOAD_TOKEN:proof},
+  const deps: Deps = {argv:[],env:{OCTOCOVE_CONFIG_DIR:dir,OCTOCOVE_API_URL:'https://api.invalid/v1',OCTOCOVE_WORKLOAD_TOKEN:proof,OCTOCOVE_ORG:ORG},
     stdin:async () => proof,git:async () => {throw new Error('machine commands must not run Git');},
     fetch:async (url,init) => {
       calls.push({url,init});
@@ -24,7 +25,8 @@ describe('headless grant commands', () => {
     const f = await fixture();
     f.deps.argv = ['auth','exchange','--as','principal','--scope',JSON.stringify(f.scope),'--token-stdin'];
     expect(await run(f.deps)).toBe(0);
-    expect(JSON.parse(f.output())).toEqual({id:'grant-1',principalId:'principal',scope:f.scope,expiresAt:expect.any(String),policyVersion:'policy'});
+    expect(JSON.parse(f.output())).toEqual({id:'grant-1',orgId:ORG,principalId:'principal',scope:f.scope,expiresAt:expect.any(String),policyVersion:'policy'});
+    expect(f.calls[0].url).toBe(`https://api.invalid/v1/orgs/${ORG}/auth/approval-grants`);
     expect(f.output()).not.toContain(f.proof); expect(f.output()).not.toContain(f.grantToken);
     const stored = JSON.parse(await readFile(join(f.dir,'grants/grant-1.json'),'utf8'));
     expect(stored.token).toBe(f.grantToken);
@@ -55,7 +57,7 @@ describe('headless grant commands', () => {
     f.deps.fetch = async (url,init) => {f.calls.push({url,init});return new Response(null,{status:204});};
     f.deps.argv = ['auth','revoke','--grant','remote-grant'];
     expect(await run(f.deps)).toBe(0);
-    expect(f.calls[0].url).toBe('https://api.invalid/v1/auth/approval-grants/remote-grant/revoke');
+    expect(f.calls[0].url).toBe(`https://api.invalid/v1/orgs/${ORG}/auth/approval-grants/remote-grant/revoke`);
     expect(JSON.parse(f.output())).toEqual({id:'remote-grant',revoked:true});
     expect(f.output()).not.toContain(adminSession);
   });

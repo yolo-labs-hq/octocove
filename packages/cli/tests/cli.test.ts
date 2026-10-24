@@ -15,6 +15,7 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 const SHA_A = "a".repeat(40);
 const SHA_B = "b".repeat(40);
 const API = "https://api.example.invalid/v1";
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 
 let calls: Call[];
 let routes: Record<string, (c: Call) => Response>;
@@ -31,14 +32,14 @@ async function cli(argv: string[], credentials: Partial<Credentials> = {}, env: 
   outText = errText = "";
   const code = await run({
     argv,
-    env: { OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-" + Math.random().toString(36).slice(2)), ...env },
-    credentials: { apiUrl: API, token: "tok", kind: "agent", ...credentials },
+    env: { OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-" + Math.random().toString(36).slice(2)), OCTOCOVE_ORG: ORG, ...env },
+    credentials: { apiUrl: API, token: "tok", kind: "agent", ...(credentials.kind === "human" || credentials.kind === "machine" ? {} : { orgId: ORG }), ...credentials },
     git: systemGit(repo),
     fetch: async (url, init) => {
       const u = new URL(url);
       const call: Call = { method: init.method ?? "GET", url: u, headers: init.headers as any, body: init.body ? JSON.parse(init.body as string) : undefined };
       calls.push(call);
-      const route = routes[`${call.method} ${u.pathname.replace("/v1", "")}`];
+      const route = routes[`${call.method} ${u.pathname.replace(`/v1/orgs/${ORG}`, "").replace("/v1", "")}`];
       if (!route) return json(404, { code: "not-found", status: 404 });
       return route(call);
     },
@@ -136,26 +137,47 @@ describe("whoami", () => {
 });
 
 describe("project create", () => {
-  const project = { id: "0b5c6f1e-0000-4000-8000-000000000001", slug: "first", name: "First project", createdAt: "2026-10-10T15:00:00.000Z" };
-  const problem = (status: number, code: string) => json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r" });
+  const project = { id: "0b5c6f1e-0000-4000-8000-000000000001", slug: "first", name: "First project", createdAt: "2026-10-10T15:00:00.000Z", tenantId: ORG };
+  const problem = (status: number, code: string, extra: object = {}, headers: Record<string, string> = {}) =>
+    json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r", ...extra }, headers);
 
-  it("posts the slug and name under an Idempotency-Key and prints the project", async () => {
-    routes["POST /projects"] = () => json(201, project);
-    expect(await cli(["project", "create", "first", "--name", "First project"], { kind: "human" })).toBe(0);
-    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["POST /v1/projects"]);
+  it("without an org posts to /me/projects (the personal org) under an Idempotency-Key and prints the project and its org", async () => {
+    routes["POST /me/projects"] = () => json(201, project);
+    expect(await cli(["project", "create", "first", "--name", "First project"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["POST /v1/me/projects"]);
     expect(calls[0]!.body).toEqual({ slug: "first", name: "First project" });
     expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
     expect(outText).toContain(project.id);
     expect(outText).toContain("First project");
-    expect(await cli(["--json", "project", "create", "first", "--name", "First project", "--idempotency-key", "k".repeat(20)], { kind: "human" })).toBe(0);
+    expect(outText).toContain(`--org ${ORG}`);
+    expect(await cli(["--json", "project", "create", "first", "--name", "First project", "--idempotency-key", "k".repeat(20)], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
     expect(JSON.parse(outText)).toEqual(project);
     expect(calls[1]!.headers["idempotency-key"]).toBe("k".repeat(20));
   });
 
+  it("with --org posts to that org's projects", async () => {
+    routes["POST /projects"] = () => json(201, project);
+    expect(await cli(["project", "create", "first", "--name", "First project", "--org", ORG], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`POST /v1/orgs/${ORG}/projects`]);
+    expect(await cli(["project", "create", "first", "--name", "First project", "--org", "octocove"], { kind: "human" })).toBe(EXIT.config);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("waits out org-creation-pending under the same key, then exits pending", async () => {
+    let n = 0;
+    routes["POST /me/projects"] = () => ++n === 1 ? problem(409, "org-creation-pending", { details: { organization: { id: ORG, provisioningState: "pending" } } }, { "retry-after": "1" }) : json(201, project);
+    expect(await cli(["project", "create", "first", "--name", "First project"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.headers["idempotency-key"]).toBe(calls[1]!.headers["idempotency-key"]);
+    routes["POST /me/projects"] = () => problem(409, "org-creation-pending", { details: { organization: { id: ORG, provisioningState: "pending" } } }, { "retry-after": "600" });
+    expect(await cli(["--json", "project", "create", "first", "--name", "First project"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.pending);
+    expect(JSON.parse(errText).error.code).toBe("org-creation-pending");
+  });
+
   it("maps refusals like other verbs: disabled and slug-taken exit 1 with the code, a delegation exits 77, a missing name exits 2", async () => {
     for (const code of ["project-create-disabled", "slug-taken"]) {
-      routes["POST /projects"] = () => problem(code === "slug-taken" ? 409 : 403, code);
-      expect(await cli(["--json", "project", "create", "first", "--name", "First"], { kind: "human" })).toBe(EXIT.failure);
+      routes["POST /me/projects"] = () => problem(code === "slug-taken" ? 409 : 403, code);
+      expect(await cli(["--json", "project", "create", "first", "--name", "First"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
       expect(JSON.parse(errText).error.code).toBe(code);
     }
     calls = [];
@@ -163,6 +185,48 @@ describe("project create", () => {
     expect(await cli(["project", "create", "first"], { kind: "human" })).toBe(EXIT.usage);
     expect(await cli(["project", "create", "--name", "First"], { kind: "human" })).toBe(EXIT.usage);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("project list and orgs", () => {
+  const OTHER = "org_00000000-0000-4000-8000-000000000002";
+  const item = { projectId: "P1", slug: "tools", name: "Tools", artifactsNamespace: "ns", taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: "organization" };
+
+  it("lists every org's projects with the org their commands take, and reports a partial read", async () => {
+    routes["GET /me/projects"] = () => json(200, { items: [item], partial: true, unavailableTenants: [{ tenantId: OTHER }] });
+    expect(await cli(["project", "list"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["GET /v1/me/projects"]);
+    expect(outText).toContain(`org ${ORG}`);
+    expect(errText).toContain(OTHER);
+    expect(await cli(["project", "list"], { kind: "agent" })).toBe(EXIT.humanRequired);
+  });
+
+  it("a human names the org of a tenant command; without one nothing is sent", async () => {
+    routes["GET /tasks/T1"] = () => json(200, task);
+    expect(await cli(["task", "show", "T1"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.config);
+    expect(errText).toContain("--org");
+    expect(calls).toEqual([]);
+    expect(await cli(["task", "show", "T1", "--org", ORG], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(await cli(["--org", ORG, "--json", "task", "show", "T1"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => c.url.pathname)).toEqual([`/v1/orgs/${ORG}/tasks/T1`, `/v1/orgs/${ORG}/tasks/T1`]);
+  });
+
+  it("an agent acts in the org its delegation was issued in and refuses another", async () => {
+    routes["GET /tasks/T1"] = () => json(200, task);
+    expect(await cli(["task", "show", "T1"], { kind: "agent" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => c.url.pathname)).toEqual([`/v1/orgs/${ORG}/tasks/T1`]);
+    expect(await cli(["task", "show", "T1", "--org", OTHER], { kind: "agent" })).toBe(EXIT.config);
+    expect(errText).toContain(`belongs to org ${ORG}`);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("explains tenant-not-found and route-unavailable", async () => {
+    const problem = (status: number, code: string) => json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r" });
+    routes["GET /tasks/T1"] = () => problem(404, "tenant-not-found");
+    expect(await cli(["--json", "task", "show", "T1"], { kind: "human" })).toBe(EXIT.failure);
+    expect(JSON.parse(errText).error.nextSteps).toContain("project list");
+    routes["GET /tasks/T1"] = () => problem(503, "route-unavailable");
+    expect(await cli(["--json", "task", "show", "T1"], { kind: "human" })).toBe(EXIT.pending);
   });
 });
 
@@ -175,7 +239,7 @@ describe("repo add / verify / list", () => {
   it("posts the Artifacts identity under an Idempotency-Key, defaulting the target ref server-side, and prints the repository", async () => {
     routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, repository);
     expect(await cli(["repo", "add", PROJECT, "--namespace", "ns", "--repo", "repo-1", "--name", "canonical"], { kind: "human" })).toBe(0);
-    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`POST /v1/projects/${PROJECT}/repositories`]);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`POST /v1/orgs/${ORG}/projects/${PROJECT}/repositories`]);
     expect(calls[0]!.body).toEqual({ provider: "artifacts", namespace: "ns", repoId: "repo-1", name: "canonical" });
     expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
     expect(outText).toContain(repository.id);
@@ -268,7 +332,7 @@ describe("repo add / verify / list", () => {
     const path = `POST /projects/${PROJECT}/repositories/${repository.id}/verify`;
     routes[path] = () => json(200, verified);
     expect(await cli(["repo", "verify", PROJECT, repository.id], { kind: "human" })).toBe(0);
-    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`POST /v1/projects/${PROJECT}/repositories/${repository.id}/verify`]);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`POST /v1/orgs/${ORG}/projects/${PROJECT}/repositories/${repository.id}/verify`]);
     expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
     expect(outText).toContain("ns/canonical");
     expect(outText).toContain("2026-10-10T00:00:00.000Z");
@@ -374,7 +438,7 @@ describe("task claim", () => {
     },
     delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" },
   };
-  const boot = { kind: "bootstrap" as const, token: "boot", agentId: "worker" };
+  const boot = { kind: "bootstrap" as const, orgId: ORG, token: "boot", agentId: "worker" };
   const cfg = () => join(repo, "..", "cfg-claim");
 
   it("claims with the bootstrap and the declared scope, saves the delegation privately and never prints it", async () => {
@@ -527,7 +591,7 @@ describe("approve", () => {
 
   it("treats a saved agent credential as human-ineligible", async () => {
     const env = { OCTOCOVE_API_URL: API, OCTOCOVE_CONFIG_DIR: join(repo, "x") };
-    await saveCredentials(env, { apiUrl: API, token: "t", kind: "agent" });
+    await saveCredentials(env, { apiUrl: API, orgId: ORG, token: "t", kind: "agent" });
     const code = await run({ argv: args, env, fetch: async () => json(500, {}), git: systemGit(repo), stdout: () => {}, stderr: () => {}, stdin: async () => "" });
     expect(code).toBe(EXIT.humanRequired);
   });
@@ -661,7 +725,7 @@ describe("transport", () => {
     const keys: string[] = [];
     const code = await run({
       argv: ["task", "release", "T1"],
-      env: {}, credentials: { apiUrl: API, token: "t", kind: "agent" }, git: systemGit(repo), cwd: repo,
+      env: {}, credentials: { apiUrl: API, token: "t", kind: "agent", orgId: ORG }, git: systemGit(repo), cwd: repo,
       fetch: async (_u, init) => {
         keys.push((init.headers as any)["idempotency-key"]);
         if (++n < 3) throw new Error("ECONNRESET");
@@ -676,7 +740,7 @@ describe("transport", () => {
   });
 
   it("gives up after repeated network failure", async () => {
-    const code = await run({ argv: ["task", "show", "T1"], env: {}, credentials: { apiUrl: API, token: "t", kind: "agent" }, git: systemGit(repo), fetch: async () => { throw new Error("down"); }, stdout: () => {}, stderr: (s) => (errText += s), stdin: async () => "", sleep: async () => {} });
+    const code = await run({ argv: ["task", "show", "T1"], env: {}, credentials: { apiUrl: API, token: "t", kind: "agent", orgId: ORG }, git: systemGit(repo), fetch: async () => { throw new Error("down"); }, stdout: () => {}, stderr: (s) => (errText += s), stdin: async () => "", sleep: async () => {} });
     expect(code).toBe(EXIT.failure);
     expect(errText).toContain("network-error");
   });
@@ -809,7 +873,7 @@ describe("recovery after a committed answer whose body was lost", () => {
   const delegation = { accessToken: "rotated-delegation", delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1" };
   const renewals: [string, Partial<Credentials>, string, object, string][] = [
     ["human", { kind: "human" }, "POST /auth/session/renew", session, "rotated-session"],
-    ["agent", { kind: "agent", delegationId: "D1" }, "POST /delegations/D1/renew", delegation, "rotated-delegation"],
+    ["agent", { kind: "agent", orgId: ORG, delegationId: "D1" }, "POST /delegations/D1/renew", delegation, "rotated-delegation"],
   ];
 
   it.each(renewals)("auth renew (%s) recovers the replacement under the same key and predecessor, and saves it", async (_kind, creds, route, answer, token) => {
@@ -929,7 +993,7 @@ describe("seeded repositories", () => {
 describe("agent presentation and recovery", () => {
   it("shows the agent label with the server-authenticated delegating human", async () => {
     routes["GET /me"] = () => json(200, { principal: { kind: "delegation", id: "D1", issuer: "https://issuer.example.invalid", sub: "alice" }, credential: { kind: "delegation", expiresAt: "2030-01-01T00:00:00Z" }, memberships: [] });
-    expect(await cli(["whoami"], { kind: "agent", delegationId: "D1", agentId: "worker-one" })).toBe(EXIT.ok);
+    expect(await cli(["whoami"], { kind: "agent", orgId: ORG, delegationId: "D1", agentId: "worker-one" })).toBe(EXIT.ok);
     expect(outText).toContain("worker-one");
     expect(outText).toContain("Delegated by:");
     expect(outText).toContain("https://issuer.example.invalid|alice");

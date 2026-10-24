@@ -13,7 +13,7 @@ import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Journeys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -34,6 +34,8 @@ export interface Deps {
   credentials?: Credentials;
   /** Working directory and human Git helper overrides for isolated clone tests. */
   cwd?: string;
+  /** The org a tenant-scoped command acts in (`--org`); set by the dispatcher from the global options. */
+  org?: string;
   humanCredentialPath?: string;
 }
 
@@ -66,14 +68,16 @@ Commands:
   version                                     (installed package version; no sign-in required)
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
-  whoami                                      (authenticated principal and project memberships)
+  whoami                                      (authenticated principal and project memberships, each with its org)
+  project list                                (your projects in every org, each with the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
-  project create SLUG --name TEXT             (allow-listed humans; you become its first member)
+  project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
+  repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -122,20 +126,30 @@ Commands:
   webhook rotate-secret ID --overlap-seconds N --secret-stdin
   webhook reactivate ID
 
+Orgs:
+  Every project lives in one org (an organization, or your own personal org) and every command on a project, task,
+  lane, candidate, receipt or webhook acts in exactly one org, named by its ID (org_<uuid>):
+    a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
+    an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
+    write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
+  login, logout, whoami, project list and project create (without --org) need no org; repo clone uses the org
+  the project's membership names.
+
 Global options:
+  --org ORG_ID            the org a tenant-scoped command acts in (also OCTOCOVE_ORG)
   --verbose               show full permissions and verification details
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
   --version, -v          print the installed package version
-  --json, --verbose, --idempotency-key and --help may precede or follow command words.
+  --json, --verbose, --idempotency-key, --org and --help may precede or follow command words.
 
-Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
+Environment: OCTOCOVE_API_URL, OCTOCOVE_ORG, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else ${DEFAULT_API_ORIGIN}; other commands use the origin stored with their credential.
 Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 77 sign-in or human credential required, 78 config or read access denied.
 `;
 
-const GLOBAL = { verbose: { type: "boolean" }, json: { type: "boolean" }, "idempotency-key": { type: "string" }, help: { type: "boolean" } } as const;
+const GLOBAL = { verbose: { type: "boolean" }, json: { type: "boolean" }, "idempotency-key": { type: "string" }, org: { type: "string" }, help: { type: "boolean" } } as const;
 
 function opts<T extends Record<string, { type: "string" | "boolean"; multiple?: boolean }>>(args: string[], spec: T, positionals: number, minPositionals = positionals) {
   try {
@@ -294,6 +308,12 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "This command needs a recent sign-in: run `octocove login`, then run it again with the same --idempotency-key if you passed one."
       : err.code === "lane-conflicts-unresolved"
         ? "Run `octocove lane status`, then `octocove lane resolve PATH --keep local|incoming` for each conflict."
+      : err.code === "tenant-not-found"
+        ? "The org does not exist or you cannot see it. Check --org (or OCTOCOVE_ORG) against `octocove project list`; an agent asks its delegating human for a new authorization."
+      : err.code === "org-creation-pending"
+        ? `The org is still being created; nothing was recorded. Run the same command again${err.retryAfter ? ` after ${err.retryAfter} s` : " shortly"} with the same --idempotency-key if you passed one.`
+      : err.code === "route-unavailable"
+        ? "The org is not reachable right now (it may be recovering or moving); nothing was recorded. Run the same command again shortly."
       : err.code === "already-claimed"
           ? "Run `octocove task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octocove task release TASK_ID --claim ID`)."
           : undefined;
@@ -302,6 +322,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
     if (!json && err.details) d.stderr(`details: ${JSON.stringify(err.details)}\n`);
     if (err.status === 503 && err.code === "oidc-registration-required") return EXIT.config;
     if (err.code === "usage") return EXIT.usage;
+    if (err.code === "org-creation-pending" || err.code === "route-unavailable") return EXIT.pending;
     return err.status === 403 && err.code === "human-required" ? EXIT.humanRequired : EXIT.failure;
   }
   emit("error", (err as Error).message ?? String(err));
@@ -336,6 +357,7 @@ async function dispatch(d: Deps) {
   }
   const lead = globals.flags;
   const argv = globals.argv;
+  if (globals.org !== undefined) d = { ...d, org: globals.org };
   const [a = "", b, ...tail] = argv;
   if (!d.credentials && !["version", "--version", "-v", "login"].includes(a)) {
     const stored = await activeCredentials(d.env);
@@ -361,7 +383,21 @@ const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
 
 const credentialFetch = (d: Deps, creds: Credentials) => !d.credentials && (creds.kind === "human" || creds.kind === "agent")
   ? (creds.kind === "human" ? humanSessionFetch : agentSessionFetch)(d.env, creds, d.fetch) : d.fetch;
-const connect = (d: Deps, creds: Credentials) => new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), credential: creds, fetch: credentialFetch(d, creds), sleep: d.sleep, signal: d.signal });
+/**
+ * The org a command acts in. An agent delegation or claim bootstrap belongs to the org it was issued in, so that org
+ * is used and a different --org is refused. A human (or machine) names it per command: --org, else OCTOCOVE_ORG.
+ * Commands on the global routes (login, whoami, project list, project create without --org) need none.
+ */
+function orgOf(d: Deps, creds: Credentials): string | undefined {
+  const named = d.org ?? (d.env.OCTOCOVE_ORG || undefined);
+  if (creds.kind === "agent" || creds.kind === "bootstrap") {
+    if (named !== undefined && named !== creds.orgId) throw new ConfigError(`this ${creds.kind === "agent" ? "agent delegation" : "claim bootstrap"} belongs to org ${creds.orgId}, not ${named}`);
+    return creds.orgId;
+  }
+  return named;
+}
+const connect = (d: Deps, creds: Credentials, orgId = orgOf(d, creds)) =>
+  new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), orgId, credential: creds, fetch: credentialFetch(d, creds), sleep: d.sleep, signal: d.signal });
 async function client(d: Deps) {
   const creds = d.credentials ?? (await loadCredentials(d.env));
   return { creds, api: connect(d, creds) };
@@ -489,7 +525,7 @@ type Handler = (d: Deps, args: string[]) => Promise<void>;
 
 type GovernanceOperation = "taskUnpublish" | "taskDependencyAdd" | "taskDependencyRemove" | "taskReject" | "taskSupersede" | "approvalWithdraw" | "candidateWithdraw" | "candidateReject";
 /** Each governance command through its ledgered journey (`stored-result`: a lost answer is replayed under the same key). */
-const GOVERNANCE: Record<GovernanceOperation, (j: Journeys, id: string, body: any, o: CommandOptions) => Promise<any>> = {
+const GOVERNANCE: Record<GovernanceOperation, (j: TenantJourneys, id: string, body: any, o: CommandOptions) => Promise<any>> = {
   taskUnpublish: (j, id, body, o) => j.tasks.unpublish(id, body, o),
   taskDependencyAdd: (j, id, body, o) => j.tasks.dependencies.add(id, body, o),
   taskDependencyRemove: (j, id, body, o) => j.tasks.dependencies.remove(id, body, o),
@@ -521,13 +557,14 @@ const eventsFollow: Handler = async (d,args) => {
   if (!v.follow) throw new UsageError('--follow is required');
   const projectId = need(v,'project'), limit = intFlag(v,'limit');
   if (limit !== undefined && limit > 200) throw new UsageError('--limit must be at most 200');
-  const { creds } = await client(d);
+  const { creds, api } = await client(d);
+  if (api.orgId === undefined) throw new ConfigError(ORG_REQUIRED);
   const controller = new AbortController();
   const abort = () => controller.abort();
   process.on('SIGINT',abort);
   d.signal?.addEventListener('abort',abort,{once:true});
   if (d.signal?.aborted) abort();
-  try { await followEvents({ creds,env:d.env,projectId,taskId:v.task,from:v.from,checkpoint:v.checkpoint,limit,signal:controller.signal,fetch:credentialFetch(d,creds),stdout:d.stdout,sleep:d.sleep }); }
+  try { await followEvents({ creds,env:d.env,orgId:api.orgId,projectId,taskId:v.task,from:v.from,checkpoint:v.checkpoint,limit,signal:controller.signal,fetch:credentialFetch(d,creds),stdout:d.stdout,sleep:d.sleep }); }
   finally { process.removeListener('SIGINT',abort); d.signal?.removeEventListener('abort',abort); }
 };
 
@@ -549,10 +586,10 @@ function laneRepositoryRows(lr: any, headLabel = "Lane head"): [string, unknown]
   ];
 }
 
-// Lane JSON uses the v1 envelope shape. These are client command results, not
-// committed audit events: event replay/follow remains the source of record events.
-function laneOut(d: Deps, json: boolean, action: string, taskId: string, projectId: string | null, data: any, id = newIdempotencyKey()) {
-  out(d, json, { id, type: `lane.${action}`, schemaVersion: 1, projectId, taskId, occurredAt: new Date().toISOString(), data },
+// Lane JSON follows the v2 envelope's identity fields (tenantId, projectId, taskId). These are client command results,
+// not committed audit events, so they carry no sequence: event replay/follow remains the source of record events.
+function laneOut(d: Deps, json: boolean, action: string, tenantId: string, taskId: string, projectId: string | null, data: any, id = newIdempotencyKey()) {
+  out(d, json, { id, type: `lane.${action}`, schemaVersion: 2, tenantId, projectId, taskId, occurredAt: new Date().toISOString(), data },
     () => {
       if (action === "retire") {
         const repos = Array.isArray(data?.laneRepositories) ? data.laneRepositories : [];
@@ -589,8 +626,10 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
     // With a credential at hand, the task's lane repository as the server records it; the directory alone otherwise.
     const creds = d.credentials ?? await activeCredentials(d.env);
     let server: { laneRepository: unknown } | { error: string } | undefined;
-    if (creds && creds.kind !== "bootstrap") {
-      try { server = { laneRepository: (await connect(d, creds).call("taskGet", { path: { id: st.taskId }, deadline: Date.now() + READ_SECONDS * 1000 })).body?.laneRepository ?? null }; }
+    // A human names the org (--org); without one only the directory is reported.
+    const read = creds && creds.kind !== "bootstrap" ? connect(d, creds) : undefined;
+    if (read?.orgId !== undefined) {
+      try { server = { laneRepository: (await read.call("taskGet", { path: { id: st.taskId }, deadline: Date.now() + READ_SECONDS * 1000 })).body?.laneRepository ?? null }; }
       catch (error) { if (error instanceof ApiError || error instanceof TransportError) server = { error: error instanceof ApiError ? error.code : error.code }; else throw error; }
     }
     const body = server === undefined ? st : "error" in server ? { ...st, laneRepositoryError: server.error } : { ...st, laneRepository: server.laneRepository };
@@ -701,7 +740,7 @@ async function claimTask(d: Deps, taskId: string, v: Record<string, any>) {
   const claim = claimOf(issued.claim);
   const delegation = issued.delegation;
   // A successful claim consumes the bootstrap: its replacement is saved before anything else happens.
-  const credentialsFile = await saveCredentials(d.env, { apiUrl: creds.apiUrl, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt,
+  const credentialsFile = await saveCredentials(d.env, { apiUrl: creds.apiUrl, orgId: creds.orgId, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt,
     issuedAt: new Date().toISOString(), ...(creds.absoluteExpiresAt ? { absoluteExpiresAt: creds.absoluteExpiresAt } : {}),
     ...(typeof claim.expiresAt === "string" ? { claimExpiresAt: claim.expiresAt } : {}), ...(creds.agentId ? { agentId: creds.agentId } : {}) });
   const lane = isRecord(claim.lane) ? claim.lane : undefined;
@@ -755,8 +794,8 @@ const COMMANDS: Record<string, Handler> = {
       const b = isRecord(r) ? r.agentBootstrap : undefined;
       if (!isRecord(b) || typeof b.bootstrapToken !== "string" || typeof r.reopenId !== "string") throw new ConfigError("reopen did not return an agent bootstrap");
       const lifetime = { expiresAt: b.bootstrapExpiresAt, absoluteExpiresAt: b.authorizationExpiresAt };
-      const bootstrapFile = output ? output.path : await saveBootstrap(d.env, creds.apiUrl, b.bootstrapToken, input.agentId, lifetime);
-      if (output) await output.write({ apiUrl: creds.apiUrl, token: b.bootstrapToken, kind: "bootstrap", agentId: input.agentId, ...lifetime });
+      const bootstrapFile = output ? output.path : await saveBootstrap(d.env, creds.apiUrl, api.orgId!, b.bootstrapToken, input.agentId, lifetime);
+      if (output) await output.write({ apiUrl: creds.apiUrl, orgId: api.orgId, token: b.bootstrapToken, kind: "bootstrap", agentId: input.agentId, ...lifetime });
       // The bootstrap token is a secret: only its metadata and file are printed.
       const metadata = { reopenId: r.reopenId, taskId, status: r.status, reopenedFromReceiptId: r.reopenedFromReceiptId, landingCount: r.landingCount, laneRepositoryId: r.laneRepositoryId,
         claimAttemptId: b.claimAttemptId, delegationId: b.delegationId, verbs: b.verbs, bootstrapExpiresAt: b.bootstrapExpiresAt, intentVersion, bootstrapFile, unsavedPatch: saved };
@@ -793,7 +832,7 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("lane retire requires a human credential (project:admin, with a recent sign-in)");
     const r = await api.j.lanes.retire(taskId, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    laneOut(d, v.json, "retire", taskId, null, r, v["idempotency-key"]);
+    laneOut(d, v.json, "retire", api.orgId!, taskId, null, r, v["idempotency-key"]);
   },
   login: async (d, args) => {
     const { v } = opts(args, { wait: { type: "string" } }, 0);
@@ -827,12 +866,12 @@ const COMMANDS: Record<string, Handler> = {
     let tx = attempt?.transaction && Date.parse(attempt.transaction.expiresAt) > Date.now() ? attempt.transaction : undefined;
     if (!tx) {
       if (key) {
-        const prepared = attempt?.prepared ?? { ...await api.j.auth.cli.prepare(), key };
+        const prepared = attempt?.prepared ?? { ...await api.root.auth.cli.prepare(), key };
         if (!attempt) await saveLoginAttempt(d.env, apiUrl, { prepared });
-        tx = await api.j.auth.cli.start(prepared, api.until(deadline)).catch(offShapeAs("invalid CLI login response"));
+        tx = await api.root.auth.cli.start(prepared, api.until(deadline)).catch(offShapeAs("invalid CLI login response"));
         await saveLoginAttempt(d.env, apiUrl, { prepared, transaction: { ...tx } });
       } else {
-        tx = await api.j.auth.cli.start(api.until(deadline)).catch(offShapeAs("invalid CLI login response"));
+        tx = await api.root.auth.cli.start(api.until(deadline)).catch(offShapeAs("invalid CLI login response"));
       }
     }
     if (new URL(tx.verificationUrl).protocol !== "https:") throw new ConfigError("unsafe CLI verification URL");
@@ -840,7 +879,7 @@ const COMMANDS: Record<string, Handler> = {
     // JSON login streams secret-free consent metadata, then the completion result.
     if (v.json) d.stdout(JSON.stringify(consent) + "\n");
     else d.stdout(`Open ${tx.verificationUrl} and confirm code ${tx.userCode}.\n`);
-    const result = await api.j.auth.cli.waitForSession(tx, api.until(deadline))
+    const result = await api.root.auth.cli.waitForSession(tx, api.until(deadline))
       .catch(offShapeAs("login did not return a session credential"));
     if (result.state === "authenticated" && result.session.transport === "bearer") {
       const credentialsFile = await saveCredentials(d.env, { apiUrl, token: result.session.token, kind: "human", expiresAt: result.session.expiresAt, absoluteExpiresAt: result.session.absoluteExpiresAt, issuedAt: new Date().toISOString(), ...(idleExpiresAt ? { idleExpiresAt } : {}) });
@@ -859,7 +898,7 @@ const COMMANDS: Record<string, Handler> = {
     const { v } = opts(args, {}, 0);
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("logout requires a human session; use auth revoke for a delegation");
-    await api.j.auth.logout(api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]));
+    await api.root.auth.logout(api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]));
     await clearCredentials(d.env);
     out(d, v.json, { loggedOut: true }, () => "Logged out; local credential cleared.");
   },
@@ -880,7 +919,7 @@ const COMMANDS: Record<string, Handler> = {
     }
     const options = api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]);
     const current: AgentDelegation = { kind: "agent-delegation", token: creds.token, delegationId: creds.delegationId!, revocationId: "", expiresAt: "" };
-    const renewed = await (creds.kind === "human" ? api.j.auth.session.renew(options) : api.j.auth.delegation.renew(current, options))
+    const renewed = await (creds.kind === "human" ? api.root.auth.session.renew(options) : api.j.auth.delegation.renew(current, options))
       .catch(offShapeAs("renewal did not return a credential"));
     const token = renewed.kind === "agent-delegation" ? renewed.token : renewed.transport === "bearer" ? renewed.token : undefined;
     if (typeof token !== "string" || !token) throw new ConfigError("renewal did not return a credential");
@@ -904,7 +943,7 @@ const COMMANDS: Record<string, Handler> = {
   whoami: async (d, args) => {
     const { v } = opts(args, {}, 0);
     const { api, creds } = await client(d);
-    const me = await api.j.auth.me(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("whoami did not return a principal"));
+    const me = await api.root.auth.me(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("whoami did not return a principal"));
     out(d, v.json, me, () => [
       kv([["Principal", me.principal.id], ["Kind", me.principal.kind], ["Agent", me.principal.kind === "delegation" ? creds.agentId ?? me.principal.displayName : undefined],
         ["Name", me.principal.displayName], ["Email", me.principal.email],
@@ -913,8 +952,10 @@ const COMMANDS: Record<string, Handler> = {
         ["Policy version", me.principal.policyVersion],
         ...(v.verbose || creds.kind === "agent" ? [["Credential", me.credential.kind], ["Expires", me.credential.expiresAt]] as [string, unknown][] : [])]),
       ...(me.memberships.length ? me.memberships.map((m) => v.verbose || creds.kind === "agent"
-        ? `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})\n  ${m.projectId}  ${m.verbs.join(",")}`
-        : `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})`) : ["(no project memberships)"]),
+        ? `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})\n  ${m.projectId}  ${m.verbs.join(",")}${m.tenantId ? `\n  org ${m.tenantId}` : ""}`
+        : `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})${m.tenantId ? `  org ${m.tenantId}` : ""}`) : ["(no project memberships)"]),
+      ...(creds.kind === "agent" ? [`Org: ${creds.orgId}`] : []),
+      ...(me.partial ? [`(some orgs could not be read right now: ${(me.unavailableTenants ?? []).map((t) => t.tenantId).join(", ")})`] : []),
     ].join("\n"));
   },
 
@@ -968,12 +1009,26 @@ const COMMANDS: Record<string, Handler> = {
     });
   },
 
+  // With --org (or OCTOCOVE_ORG) the project is created in that organization; without, in the caller's own personal
+  // org, provisioned on first use (the command waits out its provisioning under the same key).
   "project create": async (d, args) => {
     const { v, pos } = opts(args, { name: { type: "string" } }, 1);
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("project create requires a human credential");
-    const r = await api.j.projects.create({ slug: pos[0]!, name: need(v, "name") }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Project", r.id], ["Slug", r.slug], ["Name", r.name], ["Created", r.createdAt]]));
+    const r = await api.root.projects.create({ slug: pos[0]!, name: need(v, "name") }, { ...api.write(COMMAND_SECONDS, v["idempotency-key"]), ...(api.orgId ? { orgId: api.orgId } : {}) });
+    out(d, v.json, r, () => kv([["Project", r.id], ["Slug", r.slug], ["Name", r.name], ["Org", r.tenantId], ["Created", r.createdAt],
+      ["Next", `pass --org ${r.tenantId} (or set OCTOCOVE_ORG) to work in this project`]]));
+  },
+
+  // The caller's projects in every org they belong to, each with the org its commands take (--org).
+  "project list": async (d, args) => {
+    const { v } = opts(args, {}, 0);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("project list requires a human credential");
+    const r = await api.root.projects.list(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("invalid project list from the control plane"));
+    if (r.partial) d.stderr(v.json ? JSON.stringify({ notice: "partial", unavailableTenants: r.unavailableTenants }) + "\n"
+      : `octocove: some orgs could not be read right now; their projects are missing (${r.unavailableTenants.map((t) => t.tenantId).join(", ")}). Run the command again later.\n`);
+    out(d, v.json, r, () => r.items.map((p) => `${p.name ?? p.slug}  (${p.slug})  org ${p.tenantId}${p.tenantKind === "personal" ? " (personal)" : ""}${v.verbose ? `\n  ${p.projectId}` : ""}`).join("\n") || "(no projects)");
   },
 
   "project member add": async (d, args) => {
@@ -1029,23 +1084,40 @@ const COMMANDS: Record<string, Handler> = {
       ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"], ["Next steps", nextSteps]]));
   },
 
+  // The repository's lane policy (project admin, recent sign-in): the whole policy is declared each time.
+  "repo lane-policy": async (d, args) => {
+    const { v, pos } = opts(args, { publication: { type: "string" }, visibility: { type: "string" } }, 2);
+    const candidatePublication = need(v, "publication"), visibility = need(v, "visibility");
+    if (!["repository-readers", "public-on-submit"].includes(candidatePublication)) throw new UsageError("--publication must be repository-readers or public-on-submit");
+    if (!["private", "public"].includes(visibility)) throw new UsageError("--visibility must be private or public");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("repo lane-policy requires a human credential (project:admin, with a recent sign-in)");
+    const r = await api.j.repositories.declareLanePolicy(pos[0]!, pos[1]!, { candidatePublication, visibility } as never, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    out(d, v.json, r, () => kv([["Repository", r.repositoryId], ["Candidate publication", r.lanePolicy?.candidatePublication], ["Visibility", r.lanePolicy?.visibility],
+      ["Declared", `${r.declaredAt} by ${r.declaredBy}`]]));
+  },
+
   "repo clone": async (d, args) => {
     try {
     const { v, pos } = opts(args, {}, 3, 1);
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agents work in lane directories (`octocove lane materialize`); no human credential fallback is used.");
-    const me = await api.j.auth.me(api.until(Date.now() + READ_SECONDS * 1000));
+    const me = await api.root.auth.me(api.until(Date.now() + READ_SECONDS * 1000));
     if (me.principal.kind !== "human") throw new HumanRequiredError("repo clone requires a human session.");
     const project = cloneProject(me.memberships, pos[0]!);
-    const items = await api.j.repositories.list(project.projectId, api.until(Date.now() + READ_SECONDS * 1000));
+    // The membership names the project's org; a different --org is a mistake, not a fallback.
+    const orgId = project.tenantId;
+    if (!orgId) throw new ConfigError("invalid membership from the control plane: no org");
+    if (api.orgId !== undefined && api.orgId !== orgId) throw new ConfigError(`project ${pos[0]} is in org ${orgId}, not ${api.orgId}`);
+    const items = await connect(d, creds, orgId).j.repositories.list(project.projectId, api.until(Date.now() + READ_SECONDS * 1000));
     const repository = cloneRepositorySelection(items, project.projectId, pos[1]);
     const defaultName = [repository.name, project.slug, repository.id].find(value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(value));
     if (!pos[2] && !defaultName) throw new ConfigError("Specify DIR explicitly: this repository has no safe default directory name.");
     const directory = resolve(d.cwd ?? process.cwd(), pos[2] ?? defaultName!);
-    const result = await cloneWorkspace({ git:d.git, preflight:()=>checkCloneEndpoint(canonicalReadUrl(creds.apiUrl,project.projectId,repository.id),creds.token, humanSessionFetch(d.env,creds,d.fetch) as typeof globalThis.fetch,d.signal), binding:{projectId:project.projectId,repositoryId:repository.id,targetRef:repository.targetRef,knownHeadSha:repository.knownHeadSha,
+    const result = await cloneWorkspace({ git:d.git, preflight:()=>checkCloneEndpoint(canonicalReadUrl(creds.apiUrl,orgId,project.projectId,repository.id),creds.token, humanSessionFetch(d.env,creds,d.fetch) as typeof globalThis.fetch,d.signal), binding:{orgId,projectId:project.projectId,repositoryId:repository.id,targetRef:repository.targetRef,knownHeadSha:repository.knownHeadSha,
       apiUrl:resolveApiOrigin(d.env,creds,"credential"),configDirectory:configDir(d.env)},directory,helperPath:d.humanCredentialPath,signal:d.signal,
       stderr:text=>{ if(!v.json)d.stderr(text); } });
-    out(d,v.json,{projectId:project.projectId,projectSlug:project.slug,repositoryId:repository.id,...result,
+    out(d,v.json,{orgId,projectId:project.projectId,projectSlug:project.slug,repositoryId:repository.id,...result,
       nextSteps:"Changes go through tasks and lanes, not a direct push."},()=>kv([["Cloned to",result.directory],["Branch",result.branch],
       ["Repository",repository.id],["Remote","origin (authenticated read-only)"],["Empty",result.empty ? "yes; no commits yet" : undefined],
       ["Next steps","Changes go through tasks and lanes, not a direct push."]]));
@@ -1131,9 +1203,9 @@ const COMMANDS: Record<string, Handler> = {
       const issued = await api.j.claims.authorize(pos[0]!, input, api.write(AUTHORIZE_SECONDS, v["idempotency-key"]))
         .catch(offShapeAs("authorization did not return a bootstrap credential"));
       const lifetime = { expiresAt: issued.expiresAt, absoluteExpiresAt: issued.authorizationExpiresAt };
-      const bootstrapFile = output ? output.path : await saveBootstrap(d.env, creds.apiUrl, issued.token, input.agentId, lifetime);
-      if (output) await output.write({ apiUrl: creds.apiUrl, token: issued.token, kind: "bootstrap", agentId: input.agentId, ...lifetime });
-      const metadata = { id: issued.authorizationId, claimAttemptId: issued.claimAttemptId, delegationId: issued.delegationId,
+      const bootstrapFile = output ? output.path : await saveBootstrap(d.env, creds.apiUrl, api.orgId!, issued.token, input.agentId, lifetime);
+      if (output) await output.write({ apiUrl: creds.apiUrl, orgId: api.orgId, token: issued.token, kind: "bootstrap", agentId: input.agentId, ...lifetime });
+      const metadata = { id: issued.authorizationId, orgId: api.orgId, claimAttemptId: issued.claimAttemptId, delegationId: issued.delegationId,
         verbs: issued.verbs, bootstrapExpiresAt: issued.expiresAt, bootstrapFile };
       out(d, v.json, metadata, () => kv([["Authorization", metadata.id], ["Claim attempt", metadata.claimAttemptId], ["Delegation", metadata.delegationId], ["Verbs", metadata.verbs?.join(",")], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile]]));
     } finally { await output?.close(); }

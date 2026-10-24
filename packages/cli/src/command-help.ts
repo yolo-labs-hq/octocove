@@ -40,6 +40,9 @@ const FLAGS: Record<string,string> = {
   'overlap-seconds': 'Seconds to accept the previous webhook secret during rotation.',
   as: 'Expected machine principal ID; never an actor override.', scope: 'Exact machine grant scope as one JSON object.',
   grant: 'Protected approval grant ID; activates the headless path.',
+  org: 'Org ID (org_<uuid>) the command acts in; `project list` shows each project\'s org. Also OCTOCOVE_ORG.',
+  publication: 'How a submitted candidate becomes visible: repository-readers, or public-on-submit (required for a public repository).',
+  visibility: 'The repository\'s declared visibility: private or public.',
   'token-stdin': 'Read workload proof from stdin instead of OCTOCOVE_WORKLOAD_TOKEN.', timeout: 'Machine command deadline in seconds, 1–300 (default 30).',
 };
 const POSITIONALS: Record<string,string> = {

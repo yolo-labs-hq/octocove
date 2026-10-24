@@ -41,7 +41,7 @@ export interface ApiErrorInit {
  * in which case `rawBody` keeps the redacted text.
  */
 export class ApiError extends Error {
-  override readonly name = 'ApiError';
+  override readonly name: string = 'ApiError';
   readonly status: number;
   readonly code: string;
   readonly title: string | undefined;
@@ -68,6 +68,51 @@ export class ApiError extends Error {
     this.rawBody = init.rawBody;
     this.operationId = init.operationId;
   }
+}
+
+/** The organization a `409 org-creation-pending` names (`details.organization`), as far as its guards hold. */
+export interface PendingOrganization {
+  readonly id: string;
+  readonly provisioningState: 'pending';
+  /** The rest of the server's `Organization`, unknown fields preserved. */
+  readonly [field: string]: unknown;
+}
+
+/**
+ * `404 tenant-not-found`: the selected tenant is unknown, malformed, or one the caller may not see (the same answer
+ * conceals which). Refresh discovery (`GET /me/projects`) or obtain access; never retry against another tenant.
+ */
+export class TenantNotFoundError extends ApiError {
+  override readonly name = 'TenantNotFoundError';
+}
+
+/**
+ * `409 org-creation-pending`: the selected organization (or the caller's personal tenant, on `meProjectCreate`) is
+ * still being provisioned. Wait `retryAfter` seconds and retry the same request; a project creation keeps its
+ * reservation, so the same key and body completes it.
+ */
+export class OrgCreationPendingError extends ApiError {
+  override readonly name = 'OrgCreationPendingError';
+  /** `details.organization`, when it carries an id and `provisioningState: 'pending'`. */
+  readonly organization: PendingOrganization | undefined;
+  constructor(init: ApiErrorInit) {
+    super(init);
+    const o = isObject(init.details) ? init.details.organization : undefined;
+    this.organization = isObject(o) && isId(o.id) && o.provisioningState === 'pending' ? (o as unknown as PendingOrganization) : undefined;
+  }
+}
+
+/** `503 route-unavailable`: the tenant's route is not available right now (recovering or moving). Retry later. */
+export class RouteUnavailableError extends ApiError {
+  override readonly name = 'RouteUnavailableError';
+}
+
+/** The typed error class for a server problem: the three tenant problems, else a plain ApiError. */
+export function apiErrorFor(init: ApiErrorInit): ApiError {
+  if (init.status === 404 && init.code === 'tenant-not-found') return new TenantNotFoundError(init);
+  if (init.status === 409 && init.code === 'org-creation-pending') return new OrgCreationPendingError(init);
+  if (init.status === 503 && init.code === 'route-unavailable') return new RouteUnavailableError(init);
+  return new ApiError(init);
 }
 
 const PROBLEM_FIELDS = { type: 'string', title: 'string', status: 'number', code: 'string', detail: 'string', requestId: 'string' } as const;
@@ -102,7 +147,7 @@ export function problemFromBody(
   const body = json && parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
   const incomplete = !body || Object.entries(PROBLEM_FIELDS).some(([key, kind]) => typeof body[key] !== kind);
   const str = (value: unknown) => (typeof value === 'string' ? redactValue(value) : undefined);
-  return new ApiError({
+  return apiErrorFor({
     status,
     code: body && isServerCode(body.code) ? redactValue(body.code) : `http-${status}`,
     title: str(body?.title),

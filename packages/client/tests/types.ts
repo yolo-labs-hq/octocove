@@ -1,8 +1,20 @@
 // Compile-time checks only (covered by `tsc -p tsconfig.json`; never executed).
-import { bearer, createClient, journeys, type CallableOperationId } from '../src/index.js';
+import { bearer, createClient, journeys, tenantClient, type CallableOperationId, type TenantScopedOperationId } from '../src/index.js';
 
 export async function typeChecks(): Promise<void> {
-  const c = createClient({ baseUrl: 'https://cp.octocove.test', transport: bearer({ token: 'session-fixture' }) });
+  const raw = createClient({ baseUrl: 'https://cp.octocove.test', transport: bearer({ token: 'session-fixture' }) });
+  const ORG = 'org_00000000-0000-4000-8000-000000000001';
+  // Tenant routes name their tenant: the raw client needs path.orgId, a tenant client fills it.
+  await raw.call('taskGet', { path: { orgId: ORG, id: 't' } });
+  // @ts-expect-error -- a tenant route without its orgId
+  await raw.call('taskGet', { path: { id: 't' } });
+  await raw.call('meGet');
+  await raw.call('meProjectsList');
+  const scoped: TenantScopedOperationId = 'taskGet';
+  // @ts-expect-error -- meGet is a global route
+  const global: TenantScopedOperationId = 'meGet';
+  void scoped; void global;
+  const c = tenantClient(raw, ORG);
   const task = await c.call('taskGet', { path: { id: 't' } });
   const id: string = task.body.id;
   void id;
@@ -51,7 +63,10 @@ export async function typeChecks(): Promise<void> {
   await c.call('taskUnpublish', { path: { id: 't' }, body: { expectedStatus: 'quarantined', expectedIntentVersion: 1 } });
 
   // Journeys: one absolute deadline is required; outcomes are open values.
-  const oc = journeys(c);
+  const root = journeys(raw);
+  const oc = root.org(ORG);
+  // @ts-expect-error -- tenant journeys are reached through org(tenantId)
+  void root.tasks;
   // @ts-expect-error -- a journey without a deadline
   await oc.tasks.get('t', {});
   const waited = await oc.candidates.waitFor('s', { deadline: Date.now() + 1000 });
@@ -65,7 +80,7 @@ export async function typeChecks(): Promise<void> {
   }
   const landed = await oc.landings.land('cand', { approvalId: 'a', deadline: Date.now() + 1000 });
   const ids: [string, string] = [landed.fenceId, landed.receiptId];
-  const me = await oc.auth.me({ deadline: Date.now() + 1000 });
+  const me = await root.auth.me({ deadline: Date.now() + 1000 });
   const futureKind: typeof me.principal.kind = 'workload';
   const verbs: string[] = me.memberships.flatMap((m) => m.verbs);
   // Each membership names its project; a project without one has a null namespace.

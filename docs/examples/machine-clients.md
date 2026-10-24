@@ -39,7 +39,8 @@ Cron scheduling itself confers no identity.
 
 ## CLI
 
-Set OCTOCOVE_API_URL to the control plane /v1 URL. Exchange needs no human
+Set OCTOCOVE_API_URL to the control plane /v1 URL and OCTOCOVE_ORG (or --org) to
+the project's org; the grant file keeps that org for its use. Exchange needs no human
 session and accepts OCTOCOVE_WORKLOAD_TOKEN or --token-stdin. Tokens never
 belong in argv. --as is the registered canonical principal ID expected by the
 caller; it cannot select the server's actor kind or identity.
@@ -51,7 +52,7 @@ caller; it cannot select the server's actor kind or identity.
 An approval grant cannot save, wrap up, land or claim; the server refuses
 canonical self-approval, including immutable delegated on-behalf-of provenance.
 
-Exchange prints a JSON descriptor with id, principalId, expiresAt,
+Exchange prints a JSON descriptor with id, orgId, principalId, expiresAt,
 scope and policyVersion, never the workload proof or grant bearer. Bearers
 are stored with mode 0600 below OCTOCOVE_CONFIG_DIR/grants in directories
 with mode 0700; keep that directory private to the job and remove it at job

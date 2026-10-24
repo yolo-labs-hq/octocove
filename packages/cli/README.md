@@ -76,13 +76,33 @@ pnpm --filter @yolo-labs/octocove test
 | Variable | Meaning |
 | --- | --- |
 | `OCTOCOVE_API_URL` | API origin including `/v1` (the origin alone is accepted too) for `login` and `auth exchange`. Default: the stored credential's origin, else `https://api.octocove.com`. Must be `https://`; `http://` only for `localhost`, `127.0.0.1` or `[::1]`. Subsequent commands use the origin stored with their credential. |
-| `OCTOCOVE_BOOTSTRAP_FILE` | Protected JSON bootstrap hand-off to import when no active credential exists. The file contains `{apiUrl, token, kind:"bootstrap"}`; no token belongs in the environment. |
+| `OCTOCOVE_ORG` | The org (`org_<uuid>`) a human's tenant-scoped commands act in, like `--org`; see [Orgs](#orgs). An agent's credential carries its own org. |
+| `OCTOCOVE_BOOTSTRAP_FILE` | Protected JSON bootstrap hand-off to import when no active credential exists. The file contains `{apiUrl, orgId, token, kind:"bootstrap"}`; no token belongs in the environment. |
 | `OCTOCOVE_CONFIG_DIR` | Root containing `credentials/cli.json` (`{apiUrl, token, kind}`, mode 0600 in a 0700 directory). Defaults to `$XDG_CONFIG_HOME/octocove` or `~/.config/octocove`. Linux and macOS; no ancestor may be a symlink (on macOS use `/private/tmp`, not `/tmp`). |
 
 The active protected store takes precedence over import settings. `OCTOCOVE_TOKEN` and
 `OCTOCOVE_CREDENTIAL_KIND` are not supported and are discarded. A bootstrap file is imported only as an owned
 regular file with mode 0600, through a no-follow read. Unsafe files fail closed. The kind label is a local fast-fail; the server still decides. Agent credentials also
-retain their `delegationId` for renewal and self-revocation.
+retain their `delegationId` for renewal and self-revocation, and their `orgId`.
+
+## Orgs
+
+Every project lives in one org: an organization, or your own personal org. Every command on a project, repository,
+task, lane, candidate, approval, receipt or webhook acts in exactly one org, named by its ID (`org_<uuid>`), and the
+CLI sends it to `/v1/orgs/{orgId}/...`. There is no default org and no fallback to another one.
+
+- **A human** names the org: `--org ORG_ID` (a global flag, anywhere on the command line) or `OCTOCOVE_ORG`.
+  `octocove project list` shows each of your projects with its org; `whoami` shows it per membership. A
+  tenant-scoped command without an org fails before sending anything (exit 78).
+- **An agent** never names one. `task authorize` and `lane reopen` write the org into the bootstrap file, `task claim`
+  keeps it with the delegation, and every later command of the agent acts in it; a different `--org` is refused
+  (exit 78).
+- **Global commands** need no org: `login`, `logout`, `whoami`, `project list`, and `project create` without `--org`
+  (which creates the project in your personal org). `repo clone` uses the org the project's membership names.
+
+An org that does not exist or that you cannot see answers `tenant-not-found` (exit 1); one still being created
+answers `org-creation-pending` and one not reachable right now `route-unavailable` (both exit 75: run the command
+again later).
 
 ## Commands
 
@@ -90,17 +110,21 @@ Use `octocove <command> --help` for that command's usage. `--help` takes precede
 over other options, including `--json`, and missing required arguments. Help never
 reads credentials or starts network requests.
 
+Paths below other than `/auth/*`, `/me` and `/me/projects` are relative to `/orgs/{orgId}` (see [Orgs](#orgs)).
+
 | Command | API |
 | --- | --- |
 | `version [--json]`, `--version`, `-v` | Local installed package version; no configuration or API request |
 | `login [--wait SECONDS]` | `POST /auth/login {mode:"cli",cliChallenge}`; browser visits the returned `GET /auth/cli/start` URL and explicitly consents; CLI polls `POST /auth/cli/exchange` |
 | `logout` | `POST /auth/logout`; clear active credential after success |
-| `whoami [--json]` | `GET /me` (library `auth.me()`): the authenticated principal, credential kind and project memberships |
-| `project create SLUG --name TEXT [--json]` | `POST /projects` (library `projects.create()`): allow-listed humans create a project and become its first member; 403 `project-create-disabled` otherwise |
+| `whoami [--json]` | `GET /me` (library `auth.me()`): the authenticated principal, credential kind and project memberships, each with its org |
+| `project list [--json]` | `GET /me/projects` (library `projects.list()`): your projects in every org, each with its org; an org that could not be read is named on stderr (`partial`) |
+| `project create SLUG --name TEXT [--org ORG_ID] [--json]` | `POST /orgs/{orgId}/projects`, or without an org `POST /me/projects` (your personal org, provisioned on first use; `org-creation-pending` is waited out under the same key) (library `projects.create()`): allow-listed humans create a project and become its first member; 403 `project-create-disabled` otherwise |
 | `repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF] [--json]` | `POST /projects/{project}/repositories` with `mode` `create` or `import` (library `repositories.create()`): a `project:admin` human has Octocove create an empty repository (or a README root commit with `--seed` in native mode), or import a public HTTPS remote, in the project's own Artifacts namespace; born verified; an import prints `importing` and claims answer 409 `repository-importing` until `repo list` shows `(import ready)`; 400 `repository-import-url-invalid` / `repository-import-refused`, 409 `canonical-exists` / `repository-taken` / `repository-creation-pending`, 503 `broker-unavailable` / `broker-provider-unavailable` (Octocove deletes nothing; the cron records the repository if it was created, so retry with the same key, or hands it to the operator) |
 | `project member add PROJECT --principal ID [--role member\|approver] [--verbs a,b]` | `POST /projects/{project}/members`: human project administrators add a signed-in principal. `member` uses the server defaults; `approver` grants task/candidate/receipt/audit/event reads plus approval and landing, without project administration. Use `--verbs` for an explicit set; it cannot be combined with `--role`. |
 | `repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA] [--json]` | `POST /projects/{project}/repositories` (library `repositories.create()`): a `project:admin` human registers the project's canonical Artifacts repository and target ref (default `refs/heads/main`); `NS` must be the project's own namespace `oc-<project-id>`; 409 `canonical-exists` / `repository-taken` / `repository-namespace-mismatch` / `repository-creation-pending` (an open repository creation reserves that name) |
 | `repo verify PROJECT REPOSITORY [--json]` | `POST /projects/{project}/repositories/{repository}/verify` (library `repositories.verify()`): a `project:admin` human binds a registered repository once it exists in the project's own Artifacts namespace (`oc-<project-id>`), so claims stop answering 409 `repository-unverified`; 409 `repository-namespace-mismatch` (registered outside that namespace), 409 `repository-remote-not-found`, 503 `broker-unavailable` (Artifacts secrets not installed); a GitHub or Forgejo repository bound to the project is verified through its provider instead. The output labels the repository path with its provider (`Artifacts:`, `GitHub:` or `Forgejo:`), as `repo add` and `repo create` do |
+| `repo lane-policy PROJECT REPOSITORY --publication repository-readers\|public-on-submit --visibility private\|public` | `POST /projects/{project}/repositories/{repository}/lane-policy` (library `repositories.declareLanePolicy()`; `project:admin`, recent sign-in): the whole policy; a public repository needs `public-on-submit` (409 `publication-undeclared`) |
 | `repo clone PROJECT [REPOSITORY] [DIR] [--json]` | Human member: resolve the canonical, then Git smart-HTTP `GET /projects/{project}/repositories/{repository}/git/info/refs?service=git-upload-pack` and `POST /projects/{project}/repositories/{repository}/git/git-upload-pack`; persist a credential-free read-only origin and a URL-scoped human credential helper |
 | `repo list PROJECT [--json]` | `GET /projects/{project}/repositories` (library `repositories.list()`): the repository ids and target refs `task create` takes; an Artifacts path prints as `NAMESPACE/REPO`, any other provider's as `PROVIDER:OWNER/REPO` (for example `github:owner/repo`) |
 | `auth renew` | `POST /auth/session/renew` or `POST /delegations/{id}/renew`, according to the active credential |
@@ -124,26 +148,26 @@ reads credentials or starts network requests.
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:921](src/cli.ts#L921 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:922](src/cli.ts#L922 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:923](src/cli.ts#L923 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:924](src/cli.ts#L924 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:925](src/cli.ts#L925 "\"task supersede\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:926](src/cli.ts#L926 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:927](src/cli.ts#L927 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:928](src/cli.ts#L928 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:962](src/cli.ts#L962 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:963](src/cli.ts#L963 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:964](src/cli.ts#L964 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:965](src/cli.ts#L965 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:966](src/cli.ts#L966 "\"task supersede\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:967](src/cli.ts#L967 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:968](src/cli.ts#L968 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:969](src/cli.ts#L969 "\"candidate reject\": governance")) |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
 | `land ID --approval ID [--wait]` | `POST /candidates/{id}/land`, then `GET /receipts/{id}` |
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1208](src/cli.ts#L1208 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1220](src/cli.ts#L1220 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1280](src/cli.ts#L1280 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1292](src/cli.ts#L1292 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1260](src/cli.ts#L1260 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1332](src/cli.ts#L1332 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:508](src/cli.ts#L508 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:544](src/cli.ts#L544 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -230,7 +254,7 @@ properties:
   answered with a fresh request under a new key. `auth revoke` and `webhook disable` are sent once (their replay
   reads current state), and `lane retire` is answered from the current retirement under any key.
 - **`events --follow`** bounds each page request to 30 seconds and keeps following across network failures; it stops
-  (exit 1) on a server refusal or an envelope other than `schemaVersion: 1`, before checkpointing past it.
+  (exit 1) on a server refusal or an envelope other than `schemaVersion: 2` of the command's org, before checkpointing past it.
 - **Strict wire contract.** A success status the OpenAPI does not declare for the operation, or a body that is not
   JSON, is reported as an `http-<status>` error. Operations without a request body (`logout`, `auth renew`,
   `auth revoke`, `webhook disable`/`reactivate`, grant revocation) send no body.
@@ -254,9 +278,10 @@ Creation and verification also include a `nextSteps` field in JSON output.
 ## Following events
 
 `octocove events --follow --project PROJECT [--task TASK] [--from CURSOR]
-[--checkpoint FILE]` streams newline-delimited v1 envelopes and resumes its private
-local checkpoint. `--from` overrides saved progress. Ctrl-C stops cleanly; a crash
-between output and checkpoint can repeat an event, so deduplicate by `id`. Use one
+[--checkpoint FILE]` streams one org's newline-delimited v2 envelopes and resumes its
+private local checkpoint. The cursor and the checkpoint are bound to that org: another org's checkpoint is refused.
+`--from` overrides saved progress. Ctrl-C stops cleanly; a crash between output and checkpoint can repeat an event,
+so deduplicate by (`tenantId`, `id`), never by `sequence`. Use one
 follower per checkpoint file. Empty pages are polled every second; permission and
 cursor errors require operator correction, never an automatic reset to zero.
 
@@ -395,17 +420,17 @@ whether `approve` and `land` would be accepted for you now, with the reason when
 task's scope requests, newest first, for a project member (agent delegations are refused): who asked, the requested
 read and write prefixes, the status, whether the request can still be decided, and whether you may grant scope.
 
-`lane retire --json` prints `{id,type:"lane.retire",schemaVersion:1,projectId,taskId,occurredAt,data}`, where
-`data` is the route result. That is a client result, not a committed audit event, and must not enter the record
-event queue; `events replay` / `events --follow` provide the authoritative v1 events. `projectId` is null. Failures
+`lane retire --json` prints `{id,type:"lane.retire",schemaVersion:2,tenantId,projectId,taskId,occurredAt,data}`, where
+`data` is the route result. That is a client result, not a committed audit event (it has no `sequence`), and must not
+enter the record event queue; `events replay` / `events --follow` provide the authoritative v2 events. `projectId` is null. Failures
 keep the CLI's problem envelope on stderr.
 
 ### Headless machine grants
 
 See [machine client registration and commands](https://github.com/yolo-labs-hq/octocove/blob/main/docs/examples/machine-clients.md).
 `auth exchange --as PRINCIPAL --scope JSON` reads a workload assertion from
-`OCTOCOVE_WORKLOAD_TOKEN` or `--token-stdin`, exchanges it for an approval grant, saves
-the returned bearer privately, and prints a token-free JSON descriptor.
+`OCTOCOVE_WORKLOAD_TOKEN` or `--token-stdin`, exchanges it for an approval grant in the org `--org` or
+`OCTOCOVE_ORG` names, saves the returned bearer and that org privately, and prints a token-free JSON descriptor.
 `approve --grant ID` (also `auth approve`) sends the stored exact scope. Machine API
 requests default to a 30-second deadline. `auth revoke --grant ID` requires a human
 administrator.
@@ -435,7 +460,7 @@ Changes still go through tasks and lanes; a human clone is read-only.
 
 ## Global flags and private agent hand-offs
 
-Global `--json`, `--verbose`, `--idempotency-key KEY` and `--help` work before or after the command, including between command words. For example:
+Global `--json`, `--verbose`, `--idempotency-key KEY`, `--org ORG_ID` and `--help` work before or after the command, including between command words. For example:
 
 ```sh
 octocove --json --idempotency-key create-example project create example --name Example

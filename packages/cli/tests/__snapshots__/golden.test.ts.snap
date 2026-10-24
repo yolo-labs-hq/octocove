@@ -82,7 +82,7 @@ exports[`auth exchange and approve --grant 1`] = `
     "POST /auth/approval-grants",
   ],
   "stderr": "",
-  "stdout": "{"id":"grant-1","expiresAt":"2030-01-01T00:00:00Z","scope":{"projectId":"P1","claimAttemptId":"C1","candidateId":"CA1","boundTo":{"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3},"checkRunIds":[]},"policyVersion":"policy","principalId":"principal"}
+  "stdout": "{"id":"grant-1","orgId":"org_<uuid>","expiresAt":"2030-01-01T00:00:00Z","scope":{"projectId":"P1","claimAttemptId":"C1","candidateId":"CA1","boundTo":{"candidateSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3},"checkRunIds":[]},"policyVersion":"policy","principalId":"principal"}
 ",
 }
 `;
@@ -212,8 +212,8 @@ exports[`events --follow 1`] = `
     "GET /events?after=cursor-2&projectId=P1",
   ],
   "stderr": "",
-  "stdout": "{"id":"evt_1","type":"task.ready","schemaVersion":1,"projectId":"P1","taskId":"T1","occurredAt":"2026-10-05T00:00:00Z","data":{"id":"1"}}
-{"id":"evt_2","type":"task.ready","schemaVersion":1,"projectId":"P1","taskId":"T1","occurredAt":"2026-10-05T00:00:00Z","data":{"id":"2"}}
+  "stdout": "{"id":"evt_1","type":"task.ready","schemaVersion":2,"tenantId":"org_<uuid>","projectId":"P1","taskId":"T1","occurredAt":"2026-10-05T00:00:00Z","sequence":"1","data":{"id":"1"}}
+{"id":"evt_2","type":"task.ready","schemaVersion":2,"tenantId":"org_<uuid>","projectId":"P1","taskId":"T1","occurredAt":"2026-10-05T00:00:00Z","sequence":"2","data":{"id":"2"}}
 ",
 }
 `;
@@ -244,14 +244,16 @@ Commands:
   version                                     (installed package version; no sign-in required)
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
-  whoami                                      (authenticated principal and project memberships)
+  whoami                                      (authenticated principal and project memberships, each with its org)
+  project list                                (your projects in every org, each with the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
-  project create SLUG --name TEXT             (allow-listed humans; you become its first member)
+  project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
   repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
+  repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -300,15 +302,25 @@ Commands:
   webhook rotate-secret ID --overlap-seconds N --secret-stdin
   webhook reactivate ID
 
+Orgs:
+  Every project lives in one org (an organization, or your own personal org) and every command on a project, task,
+  lane, candidate, receipt or webhook acts in exactly one org, named by its ID (org_<uuid>):
+    a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
+    an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
+    write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
+  login, logout, whoami, project list and project create (without --org) need no org; repo clone uses the org
+  the project's membership names.
+
 Global options:
+  --org ORG_ID            the org a tenant-scoped command acts in (also OCTOCOVE_ORG)
   --verbose               show full permissions and verification details
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
   --help
   --version, -v          print the installed package version
-  --json, --verbose, --idempotency-key and --help may precede or follow command words.
+  --json, --verbose, --idempotency-key, --org and --help may precede or follow command words.
 
-Environment: OCTOCOVE_API_URL, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
+Environment: OCTOCOVE_API_URL, OCTOCOVE_ORG, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.
 Credentials are stored privately; workload exchange accepts OCTOCOVE_WORKLOAD_TOKEN or stdin. Machine commands print JSON and have a bounded --timeout (default 30s). Exit codes: 0 ok, 1 failure, 2 usage, 66 unknown clone target, 69 member clone unsupported, 74 candidate failed, 75 pending or rate limited, 77 sign-in or human credential required, 78 config or read access denied.
 ",
@@ -616,6 +628,7 @@ exports[`task authorize --json 1`] = `
   "stderr": "",
   "stdout": "{
   "id": "A1",
+  "orgId": "org_<uuid>",
   "claimAttemptId": "CA",
   "delegationId": "D",
   "verbs": [

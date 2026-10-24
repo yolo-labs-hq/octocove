@@ -7,10 +7,15 @@ export const routing = {
     "operationId": "approvalGrantExchange",
     "kind": "path",
     "method": "POST",
-    "path": "/auth/approval-grants",
+    "path": "/orgs/{orgId}/auth/approval-grants",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [
         {
@@ -41,7 +46,13 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
+        "application/problem+json"
+      ],
+      "503": [
         "application/problem+json"
       ],
       "default": [
@@ -65,12 +76,16 @@ export const routing = {
     "operationId": "approvalGrantRevoke",
     "kind": "path",
     "method": "POST",
-    "path": "/auth/approval-grants/{id}/revoke",
+    "path": "/orgs/{orgId}/auth/approval-grants/{id}/revoke",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -105,6 +120,9 @@ export const routing = {
         "application/problem+json"
       ],
       "409": [
+        "application/problem+json"
+      ],
+      "503": [
         "application/problem+json"
       ],
       "default": [
@@ -129,12 +147,16 @@ export const routing = {
     "operationId": "approvalPolicyDisable",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-policies/{id}/disable",
+    "path": "/orgs/{orgId}/projects/{project}/approval-policies/{id}/disable",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -173,6 +195,9 @@ export const routing = {
         "application/problem+json"
       ],
       "409": [
+        "application/problem+json"
+      ],
+      "503": [
         "application/problem+json"
       ],
       "default": [
@@ -197,10 +222,14 @@ export const routing = {
     "operationId": "approvalPolicyRegister",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-policies",
+    "path": "/orgs/{orgId}/projects/{project}/approval-policies",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -240,7 +269,13 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
+        "application/problem+json"
+      ],
+      "503": [
         "application/problem+json"
       ],
       "default": [
@@ -265,12 +300,16 @@ export const routing = {
     "operationId": "approvalPrincipalDisable",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-principals/{id}/disable",
+    "path": "/orgs/{orgId}/projects/{project}/approval-principals/{id}/disable",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -311,6 +350,9 @@ export const routing = {
       "409": [
         "application/problem+json"
       ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -333,10 +375,14 @@ export const routing = {
     "operationId": "approvalPrincipalRegister",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-principals",
+    "path": "/orgs/{orgId}/projects/{project}/approval-principals",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -376,7 +422,13 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
+        "application/problem+json"
+      ],
+      "503": [
         "application/problem+json"
       ],
       "default": [
@@ -401,12 +453,16 @@ export const routing = {
     "operationId": "approvalTrustActivate",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-trust-bindings/{id}/activate",
+    "path": "/orgs/{orgId}/projects/{project}/approval-trust-bindings/{id}/activate",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -447,6 +503,12 @@ export const routing = {
       "404": [
         "application/problem+json"
       ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -469,12 +531,16 @@ export const routing = {
     "operationId": "approvalTrustActivationChallenge",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-trust-bindings/{id}/activation-challenge",
+    "path": "/orgs/{orgId}/projects/{project}/approval-trust-bindings/{id}/activation-challenge",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -510,6 +576,9 @@ export const routing = {
       "409": [
         "application/problem+json"
       ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -532,12 +601,16 @@ export const routing = {
     "operationId": "approvalTrustDisable",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-trust-bindings/{id}/disable",
+    "path": "/orgs/{orgId}/projects/{project}/approval-trust-bindings/{id}/disable",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -578,6 +651,9 @@ export const routing = {
       "409": [
         "application/problem+json"
       ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -600,12 +676,16 @@ export const routing = {
     "operationId": "approvalTrustRotate",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/approval-principals/{id}/trust-bindings",
+    "path": "/orgs/{orgId}/projects/{project}/approval-principals/{id}/trust-bindings",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -653,6 +733,9 @@ export const routing = {
       "409": [
         "application/problem+json"
       ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -675,12 +758,16 @@ export const routing = {
     "operationId": "approvalWithdraw",
     "kind": "path",
     "method": "POST",
-    "path": "/approvals/{id}/withdraw",
+    "path": "/orgs/{orgId}/approvals/{id}/withdraw",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -755,10 +842,15 @@ export const routing = {
     "operationId": "auditList",
     "kind": "path",
     "method": "GET",
-    "path": "/audit",
+    "path": "/orgs/{orgId}/audit",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [
         {
           "name": "cursor",
@@ -790,6 +882,12 @@ export const routing = {
         "application/problem+json"
       ],
       "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
         "application/problem+json"
       ],
       "503": [
@@ -1214,12 +1312,16 @@ export const routing = {
     "operationId": "candidateApprove",
     "kind": "path",
     "method": "POST",
-    "path": "/candidates/{id}/approve",
+    "path": "/orgs/{orgId}/candidates/{id}/approve",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1294,12 +1396,16 @@ export const routing = {
     "operationId": "candidateApproveWithGrant",
     "kind": "path",
     "method": "POST",
-    "path": "/candidates/{id}/approve-with-grant",
+    "path": "/orgs/{orgId}/candidates/{id}/approve-with-grant",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1348,6 +1454,9 @@ export const routing = {
       "429": [
         "application/problem+json"
       ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -1369,12 +1478,16 @@ export const routing = {
     "operationId": "candidateGet",
     "kind": "path",
     "method": "GET",
-    "path": "/submissions/{id}/candidate",
+    "path": "/orgs/{orgId}/submissions/{id}/candidate",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1434,12 +1547,16 @@ export const routing = {
     "operationId": "candidateLand",
     "kind": "path",
     "method": "POST",
-    "path": "/candidates/{id}/land",
+    "path": "/orgs/{orgId}/candidates/{id}/land",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1515,12 +1632,16 @@ export const routing = {
     "operationId": "candidateReject",
     "kind": "path",
     "method": "POST",
-    "path": "/candidates/{id}/reject",
+    "path": "/orgs/{orgId}/candidates/{id}/reject",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1595,12 +1716,16 @@ export const routing = {
     "operationId": "candidateWithdraw",
     "kind": "path",
     "method": "POST",
-    "path": "/candidates/{id}/withdraw",
+    "path": "/orgs/{orgId}/candidates/{id}/withdraw",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1676,12 +1801,16 @@ export const routing = {
     "operationId": "claimAuthorize",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/authorizations",
+    "path": "/orgs/{orgId}/tasks/{id}/authorizations",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1756,12 +1885,16 @@ export const routing = {
     "operationId": "claimGet",
     "kind": "path",
     "method": "GET",
-    "path": "/claims/{id}",
+    "path": "/orgs/{orgId}/claims/{id}",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -1817,10 +1950,14 @@ export const routing = {
     "operationId": "codeBlobGet",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/blob",
+    "path": "/orgs/{orgId}/projects/{project}/blob",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -1884,10 +2021,14 @@ export const routing = {
     "operationId": "codeCommitsGet",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/commits",
+    "path": "/orgs/{orgId}/projects/{project}/commits",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -1951,10 +2092,14 @@ export const routing = {
     "operationId": "codeCompareGet",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/compare",
+    "path": "/orgs/{orgId}/projects/{project}/compare",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -2021,10 +2166,14 @@ export const routing = {
     "operationId": "codeTreeGet",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/tree",
+    "path": "/orgs/{orgId}/projects/{project}/tree",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -2111,6 +2260,10 @@ export const routing = {
           "required": true
         },
         {
+          "name": "Octocove-Tenant-Id",
+          "required": true
+        },
+        {
           "name": "Octocove-Timestamp",
           "required": true
         }
@@ -2145,12 +2298,16 @@ export const routing = {
     "operationId": "delegationRenew",
     "kind": "path",
     "method": "POST",
-    "path": "/delegations/{id}/renew",
+    "path": "/orgs/{orgId}/delegations/{id}/renew",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2213,12 +2370,16 @@ export const routing = {
     "operationId": "delegationRevoke",
     "kind": "path",
     "method": "POST",
-    "path": "/delegations/{id}/revoke",
+    "path": "/orgs/{orgId}/delegations/{id}/revoke",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2281,10 +2442,14 @@ export const routing = {
     "operationId": "eventPermissionCreate",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/event-permissions",
+    "path": "/orgs/{orgId}/projects/{project}/event-permissions",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -2320,7 +2485,13 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
+        "application/problem+json"
+      ],
+      "503": [
         "application/problem+json"
       ],
       "default": [
@@ -2345,12 +2516,16 @@ export const routing = {
     "operationId": "eventPermissionRevoke",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/event-permissions/{id}/revoke",
+    "path": "/orgs/{orgId}/projects/{project}/event-permissions/{id}/revoke",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         },
         {
@@ -2387,6 +2562,9 @@ export const routing = {
       "409": [
         "application/problem+json"
       ],
+      "503": [
+        "application/problem+json"
+      ],
       "default": [
         "application/problem+json"
       ]
@@ -2409,10 +2587,15 @@ export const routing = {
     "operationId": "eventsReplay",
     "kind": "path",
     "method": "GET",
-    "path": "/events",
+    "path": "/orgs/{orgId}/events",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [
         {
           "name": "after",
@@ -2465,6 +2648,9 @@ export const routing = {
       "404": [
         "application/problem+json"
       ],
+      "409": [
+        "application/problem+json"
+      ],
       "410": [
         "application/problem+json"
       ],
@@ -2495,10 +2681,14 @@ export const routing = {
     "operationId": "landingsList",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/landings",
+    "path": "/orgs/{orgId}/projects/{project}/landings",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -2536,6 +2726,9 @@ export const routing = {
       "404": [
         "application/problem+json"
       ],
+      "409": [
+        "application/problem+json"
+      ],
       "503": [
         "application/problem+json"
       ]
@@ -2559,12 +2752,16 @@ export const routing = {
     "operationId": "laneBlobGet",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks/{id}/lane/blob",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/blob",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2644,12 +2841,16 @@ export const routing = {
     "operationId": "laneBlobUpload",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/blobs",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/blobs",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2691,6 +2892,9 @@ export const routing = {
       ],
       "413": [
         "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
       ]
     },
     "successStatuses": [
@@ -2710,12 +2914,16 @@ export const routing = {
     "operationId": "laneChangesSubmit",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/changes",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/changes",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2776,12 +2984,16 @@ export const routing = {
     "operationId": "laneExecutionBegin",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/executions",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/executions",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2820,6 +3032,9 @@ export const routing = {
       ],
       "409": [
         "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
       ]
     },
     "successStatuses": [
@@ -2839,12 +3054,16 @@ export const routing = {
     "operationId": "laneGenerationCreate",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/materializations",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/materializations",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2911,7 +3130,7 @@ export const routing = {
     "operationId": "laneGenerationManifestGet",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks/{id}/lane/executions/{execution}/materializations/{generation}",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/executions/{execution}/materializations/{generation}",
     "basePath": "/v1",
     "parameters": {
       "path": [
@@ -2925,6 +3144,10 @@ export const routing = {
         },
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -2979,7 +3202,7 @@ export const routing = {
     "operationId": "laneManifestGet",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks/{id}/lane/materializations/{generation}",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/materializations/{generation}",
     "basePath": "/v1",
     "parameters": {
       "path": [
@@ -2989,6 +3212,10 @@ export const routing = {
         },
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3053,12 +3280,16 @@ export const routing = {
     "operationId": "laneMaterialize",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/materialize",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/materialize",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3129,12 +3360,16 @@ export const routing = {
     "operationId": "laneReopen",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/reopen",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/reopen",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3200,12 +3435,16 @@ export const routing = {
     "operationId": "laneRetire",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/retire",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/retire",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3284,12 +3523,16 @@ export const routing = {
     "operationId": "laneScopeGrant",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/scope",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/scope",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3332,6 +3575,9 @@ export const routing = {
       ],
       "409": [
         "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
       ]
     },
     "successStatuses": [
@@ -3352,12 +3598,16 @@ export const routing = {
     "operationId": "laneScopeRequest",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/scope-requests",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/scope-requests",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3396,6 +3646,9 @@ export const routing = {
       ],
       "409": [
         "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
       ]
     },
     "successStatuses": [
@@ -3415,12 +3668,16 @@ export const routing = {
     "operationId": "laneScopeRequestsList",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks/{id}/lane/scope-requests",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/scope-requests",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3451,6 +3708,12 @@ export const routing = {
       ],
       "404": [
         "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
       ]
     },
     "successStatuses": [
@@ -3471,12 +3734,16 @@ export const routing = {
     "operationId": "laneWrapUp",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/lane/wrap-up",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/wrap-up",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -3643,10 +3910,15 @@ export const routing = {
     "operationId": "meNotificationPreferencesGet",
     "kind": "path",
     "method": "GET",
-    "path": "/me/notification-preferences",
+    "path": "/orgs/{orgId}/me/notification-preferences",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [],
       "cookie": []
@@ -3662,6 +3934,12 @@ export const routing = {
         "application/problem+json"
       ],
       "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
         "application/problem+json"
       ],
       "503": [
@@ -3686,10 +3964,15 @@ export const routing = {
     "operationId": "meNotificationPreferencesPut",
     "kind": "path",
     "method": "PUT",
-    "path": "/me/notification-preferences",
+    "path": "/orgs/{orgId}/me/notification-preferences",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [
         {
@@ -3724,6 +4007,9 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
         "application/problem+json"
       ],
@@ -3749,10 +4035,15 @@ export const routing = {
     "operationId": "meNotificationsList",
     "kind": "path",
     "method": "GET",
-    "path": "/me/notifications",
+    "path": "/orgs/{orgId}/me/notifications",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [
         {
           "name": "cursor",
@@ -3786,6 +4077,12 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
       "503": [
         "application/problem+json"
       ]
@@ -3808,10 +4105,15 @@ export const routing = {
     "operationId": "meNotificationsMarkRead",
     "kind": "path",
     "method": "POST",
-    "path": "/me/notifications/read",
+    "path": "/orgs/{orgId}/me/notifications/read",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [
         {
@@ -3842,6 +4144,12 @@ export const routing = {
         "application/problem+json"
       ],
       "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
         "application/problem+json"
       ],
       "503": [
@@ -3913,6 +4221,78 @@ export const routing = {
     },
     "successStatuses": [
       200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "meProjectCreate": {
+    "operationId": "meProjectCreate",
+    "kind": "path",
+    "method": "POST",
+    "path": "/me/projects",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "422": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
     ],
     "redirectStatuses": [],
     "security": [
@@ -4082,10 +4462,14 @@ export const routing = {
     "operationId": "memberAdd",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/members",
+    "path": "/orgs/{orgId}/projects/{project}/members",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4156,10 +4540,14 @@ export const routing = {
     "operationId": "memberRemove",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/members/{principalId}/remove",
+    "path": "/orgs/{orgId}/projects/{project}/members/{principalId}/remove",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "principalId",
           "required": true
@@ -4224,10 +4612,14 @@ export const routing = {
     "operationId": "membersList",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/members",
+    "path": "/orgs/{orgId}/projects/{project}/members",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4250,6 +4642,12 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
       "503": [
         "application/problem+json"
       ]
@@ -4266,6 +4664,201 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
+    }
+  },
+  "orgRecordExportChunk": {
+    "operationId": "orgRecordExportChunk",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/operator/export/chunk",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "name": "epoch",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        },
+        {
+          "name": "table",
+          "required": true
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "504": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "orgRecordExportSchema": {
+    "operationId": "orgRecordExportSchema",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/operator/export",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "epoch",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "504": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "orgRecordInspect": {
+    "operationId": "orgRecordInspect",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/operator/inspect",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "504": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
     }
   },
   "peopleGet": {
@@ -4320,10 +4913,15 @@ export const routing = {
     "operationId": "projectCreate",
     "kind": "path",
     "method": "POST",
-    "path": "/projects",
+    "path": "/orgs/{orgId}/projects",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [
         {
@@ -4389,10 +4987,14 @@ export const routing = {
     "operationId": "projectRepositoryGitRefsGet",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/repositories/{repository}/git/info/refs",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/git/info/refs",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4471,10 +5073,14 @@ export const routing = {
     "operationId": "projectRepositoryGitUploadPack",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/repositories/{repository}/git/git-upload-pack",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/git/git-upload-pack",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4553,12 +5159,16 @@ export const routing = {
     "operationId": "receiptGet",
     "kind": "path",
     "method": "GET",
-    "path": "/receipts/{id}",
+    "path": "/orgs/{orgId}/receipts/{id}",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -4618,10 +5228,14 @@ export const routing = {
     "operationId": "repositoriesList",
     "kind": "path",
     "method": "GET",
-    "path": "/projects/{project}/repositories",
+    "path": "/orgs/{orgId}/projects/{project}/repositories",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4642,6 +5256,12 @@ export const routing = {
         "application/problem+json"
       ],
       "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
         "application/problem+json"
       ],
       "503": [
@@ -4667,10 +5287,14 @@ export const routing = {
     "operationId": "repositoryCreate",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/repositories",
+    "path": "/orgs/{orgId}/projects/{project}/repositories",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4710,6 +5334,9 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
         "application/problem+json"
       ],
@@ -4731,14 +5358,97 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "repositoryLanePolicyDeclare": {
+    "operationId": "repositoryLanePolicyDeclare",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/lane-policy",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
   "repositoryVerify": {
     "operationId": "repositoryVerify",
     "kind": "path",
     "method": "POST",
-    "path": "/projects/{project}/repositories/{repository}/verify",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/verify",
     "basePath": "/v1",
     "parameters": {
       "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
         {
           "name": "project",
           "required": true
@@ -4869,12 +5579,16 @@ export const routing = {
     "operationId": "taskClaim",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/claim",
+    "path": "/orgs/{orgId}/tasks/{id}/claim",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -4952,10 +5666,15 @@ export const routing = {
     "operationId": "taskCreate",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks",
+    "path": "/orgs/{orgId}/tasks",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [
         {
@@ -5027,12 +5746,16 @@ export const routing = {
     "operationId": "taskDependencyAdd",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/dependencies/add",
+    "path": "/orgs/{orgId}/tasks/{id}/dependencies/add",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5107,12 +5830,16 @@ export const routing = {
     "operationId": "taskDependencyRemove",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/dependencies/remove",
+    "path": "/orgs/{orgId}/tasks/{id}/dependencies/remove",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5187,12 +5914,16 @@ export const routing = {
     "operationId": "taskEditIntent",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/intent",
+    "path": "/orgs/{orgId}/tasks/{id}/intent",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5267,12 +5998,16 @@ export const routing = {
     "operationId": "taskGet",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks/{id}",
+    "path": "/orgs/{orgId}/tasks/{id}",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5328,12 +6063,16 @@ export const routing = {
     "operationId": "taskLog",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks/{id}/log",
+    "path": "/orgs/{orgId}/tasks/{id}/log",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5369,6 +6108,9 @@ export const routing = {
       "404": [
         "application/problem+json"
       ],
+      "409": [
+        "application/problem+json"
+      ],
       "410": [
         "application/problem+json"
       ],
@@ -5398,12 +6140,16 @@ export const routing = {
     "operationId": "taskPublish",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/publish",
+    "path": "/orgs/{orgId}/tasks/{id}/publish",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5478,12 +6224,16 @@ export const routing = {
     "operationId": "taskReject",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/reject",
+    "path": "/orgs/{orgId}/tasks/{id}/reject",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5558,12 +6308,16 @@ export const routing = {
     "operationId": "taskRelease",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/release",
+    "path": "/orgs/{orgId}/tasks/{id}/release",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5638,12 +6392,16 @@ export const routing = {
     "operationId": "taskSupersede",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/supersede",
+    "path": "/orgs/{orgId}/tasks/{id}/supersede",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5718,12 +6476,16 @@ export const routing = {
     "operationId": "taskUnpublish",
     "kind": "path",
     "method": "POST",
-    "path": "/tasks/{id}/unpublish",
+    "path": "/orgs/{orgId}/tasks/{id}/unpublish",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -5798,10 +6560,15 @@ export const routing = {
     "operationId": "tasksList",
     "kind": "path",
     "method": "GET",
-    "path": "/tasks",
+    "path": "/orgs/{orgId}/tasks",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [
         {
           "name": "cursor",
@@ -5871,10 +6638,15 @@ export const routing = {
     "operationId": "webhookCreate",
     "kind": "path",
     "method": "POST",
-    "path": "/webhooks",
+    "path": "/orgs/{orgId}/webhooks",
     "basePath": "/v1",
     "parameters": {
-      "path": [],
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
       "query": [],
       "header": [
         {
@@ -5941,12 +6713,16 @@ export const routing = {
     "operationId": "webhookDeliveriesInspect",
     "kind": "path",
     "method": "GET",
-    "path": "/webhooks/{id}/deliveries",
+    "path": "/orgs/{orgId}/webhooks/{id}/deliveries",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -6015,7 +6791,7 @@ export const routing = {
     "operationId": "webhookDeliveryRedrive",
     "kind": "path",
     "method": "POST",
-    "path": "/webhooks/{id}/deliveries/{deliveryId}/redrive",
+    "path": "/orgs/{orgId}/webhooks/{id}/deliveries/{deliveryId}/redrive",
     "basePath": "/v1",
     "parameters": {
       "path": [
@@ -6025,6 +6801,10 @@ export const routing = {
         },
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -6094,12 +6874,16 @@ export const routing = {
     "operationId": "webhookDisable",
     "kind": "path",
     "method": "POST",
-    "path": "/webhooks/{id}/disable",
+    "path": "/orgs/{orgId}/webhooks/{id}/disable",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -6162,12 +6946,16 @@ export const routing = {
     "operationId": "webhookReactivate",
     "kind": "path",
     "method": "POST",
-    "path": "/webhooks/{id}/reactivate",
+    "path": "/orgs/{orgId}/webhooks/{id}/reactivate",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -6232,12 +7020,16 @@ export const routing = {
     "operationId": "webhookReplay",
     "kind": "path",
     "method": "POST",
-    "path": "/webhooks/{id}/replays",
+    "path": "/orgs/{orgId}/webhooks/{id}/replays",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],
@@ -6310,12 +7102,16 @@ export const routing = {
     "operationId": "webhookSecretRotate",
     "kind": "path",
     "method": "POST",
-    "path": "/webhooks/{id}/rotate-secret",
+    "path": "/orgs/{orgId}/webhooks/{id}/rotate-secret",
     "basePath": "/v1",
     "parameters": {
       "path": [
         {
           "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
           "required": true
         }
       ],

@@ -15,6 +15,7 @@ import {
 import { dumpError, equal, hang, json, ok, problem, rejects, scriptedFetch, sleep, test, type Case, type Recorded } from '../harness.js';
 
 const BASE = 'https://cp.octocove.test';
+const ORG = 'org_00000000-0000-4000-8000-000000000001';
 const soon = () => Date.now() + 5_000;
 const fast = { retryDelayMs: () => 1 } satisfies Partial<ClientOptions>;
 const lost = (status = 200) => new Response(new ReadableStream({ start(controller) { controller.error(new Error('connection reset')); } }), { status });
@@ -291,7 +292,7 @@ export const authCases: Case[] = [
     equal(keys(calls)[0], keys(calls)[1]);
     equal(renewed.transport === 'bearer' && renewed.token, 'session-replacement-0123456789');
     equal(slot.token, 'session-replacement-0123456789', 'the recovered replacement is adopted');
-    await oc.tasks.get('t', { deadline: soon() });
+    await oc.org(ORG).tasks.get('t', { deadline: soon() });
     equal(calls[2]!.headers.authorization, 'Bearer session-replacement-0123456789');
   }),
   test('a renewal replay outside the recovery window surfaces 409 idempotency-result-expired; a revoked family surfaces 401', async () => {
@@ -308,15 +309,15 @@ export const authCases: Case[] = [
     const current: AgentDelegation = { kind: 'agent-delegation', token: 'delegation-predecessor-0123', delegationId: 'del-1', revocationId: 'rev-1', expiresAt: 'x' };
     const slot = credentialSlot(current.token, 'delegation');
     const { fetch, calls } = scriptedFetch(lost(200), json(200, { delegationId: 'del-1', accessToken: 'delegation-replacement-0123', tokenType: 'Bearer', expiresAt: 'y', revocationId: 'rev-2' }));
-    const renewed = await journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: slot.transport })).auth.delegation.renew(current, { deadline: soon(), slot });
+    const renewed = await journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: slot.transport })).org(ORG).auth.delegation.renew(current, { deadline: soon(), slot });
     equal(calls.map((x) => `${x.method} ${x.url} ${x.headers.authorization}`), [
-      `POST ${BASE}/v1/delegations/del-1/renew Bearer delegation-predecessor-0123`,
-      `POST ${BASE}/v1/delegations/del-1/renew Bearer delegation-predecessor-0123`,
+      `POST ${BASE}/v1/orgs/${ORG}/delegations/del-1/renew Bearer delegation-predecessor-0123`,
+      `POST ${BASE}/v1/orgs/${ORG}/delegations/del-1/renew Bearer delegation-predecessor-0123`,
     ]);
     equal(keys(calls)[0], keys(calls)[1]);
     equal([renewed.token, renewed.revocationId, slot.token], ['delegation-replacement-0123', 'rev-2', 'delegation-replacement-0123']);
     const inactive = scriptedFetch(lost(200), problem(409, 'claim-inactive'));
-    const error = await rejects(() => journeys(createClient({ baseUrl: BASE, fetch: inactive.fetch, ...fast, transport: bearer({ token: current.token, kind: 'delegation' }) })).auth.delegation.renew(current, { deadline: soon() }), ApiError);
+    const error = await rejects(() => journeys(createClient({ baseUrl: BASE, fetch: inactive.fetch, ...fast, transport: bearer({ token: current.token, kind: 'delegation' }) })).org(ORG).auth.delegation.renew(current, { deadline: soon() }), ApiError);
     equal(error.code, 'claim-inactive', 'renewal recovery still checks the current claim');
   }),
   test('logout recovers with the same key and credential after the family is revoked', async () => {
@@ -476,11 +477,13 @@ export const authCases: Case[] = [
   }),
 
   // ---- own agent grants ----
-  test('auth.delegations.list reads GET /v1/me/delegations page by page, passing limit and cursor, with no Idempotency-Key', async () => {
+  test('auth.delegations.list reads the caller\'s grants page by page, passing limit and cursor, with partial reads and each item\'s tenant', async () => {
     const TOKEN = 'delegations-fixture-0123456789';
-    const grant = (id: string, status: string) => ({ id, agent: 'bot', projectId: 'p', taskId: 't', verbs: ['tasks:read'],
+    const other = 'org_00000000-0000-4000-8000-000000000002';
+    const grant = (id: string, status: string) => ({ id, agent: 'bot', tenantId: ORG, projectId: 'p', taskId: 't', verbs: ['tasks:read'],
       createdAt: '2026-10-10T00:00:00.000Z', expiresAt: '2026-10-10T01:00:00.000Z', status, authorizedViaSession: 'session-id-a' });
-    const first = { items: [grant('d-2', 'active')], nextCursor: 'cursor-1' }, second = { items: [grant('d-1', 'revoked')], nextCursor: null };
+    const first = { items: [grant('d-2', 'active')], nextCursor: 'cursor-1', partial: false, unavailableTenants: [] };
+    const second = { items: [grant('d-1', 'revoked')], nextCursor: null, partial: true, unavailableTenants: [{ tenantId: other }] };
     const { fetch, calls } = scriptedFetch(json(200, first), json(200, second), problem(403, 'human-required'));
     const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: bearer({ token: TOKEN }) }));
     equal(await oc.auth.delegations.list({ deadline: soon(), limit: 1 }), first);
@@ -490,31 +493,36 @@ export const authCases: Case[] = [
       `GET ${BASE}/v1/me/delegations?limit=1`, `GET ${BASE}/v1/me/delegations?cursor=cursor-1&limit=1`, `GET ${BASE}/v1/me/delegations`,
     ]);
     ok(calls.every((x) => !x.headers['idempotency-key']), 'a read carries no Idempotency-Key');
+    for (const bad of [{ ...first, partial: true }, { ...first, unavailableTenants: undefined }, { ...first, items: [{ ...grant('d-3', 'active'), tenantId: undefined }] }]) {
+      const off = scriptedFetch(json(200, bad));
+      const error = await rejects(() => journeys(createClient({ baseUrl: BASE, fetch: off.fetch, ...fast, transport: bearer({ token: TOKEN }) })).auth.delegations.list({ deadline: soon() }), ApiError);
+      ok(error.incomplete, 'an off-shape partial read is refused');
+    }
   }),
 
   // ---- own notifications ----
-  test('auth.notifications.list reads GET /v1/me/notifications with unread, limit and cursor, with no Idempotency-Key; limit 0 is the badge', async () => {
+  test('auth.notifications.list reads the tenant\'s GET /me/notifications with unread, limit and cursor, with no Idempotency-Key; limit 0 is the badge', async () => {
     const item = { id: 'ntf_7', kind: 'landed', projectId: 'p', projectSlug: 'p', projectName: 'P', taskId: 't', taskTitle: 'Fix',
       eventId: 'evt_42', createdAt: '2026-10-10T00:00:00.000Z', readAt: null };
     const first = { items: [item], nextCursor: 'cursor-1', unreadCount: 3 }, badge = { items: [], nextCursor: null, unreadCount: 3 };
     const { fetch, calls } = scriptedFetch(json(200, first), json(200, badge), problem(403, 'human-required'));
     const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: bearer({ token: 'notify-fixture-0123456789' }) }));
-    equal(await oc.auth.notifications.list({ deadline: soon(), unread: true, limit: 1, cursor: 'cursor-0' }), first);
-    equal(await oc.auth.notifications.list({ deadline: soon(), limit: 0 }), badge);
-    equal((await rejects(() => oc.auth.notifications.list({ deadline: soon() }), ApiError)).code, 'human-required');
+    equal(await oc.org(ORG).auth.notifications.list({ deadline: soon(), unread: true, limit: 1, cursor: 'cursor-0' }), first);
+    equal(await oc.org(ORG).auth.notifications.list({ deadline: soon(), limit: 0 }), badge);
+    equal((await rejects(() => oc.org(ORG).auth.notifications.list({ deadline: soon() }), ApiError)).code, 'human-required');
     equal(calls.map((x) => `${x.method} ${x.url}`), [
-      `GET ${BASE}/v1/me/notifications?cursor=cursor-0&limit=1&unread=true`, `GET ${BASE}/v1/me/notifications?limit=0`, `GET ${BASE}/v1/me/notifications`,
+      `GET ${BASE}/v1/orgs/${ORG}/me/notifications?cursor=cursor-0&limit=1&unread=true`, `GET ${BASE}/v1/orgs/${ORG}/me/notifications?limit=0`, `GET ${BASE}/v1/orgs/${ORG}/me/notifications`,
     ]);
     ok(calls.every((x) => !x.headers['idempotency-key']), 'a read carries no Idempotency-Key');
   }),
   test('auth.notifications.markRead POSTs {ids} or {upTo} with a key, resending a lost answer under the same key', async () => {
     const { fetch, calls } = scriptedFetch(new TypeError('fetch failed'), new Response(null, { status: 204 }), new Response(null, { status: 204 }));
     const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: bearer({ token: 'notify-fixture-0123456789' }) }));
-    equal(await oc.auth.notifications.markRead({ ids: ['ntf_1', 'ntf_2'] }, { deadline: soon() }), undefined);
-    equal(await oc.auth.notifications.markRead({ upTo: 'ntf_9' }, { deadline: soon(), idempotencyKey: 'mark-read-key-0123456789' }), undefined);
+    equal(await oc.org(ORG).auth.notifications.markRead({ ids: ['ntf_1', 'ntf_2'] }, { deadline: soon() }), undefined);
+    equal(await oc.org(ORG).auth.notifications.markRead({ upTo: 'ntf_9' }, { deadline: soon(), idempotencyKey: 'mark-read-key-0123456789' }), undefined);
     equal(calls.map((x) => `${x.method} ${x.url} ${x.body}`), [
-      `POST ${BASE}/v1/me/notifications/read {"ids":["ntf_1","ntf_2"]}`, `POST ${BASE}/v1/me/notifications/read {"ids":["ntf_1","ntf_2"]}`,
-      `POST ${BASE}/v1/me/notifications/read {"upTo":"ntf_9"}`,
+      `POST ${BASE}/v1/orgs/${ORG}/me/notifications/read {"ids":["ntf_1","ntf_2"]}`, `POST ${BASE}/v1/orgs/${ORG}/me/notifications/read {"ids":["ntf_1","ntf_2"]}`,
+      `POST ${BASE}/v1/orgs/${ORG}/me/notifications/read {"upTo":"ntf_9"}`,
     ]);
     ok(!!keys(calls)[0] && keys(calls)[0] === keys(calls)[1], 'the resend reuses the key');
     equal(keys(calls)[2], 'mark-read-key-0123456789');
@@ -524,12 +532,12 @@ export const authCases: Case[] = [
     const { fetch, calls } = scriptedFetch(json(200, { mutedKinds: [], mutedProjects: [] }), json(200, stored),
       problem(400, 'invalid-request', { details: { mutedKinds: ['everything'] } }));
     const oc = journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: browserCookie({ origin: BASE, csrfToken: () => 'csrf-fixture' }) }));
-    equal(await oc.auth.notifications.preferences.get({ deadline: soon() }), { mutedKinds: [], mutedProjects: [] });
-    equal(await oc.auth.notifications.preferences.put(stored, { deadline: soon() }), stored);
-    const refused = await rejects(() => oc.auth.notifications.preferences.put({ mutedKinds: ['everything' as never], mutedProjects: [] }, { deadline: soon() }), ApiError);
+    equal(await oc.org(ORG).auth.notifications.preferences.get({ deadline: soon() }), { mutedKinds: [], mutedProjects: [] });
+    equal(await oc.org(ORG).auth.notifications.preferences.put(stored, { deadline: soon() }), stored);
+    const refused = await rejects(() => oc.org(ORG).auth.notifications.preferences.put({ mutedKinds: ['everything' as never], mutedProjects: [] }, { deadline: soon() }), ApiError);
     equal(refused.code, 'invalid-request');
     equal(calls.map((x) => `${x.method} ${x.url}`), [
-      `GET ${BASE}/v1/me/notification-preferences`, `PUT ${BASE}/v1/me/notification-preferences`, `PUT ${BASE}/v1/me/notification-preferences`,
+      `GET ${BASE}/v1/orgs/${ORG}/me/notification-preferences`, `PUT ${BASE}/v1/orgs/${ORG}/me/notification-preferences`, `PUT ${BASE}/v1/orgs/${ORG}/me/notification-preferences`,
     ]);
     equal(calls[1]!.body, JSON.stringify(stored));
     ok(!calls[0]!.headers['idempotency-key'] && !calls[0]!.headers['x-csrf-token'], 'a read carries no key and no CSRF token');

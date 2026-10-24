@@ -140,6 +140,9 @@ function withoutLabels(text) {
  * service and delivery labels are dropped, since this repository does not include them. Deterministic, so the drift check sees the same output. */
 function publicText(text) {
   const out = withoutLabels(text)
+    // Work-item and decision names of the service's own plan ("(ORG-SPLIT-5)", "(ORG_SPLIT §11)", "(D9)", "ORG-SPLIT-5: the items ...").
+    .replace(/\s*\((?:ORG-SPLIT-\d{1,2}|ORG_SPLIT\s*§\s*\d{1,3}|D\d{1,2})\)/g, '')
+    .replace(/\bORG-SPLIT-\d{1,2}:?\s+([a-z])/g, (_, c) => c.toUpperCase())
     .replace(/\s*\([^()]*\bADR[- ]?\d{1,4}\b[^()]*\)/g, '')
     // "bound under <record>, ..." loses the whole phrase; "Under <record> protected-runtime admission" keeps "Under".
     .replace(/\s*\b(?:under|per|see|in|by|from|via|following)\s+ADR[- ]?\d{1,4}\b(?=\s*(?:[,.;:)]|$|(?:whose|which|that|and)\b))/gi, '')

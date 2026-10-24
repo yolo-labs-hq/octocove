@@ -1,6 +1,6 @@
 // Reference Workers Cron module; provision trust and policies per machine-clients.md.
 // Secrets: WORKLOAD_PRIVATE_JWK (ES256); non-secrets: ISSUER, SUBJECT, KEY_ID,
-// WORKER_ID, SCHEDULE, APPROVAL_AUDIENCE, API_URL, PRINCIPAL_ID.
+// WORKER_ID, SCHEDULE, APPROVAL_AUDIENCE, API_URL, ORG_ID (the project's org), PRINCIPAL_ID.
 // COORDINATOR must supply an authenticated exact scope and require green checks.
 // No live resource is created by this example.
 const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes)))
@@ -30,9 +30,10 @@ export default {
         {name:'ECDSA',namedCurve:'P-256'},false,['sign']);
       const proof = unsigned + '.' + b64(await crypto.subtle.sign(
         {name:'ECDSA',hash:'SHA-256'},key,new TextEncoder().encode(unsigned)));
-      const grant = await post(env,'/auth/approval-grants',proof,scope,crypto.randomUUID());
+      const org = '/orgs/' + encodeURIComponent(env.ORG_ID);
+      const grant = await post(env,org + '/auth/approval-grants',proof,scope,crypto.randomUUID());
       if (grant.principalId !== env.PRINCIPAL_ID) throw new Error('principal-mismatch');
-      const approval = await post(env,'/candidates/' + encodeURIComponent(scope.candidateId) +
+      const approval = await post(env,org + '/candidates/' + encodeURIComponent(scope.candidateId) +
         '/approve-with-grant',grant.token,grant.scope,crypto.randomUUID());
       // Only sanitized identifiers leave this client. Landing uses independent rights.
       await env.COORDINATOR.fetch('https://coordinator/approved', {

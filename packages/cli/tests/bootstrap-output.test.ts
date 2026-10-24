@@ -9,7 +9,7 @@ afterEach(async()=>{for(const dir of dirs.splice(0))await rm(dir,{recursive:true
 async function fixture(){
   const dir=await mkdtemp(join(tmpdir(),'oc-bootstrap-output-'));dirs.push(dir);
   const path=join(dir,'agent','bootstrap.json');let output='',calls=0;
-  const deps:Deps={argv:['task','authorize','T1','--agent','worker','--verbs','tasks:claim','--expires-at','2030-01-01T00:00:00Z','--bootstrap-out',path,'--json'],env:{},
+  const deps:Deps={argv:['task','authorize','T1','--agent','worker','--verbs','tasks:claim','--expires-at','2030-01-01T00:00:00Z','--bootstrap-out',path,'--json'],env:{OCTOCOVE_ORG:'org_00000000-0000-4000-8000-000000000001'},
     credentials:{apiUrl:'https://api.example.invalid/v1',kind:'human',token:'human-secret'},git:async()=>'',stdin:async()=>'',stdout:s=>output+=s,stderr:s=>output+=s,
     fetch:async()=>{calls++;return Response.json({id:'A1',taskId:'T1',projectId:'P1',claimAttemptId:'C1',delegationId:'D1',bootstrapToken:'bootstrap-secret',bootstrapExpiresAt:'2030-01-01T00:00:00Z',authorizationExpiresAt:'2030-01-02T00:00:00Z',verbs:['tasks:claim']},{status:201});}};
   return {dir,path,deps,get output(){return output;},get calls(){return calls;}};
@@ -17,7 +17,7 @@ async function fixture(){
 it.each([false,true])('authorize writes directly to selected private file, without printing a token (JSON %s)',async(json)=>{
   const f=await fixture();if(!json)f.deps.argv=f.deps.argv.filter(a=>a!=='--json');
   expect(await run(f.deps),f.output).toBe(0);expect(f.calls).toBe(1);
-  expect(JSON.parse(await readFile(f.path,'utf8'))).toMatchObject({kind:'bootstrap',token:'bootstrap-secret',agentId:'worker',absoluteExpiresAt:'2030-01-02T00:00:00Z'});
+  expect(JSON.parse(await readFile(f.path,'utf8'))).toMatchObject({kind:'bootstrap',orgId:'org_00000000-0000-4000-8000-000000000001',token:'bootstrap-secret',agentId:'worker',absoluteExpiresAt:'2030-01-02T00:00:00Z'});
   expect((await stat(f.path)).mode&0o777).toBe(0o600);expect((await stat(join(f.dir,'agent'))).mode&0o777).toBe(0o700);
   expect(f.output).toContain(f.path);expect(f.output).not.toContain('bootstrap-secret');expect(f.output).not.toContain('human-secret');
 });

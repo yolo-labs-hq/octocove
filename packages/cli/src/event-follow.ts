@@ -5,27 +5,28 @@ import { ConfigError, configDir, type Credentials } from './config.js';
 import { Api, type FetchLike } from './http.js';
 
 /** A crash after output but before the checkpoint can repeat an event. Consumers
- * deduplicate by envelope.id. A checkpoint is never advanced before output. */
+ * deduplicate by (envelope.tenantId, envelope.id), never by sequence. A checkpoint is never advanced before output.
+ * Cursors are bound to one org: the checkpoint names it, and another org's checkpoint is refused. */
 export async function followEvents(options: {
-  creds: Credentials; env: NodeJS.ProcessEnv; projectId: string; taskId?: string;
+  creds: Credentials; env: NodeJS.ProcessEnv; orgId: string; projectId: string; taskId?: string;
   from?: string; checkpoint?: string; limit?: number; signal: AbortSignal;
   fetch: FetchLike;
   stdout: (s: string) => void; sleep?: (ms: number) => Promise<void>;
 }) {
   const { signal } = options;
   const scope = createHash('sha256').update(JSON.stringify([
-    options.creds.apiUrl, options.projectId, options.taskId ?? null,
+    options.creds.apiUrl, options.orgId, options.projectId, options.taskId ?? null,
   ])).digest('hex');
   const file = options.checkpoint ?? join(configDir(options.env), 'events', `${scope}.json`);
   let after = options.from;
   if (after === undefined) {
     try {
       const saved = JSON.parse(await readSecret(file));
-      if (saved.version !== 1 || saved.scope !== scope || typeof saved.cursor !== 'string') throw new ConfigError('event checkpoint scope mismatch or invalid checkpoint');
+      if (saved.version !== 2 || saved.scope !== scope || saved.orgId !== options.orgId || typeof saved.cursor !== 'string') throw new ConfigError('event checkpoint scope mismatch or invalid checkpoint');
       after = saved.cursor;
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
   }
-  const api = new Api({ apiUrl: options.creds.apiUrl, credential: options.creds, fetch: options.fetch, signal });
+  const api = new Api({ apiUrl: options.creds.apiUrl, orgId: options.orgId, credential: options.creds, fetch: options.fetch, signal });
   // The library polls without its own idle wait (pollMs 0); the pause below stays injectable and cancellable.
   // pollMs only paces empty pages: after a 429 or a lost answer the library keeps its own error backoff
   // (Retry-After, else 1 s doubling to 30 s), timed by the same injectable sleep.
@@ -37,7 +38,7 @@ export async function followEvents(options: {
     for await (const item of follow) {
       if (item.type === 'event') options.stdout(JSON.stringify(item.event) + '\n');
       // Signed cursors also capture empty pages and filter progress.
-      await atomicSecret(file, { version:1,scope,cursor:item.cursor });
+      await atomicSecret(file, { version:2,scope,orgId:options.orgId,cursor:item.cursor });
       if (item.type === 'position') {
         if (empty) await pause(options.sleep, signal);
         empty = true;

@@ -1,17 +1,47 @@
 /**
- * `events.follow`: an async iterator over `eventsReplay` at the shipped v1 envelope only.
- * The cursor is opaque and passed back verbatim; the filter is sent unchanged on every page; the
+ * `events.follow`: an async iterator over one tenant's `eventsReplay`, at envelope schema v2 only.
+ * The cursor is opaque, bound to the tenant, and passed back verbatim; the filter is sent unchanged on every page; the
  * caller checkpoints the yielded cursor after consuming each item, so a crash can repeat an event
- * (duplicates are tolerated — deduplicate by `event.id`); record state is re-read, never inferred.
+ * (duplicates are tolerated — deduplicate by `eventKey(event)`, the pair (tenantId, id), never by `sequence`); record
+ * state is re-read, never inferred.
  */
-import type { OctocoveClient, OpenEnums } from './client.js';
+import { isTenantId, type OpenEnums, type TenantClient } from './client.js';
 import type { components } from './generated/openapi.js';
 import { ApiError, TransportError } from './errors.js';
 import { pollDelay } from './journey-core.js';
 import { CallScope } from './scope.js';
 import type { BearerTransport } from './transports.js';
 
+/** Envelope schema v2: `{id, type, schemaVersion: 2, tenantId, projectId, taskId, occurredAt, sequence, data}`. */
 export type EventEnvelope = OpenEnums<components['schemas']['Event']>;
+
+export const EVENT_SCHEMA_VERSION = 2;
+const SEQUENCE = /^(?:0|[1-9][0-9]*)$/;
+
+/**
+ * The identity of an event: `id` is unique only within its tenant, so receivers deduplicate by (tenantId, id).
+ * `sequence` orders events within one tenant only, may have gaps, and is never a deduplication key.
+ */
+export function eventKey(event: { readonly tenantId: string; readonly id: string }): string {
+  return `${event.tenantId}\u0000${event.id}`;
+}
+
+/** Why an envelope is refused; `undefined` for a well-formed v2 envelope (of `tenantId`, when given). */
+export function envelopeProblem(event: unknown, tenantId?: string): string | undefined {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return 'an event is not an object';
+  const e = event as Record<string, unknown>;
+  if (e.schemaVersion !== EVENT_SCHEMA_VERSION) return `event envelope schemaVersion ${JSON.stringify(e.schemaVersion)} is not supported (v${EVENT_SCHEMA_VERSION} only)`;
+  if (typeof e.id !== 'string' || !e.id) return 'an event has no id';
+  if (typeof e.type !== 'string' || !e.type) return 'an event has no type';
+  if (!isTenantId(e.tenantId)) return 'an event has no tenantId';
+  if (tenantId !== undefined && e.tenantId !== tenantId) return 'an event names another tenant';
+  if (typeof e.projectId !== 'string' || !e.projectId) return 'an event has no projectId';
+  if (e.taskId !== null && (typeof e.taskId !== 'string' || !e.taskId)) return 'an event taskId is neither an id nor null';
+  if (typeof e.occurredAt !== 'string' || Number.isNaN(Date.parse(e.occurredAt))) return 'an event has no occurredAt';
+  if (typeof e.sequence !== 'string' || !SEQUENCE.test(e.sequence)) return 'an event sequence is not a decimal string';
+  if (!e.data || typeof e.data !== 'object' || Array.isArray(e.data)) return 'an event has no data';
+  return undefined;
+}
 
 /** The scope every page is read under; sent unchanged on every request (`since` is bound into the cursor). */
 export interface EventFilter {
@@ -54,7 +84,6 @@ export interface FollowOptions {
   readonly credential?: BearerTransport;
 }
 
-export const EVENT_SCHEMA_VERSION = 1;
 const IDLE_POLL_MS = 1000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const ERROR_BACKOFF_MS = 1000;
@@ -76,7 +105,8 @@ function invalid(detail: string, status: number, requestId: string | undefined):
   return new ApiError({ status, code: `http-${status}`, detail, requestId, incomplete: true, operationId: 'eventsReplay' });
 }
 
-export async function* follow(client: OctocoveClient, options: FollowOptions): AsyncGenerator<FollowItem, void, undefined> {
+/** Follows one tenant's events: `client` is bound to that tenant, and every event must name it. */
+export async function* follow(client: TenantClient, options: FollowOptions): AsyncGenerator<FollowItem, void, undefined> {
   const { filter, signal } = options;
   if (!filter || typeof filter.projectId !== 'string' || !filter.projectId) throw new TypeError('events.follow needs filter.projectId');
   const wait = options.waitSeconds ?? 0;
@@ -117,11 +147,8 @@ export async function* follow(client: OctocoveClient, options: FollowOptions): A
       // Validate the whole page before yielding any of it: an unsupported envelope stops the follower
       // before the caller can checkpoint past it.
       for (const event of items) {
-        if (!event || typeof event !== 'object' || typeof (event as { id?: unknown }).id !== 'string') throw invalid('an event has no id', response.status, response.requestId);
-        const version = (event as { schemaVersion?: unknown }).schemaVersion;
-        if (version !== EVENT_SCHEMA_VERSION) {
-          throw invalid(`event envelope schemaVersion ${JSON.stringify(version)} is not supported (v${EVENT_SCHEMA_VERSION} only)`, response.status, response.requestId);
-        }
+        const problem = envelopeProblem(event, client.tenantId);
+        if (problem) throw invalid(problem, response.status, response.requestId);
       }
       for (const event of items as EventEnvelope[]) {
         if (scope.ended) return;

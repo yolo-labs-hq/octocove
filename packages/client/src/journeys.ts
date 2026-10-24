@@ -3,7 +3,7 @@
  * `deadline`; waits are cancellation-aware and stop with the ids needed to resume, never reissuing the
  * command. Outcomes (`conflict`, `stale-base`, `raced`, …) are values; server refusals are ApiErrors.
  */
-import type { ApiResponse, CallableOperationId, CallInput, OctocoveClient, OpenEnums, SuccessBody } from './client.js';
+import { newIdempotencyKey, tenantClient, type ApiResponse, type CallableOperationId, type CallInput, type OctocoveClient, type OpenEnums, type SuccessBody, type TenantClient } from './client.js';
 import {
   approvalGrantFromExchange,
   bearerFor,
@@ -13,7 +13,7 @@ import {
   type ApprovalGrantScope,
   type ClaimBootstrap,
 } from './credentials.js';
-import { ApiError, isBoundTo, staleFenceDetails } from './errors.js';
+import { ApiError, isBoundTo, OrgCreationPendingError, staleFenceDetails } from './errors.js';
 import type { components } from './generated/openapi.js';
 import {
   isObject,
@@ -26,13 +26,15 @@ import {
   pollUntil,
   send,
   type CommandOptions,
+  type JourneyClient,
   type JourneyOptions,
+  type SendInput,
   type SendOptions,
   type WaitOptions,
   type WaitStop,
 } from './journey-core.js';
 import { bearer, type BearerTransport } from './transports.js';
-import { authJourneys } from './auth.js';
+import { authJourneys, isPartialRead, tenantAuthJourneys, type UnavailableTenant } from './auth.js';
 import { follow, type FollowOptions } from './events.js';
 
 type Schemas = components['schemas'];
@@ -50,8 +52,19 @@ export type Approval = OpenEnums<Schemas['Approval']>;
 export type BoundTo = Schemas['BoundTo'];
 /** `laneRetire`'s answer: `202` while the task's lane repositories are being deleted, `200` once all of them are retired. */
 export type LaneRetirement = OpenEnums<Schemas['LaneRetirement']> | OpenEnums<Schemas['LaneRetired']>;
-/** `projectCreate`'s answer: the created project. */
+/** `projectCreate`'s and `meProjectCreate`'s answer: the created project, with the tenant its routes name. */
 export type Project = Schemas['Project'];
+/** A `GET /me/projects` item: one of the caller's projects, with its `tenantId` (the org its routes name) and `tenantKind`. */
+export type MeProject = OpenEnums<Schemas['MeProject']>;
+/** `GET /me/projects`: every tenant's projects; with `partial` true the tenants in `unavailableTenants` are missing. */
+export interface MeProjectList {
+  readonly items: readonly MeProject[];
+  readonly partial: boolean;
+  readonly unavailableTenants: readonly UnavailableTenant[];
+}
+/** A repository's lane policy, and `repositoryLanePolicyDeclare`'s answer. */
+export type RepositoryLanePolicy = Schemas['RepositoryLanePolicy'];
+export type RepositoryLanePolicyDeclaration = OpenEnums<Schemas['RepositoryLanePolicyDeclaration']>;
 /** A project's canonical repository and target ref (`repositoryCreate`'s answer). */
 export type Repository = OpenEnums<Schemas['Repository']>;
 /** A `repositoriesList` item: a `Repository` with its verification state (`namespace-mismatch` or `unverified`
@@ -135,7 +148,7 @@ export const RECEIPT_POLL_MS = 2000;
 export const PROVISIONING_POLL_MS = 2000;
 
 /** Fails before sending when the client's credential is known not to be a human session. */
-function requireHuman(client: OctocoveClient, what: string): void {
+function requireHuman(client: JourneyClient, what: string): void {
   const t = client.transport;
   const kind = t.type === 'bearer' ? t.kind : t.type === 'forwardedSession' && t.authorizationHeader ? (t.bearerKind ?? 'session') : t.type === 'unauthenticated' ? 'none' : 'session';
   if (kind !== 'session') throw new TypeError(`${what} requires a human session (this client presents ${kind})`);
@@ -148,12 +161,19 @@ function delegationOf(response: { status: number; requestId?: string; operationI
   return Object.freeze({ kind: 'agent-delegation', token: value.accessToken, delegationId: value.delegationId, revocationId: value.revocationId, expiresAt: value.expiresAt });
 }
 
-export function journeys(client: OctocoveClient) {
+/** Waits out `409 org-creation-pending` before retrying when the answer names no Retry-After. */
+export const ORG_PENDING_POLL_MS = 2000;
+
+/**
+ * Journeys of one tenant: every resource route, `/v1/orgs/{tenantId}/...`. Reached as `journeys(client).org(tenantId)`
+ * (or `journeys(client).forProject(meProject)`); the tenant comes from discovery, never a default.
+ */
+export function tenantJourneys(client: TenantClient) {
   /** One command in its own journey scope. */
   async function command<K extends CallableOperationId>(
     options: CommandOptions,
     operationId: K,
-    input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>,
+    input: SendInput<K>,
     extra: Omit<SendOptions, 'idempotencyKey'> = {},
   ): Promise<ApiResponse<SuccessBody<K>>> {
     const scope = journeyScope(options);
@@ -163,7 +183,7 @@ export function journeys(client: OctocoveClient) {
       scope.dispose();
     }
   }
-  const body = async <K extends CallableOperationId>(options: CommandOptions, operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, extra?: Omit<SendOptions, 'idempotencyKey'>) =>
+  const body = async <K extends CallableOperationId>(options: CommandOptions, operationId: K, input: SendInput<K>, extra?: Omit<SendOptions, 'idempotencyKey'>) =>
     (await command(options, operationId, input, extra)).body;
 
   // ---- tasks ----
@@ -179,22 +199,6 @@ export function journeys(client: OctocoveClient) {
     dependencies: {
       add: (taskId: string, input: Expectation & { readonly upstreamTaskId: string }, options: CommandOptions) => body(options, 'taskDependencyAdd', { path: { id: taskId }, body: { ...input } }),
       remove: (taskId: string, input: Expectation & { readonly upstreamTaskId: string }, options: CommandOptions) => body(options, 'taskDependencyRemove', { path: { id: taskId }, body: { ...input } }),
-    },
-  };
-
-  // ---- projects ----
-  const projects = {
-    /**
-     * Human only: create a project and become its first member with every verb. Allow-listed creators only
-     * (`403 project-create-disabled` otherwise); a taken slug is `409 slug-taken`, a UUID-shaped one
-     * `422 invalid-slug`; past the per-creator cap
-     * `403 project-quota-exceeded`; too many attempts `429 rate-limited` (Retry-After). `stored-result` replay:
-     * a lost answer is resent under the same key and body and returns the committed project. The project's own
-     * Artifacts namespace (`artifactsNamespace`, `oc-<id>`) is assigned here; its repositories must live in it.
-     */
-    create(input: Body<'projectCreate'>, options: CommandOptions): Promise<Project> {
-      requireHuman(client, 'projects.create');
-      return body(options, 'projectCreate', { body: input });
     },
   };
 
@@ -227,6 +231,16 @@ export function journeys(client: OctocoveClient) {
     verify(projectId: string, repositoryId: string, options: CommandOptions): Promise<RepositoryVerification> {
       requireHuman(client, 'repositories.verify');
       return body(options, 'repositoryVerify', { path: { project: projectId, repository: repositoryId } });
+    },
+    /**
+     * Human only, `project:admin` with a recent sign-in: replace the repository's lane policy (the whole policy:
+     * `candidatePublication` and `visibility`). A public repository needs `public-on-submit` (`409
+     * publication-undeclared` otherwise); declaring the current policy answers it unchanged. `stored-result` replay.
+     */
+    declareLanePolicy(projectId: string, repositoryId: string, policy: RepositoryLanePolicy, options: CommandOptions): Promise<RepositoryLanePolicyDeclaration> {
+      requireHuman(client, 'repositories.declareLanePolicy');
+      const { candidatePublication, visibility } = policy;
+      return body(options, 'repositoryLanePolicyDeclare', { path: { project: projectId, repository: repositoryId }, body: { candidatePublication, visibility } });
     },
     /** The project's canonical repositories, one item per target ref: what a task is created against. */
     list: async (projectId: string, options: JourneyOptions): Promise<readonly RepositoryListItem[]> =>
@@ -465,11 +479,102 @@ export function journeys(client: OctocoveClient) {
    * `operation-in-progress` are surfaced to the caller (which polls with its own messaging) instead of
    * being waited out under the same key.
    */
-  const keyed = <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
+  const keyed = <K extends CallableOperationId>(operationId: K, input: SendInput<K>, options: CommandOptions,
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) =>
     command(options, operationId, input, extra.busyIsFinal ? { busyIsFinal: true } : {});
 
-  return { client, command: keyed, tasks, projects, repositories, claims, candidates, approvals, grants, landings, receipts, lanes, webhooks, log, audit, events, auth: authJourneys(client) };
+  return {
+    client, tenantId: client.tenantId, command: keyed, tasks, repositories, claims, candidates, approvals, grants, landings, receipts, lanes,
+    webhooks, log, audit, events, auth: tenantAuthJourneys(client),
+  };
+}
+
+export type TenantJourneys = ReturnType<typeof tenantJourneys>;
+
+/**
+ * The journeys of one client: the global routes (sign-in, `GET /me`, the caller's projects across every tenant, project
+ * creation) and, through `org(tenantId)`, every tenant's resource routes.
+ */
+export function journeys(client: OctocoveClient) {
+  const tenants = new Map<string, TenantJourneys>();
+  /** The journeys of one tenant (an `org_<uuid>` id from `projects.list()` or `GET /me`); a malformed id is refused. */
+  const org = (tenantId: string): TenantJourneys => {
+    let bound = tenants.get(tenantId);
+    if (!bound) tenants.set(tenantId, bound = tenantJourneys(tenantClient(client, tenantId)));
+    return bound;
+  };
+
+  const projects = {
+    /**
+     * Human only: `GET /me/projects`, the caller's projects in every tenant, each with the `tenantId` its routes name.
+     * With `partial` true the tenants in `unavailableTenants` could not be read now; their projects are missing (never
+     * reported as empty). Retry later for those.
+     */
+    async list(options: JourneyOptions): Promise<MeProjectList> {
+      requireHuman(client, 'projects.list');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'meProjectsList', {});
+        const b: unknown = response.body;
+        if (!isObject(b) || !Array.isArray(b.items) || !isPartialRead(b) || !b.items.every((p) => isObject(p) && isString(p.projectId) && isString(p.tenantId))) {
+          throw offShape(response, 'the response is not a project list');
+        }
+        return { items: response.body.items, partial: response.body.partial, unavailableTenants: response.body.unavailableTenants };
+      } finally { scope.dispose(); }
+    },
+    /**
+     * Human only, recent sign-in: create a project and become its first member with every verb. With `orgId`, in that
+     * organization (`projectCreate`; the caller administers it); without, in the caller's own personal tenant
+     * (`meProjectCreate`), provisioned on first use. The answer's `tenantId` names the tenant its routes take.
+     * Allow-listed creators only (`403 project-create-disabled`); a taken slug is `409 slug-taken`, a UUID-shaped one
+     * `422 invalid-slug`; past a quota `403 project-quota-exceeded`; too many attempts `429 rate-limited`. While the
+     * tenant is still provisioning (`409 org-creation-pending`) the same key and body are sent again after its
+     * Retry-After, until the deadline; then the `OrgCreationPendingError` is thrown and a later call with the same
+     * `idempotencyKey` completes the same project. `stored-result` replay otherwise.
+     */
+    async create(input: Body<'projectCreate'>, options: CommandOptions & { readonly orgId?: string; readonly pollMs?: number }): Promise<Project> {
+      requireHuman(client, 'projects.create');
+      const scope = journeyScope(options);
+      const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
+      const target: JourneyClient = options.orgId === undefined ? client : org(options.orgId).client;
+      try {
+        for (;;) {
+          try {
+            const response = options.orgId === undefined
+              ? await send(target, scope, options, 'meProjectCreate', { body: input }, { idempotencyKey })
+              : await send(target, scope, options, 'projectCreate', { body: input }, { idempotencyKey });
+            const p: unknown = response.body;
+            if (!isObject(p) || !isString(p.id) || !isString(p.tenantId)) throw offShape(response, 'the response is not a project');
+            return response.body;
+          } catch (error) {
+            if (!(error instanceof OrgCreationPendingError)) throw error;
+            const wait = pollDelay(error.retryAfter, options.pollMs, ORG_PENDING_POLL_MS);
+            if (wait >= scope.remaining()) throw error;
+            await scope.sleep(wait);
+          }
+        }
+      } finally { scope.dispose(); }
+    },
+  };
+
+  /** One keyed command on a global route, under the same replay rule (tenant routes: `org(tenantId).command`). */
+  const command = async <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
+    extra: Pick<SendOptions, 'busyIsFinal'> = {}) => {
+    const scope = journeyScope(options);
+    try {
+      return await send(client, scope, options, operationId, input as SendInput<K>, { idempotencyKey: options.idempotencyKey, ...(extra.busyIsFinal ? { busyIsFinal: true } : {}) });
+    } finally { scope.dispose(); }
+  };
+
+  return {
+    client,
+    auth: authJourneys(client),
+    projects,
+    org,
+    /** The journeys of a discovered project's tenant (`projects.list()` items, `GET /me` memberships). */
+    forProject: (project: { readonly tenantId: string }) => org(project.tenantId),
+    command,
+  };
 }
 
 export type Journeys = ReturnType<typeof journeys>;

@@ -3,7 +3,11 @@ import {
   bearer,
   createClient,
   journeys,
+  OrgCreationPendingError,
+  RouteUnavailableError,
   staleBaseRefusal,
+  tenantClient,
+  TenantNotFoundError,
   TransportError,
   type ClaimBootstrap,
   type ClientOptions,
@@ -11,6 +15,7 @@ import {
 import { dumpError, equal, hang, json, ok, problem, rejects, scriptedFetch, sleep, test, type Case, type Recorded } from '../harness.js';
 
 const BASE = 'https://cp.octocove.test';
+const ORG = 'org_00000000-0000-4000-8000-000000000001';
 const TOKEN = 'session-bearer-fixture-0123456789';
 const A = 'a'.repeat(40), B = 'b'.repeat(40), C = 'c'.repeat(40);
 const soon = () => Date.now() + 5_000;
@@ -39,7 +44,7 @@ const grant = Object.freeze({ kind: 'approval-grant' as const, token: 'approval-
 
 export const journeyCases: Case[] = [
   test('every journey needs one absolute deadline', async () => {
-    const oc = journeys(client(scriptedFetch().fetch));
+    const oc = journeys(client(scriptedFetch().fetch)).org(ORG);
     await rejects(() => oc.tasks.get('t', {} as never), TypeError);
     await rejects(() => oc.candidates.waitFor('s', { deadline: Number.NaN }), TypeError);
   }),
@@ -47,7 +52,7 @@ export const journeyCases: Case[] = [
   // ---- replay semantics (retry-policy.json) ----
   test('a lost answer on a stored-result command is replayed under the same key, body and credential', async () => {
     const { fetch, calls } = scriptedFetch(lost(201), json(201, { id: 'task-1' }));
-    const body = await journeys(client(fetch)).tasks.create({ projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] }, { deadline: soon() });
+    const body = await journeys(client(fetch)).org(ORG).tasks.create({ projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] }, { deadline: soon() });
     equal(body.id, 'task-1');
     equal(calls.length, 2);
     equal(keys(calls)[0], keys(calls)[1]);
@@ -56,7 +61,7 @@ export const journeyCases: Case[] = [
   }),
   test('409 idempotency-result-expired surfaces as ApiError with no fresh issuance under the same operation', async () => {
     const { fetch, calls } = scriptedFetch(lost(201), problem(409, 'idempotency-result-expired'), json(201, {}));
-    const error = await rejects(() => journeys(client(fetch)).claims.authorize('t', { agentId: 'agent', verbs: ['tasks:read'], ttl: 600 }, { deadline: soon() }), ApiError);
+    const error = await rejects(() => journeys(client(fetch)).org(ORG).claims.authorize('t', { agentId: 'agent', verbs: ['tasks:read'], ttl: 600 }, { deadline: soon() }), ApiError);
     equal([error.status, error.code], [409, 'idempotency-result-expired']);
     equal(calls.length, 2, 'never a third, fresh issuance');
     equal(keys(calls)[0], keys(calls)[1]);
@@ -65,35 +70,35 @@ export const journeyCases: Case[] = [
   test('idempotency-conflict, unauthenticated and bootstrap-consumed end a recovery as ApiError', async () => {
     for (const [status, code] of [[409, 'idempotency-conflict'], [401, 'unauthenticated'], [401, 'bootstrap-consumed']] as const) {
       const { fetch, calls } = scriptedFetch(lost(201), problem(status, code), json(201, {}));
-      const error = await rejects(() => journeys(client(fetch)).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() }), ApiError);
+      const error = await rejects(() => journeys(client(fetch)).org(ORG).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() }), ApiError);
       equal([error.status, error.code], [status, code]);
       equal(calls.length, 2);
     }
   }),
   test('bootstrap claim recovery returns the original snapshot plus the delegation, under the same key and bootstrap', async () => {
     const { fetch, calls } = scriptedFetch(lost(201), json(201, { claim: claimSnapshot, delegation: delegationWire }));
-    const result = await journeys(client(fetch)).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() });
+    const result = await journeys(client(fetch)).org(ORG).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() });
     equal(result.claim.provisioningState, 'pending', 'the snapshot, not current readiness');
     equal(result.delegation, { kind: 'agent-delegation', token: delegationWire.accessToken, delegationId: 'del-1', revocationId: 'rev-1', expiresAt: delegationWire.expiresAt });
     equal(auths(calls), [`Bearer ${bootstrap.token}`, `Bearer ${bootstrap.token}`]);
     equal(keys(calls)[0], keys(calls)[1]);
     const missing = scriptedFetch(json(201, { claim: claimSnapshot }));
-    const error = await rejects(() => journeys(client(missing.fetch)).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() }), ApiError);
+    const error = await rejects(() => journeys(client(missing.fetch)).org(ORG).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() }), ApiError);
     ok(error.incomplete, 'a bootstrap claim without a delegation is an incomplete answer, never a value');
   }),
   test('guarded-result: a grant approval replayed after revocation fails with the server refusal', async () => {
     const { fetch, calls } = scriptedFetch(lost(201), problem(403, 'authority-revoked'), json(201, {}));
-    const error = await rejects(() => journeys(client(fetch)).approvals.approveWithGrant(grant, { deadline: soon() }), ApiError);
+    const error = await rejects(() => journeys(client(fetch)).org(ORG).approvals.approveWithGrant(grant, { deadline: soon() }), ApiError);
     equal([error.status, error.code], [403, 'authority-revoked']);
     equal(calls.length, 2);
     equal(auths(calls), [`Bearer ${grant.token}`, `Bearer ${grant.token}`]);
-    equal(calls[0]!.url, `${BASE}/v1/candidates/cand-1/approve-with-grant`, 'the grant acts only on the candidate it names');
+    equal(calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/approve-with-grant`, 'the grant acts only on the candidate it names');
     equal(JSON.parse(calls[1]!.body!), approvalScope);
   }),
   test('a replay refused by the current authorization gate surfaces that refusal, never the earlier result', async () => {
     for (const [status, code] of [[409, 'claim-inactive'], [403, 'membership-revoked']] as const) {
       const { fetch, calls } = scriptedFetch(lost(201), problem(status, code), json(201, {}));
-      const error = await rejects(() => journeys(client(fetch)).claims.release('t', { claimAttemptId: 'attempt-1' }, { deadline: soon() }), ApiError);
+      const error = await rejects(() => journeys(client(fetch)).org(ORG).claims.release('t', { claimAttemptId: 'attempt-1' }, { deadline: soon() }), ApiError);
       equal(error.code, code);
       equal(calls.length, 2);
     }
@@ -101,11 +106,11 @@ export const journeyCases: Case[] = [
   test('grant metadata-on-replay: the same-key exchange recovers metadata without the token, never a usable grant', async () => {
     const assertion = 'signed-assertion-fixture-0123';
     const first = scriptedFetch(lost(201), json(201, {}));
-    const transport = await rejects(() => journeys(client(first.fetch)).grants.exchangeApproval(assertion, approvalScope, { deadline: soon(), idempotencyKey: 'oc-exchange-key-000000001' }), TransportError);
+    const transport = await rejects(() => journeys(client(first.fetch)).org(ORG).grants.exchangeApproval(assertion, approvalScope, { deadline: soon(), idempotencyKey: 'oc-exchange-key-000000001' }), TransportError);
     equal(transport.code, 'network-error');
     equal(first.calls.length, 1, 'autoRetry never: the exchange is not resent');
     const second = scriptedFetch(json(201, { id: 'grant-1', principalId: 'bot:1', expiresAt: '2026-10-09T00:05:00Z', scope: approvalScope, policyVersion: 'v1' }));
-    const recovered = await journeys(client(second.fetch)).grants.exchangeApproval(assertion, approvalScope, { deadline: soon(), idempotencyKey: 'oc-exchange-key-000000001' });
+    const recovered = await journeys(client(second.fetch)).org(ORG).grants.exchangeApproval(assertion, approvalScope, { deadline: soon(), idempotencyKey: 'oc-exchange-key-000000001' });
     equal(recovered.outcome, 'recovered-without-token');
     ok(!('grant' in recovered) && !('token' in recovered));
     equal(second.calls[0]!.headers['idempotency-key'], 'oc-exchange-key-000000001');
@@ -114,24 +119,24 @@ export const journeyCases: Case[] = [
   test('autoRetry never operations are never resent by a journey, after a network failure or a 5xx', async () => {
     for (const step of [offline(), problem(503, 'temporarily-unavailable')]) {
       const { fetch, calls } = scriptedFetch(step, new Response(null, { status: 204 }), new Response(null, { status: 204 }));
-      await rejects(() => journeys(client(fetch)).webhooks.disable('wh-1', { deadline: soon() }), Error);
+      await rejects(() => journeys(client(fetch)).org(ORG).webhooks.disable('wh-1', { deadline: soon() }), Error);
       equal(calls.length, 1);
     }
     const lostExchange = scriptedFetch(lost(201), json(201, {}));
-    await rejects(() => journeys(client(lostExchange.fetch)).grants.exchangeApproval('signed-assertion-fixture-0123', approvalScope, { deadline: soon() }), TransportError);
+    await rejects(() => journeys(client(lostExchange.fetch)).org(ORG).grants.exchangeApproval('signed-assertion-fixture-0123', approvalScope, { deadline: soon() }), TransportError);
     equal(lostExchange.calls.length, 1, 'a lost exchange answer is not resent either');
   }),
   test('a state-replay command is not replayed after a lost answer (the follow-up is a read)', async () => {
     const { fetch, calls } = scriptedFetch(lost(202), json(200, { phase: 'retired', laneRepositories: [] }));
-    await rejects(() => journeys(client(fetch)).lanes.retire('t', { deadline: soon() }), TransportError);
+    await rejects(() => journeys(client(fetch)).org(ORG).lanes.retire('t', { deadline: soon() }), TransportError);
     equal(calls.length, 1);
-    equal(calls[0]!.url, `${BASE}/v1/tasks/t/lane/retire`);
+    equal(calls[0]!.url, `${BASE}/v1/orgs/${ORG}/tasks/t/lane/retire`);
   }),
   test('operation-in-progress and 429 are consumed with Retry-After under the same key', async () => {
     const task = { projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] };
     for (const busy of [problem(409, 'operation-in-progress'), problem(429, 'rate-limited')]) {
       const { fetch, calls } = scriptedFetch(withRetryAfter(busy, '0.01'), json(201, { id: 'task-1' }));
-      equal((await journeys(client(fetch)).tasks.create(task, { deadline: soon() })).id, 'task-1');
+      equal((await journeys(client(fetch)).org(ORG).tasks.create(task, { deadline: soon() })).id, 'task-1');
       equal(calls.length, 2);
       equal(keys(calls)[0], keys(calls)[1]);
       equal(calls[0]!.body, calls[1]!.body);
@@ -139,13 +144,13 @@ export const journeyCases: Case[] = [
     // Without Retry-After the journey waits the server's documented 1 s.
     const { fetch, calls } = scriptedFetch(problem(409, 'operation-in-progress'), json(200, { id: 't' }));
     const started = Date.now();
-    await journeys(client(fetch)).tasks.publish('t', { deadline: soon() });
+    await journeys(client(fetch)).org(ORG).tasks.publish('t', { deadline: soon() });
     ok(Date.now() - started >= 900, 'waited the default second');
     equal(keys(calls)[0], keys(calls)[1]);
   }),
   test('command with busyIsFinal surfaces operation-in-progress to a caller that polls itself', async () => {
     const { fetch, calls } = scriptedFetch(withRetryAfter(problem(409, 'operation-in-progress'), '0.01'), json(201, { id: 'task-1' }));
-    const oc = journeys(client(fetch));
+    const oc = journeys(client(fetch)).org(ORG);
     const error = await rejects(() => oc.command('taskPublish', { path: { id: 't' }, body: {} } as never, { deadline: soon(), idempotencyKey: 'busy-key-0000001' }, { busyIsFinal: true }), ApiError);
     equal(error.code, 'operation-in-progress');
     equal(calls.length, 1);
@@ -154,19 +159,19 @@ export const journeyCases: Case[] = [
     const task = { projectId: 'p', repositoryId: 'r', targetRef: 'refs/heads/main', key: 'k', title: 't', description: 'd', acceptanceCriteria: [] };
     for (const [status, code] of [[408, 'request-body-timeout'], [429, 'request-body-busy']] as const) {
       const { fetch, calls } = scriptedFetch(withRetryAfter(problem(status, code), '0.01'), json(201, { id: 'task-1' }));
-      equal((await journeys(client(fetch)).tasks.create(task, { deadline: soon() })).id, 'task-1');
+      equal((await journeys(client(fetch)).org(ORG).tasks.create(task, { deadline: soon() })).id, 'task-1');
       equal(calls.length, 2);
       equal(keys(calls)[0], keys(calls)[1]);
       equal(calls[0]!.body, calls[1]!.body);
     }
     const oversized = scriptedFetch(problem(413, 'request-body-too-large'), json(201, { id: 'task-1' }));
-    const error = await rejects(() => journeys(client(oversized.fetch)).tasks.create(task, { deadline: soon() }), ApiError);
+    const error = await rejects(() => journeys(client(oversized.fetch)).org(ORG).tasks.create(task, { deadline: soon() }), ApiError);
     equal([error.status, error.code], [413, 'request-body-too-large']);
     equal(oversized.calls.length, 1);
   }),
   test('a busy answer whose Retry-After does not fit the deadline is surfaced, not waited out', async () => {
     const { fetch, calls } = scriptedFetch(withRetryAfter(problem(409, 'operation-in-progress'), '30'), json(201, {}));
-    const error = await rejects(() => journeys(client(fetch)).tasks.publish('t', { deadline: Date.now() + 1_000 }), ApiError);
+    const error = await rejects(() => journeys(client(fetch)).org(ORG).tasks.publish('t', { deadline: Date.now() + 1_000 }), ApiError);
     equal(error.code, 'operation-in-progress');
     equal(calls.length, 1);
   }),
@@ -178,13 +183,13 @@ export const journeyCases: Case[] = [
         json(202, { state: 'pending', submissionId: 'sub-1', jobId: 'job-1' }),
         json(200, { state: 'complete', candidate: candidate(outcome) }),
       );
-      const result = await journeys(client(fetch)).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 1 });
+      const result = await journeys(client(fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 1 });
       equal(result.state, 'complete');
       if (result.state === 'complete') equal(result.outcome, outcome);
       equal(calls.length, 2);
     }
     const superseded = scriptedFetch(json(200, { state: 'superseded', submissionId: 'sub-1', replacementSubmissionId: 'sub-2' }));
-    equal(await journeys(client(superseded.fetch)).candidates.waitFor('sub-1', { deadline: soon() }), { state: 'superseded', submissionId: 'sub-1', replacementSubmissionId: 'sub-2' });
+    equal(await journeys(client(superseded.fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: soon() }), { state: 'superseded', submissionId: 'sub-1', replacementSubmissionId: 'sub-2' });
   }),
   test('candidates.waitFor honours Retry-After before pollMs', async () => {
     const { fetch, calls } = scriptedFetch(
@@ -192,7 +197,7 @@ export const journeyCases: Case[] = [
       json(200, { state: 'complete', candidate: candidate('computed') }),
     );
     const started = Date.now();
-    await journeys(client(fetch)).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 1 });
+    await journeys(client(fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 1 });
     ok(Date.now() - started >= 45, 'Retry-After (50 ms) took precedence over pollMs (1 ms)');
     equal(calls.length, 2);
   }),
@@ -202,7 +207,7 @@ export const journeyCases: Case[] = [
       json(200, { state: 'complete', candidate: candidate('computed') }),
     );
     const waits: number[] = [];
-    const result = await journeys(client(fetch)).candidates.waitFor('sub-1', { deadline: Date.now() + 120_000, pollMs: 60_000,
+    const result = await journeys(client(fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: Date.now() + 120_000, pollMs: 60_000,
       sleep: async (ms, signal) => { ok(signal instanceof AbortSignal && !signal.aborted, 'the sleeper gets the live journey signal'); waits.push(ms); } });
     equal(result.state, 'complete');
     equal(waits, [60_000]);
@@ -211,7 +216,7 @@ export const journeyCases: Case[] = [
   test('cancellation mid-wait returns the resumable submission id and never resubmits', async () => {
     const controller = new AbortController();
     const { fetch, calls } = scriptedFetch(json(202, { state: 'pending', submissionId: 'sub-1', jobId: 'job-9' }), json(200, {}));
-    const pending = journeys(client(fetch)).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 60_000, signal: controller.signal });
+    const pending = journeys(client(fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 60_000, signal: controller.signal });
     await sleep(10);
     controller.abort();
     equal(await pending, { state: 'pending-timeout', submissionId: 'sub-1', jobId: 'job-9', reason: 'aborted' });
@@ -220,7 +225,7 @@ export const journeyCases: Case[] = [
   }),
   test('a wait whose deadline lands mid-request stops with pending-timeout (deadline-exceeded)', async () => {
     const { fetch } = scriptedFetch(json(202, { state: 'pending', submissionId: 'sub-1', jobId: null }), () => hang());
-    const result = await journeys(client(fetch)).candidates.waitFor('sub-1', { deadline: Date.now() + 80, pollMs: 1 });
+    const result = await journeys(client(fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: Date.now() + 80, pollMs: 1 });
     equal(result, { state: 'pending-timeout', submissionId: 'sub-1', jobId: null, reason: 'deadline-exceeded' });
   }),
 
@@ -228,11 +233,11 @@ export const journeyCases: Case[] = [
   test('landings.land requests once, then waits for the receipt; outcomes are values', async () => {
     for (const outcome of ['landed', 'raced', 'conflict', 'error']) {
       const { fetch, calls } = scriptedFetch(
-        json(202, { fenceId: 'fence-1', receiptId: 'fence-1', status: 'pending', receiptUrl: `${BASE}/v1/receipts/fence-1` }),
+        json(202, { fenceId: 'fence-1', receiptId: 'fence-1', status: 'pending', receiptUrl: `${BASE}/v1/orgs/${ORG}/receipts/fence-1` }),
         json(202, { receiptId: 'fence-1', fenceId: 'fence-1', integratorRunId: 'run-1', status: 'pending' }),
         json(200, receipt(outcome)),
       );
-      const result = await journeys(client(fetch)).landings.land('cand-1', { approvalId: 'appr-1', deadline: soon(), pollMs: 1 });
+      const result = await journeys(client(fetch)).org(ORG).landings.land('cand-1', { approvalId: 'appr-1', deadline: soon(), pollMs: 1 });
       equal(result.state, 'final');
       if (result.state === 'final') { equal(result.outcome, outcome); equal(result.fenceId, 'fence-1'); }
       equal(calls.map((c) => c.method), ['POST', 'GET', 'GET']);
@@ -240,14 +245,14 @@ export const journeyCases: Case[] = [
   }),
   test('a landing whose receipt is still pending at the deadline returns fence and receipt ids, never re-lands', async () => {
     const { fetch, calls } = scriptedFetch(
-      json(202, { fenceId: 'fence-1', receiptId: 'fence-1', status: 'pending', receiptUrl: `${BASE}/v1/receipts/fence-1` }),
+      json(202, { fenceId: 'fence-1', receiptId: 'fence-1', status: 'pending', receiptUrl: `${BASE}/v1/orgs/${ORG}/receipts/fence-1` }),
       ...Array.from({ length: 50 }, () => json(202, { receiptId: 'fence-1', fenceId: 'fence-1', integratorRunId: 'run-1', status: 'pending' })),
     );
-    const result = await journeys(client(fetch)).landings.land('cand-1', { approvalId: 'appr-1', deadline: Date.now() + 120, pollMs: 20 });
+    const result = await journeys(client(fetch)).org(ORG).landings.land('cand-1', { approvalId: 'appr-1', deadline: Date.now() + 120, pollMs: 20 });
     equal(result, { state: 'pending-timeout', fenceId: 'fence-1', receiptId: 'fence-1', pending: { receiptId: 'fence-1', fenceId: 'fence-1', integratorRunId: 'run-1', status: 'pending' }, reason: 'deadline-exceeded' });
     equal(calls.filter((c) => c.method === 'POST').length, 1);
     const resumed = scriptedFetch(json(200, receipt('landed')));
-    const final = await journeys(client(resumed.fetch)).landings.waitForReceipt('fence-1', { deadline: soon() });
+    const final = await journeys(client(resumed.fetch)).org(ORG).landings.waitForReceipt('fence-1', { deadline: soon() });
     equal(final.state === 'final' && final.outcome, 'landed');
     equal(resumed.calls.map((c) => c.method), ['GET']);
   }),
@@ -255,14 +260,14 @@ export const journeyCases: Case[] = [
     const pendingBody = { receiptId: 'fence-1', fenceId: 'fence-1', integratorRunId: 'run-1', status: 'pending' as const };
     const timeline: string[] = [];
     const { fetch, calls } = scriptedFetch(() => (timeline.push('read'), json(200, receipt('landed'))));
-    const final = await journeys(client(fetch)).landings.waitForReceipt('fence-1',
+    const final = await journeys(client(fetch)).org(ORG).landings.waitForReceipt('fence-1',
       { deadline: soon(), pollMs: 1, sleep: async (ms: number) => { timeline.push(`sleep ${ms}`); }, initial: { pending: pendingBody, retryAfter: 3 } });
     equal(final.state === 'final' && final.outcome, 'landed');
     equal(timeline, ['sleep 3000', 'read']);
     equal(calls.length, 1);
     // A deadline that ends during that first wait returns the caller's pending answer, with no read.
     const idle = scriptedFetch();
-    const timeout = await journeys(client(idle.fetch)).landings.waitForReceipt('fence-1', { deadline: Date.now() + 30, initial: { pending: pendingBody, retryAfter: 60 } });
+    const timeout = await journeys(client(idle.fetch)).org(ORG).landings.waitForReceipt('fence-1', { deadline: Date.now() + 30, initial: { pending: pendingBody, retryAfter: 60 } });
     equal(timeout, { state: 'pending-timeout', fenceId: 'fence-1', receiptId: 'fence-1', pending: pendingBody, reason: 'deadline-exceeded' });
     equal(idle.calls.length, 0);
   }),
@@ -276,7 +281,7 @@ export const journeyCases: Case[] = [
     ];
     for (const [response, expected] of cases) {
       const { fetch, calls } = scriptedFetch(response, json(202, {}));
-      const error = await rejects(() => journeys(client(fetch)).landings.land('cand-1', { approvalId: 'appr-1', deadline: soon() }), ApiError);
+      const error = await rejects(() => journeys(client(fetch)).org(ORG).landings.land('cand-1', { approvalId: 'appr-1', deadline: soon() }), ApiError);
       equal(staleBaseRefusal(error), expected);
       equal(calls.length, 1);
     }
@@ -288,8 +293,8 @@ export const journeyCases: Case[] = [
   test('human-only journeys fail before sending with a non-human credential', async () => {
     const { fetch, calls } = scriptedFetch();
     const agent = createClient({ baseUrl: BASE, transport: bearer({ token: 'delegation-fixture-0123', kind: 'delegation' }), fetch });
-    await rejects(async () => journeys(agent).approvals.approve('cand-1', { candidateSha: A, baseSha: B, intentVersion: 1 }, { deadline: soon() }), TypeError);
-    await rejects(async () => journeys(agent).lanes.retire('t', { deadline: soon() }), TypeError);
+    await rejects(async () => journeys(agent).org(ORG).approvals.approve('cand-1', { candidateSha: A, baseSha: B, intentVersion: 1 }, { deadline: soon() }), TypeError);
+    await rejects(async () => journeys(agent).org(ORG).lanes.retire('t', { deadline: soon() }), TypeError);
     equal(calls.length, 0);
   }),
   // Errors the journey scope raises itself (pre-aborted call, cancellation during a replay or a stage)
@@ -302,7 +307,7 @@ export const journeyCases: Case[] = [
     });
     const controller = new AbortController();
     controller.abort(reason);
-    const error = await rejects(() => journeys(client(fetch)).tasks.get('t', { deadline: soon(), signal: controller.signal }), TransportError);
+    const error = await rejects(() => journeys(client(fetch)).org(ORG).tasks.get('t', { deadline: soon(), signal: controller.signal }), TransportError);
     equal([error.code, calls.length], ['aborted', 0]);
     ok(!dumpError(error).includes(TOKEN), 'no credential in message, cause or stack');
     const cause = error.cause as Error & { nested: { note: string }; cause: Error };
@@ -310,7 +315,7 @@ export const journeyCases: Case[] = [
     equal([cause.message, cause.nested.note, cause.cause.message], ['cancelled while holding [redacted]', '[redacted]', 'inner failure near [redacted]']);
     const plain = new AbortController();
     plain.abort({ token: TOKEN, reason: 'user cancelled', where: `bearer ${TOKEN}` });
-    const fromObject = await rejects(() => journeys(client(fetch)).tasks.get('t', { deadline: soon(), signal: plain.signal }), TransportError);
+    const fromObject = await rejects(() => journeys(client(fetch)).org(ORG).tasks.get('t', { deadline: soon(), signal: plain.signal }), TransportError);
     equal([fromObject.code, (fromObject.cause as { reason: string }).reason], ['aborted', 'user cancelled']);
     ok(!dumpError(fromObject).includes(TOKEN), 'a plain-object reason is scrubbed too');
   }),
@@ -318,7 +323,7 @@ export const journeyCases: Case[] = [
     const reason = Object.defineProperty(new Error(`stop ${TOKEN}`), 'cause', { get() { throw new Error(TOKEN); } });
     const controller = new AbortController();
     controller.abort(reason);
-    const error = await rejects(() => journeys(client(scriptedFetch().fetch)).tasks.get('t', { deadline: soon(), signal: controller.signal }), TransportError);
+    const error = await rejects(() => journeys(client(scriptedFetch().fetch)).org(ORG).tasks.get('t', { deadline: soon(), signal: controller.signal }), TransportError);
     equal(error.code, 'aborted');
     ok(!dumpError(error).includes(TOKEN));
     equal([(error.cause as Error).message, (error.cause as Error).cause], ['stop [redacted]', '[unreadable]']);
@@ -326,7 +331,7 @@ export const journeyCases: Case[] = [
   test('cancellation during a journey replay sleep scrubs the pinned credential and request secrets from the cause', async () => {
     const { fetch, calls } = scriptedFetch(lost(201), json(201, { claim: claimSnapshot, delegation: delegationWire }));
     const controller = new AbortController();
-    const pending = rejects(() => journeys(client(fetch)).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon(), signal: controller.signal }), TransportError);
+    const pending = rejects(() => journeys(client(fetch)).org(ORG).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon(), signal: controller.signal }), TransportError);
     await sleep(60);
     controller.abort(new Error(`abandoned replay for ${bootstrap.token} (client ${TOKEN})`, { cause: { held: bootstrap.token } }));
     const error = await pending;
@@ -338,7 +343,7 @@ export const journeyCases: Case[] = [
   test('cancellation during a wait\'s poll sleep returns a stopped value that carries nothing of the abort reason', async () => {
     const { fetch, calls } = scriptedFetch(json(202, { state: 'pending', submissionId: 'sub-1', jobId: 'job-9' }), json(200, {}));
     const controller = new AbortController();
-    const pending = journeys(client(fetch)).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 60_000, signal: controller.signal });
+    const pending = journeys(client(fetch)).org(ORG).candidates.waitFor('sub-1', { deadline: soon(), pollMs: 60_000, signal: controller.signal });
     await sleep(10);
     controller.abort(new Error(`stopped polling with ${TOKEN}`, { cause: { held: TOKEN } }));
     const result = await pending;
@@ -348,20 +353,40 @@ export const journeyCases: Case[] = [
   }),
   test('a journey whose deadline already passed surfaces deadline-exceeded without sending', async () => {
     const { fetch, calls } = scriptedFetch(json(200, {}));
-    const error = await rejects(() => journeys(client(fetch)).tasks.get('t', { deadline: Date.now() - 1 }), TransportError);
+    const error = await rejects(() => journeys(client(fetch)).org(ORG).tasks.get('t', { deadline: Date.now() - 1 }), TransportError);
     equal([error.code, calls.length, error.cause], ['deadline-exceeded', 0, undefined]);
   }),
 
   // ---- projects ----
-  test('projects.create posts the slug and name under one key; a lost answer replays the committed project', async () => {
-    const project = { id: 'project-1', slug: 'first', name: 'First', createdAt: '2026-10-10T15:00:00.000Z', artifactsNamespace: 'oc-project-1' };
+  test('projects.create without an org posts to /me/projects (the personal tenant) under one key; a lost answer replays the committed project', async () => {
+    const project = { id: 'project-1', slug: 'first', name: 'First', createdAt: '2026-10-10T15:00:00.000Z', artifactsNamespace: 'oc-project-1', tenantId: ORG };
     const { fetch, calls } = scriptedFetch(lost(201), json(201, project));
     equal(await journeys(client(fetch)).projects.create({ slug: 'first', name: 'First' }, { deadline: soon() }), project);
-    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/projects`, `POST ${BASE}/v1/projects`]);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/me/projects`, `POST ${BASE}/v1/me/projects`]);
     ok(!!keys(calls)[0]);
     equal(keys(calls)[0], keys(calls)[1]);
     equal(JSON.parse(calls[0]!.body!), { slug: 'first', name: 'First' });
     equal(calls[0]!.body, calls[1]!.body);
+  }),
+  test('projects.create with an org posts to /orgs/{orgId}/projects', async () => {
+    const project = { id: 'project-1', slug: 'first', name: 'First', createdAt: '2026-10-10T15:00:00.000Z', artifactsNamespace: 'oc-project-1', tenantId: ORG };
+    const { fetch, calls } = scriptedFetch(json(201, project));
+    equal(await journeys(client(fetch)).projects.create({ slug: 'first', name: 'First' }, { orgId: ORG, deadline: soon() }), project);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/orgs/${ORG}/projects`]);
+    await rejects(() => journeys(client(fetch)).projects.create({ slug: 'first', name: 'First' }, { orgId: 'octocove', deadline: soon() }), TypeError);
+  }),
+  test('projects.create waits out org-creation-pending under the same key and body, then throws the typed error at the deadline', async () => {
+    const project = { id: 'project-1', slug: 'first', name: 'First', createdAt: '2026-10-10T15:00:00.000Z', artifactsNamespace: 'oc-project-1', tenantId: ORG };
+    const pending = () => withRetryAfter(problem(409, 'org-creation-pending', { details: { organization: { id: ORG, provisioningState: 'pending' } } }), '1');
+    const delays: number[] = [];
+    const { fetch, calls } = scriptedFetch(pending(), json(201, project));
+    equal(await journeys(client(fetch)).projects.create({ slug: 'first', name: 'First' }, { deadline: soon(), sleep: async (ms) => { delays.push(ms); } }), project);
+    equal(delays, [1000]);
+    equal(keys(calls)[0], keys(calls)[1]);
+    equal(calls[0]!.body, calls[1]!.body);
+    const stuck = scriptedFetch(pending());
+    const error = await rejects(() => journeys(client(stuck.fetch)).projects.create({ slug: 'first', name: 'First' }, { deadline: Date.now() + 500 }), OrgCreationPendingError);
+    equal([error.status, error.code, error.retryAfter, error.organization?.id], [409, 'org-creation-pending', 1, ORG]);
   }),
   test('projects.create surfaces project-create-disabled and slug-taken as final ApiErrors, and needs a human session', async () => {
     for (const [status, code] of [[403, 'project-create-disabled'], [409, 'slug-taken'], [400, 'invalid-request']] as const) {
@@ -373,14 +398,51 @@ export const journeyCases: Case[] = [
     const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
     await rejects(() => journeys(delegated).projects.create({ slug: 'first', name: 'First' }, { deadline: soon() }), TypeError);
   }),
+  test('projects.list reads /me/projects with each project\'s tenant and reports a partial read', async () => {
+    const other = 'org_00000000-0000-4000-8000-000000000002';
+    const item = { projectId: 'project-1', slug: 'first', name: 'First', artifactsNamespace: 'oc-project-1', taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: 'personal' };
+    const page = { items: [item], partial: true, unavailableTenants: [{ tenantId: other }] };
+    const { fetch, calls } = scriptedFetch(json(200, page), json(200, { items: [item], partial: true, unavailableTenants: [] }));
+    const j = journeys(client(fetch));
+    equal(await j.projects.list({ deadline: soon() }), page);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/me/projects`]);
+    equal(j.forProject(item).tenantId, ORG);
+    const error = await rejects(() => j.projects.list({ deadline: soon() }), ApiError);
+    ok(error.incomplete, 'partial without the unreadable tenants is off-shape');
+  }),
+
+  // ---- tenants ----
+  test('a tenant client fills orgId on tenant routes only, and refuses a malformed tenant or a conflicting orgId', async () => {
+    const { fetch, calls } = scriptedFetch(json(200, { id: 't' }), json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {} }));
+    const bound = tenantClient(client(fetch), ORG);
+    await bound.call('taskGet', { path: { id: 't' } });
+    await bound.call('meGet');
+    equal(calls.map((c) => c.url), [`${BASE}/v1/orgs/${ORG}/tasks/t`, `${BASE}/v1/me`]);
+    for (const bad of ['octocove', 'org_1', `${ORG}x`, ORG.toUpperCase()]) await rejects(async () => tenantClient(client(fetch), bad), TypeError);
+    await rejects(() => bound.call('taskGet', { path: { id: 't', orgId: 'org_00000000-0000-4000-8000-000000000002' } as never }), TypeError);
+    await rejects(() => client(fetch).call('taskGet', { path: { id: 't' } } as never), TypeError);
+    equal(calls.length, 2, 'nothing was sent for a refused tenant');
+  }),
+  test('tenant-not-found, org-creation-pending and route-unavailable are typed ApiErrors', async () => {
+    const { fetch } = scriptedFetch(problem(404, 'tenant-not-found'), problem(409, 'org-creation-pending', { details: { organization: { id: ORG, provisioningState: 'pending', name: 'Acme' } } }),
+      problem(503, 'route-unavailable'), problem(404, 'not-found'));
+    const tasks = journeys(client(fetch)).org(ORG).tasks;
+    const missing = await rejects(() => tasks.get('t', { deadline: soon() }), TenantNotFoundError);
+    ok(missing instanceof ApiError && missing.code === 'tenant-not-found');
+    const pending = await rejects(() => tasks.get('t', { deadline: soon() }), OrgCreationPendingError);
+    equal(pending.organization?.name, 'Acme');
+    await rejects(() => tasks.get('t', { deadline: soon() }), RouteUnavailableError);
+    const other = await rejects(() => tasks.get('t', { deadline: soon() }), ApiError);
+    ok(!(other instanceof TenantNotFoundError), 'a resource 404 is not a tenant 404');
+  }),
 
   // ---- repositories ----
   test('repositories.create posts to the project under one key; a lost answer replays the committed repository', async () => {
     const input = { provider: 'artifacts' as const, namespace: 'ns', repoId: 'repo-1', name: 'canonical', targetRef: 'refs/heads/main' };
     const repository = { id: 'repository-1', projectId: 'project-1', ...input, role: 'canonical' as const, knownHeadSha: null };
     const { fetch, calls } = scriptedFetch(lost(201), json(201, repository));
-    equal(await journeys(client(fetch)).repositories.create('project-1', input, { deadline: soon() }), repository);
-    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/projects/project-1/repositories`, `POST ${BASE}/v1/projects/project-1/repositories`]);
+    equal(await journeys(client(fetch)).org(ORG).repositories.create('project-1', input, { deadline: soon() }), repository);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/orgs/${ORG}/projects/project-1/repositories`, `POST ${BASE}/v1/orgs/${ORG}/projects/project-1/repositories`]);
     ok(!!keys(calls)[0]);
     equal(keys(calls)[0], keys(calls)[1]);
     equal(JSON.parse(calls[0]!.body!), input);
@@ -390,38 +452,49 @@ export const journeyCases: Case[] = [
     const input = { provider: 'artifacts' as const, repoId: 'repo-1', name: 'canonical' };
     const repository = { id: 'repository-1', projectId: 'project-1', namespace: 'oc-project-1', ...input, role: 'canonical' as const, targetRef: 'refs/heads/main', knownHeadSha: null };
     const { fetch, calls } = scriptedFetch(json(201, repository));
-    equal(await journeys(client(fetch)).repositories.create('project-1', input, { deadline: soon() }), repository);
+    equal(await journeys(client(fetch)).org(ORG).repositories.create('project-1', input, { deadline: soon() }), repository);
     equal(JSON.parse(calls[0]!.body!), input);
   }),
   test('repositories.create surfaces canonical-exists, repository-taken, repository-namespace-mismatch and forbidden as final ApiErrors, and needs a human session', async () => {
     const input = { provider: 'artifacts' as const, namespace: 'ns', repoId: 'repo-1', name: 'canonical' };
     for (const [status, code] of [[409, 'canonical-exists'], [409, 'repository-taken'], [409, 'repository-namespace-mismatch'], [403, 'forbidden'], [400, 'invalid-request']] as const) {
       const { fetch, calls } = scriptedFetch(problem(status, code));
-      const error = await rejects(() => journeys(client(fetch)).repositories.create('project-1', input, { deadline: soon() }), ApiError);
+      const error = await rejects(() => journeys(client(fetch)).org(ORG).repositories.create('project-1', input, { deadline: soon() }), ApiError);
       equal([error.status, error.code], [status, code]);
       equal(calls.length, 1, 'a refusal is not resent');
     }
     const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
-    await rejects(() => journeys(delegated).repositories.create('project-1', input, { deadline: soon() }), TypeError);
+    await rejects(() => journeys(delegated).org(ORG).repositories.create('project-1', input, { deadline: soon() }), TypeError);
   }),
   test('repositories.list reads the project\'s repositories and returns the items with their verification state', async () => {
     const item = { id: 'repository-1', projectId: 'project 1', provider: 'artifacts' as const, namespace: 'ns', repoId: 'r', name: 'r', role: 'canonical' as const, targetRef: 'refs/heads/main', knownHeadSha: null,
-      verification: 'unverified', verifiedAt: null, importState: null };
+      verification: 'unverified', verifiedAt: null, importState: null, lanePolicy: { candidatePublication: 'repository-readers' as const, visibility: 'private' as const } };
     const verified = { ...item, id: 'repository-2', verification: 'verified', verifiedAt: '2026-10-11T00:00:00.000Z', importState: 'ready' };
     const { fetch, calls } = scriptedFetch(json(200, { items: [item, verified] }));
-    equal(await journeys(client(fetch)).repositories.list('project 1', { deadline: soon() }), [item, verified]);
-    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/projects/project%201/repositories`]);
+    equal(await journeys(client(fetch)).org(ORG).repositories.list('project 1', { deadline: soon() }), [item, verified]);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/orgs/${ORG}/projects/project%201/repositories`]);
+  }),
+  test('repositories.declareLanePolicy posts the whole policy under one key, human only', async () => {
+    const declared = { repositoryId: 'repository-1', lanePolicy: { candidatePublication: 'public-on-submit', visibility: 'public' }, declaredAt: '2026-10-11T00:00:00.000Z', declaredBy: 'iss|sub' };
+    const { fetch, calls } = scriptedFetch(lost(), json(200, declared));
+    const policy = { candidatePublication: 'public-on-submit', visibility: 'public', extra: 1 } as never;
+    equal(await journeys(client(fetch)).org(ORG).repositories.declareLanePolicy('project-1', 'repository-1', policy, { deadline: soon() }), declared);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/orgs/${ORG}/projects/project-1/repositories/repository-1/lane-policy`, `POST ${BASE}/v1/orgs/${ORG}/projects/project-1/repositories/repository-1/lane-policy`]);
+    equal(JSON.parse(calls[0]!.body!), { candidatePublication: 'public-on-submit', visibility: 'public' });
+    equal(keys(calls)[0], keys(calls)[1]);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(async () => journeys(delegated).org(ORG).repositories.declareLanePolicy('project-1', 'repository-1', policy, { deadline: soon() }), TypeError);
   }),
   // ---- code view ----
   test('repositories.tree and repositories.blob read the canonical repository with ref and path as query parameters', async () => {
     const tree = { repositoryId: 'repository-1', ref: 'refs/heads/main', commitSha: 'a'.repeat(40), path: 'src', entries: [{ name: 'a.ts', path: 'src/a.ts', type: 'file', size: 1 }], sizeTruncated: false, lastCommitTruncated: false, truncated: false };
     const blob = { path: 'src/a.ts', commitSha: 'a'.repeat(40), size: 1, binary: false, truncated: false, encoding: 'utf-8' as const, content: 'a' };
     const { fetch, calls } = scriptedFetch(json(200, tree), json(200, blob));
-    const j = journeys(client(fetch));
+    const j = journeys(client(fetch)).org(ORG);
     equal(await j.repositories.tree('project-1', { ref: 'refs/heads/main', path: 'src' }, { deadline: soon() }), tree);
     equal(await j.repositories.blob('project-1', { path: 'src/a.ts' }, { deadline: soon() }), blob);
-    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/projects/project-1/tree?path=src&ref=refs%2Fheads%2Fmain`,
-      `GET ${BASE}/v1/projects/project-1/blob?path=src%2Fa.ts`]);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/orgs/${ORG}/projects/project-1/tree?path=src&ref=refs%2Fheads%2Fmain`,
+      `GET ${BASE}/v1/orgs/${ORG}/projects/project-1/blob?path=src%2Fa.ts`]);
   }),
 ];
 

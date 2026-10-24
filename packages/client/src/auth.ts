@@ -3,7 +3,7 @@
  * `/auth/callback` or `/auth/cli/start` (browser navigation). Every auth POST carries a 16–128
  * character Idempotency-Key (the client's `oc-` + 32 hex = 35 characters).
  */
-import { newIdempotencyKey, type OctocoveClient, type OpenEnums } from './client.js';
+import { isTenantId, newIdempotencyKey, type OctocoveClient, type OpenEnums, type TenantClient } from './client.js';
 import type { AgentDelegation, HumanSession } from './credentials.js';
 import { ApiError, TransportError } from './errors.js';
 import type { components } from './generated/openapi.js';
@@ -29,6 +29,13 @@ function authKey(key: string | undefined): string {
   const value = key ?? newIdempotencyKey();
   if (!KEY.test(value)) throw new TypeError('auth POSTs need a 16–128 character Idempotency-Key');
   return value;
+}
+
+/** `partial` and `unavailableTenants` of a cross-tenant read, consistent with each other. */
+export function isPartialRead(value: Record<string, unknown>): value is Record<string, unknown> & { partial: boolean; unavailableTenants: UnavailableTenant[] } {
+  const list = value.unavailableTenants;
+  return typeof value.partial === 'boolean' && Array.isArray(list) && list.every((t) => isObject(t) && isTenantId(t.tenantId))
+    && value.partial === (list.length > 0);
 }
 
 // ---- credential slot: where a renewed credential is adopted ----
@@ -106,7 +113,18 @@ export type MeSession = components['schemas']['MeSession'];
  */
 export type MeDelegation = OpenEnums<components['schemas']['MeDelegation']>;
 /** One page of `meDelegationsList`; pass `nextCursor` back as `cursor` until it is `null`. */
-export interface MeDelegationsPage { readonly items: readonly MeDelegation[]; readonly nextCursor: string | null }
+/** A tenant a cross-tenant read could not reach this time; its items are absent (never reported as empty). */
+export type UnavailableTenant = components['schemas']['UnavailableTenant'];
+/**
+ * One page of the caller's grants across every tenant they belong to; each item names its `tenantId`. With
+ * `partial` true the tenants in `unavailableTenants` could not be read and their grants are missing from `items`.
+ */
+export interface MeDelegationsPage {
+  readonly items: readonly MeDelegation[];
+  readonly nextCursor: string | null;
+  readonly partial: boolean;
+  readonly unavailableTenants: readonly UnavailableTenant[];
+}
 
 /**
  * One of the caller's in-app notifications (`meNotificationsList` item): ids plus display fields joined when
@@ -312,24 +330,6 @@ export function authJourneys(client: OctocoveClient) {
     },
   };
 
-  const delegation = {
-    /** `delegationRenew` with the same predecessor-credential recovery; the replacement is adopted into `slot`. */
-    async renew(current: AgentDelegation, options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<AgentDelegation> {
-      const scope = journeyScope(options);
-      try {
-        const response = await send(client, scope, options, 'delegationRenew', { path: { id: current.delegationId } },
-          { idempotencyKey: authKey(options.idempotencyKey), credential: bearer({ token: options.slot?.token ?? current.token, kind: 'delegation' }) });
-        const d: unknown = response.body;
-        if (!isObject(d) || !isString(d.accessToken) || !isString(d.delegationId) || !isString(d.expiresAt) || !isString(d.revocationId)) {
-          throw offShape(response, 'the renewal response is not a delegation credential');
-        }
-        const renewed: AgentDelegation = Object.freeze({ kind: 'agent-delegation', token: d.accessToken, delegationId: d.delegationId, revocationId: d.revocationId, expiresAt: d.expiresAt });
-        options.slot?.adopt(renewed.token);
-        return renewed;
-      } finally { scope.dispose(); }
-    },
-  };
-
   /** `authLogout` (revokes the session family); a lost answer is recovered with the same key and credential. */
   async function logout(options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<void> {
     const scope = journeyScope(options);
@@ -382,15 +382,62 @@ export function authJourneys(client: OctocoveClient) {
     },
   };
 
+
   const delegations = {
-    /** `meDelegationsList` (`GET /v1/me/delegations`): one page of the agent grants the human caller authorized, newest first. */
+    /** `meDelegationsList` (`GET /v1/me/delegations`, a global route): one page of the agent grants the human caller authorized in every tenant, newest first; each item names its `tenantId`, and `partial`/`unavailableTenants` name the tenants that could not be read. */
     async list(options: JourneyOptions & { readonly limit?: number; readonly cursor?: string }): Promise<MeDelegationsPage> {
       const scope = journeyScope(options);
       try {
         const response = await send(client, scope, options, 'meDelegationsList', { query: { limit: options.limit, cursor: options.cursor } });
         const b: unknown = response.body;
-        if (!isObject(b) || !Array.isArray(b.items) || (b.nextCursor !== null && !isString(b.nextCursor))) throw offShape(response, 'the response is not a delegation page');
-        return { items: response.body.items, nextCursor: response.body.nextCursor ?? null };
+        if (!isObject(b) || !Array.isArray(b.items) || (b.nextCursor !== null && !isString(b.nextCursor)) || !isPartialRead(b)
+          || !b.items.every((item) => isObject(item) && isTenantId(item.tenantId))) throw offShape(response, 'the response is not a delegation page');
+        return { items: response.body.items, nextCursor: response.body.nextCursor ?? null, partial: response.body.partial, unavailableTenants: response.body.unavailableTenants };
+      } finally { scope.dispose(); }
+    },
+  };
+
+  const profile = {
+    /**
+     * `meProfileUpdate` (`PATCH /v1/me/profile`): set the human caller's own name, pronouns, bio and time zone, and
+     * answer the profile after the edit. A lost answer is replayed from the server's ledger with the same key. An
+     * invalid field is a `400 invalid-profile` `ApiError` whose `details.field` names it.
+     */
+    async update(patch: ProfileUpdate, options: CommandOptions): Promise<Profile> {
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'meProfileUpdate', { body: patch }, { idempotencyKey: options.idempotencyKey });
+        const b: unknown = response.body;
+        if (!isObject(b) || !isObject(b.profile)) throw offShape(response, 'the response is not a profile');
+        return response.body.profile;
+      } finally { scope.dispose(); }
+    },
+  };
+
+  return { browser, cli, session, logout, me, sessions, delegations, profile };
+}
+
+export type AuthJourneys = ReturnType<typeof authJourneys>;
+
+/**
+ * The auth journeys of one tenant: the routes under `/v1/orgs/{orgId}/` (an agent delegation's renewal, the caller's
+ * notifications and notification preferences in that tenant). Reached as `journeys(client).org(tenantId).auth`.
+ */
+export function tenantAuthJourneys(client: TenantClient) {
+  const delegation = {
+    /** `delegationRenew` with the same predecessor-credential recovery; the replacement is adopted into `slot`. */
+    async renew(current: AgentDelegation, options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<AgentDelegation> {
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'delegationRenew', { path: { id: current.delegationId } },
+          { idempotencyKey: authKey(options.idempotencyKey), credential: bearer({ token: options.slot?.token ?? current.token, kind: 'delegation' }) });
+        const d: unknown = response.body;
+        if (!isObject(d) || !isString(d.accessToken) || !isString(d.delegationId) || !isString(d.expiresAt) || !isString(d.revocationId)) {
+          throw offShape(response, 'the renewal response is not a delegation credential');
+        }
+        const renewed: AgentDelegation = Object.freeze({ kind: 'agent-delegation', token: d.accessToken, delegationId: d.delegationId, revocationId: d.revocationId, expiresAt: d.expiresAt });
+        options.slot?.adopt(renewed.token);
+        return renewed;
       } finally { scope.dispose(); }
     },
   };
@@ -451,25 +498,7 @@ export function authJourneys(client: OctocoveClient) {
     },
   };
 
-
-  const profile = {
-    /**
-     * `meProfileUpdate` (`PATCH /v1/me/profile`): set the human caller's own name, pronouns, bio and time zone, and
-     * answer the profile after the edit. A lost answer is replayed from the server's ledger with the same key. An
-     * invalid field is a `400 invalid-profile` `ApiError` whose `details.field` names it.
-     */
-    async update(patch: ProfileUpdate, options: CommandOptions): Promise<Profile> {
-      const scope = journeyScope(options);
-      try {
-        const response = await send(client, scope, options, 'meProfileUpdate', { body: patch }, { idempotencyKey: options.idempotencyKey });
-        const b: unknown = response.body;
-        if (!isObject(b) || !isObject(b.profile)) throw offShape(response, 'the response is not a profile');
-        return response.body.profile;
-      } finally { scope.dispose(); }
-    },
-  };
-
-  return { browser, cli, session, delegation, logout, me, sessions, delegations, notifications, profile };
+  return { delegation, notifications };
 }
 
-export type AuthJourneys = ReturnType<typeof authJourneys>;
+export type TenantAuthJourneys = ReturnType<typeof tenantAuthJourneys>;

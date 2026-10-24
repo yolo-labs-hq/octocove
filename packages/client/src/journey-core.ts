@@ -5,7 +5,10 @@
  * ledger makes an identical resend a replay. Every server refusal is surfaced as the ApiError it is,
  * never answered by issuing the command again under a new key.
  */
-import { newIdempotencyKey, retryClassFor, type ApiResponse, type CallableOperationId, type CallInput, type OctocoveClient, type SuccessBody } from './client.js';
+import { newIdempotencyKey, retryClassFor, type ApiResponse, type CallableOperationId, type OctocoveClient, type SuccessBody, type TenantCallInput, type TenantClient } from './client.js';
+
+/** The client a journey sends through: unbound for the global routes, bound to one tenant for the rest. */
+export type JourneyClient = OctocoveClient | TenantClient;
 import { ApiError, TransportError } from './errors.js';
 import { REDACTED, redact, sanitizeCause, secretValues } from './redact.js';
 import { routing } from './generated/routing.js';
@@ -57,7 +60,7 @@ function routeOf(operationId: CallableOperationId): RouteEntry {
  * request (so renewal is picked up) is pinned to the token current at the first attempt, which is what
  * the recovery-authenticated operations require (`sessionRenew`, `delegationRenew`, `authLogout`).
  */
-export function pinnedCredential(client: OctocoveClient, credential?: BearerTransport): BearerTransport | undefined {
+export function pinnedCredential(client: JourneyClient, credential?: BearerTransport): BearerTransport | undefined {
   const active = credential ?? (client.transport.type === 'bearer' ? client.transport : undefined);
   if (!active) return undefined;
   const token = typeof active.token === 'function' ? active.token() : active.token;
@@ -68,7 +71,7 @@ export function pinnedCredential(client: OctocoveClient, credential?: BearerTran
  * Every value a journey must keep out of what it surfaces: the pinned credential's secrets, the client
  * transport's own (when a per-call credential overrides it), and the secret-named request body values.
  */
-export function journeySecrets(client: OctocoveClient, method: string, credential: BearerTransport | undefined, body?: unknown): string[] {
+export function journeySecrets(client: JourneyClient, method: string, credential: BearerTransport | undefined, body?: unknown): string[] {
   const secrets = credentialHeaders(client.transport, method, credential).secrets;
   if (credential && client.transport.type === 'bearer') {
     try { secrets.push(...credentialHeaders(client.transport, method).secrets); } catch { /* an empty transport token has nothing to scrub */ }
@@ -128,7 +131,7 @@ export function withoutLocal(error: unknown, local: readonly string[]): unknown 
  * immutable (a resend carries the predecessor) and `delegationRenew` returns its replacement only in
  * the body, so both keep the ledgered same-key replay.
  */
-function rotatesAmbientCredential(client: OctocoveClient, operationId: CallableOperationId, credential: BearerTransport | undefined): boolean {
+function rotatesAmbientCredential(client: JourneyClient, operationId: CallableOperationId, credential: BearerTransport | undefined): boolean {
   return operationId === 'sessionRenew' && !credential && client.transport.type === 'browserCookie';
 }
 
@@ -141,12 +144,15 @@ function rotatesAmbientCredential(client: OctocoveClient, operationId: CallableO
  * (`idempotency-result-expired`, `idempotency-conflict`, `unauthenticated`, `bootstrap-consumed`) and
  * every current authorization refusal — is thrown unchanged.
  */
+/** A journey's request: a tenant-bound client fills `path.orgId`; through an unbound client a tenant route needs it. */
+export type SendInput<K extends CallableOperationId> = Omit<TenantCallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>;
+
 export async function send<K extends CallableOperationId>(
-  client: OctocoveClient,
+  client: JourneyClient,
   scope: CallScope,
   options: JourneyOptions,
   operationId: K,
-  input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>,
+  input: SendInput<K>,
   sendOptions: SendOptions = {},
 ): Promise<ApiResponse<SuccessBody<K>>> {
   const route = routeOf(operationId);

@@ -7,8 +7,8 @@ import { baseUrlOf } from './http.js';
 import { checkBaseUrl } from '../../client/src/client.js';
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-export function canonicalReadUrl(apiUrl: string, projectId: string, repositoryId: string) {
-  return `${checkBaseUrl(baseUrlOf(apiUrl))}/v1/projects/${encodeURIComponent(projectId)}/repositories/${encodeURIComponent(repositoryId)}/git`;
+export function canonicalReadUrl(apiUrl: string, orgId: string, projectId: string, repositoryId: string) {
+  return `${checkBaseUrl(baseUrlOf(apiUrl))}/v1/orgs/${encodeURIComponent(orgId)}/projects/${encodeURIComponent(projectId)}/repositories/${encodeURIComponent(repositoryId)}/git`;
 }
 export function humanCredentialPath() { return fileURLToPath(new URL('./octocove-human-credential.mjs',import.meta.url)); }
 export async function humanGitConfig(url: string, configDirectory: string, helperPath = humanCredentialPath()) {

@@ -19,6 +19,7 @@ jobs:
         # Green checks trigger evaluation; the server still verifies its record.
         env:
           OCTOCOVE_API_URL: ${{ vars.OCTOCOVE_API_URL }}
+          OCTOCOVE_ORG: ${{ vars.OCTOCOVE_ORG }}
           OCTOCOVE_CONFIG_DIR: ${{ runner.temp }}/octocove-machine
           EXPECTED_PRINCIPAL: ${{ vars.OCTOCOVE_APPROVER_PRINCIPAL }}
           PROOF_AUDIENCE: ${{ vars.OCTOCOVE_APPROVAL_AUDIENCE }}

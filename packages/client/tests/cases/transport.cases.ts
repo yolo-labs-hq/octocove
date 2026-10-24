@@ -11,6 +11,7 @@ import {
 import { equal, hang, json, ok, problem, rejects, scriptedFetch, sleep, test, type Case } from '../harness.js';
 
 const BASE = 'https://cp.octocove.test';
+const ORG = 'org_00000000-0000-4000-8000-000000000001';
 const TOKEN = 'session-bearer-fixture-0123456789';
 const fast = { retryDelayMs: () => 1 } satisfies Partial<ClientOptions>;
 const task = { id: 'task-1', status: 'ready' };
@@ -26,6 +27,7 @@ export const transportCases: Case[] = [
   test('network-only resends at most twice, only without a response, with the same Idempotency-Key', async () => {
     const { fetch, calls } = scriptedFetch(offline(), offline(), json(201, task));
     const res = await client(fetch).call('taskCreate', {
+      path: { orgId: ORG },
       body: { projectId: 'p', repositoryId: 'r', targetRef: 'main', key: 'k', title: 't', goal: 'g' } as never,
     });
     equal(res.status, 201);
@@ -38,7 +40,7 @@ export const transportCases: Case[] = [
   }),
   test('network-only gives up after the second resend with network-error', async () => {
     const { fetch, calls } = scriptedFetch(offline(), offline(), offline(), json(200, task));
-    const error = await rejects(() => client(fetch).call('taskGet', { path: { id: 'task-1' } }), TransportError);
+    const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 'task-1' } }), TransportError);
     equal(error.code, 'network-error');
     equal(error.attempts, 3);
     equal(calls.length, 3, 'never a third resend');
@@ -46,7 +48,7 @@ export const transportCases: Case[] = [
   test('any HTTP response ends transport retry, including 5xx and 429 on network-only operations', async () => {
     for (const response of [problem(503, 'unavailable'), problem(429, 'rate-limited', {}), new Response('bad gateway', { status: 502 })]) {
       const { fetch, calls } = scriptedFetch(response, json(200, task));
-      const error = await rejects(() => client(fetch).call('taskGet', { path: { id: 'task-1' } }), ApiError);
+      const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 'task-1' } }), ApiError);
       equal(calls.length, 1);
       ok(error.status >= 429);
     }
@@ -58,7 +60,7 @@ export const transportCases: Case[] = [
     equal(first.calls.length, 1);
 
     const second = scriptedFetch(problem(500, 'internal'), json(201, {}));
-    const apiError = await rejects(() => client(second.fetch).call('approvalTrustActivationChallenge', { path: { project: 'p', id: 'binding-1' } }), ApiError);
+    const apiError = await rejects(() => client(second.fetch).call('approvalTrustActivationChallenge', { path: { orgId: ORG, project: 'p', id: 'binding-1' } }), ApiError);
     equal(apiError.status, 500);
     equal(second.calls.length, 1);
     equal(second.calls[0]!.headers['idempotency-key'], undefined, 'approvalTrustActivationChallenge declares no Idempotency-Key');
@@ -66,7 +68,7 @@ export const transportCases: Case[] = [
   test('a body-read failure after a response is never resent and reports the response status', async () => {
     const broken = new Response(new ReadableStream({ start(controller) { controller.error(new Error('reset')); } }), { status: 200 });
     const { fetch, calls } = scriptedFetch(broken, json(200, task));
-    const error = await rejects(() => client(fetch).call('taskGet', { path: { id: 'task-1' } }), TransportError);
+    const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 'task-1' } }), TransportError);
     equal(error.code, 'network-error');
     equal(error.responseStatus, 200);
     equal(calls.length, 1);
@@ -75,7 +77,7 @@ export const transportCases: Case[] = [
     const claim = { claim: { id: 'c' } };
     const boot = scriptedFetch(offline(), json(201, claim));
     const bootRes = await client(boot.fetch).call('taskClaim', {
-      path: { id: 't' }, body: { intentVersion: 1 }, credential: bearer({ token: 'bootstrap-fixture-0123456789', kind: 'bootstrap' }),
+      path: { orgId: ORG, id: 't' }, body: { intentVersion: 1 }, credential: bearer({ token: 'bootstrap-fixture-0123456789', kind: 'bootstrap' }),
     });
     equal(bootRes.retry, { autoRetry: 'network-only', replay: 'bounded-recovery' });
     equal(boot.calls[1]!.headers.authorization, 'Bearer bootstrap-fixture-0123456789');
@@ -85,7 +87,7 @@ export const transportCases: Case[] = [
     for (const [status, code] of [[409, 'idempotency-result-expired'], [401, 'bootstrap-consumed'], [409, 'idempotency-conflict'], [401, 'unauthenticated']] as const) {
       const { fetch, calls } = scriptedFetch(problem(status, code), json(201, {}));
       const error = await rejects(() => client(fetch).call('claimAuthorize', {
-        path: { id: 't' }, body: { agentId: 'a', verbs: ['tasks:read'] as never, expiresAt: '2026-10-09T00:00:00Z' }, idempotencyKey: 'oc-caller-supplied-key-0001',
+        path: { orgId: ORG, id: 't' }, body: { agentId: 'a', verbs: ['tasks:read'] as never, expiresAt: '2026-10-09T00:00:00Z' }, idempotencyKey: 'oc-caller-supplied-key-0001',
       }), ApiError);
       equal([error.status, error.code], [status, code]);
       equal(calls.length, 1);
@@ -96,14 +98,14 @@ export const transportCases: Case[] = [
   // ---- deadline and abort composition ----
   test('a deadline already past fails before any request', async () => {
     const { fetch, calls } = scriptedFetch(json(200, task));
-    const error = await rejects(() => client(fetch, { deadline: Date.now() - 1 }).call('taskGet', { path: { id: 't' } }), TransportError);
+    const error = await rejects(() => client(fetch, { deadline: Date.now() - 1 }).call('taskGet', { path: { orgId: ORG, id: 't' } }), TransportError);
     equal(error.code, 'deadline-exceeded');
     equal(calls.length, 0);
   }),
   test('the deadline bounds a request whose fetch ignores abort', async () => {
     const { fetch, calls } = scriptedFetch(() => hang());
     const started = Date.now();
-    const error = await rejects(() => client(fetch).call('taskGet', { path: { id: 't' }, deadline: Date.now() + 40 }), TransportError);
+    const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 't' }, deadline: Date.now() + 40 }), TransportError);
     equal(error.code, 'deadline-exceeded');
     ok(Date.now() - started < 2000, 'returned promptly');
     ok(calls[0]!.signal?.aborted, 'the composed signal reached fetch and fired');
@@ -111,13 +113,13 @@ export const transportCases: Case[] = [
   test('the deadline bounds the body read', async () => {
     const stalled = new Response(new ReadableStream({ start() {} }), { status: 200 });
     const { fetch } = scriptedFetch(stalled);
-    const error = await rejects(() => client(fetch).call('taskGet', { path: { id: 't' }, deadline: Date.now() + 40 }), TransportError);
+    const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 't' }, deadline: Date.now() + 40 }), TransportError);
     equal(error.code, 'deadline-exceeded');
     equal(error.responseStatus, 200);
   }),
   test('a resend that cannot fit inside the deadline is not attempted', async () => {
     const { fetch, calls } = scriptedFetch(offline(), json(200, task));
-    const error = await rejects(() => client(fetch, { retryDelayMs: () => 60_000 }).call('taskGet', { path: { id: 't' }, deadline: Date.now() + 5_000 }), TransportError);
+    const error = await rejects(() => client(fetch, { retryDelayMs: () => 60_000 }).call('taskGet', { path: { orgId: ORG, id: 't' }, deadline: Date.now() + 5_000 }), TransportError);
     equal(error.code, 'deadline-exceeded');
     equal(calls.length, 1);
   }),
@@ -125,21 +127,21 @@ export const transportCases: Case[] = [
     const { fetch, calls } = scriptedFetch(offline(), json(200, task));
     // The injected sleeper ignores its signal; the scope must still end the wait at the deadline.
     const stuck = () => new Promise<void>(() => {});
-    const error = await rejects(() => client(fetch, { retryDelayMs: () => 10, sleep: stuck }).call('taskGet', { path: { id: 't' }, deadline: Date.now() + 40 }), TransportError);
+    const error = await rejects(() => client(fetch, { retryDelayMs: () => 10, sleep: stuck }).call('taskGet', { path: { orgId: ORG, id: 't' }, deadline: Date.now() + 40 }), TransportError);
     equal(error.code, 'deadline-exceeded');
     equal(calls.length, 1);
   }),
   test('the caller signal aborts an in-flight request and a retry sleep with aborted', async () => {
     const controller = new AbortController();
     const { fetch } = scriptedFetch(() => hang());
-    const pending = client(fetch).call('taskGet', { path: { id: 't' }, signal: controller.signal });
+    const pending = client(fetch).call('taskGet', { path: { orgId: ORG, id: 't' }, signal: controller.signal });
     controller.abort(new Error('user cancelled'));
     const error = await rejects(() => pending, TransportError);
     equal(error.code, 'aborted');
 
     const clientSignal = new AbortController();
     const second = scriptedFetch(offline(), json(200, task));
-    const sleeping = client(second.fetch, { signal: clientSignal.signal, retryDelayMs: () => 10_000 }).call('taskGet', { path: { id: 't' } });
+    const sleeping = client(second.fetch, { signal: clientSignal.signal, retryDelayMs: () => 10_000 }).call('taskGet', { path: { orgId: ORG, id: 't' } });
     await sleep(5);
     clientSignal.abort();
     const sleepError = await rejects(() => sleeping, TransportError);
@@ -148,7 +150,7 @@ export const transportCases: Case[] = [
   }),
   test('a per-call deadline can only shorten the client deadline', async () => {
     const { fetch } = scriptedFetch(() => hang());
-    const error = await rejects(() => client(fetch, { deadline: Date.now() + 30 }).call('taskGet', { path: { id: 't' }, deadline: Date.now() + 60_000 }), TransportError);
+    const error = await rejects(() => client(fetch, { deadline: Date.now() + 30 }).call('taskGet', { path: { orgId: ORG, id: 't' }, deadline: Date.now() + 60_000 }), TransportError);
     equal(error.code, 'deadline-exceeded');
   }),
 
@@ -168,12 +170,12 @@ export const transportCases: Case[] = [
     const { fetch, calls } = scriptedFetch(json(200, { loginEndpoint: '/auth/login' }), json(200, task), json(200, { items: [] }));
     const c = client(fetch);
     await c.call('authLoginBinding');
-    await c.call('taskGet', { path: { id: 'a b/c' } });
-    await c.call('tasksList', { query: { projectId: 'p1', limit: 5 } });
+    await c.call('taskGet', { path: { orgId: ORG, id: 'a b/c' } });
+    await c.call('tasksList', { path: { orgId: ORG }, query: { projectId: 'p1', limit: 5 } });
     equal(calls.map((x) => `${x.method} ${x.url}`), [
       `GET ${BASE}/auth/login`,
-      `GET ${BASE}/v1/tasks/a%20b%2Fc`,
-      `GET ${BASE}/v1/tasks?limit=5&projectId=p1`,
+      `GET ${BASE}/v1/orgs/${ORG}/tasks/a%20b%2Fc`,
+      `GET ${BASE}/v1/orgs/${ORG}/tasks?limit=5&projectId=p1`,
     ]);
     for (const id of ['authLoginBinding', 'authCallback', 'authCliStart'] as const) {
       equal([routing[id].method, routing[id].path, routing[id].basePath], ['GET', id === 'authLoginBinding' ? '/auth/login' : id === 'authCallback' ? '/auth/callback' : '/auth/cli/start', '']);
@@ -184,11 +186,11 @@ export const transportCases: Case[] = [
     const { fetch, calls } = scriptedFetch(json(200, { files: [], commits: [], omittedFiles: 0 }), json(200, { repositoryId: 'repo', ref: 'refs/heads/main', commitSha: null, commits: [] }));
     const c = client(fetch);
     const base = 'a'.repeat(40), head = 'b'.repeat(40);
-    await c.call('codeCompareGet', { path: { project: 'a b/c' }, query: { base, head } });
-    await c.call('codeCommitsGet', { path: { project: 'a b/c' }, query: { ref: 'refs/heads/main', limit: 10 } });
+    await c.call('codeCompareGet', { path: { orgId: ORG, project: 'a b/c' }, query: { base, head } });
+    await c.call('codeCommitsGet', { path: { orgId: ORG, project: 'a b/c' }, query: { ref: 'refs/heads/main', limit: 10 } });
     equal(calls.map((x) => `${x.method} ${x.url}`), [
-      `GET ${BASE}/v1/projects/a%20b%2Fc/compare?base=${base}&head=${head}`,
-      `GET ${BASE}/v1/projects/a%20b%2Fc/commits?limit=10&ref=refs%2Fheads%2Fmain`,
+      `GET ${BASE}/v1/orgs/${ORG}/projects/a%20b%2Fc/compare?base=${base}&head=${head}`,
+      `GET ${BASE}/v1/orgs/${ORG}/projects/a%20b%2Fc/commits?limit=10&ref=refs%2Fheads%2Fmain`,
     ]);
     for (const call of calls) equal(call.headers.authorization, `Bearer ${TOKEN}`);
   }),
@@ -220,35 +222,35 @@ export const transportCases: Case[] = [
     let token = 'session-first-0123456789';
     const { fetch, calls } = scriptedFetch(json(200, task), json(200, task));
     const c = createClient({ baseUrl: BASE, transport: bearer({ token: () => token }), fetch });
-    await c.call('taskGet', { path: { id: 't' } });
+    await c.call('taskGet', { path: { orgId: ORG, id: 't' } });
     token = 'session-second-0123456789';
-    await c.call('taskGet', { path: { id: 't' } });
+    await c.call('taskGet', { path: { orgId: ORG, id: 't' } });
     equal(calls.map((x) => x.headers.authorization), ['Bearer session-first-0123456789', 'Bearer session-second-0123456789']);
     ok(!('cookie' in calls[0]!.headers) && !('x-csrf-token' in calls[0]!.headers));
   }),
   test('bearer requests omit ambient cookies (credentials: omit); only browserCookie uses same-origin', async () => {
     const { fetch, calls } = scriptedFetch(json(200, task), json(201, { claim: { id: 'c' } }), json(200, task), json(200, task), json(200, task));
     const c = client(fetch);
-    await c.call('taskGet', { path: { id: 't' } });
-    await c.call('taskClaim', { path: { id: 't' }, body: { intentVersion: 1 }, credential: bearer({ token: 'bootstrap-fixture-0123456789', kind: 'bootstrap' }) });
-    await createClient({ baseUrl: BASE, fetch, transport: forwardedSession({ authorizationHeader: `Bearer ${TOKEN}`, onSetCookie: () => {} }) }).call('taskGet', { path: { id: 't' } });
-    await createClient({ baseUrl: BASE, fetch, transport: forwardedSession({ cookie: 'a=b', onSetCookie: () => {} }) }).call('taskGet', { path: { id: 't' } });
-    await createClient({ baseUrl: BASE, fetch, transport: browserCookie({ origin: BASE, csrfToken: () => undefined }) }).call('taskGet', { path: { id: 't' } });
+    await c.call('taskGet', { path: { orgId: ORG, id: 't' } });
+    await c.call('taskClaim', { path: { orgId: ORG, id: 't' }, body: { intentVersion: 1 }, credential: bearer({ token: 'bootstrap-fixture-0123456789', kind: 'bootstrap' }) });
+    await createClient({ baseUrl: BASE, fetch, transport: forwardedSession({ authorizationHeader: `Bearer ${TOKEN}`, onSetCookie: () => {} }) }).call('taskGet', { path: { orgId: ORG, id: 't' } });
+    await createClient({ baseUrl: BASE, fetch, transport: forwardedSession({ cookie: 'a=b', onSetCookie: () => {} }) }).call('taskGet', { path: { orgId: ORG, id: 't' } });
+    await createClient({ baseUrl: BASE, fetch, transport: browserCookie({ origin: BASE, csrfToken: () => undefined }) }).call('taskGet', { path: { orgId: ORG, id: 't' } });
     equal(calls.map((x) => x.credentials), ['omit', 'omit', 'omit', 'omit', 'same-origin']);
   }),
   test('browserCookie is same-origin, carries Origin and the session-bound CSRF token on POSTs, never a bearer', async () => {
     let csrf = 'csrf-one-0123456789';
     const { fetch, calls } = scriptedFetch(json(200, task), json(200, task));
     const c = createClient({ baseUrl: BASE, transport: browserCookie({ origin: BASE, csrfToken: () => csrf }), fetch });
-    await c.call('taskGet', { path: { id: 't' } });
+    await c.call('taskGet', { path: { orgId: ORG, id: 't' } });
     csrf = 'csrf-rotated-0123456789';
-    await c.call('taskPublish', { path: { id: 't' }, body: { intentVersion: 1 } as never });
+    await c.call('taskPublish', { path: { orgId: ORG, id: 't' }, body: { intentVersion: 1 } as never });
     equal(calls[0]!.headers, { accept: 'application/json, application/problem+json' });
     equal(calls[1]!.headers.origin, BASE);
     equal(calls[1]!.headers['x-csrf-token'], 'csrf-rotated-0123456789');
     ok(!('authorization' in calls[1]!.headers));
     await rejects(async () => createClient({ baseUrl: 'https://other.octocove.test', transport: browserCookie({ origin: BASE }) }), TypeError);
-    await rejects(() => c.call('taskGet', { path: { id: 't' }, credential: bearer({ token: TOKEN }) }), TypeError, 'cookie plus bearer');
+    await rejects(() => c.call('taskGet', { path: { orgId: ORG, id: 't' }, credential: bearer({ token: TOKEN }) }), TypeError, 'cookie plus bearer');
   }),
   test('forwardedSession forwards Cookie with Origin/CSRF on POSTs, prefers Authorization alone, and returns Set-Cookie', async () => {
     const seen: string[][] = [];
@@ -272,7 +274,7 @@ export const transportCases: Case[] = [
     await createClient({
       baseUrl: BASE, fetch: second.fetch,
       transport: forwardedSession({ cookie: 'a=b', authorizationHeader: `Bearer ${TOKEN}`, onSetCookie: () => {} }),
-    }).call('taskGet', { path: { id: 't' } });
+    }).call('taskGet', { path: { orgId: ORG, id: 't' } });
     equal(second.calls[0]!.headers.authorization, `Bearer ${TOKEN}`);
     ok(!('cookie' in second.calls[0]!.headers), 'cookie and bearer are never both sent');
   }),
@@ -281,13 +283,13 @@ export const transportCases: Case[] = [
   test('unknown response fields and enum values are preserved as the server sent them', async () => {
     const body = { id: 't', status: 'quarantined', futureField: { nested: true } };
     const { fetch } = scriptedFetch(json(200, body));
-    const res = await client(fetch).call('taskGet', { path: { id: 't' } });
+    const res = await client(fetch).call('taskGet', { path: { orgId: ORG, id: 't' } });
     equal(res.body as unknown, body);
     equal((res.body as { status: string }).status, 'quarantined');
   }),
   test('an undeclared success status is surfaced, not silently accepted', async () => {
     const { fetch } = scriptedFetch(json(299, task));
-    const error = await rejects(() => client(fetch).call('taskGet', { path: { id: 't' } }), ApiError);
+    const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 't' } }), ApiError);
     equal([error.status, error.code, error.incomplete], [299, 'http-299', true]);
   }),
 ];

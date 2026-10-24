@@ -53,7 +53,7 @@ export async function renewHuman(env: NodeJS.ProcessEnv, expected: Credentials, 
       return response;
     } });
     const key = options.idempotencyKey ?? 'session-' + createHash('sha256').update(current.token).digest('hex');
-    const session = await api.j.auth.session.renew({ ...api.until(deadline), idempotencyKey: key }).catch(error => {
+    const session = await api.root.auth.session.renew({ ...api.until(deadline), idempotencyKey: key }).catch(error => {
       if (error instanceof ApiError && error.status === 401) throw new ConfigError(SIGN_IN);
       throw error;
     });
@@ -159,12 +159,12 @@ export async function renewAgent(env: NodeJS.ProcessEnv, expected: Credentials, 
   const { deadline, release } = await renewalLock(env, options.signal);
   try {
     const current = await loadCredentials(env);
-    if (current.kind !== 'agent' || current.apiUrl !== expected.apiUrl || current.delegationId !== expected.delegationId
+    if (current.kind !== 'agent' || current.apiUrl !== expected.apiUrl || current.orgId !== expected.orgId || current.delegationId !== expected.delegationId
       || current.agentId !== expected.agentId) throw new ConfigError('Active agent credential changed; retry using this agent\'s config directory.');
     agentLimits(current);
     if (current.token !== expected.token) return current;
     if (options.adoptOnly || !current.delegationId) throw new ConfigError(AUTHORIZE_AGAIN);
-    const api = new Api({ apiUrl: current.apiUrl, credential: current, signal: options.signal, fetch });
+    const api = new Api({ apiUrl: current.apiUrl, orgId: current.orgId, credential: current, signal: options.signal, fetch });
     const key = options.idempotencyKey ?? 'delegation-' + createHash('sha256').update(current.token).digest('hex');
     const issued = await api.j.auth.delegation.renew({ kind: 'agent-delegation', token: current.token,
       delegationId: current.delegationId, revocationId: '', expiresAt: current.expiresAt ?? '' },
@@ -181,7 +181,7 @@ export async function renewAgent(env: NodeJS.ProcessEnv, expected: Credentials, 
 
 const agentFetches = new WeakMap<FetchLike, { initial: Credentials; directory: string; fetch: FetchLike }>();
 const sameAgent = (a: Credentials, b: Credentials) => a.kind === 'agent' && b.kind === 'agent'
-  && a.apiUrl === b.apiUrl && a.delegationId === b.delegationId && a.agentId === b.agentId;
+  && a.apiUrl === b.apiUrl && a.orgId === b.orgId && a.delegationId === b.delegationId && a.agentId === b.agentId;
 /** Per-request bounded recovery for the agent delegation. */
 export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike): FetchLike {
   const existing = agentFetches.get(fetch), directory = resolve(configDir(env));
@@ -201,7 +201,7 @@ export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, 
     try {
       const stored = await loadCredentials(env);
       if (!secrets.has(token) && (token !== stored.token || !sameAgent(stored, initial))) return fetch(url, init);
-      if (stored.kind !== 'agent' || stored.apiUrl !== initial.apiUrl || stored.delegationId !== initial.delegationId
+      if (stored.kind !== 'agent' || stored.apiUrl !== initial.apiUrl || stored.orgId !== initial.orgId || stored.delegationId !== initial.delegationId
         || stored.agentId !== initial.agentId) throw new ConfigError('Active agent credential changed; use this agent\'s config directory.');
       let current = stored; secrets.add(current.token); agentLimits(current);
       let recovered = false;
