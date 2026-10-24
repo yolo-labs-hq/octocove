@@ -251,7 +251,7 @@ Commands:
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
-  repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
+  repo add PROJECT [--provider artifacts|github] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)

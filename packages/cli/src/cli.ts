@@ -75,7 +75,7 @@ Commands:
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
-  repo add PROJECT --namespace NS --repo ID --name NAME [--target-ref REF] [--head SHA]   (project admin; canonical repository)
+  repo add PROJECT [--provider artifacts|github] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
@@ -310,6 +310,10 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "This command needs a recent sign-in: run `octocove login`, then run it again with the same --idempotency-key if you passed one."
       : err.code === "lane-conflicts-unresolved"
         ? "Run `octocove lane status`, then `octocove lane resolve PATH --keep local|incoming` for each conflict."
+      : err.code === "operator-required"
+        ? "Registering a GitHub repository binds an operator-held credential, so only a deployment operator can do it; ask an operator to run the command."
+      : err.code === "credential-unavailable"
+        ? "The credential reference does not name a configured, unexpired GitHub credential; ask the operator for the right --credential-ref. Nothing was registered."
       : err.code === "tenant-not-found"
         ? "The org does not exist or you cannot see it. Check --org (or OCTOCOVE_ORG) against `octocove project list`; an agent asks its delegating human for a new authorization."
       : err.code === "org-creation-pending"
@@ -1075,14 +1079,29 @@ const COMMANDS: Record<string, Handler> = {
   },
 
   "repo add": async (d, args) => {
-    const { v, pos } = opts(args, { namespace: { type: "string" }, repo: { type: "string" }, name: { type: "string" }, "target-ref": { type: "string" }, head: { type: "string" } }, 1);
-    const input = { provider: "artifacts" as const, namespace: need(v, "namespace"), repoId: need(v, "repo"), name: need(v, "name"),
-      ...(v["target-ref"] === undefined ? {} : { targetRef: v["target-ref"] }), ...(v.head === undefined ? {} : { knownHeadSha: v.head }) };
+    const { v, pos } = opts(args, { provider: { type: "string" }, namespace: { type: "string" }, repo: { type: "string" }, name: { type: "string" }, "target-ref": { type: "string" }, head: { type: "string" },
+      owner: { type: "string" }, "credential-ref": { type: "string" }, "api-base-url": { type: "string" }, "clone-base-url": { type: "string" } }, 1);
+    const provider = v.provider ?? "artifacts";
+    if (provider !== "artifacts" && provider !== "github") throw new UsageError("--provider must be artifacts or github");
+    const only = (flags: string[], what: string) => { for (const f of flags) if (v[f] !== undefined) throw new UsageError(`--${f} applies to ${what} only`); };
+    const targetRef = v["target-ref"] === undefined ? {} : { targetRef: v["target-ref"] };
+    let input;
+    if (provider === "github") {
+      only(["namespace", "repo", "head"], "an Artifacts repository");
+      // RepositoryRegisterGitHub: the credential reference names an operator-held credential; it is sent, never printed.
+      input = { provider: "github" as const, owner: need(v, "owner"), name: need(v, "name"), credentialRef: need(v, "credential-ref"), ...targetRef,
+        ...(v["api-base-url"] === undefined ? {} : { apiBaseUrl: v["api-base-url"] }), ...(v["clone-base-url"] === undefined ? {} : { cloneBaseUrl: v["clone-base-url"] }) };
+    } else {
+      only(["owner", "credential-ref", "api-base-url", "clone-base-url"], "a GitHub repository (--provider github)");
+      input = { provider: "artifacts" as const, namespace: need(v, "namespace"), repoId: need(v, "repo"), name: need(v, "name"),
+        ...targetRef, ...(v.head === undefined ? {} : { knownHeadSha: v.head }) };
+    }
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo add requires a human credential");
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), `${r.namespace}/${r.repoId}`], ["Name", r.name],
-      ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable (not observed yet)"]]));
+    out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), r.provider === "github" ? r.repoId : `${r.namespace}/${r.repoId}`], ["Name", r.name],
+      ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable (not observed yet)"],
+      ...(r.provider === "github" ? [["Next", `verify it against GitHub: octocove repo verify ${pos[0]} ${r.id}`]] as [string, unknown][] : [])]));
   },
 
   "repo create": async (d, args) => {

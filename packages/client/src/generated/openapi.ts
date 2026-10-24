@@ -164,11 +164,13 @@ export interface paths {
         put?: never;
         /**
          * Create, import or register the project's canonical repository and target ref
-         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Three modes share the authority, the idempotency ledger, the one-canonical rule and the `Repository` answer.
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Three modes share the authority, the idempotency ledger, the one-canonical rule and the `Repository` answer; a registration names an Artifacts or a GitHub repository.
          *
          *     **Create and import** - Octocove itself creates the repository in the project's own Artifacts namespace - an empty one (`create`, default branch = the target ref's branch) or one imported from a public HTTPS Git remote (`import`; the target ref defaults to `refs/heads/<branch>`, else `refs/heads/main`). `name` must match Artifacts' `^[a-zA-Z0-9][a-zA-Z0-9._-]*$` (and the 1-120 character rules). An import `url` must be `https:` with a public host (no private, loopback, link-local, CGNAT, multicast or unspecified IP literal, v4 or v6 including v4-mapped; no single-label, `localhost`, `.local`, `.internal` or other special-use name) and no userinfo, query or fragment (400 `repository-import-url-invalid`, before anything is written or called); no credentials are ever sent to a source. Artifacts, not Octocove, resolves and fetches the URL, so DNS rebinding and redirects are Artifacts' to enforce. A recorded creation intent reserves the address (namespace + name) before Artifacts is read and called; a registration of a reserved address is 409 `repository-creation-pending`. The Artifacts call runs before the D1 batch that records the repository. Octocove never deletes an Artifacts repository on its own - after an ambiguous answer or a failed batch, a cron sweep records the repository when the intent proves this request created it (then a retry with the same Idempotency-Key answers the 201), and otherwise leaves the intent for the operator (`needs-operator`, audited as `repository.creation_needs_operator`). Refusals - 409 `canonical-exists`; 409 `repository-taken` (the address is already recorded, a repository already exists there in Artifacts, or Artifacts answers 409 - that repository is never touched); 409 `repository-creation-pending` (another create for this project is in flight, or an open creation reserves this address - retry later); 400 `repository-import-refused` (Artifacts refused the import, for example an Artifacts remote as source, 10104); 503 `broker-unavailable` (the deployment has no Artifacts secrets); 503 `broker-provider-unavailable` (any other Artifacts failure; the creation may still complete and be recorded by the sweep). The repository is born verified (a trusted path - `repositoriesList` reports `verified`, `repositoryVerify` answers binding `trusted`). An import answers importState `importing`; claims refuse 409 `repository-importing` until Artifacts reports the repository populated (reconciled on `repositoriesList` and by the sweep), and 409 `repository-import-failed` once it settled `failed`. The repo token Artifacts returns is never stored or answered.
          *
          *     **Registration (no `mode`, or `mode` `register`)** - registers an existing Artifacts repository as the project's canonical repository with one target ref (default `refs/heads/main`). The repository must live in the project's own Artifacts namespace (`Project.artifactsNamespace`) - an omitted `namespace` defaults to it, and any other is 409 `repository-namespace-mismatch` before anything is written (after the replay of a committed key). Nothing is fetched from the provider - without `knownHeadSha` the ref is unpinned and readers report the head as unavailable; with it the head is recorded as a `seed` observation. One D1 batch inserts the `repositories` row (role `canonical`), the `target_refs` row, the `repository.registered` and `target_ref.registered` audit rows and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). One canonical repository per project - a second is 409 `canonical-exists`; an Artifacts namespace and name (the address every downstream path uses), or a `(provider, namespace, repoId)`, already registered (for example by a task fork in the same namespace) is 409 `repository-taken`; an address an open repository creation reserves is 409 `repository-creation-pending`; an off-shape body is 400 `invalid-request`. The registered repository is unverified - claims and provisioning refuse it with 409 `repository-unverified` until it is verified (`repositoryVerify`). A replay with the same Idempotency-Key and body returns the committed 201 before any refusal; the same key with another body is 409 `idempotency-conflict`.
+         *
+         *     **GitHub registration (`provider` `github`, no `mode` or `register`; `RepositoryRegisterGitHub`)** - registers an existing GitHub repository (`owner`/`name`) as the project's canonical repository with one target ref (default `refs/heads/main`), bound to `credentialRef`, an operator-held provider credential the credential authority resolves. The credential is the operator's, so the caller must also be on the deployment's operator allow-list (403 `operator-required` otherwise, before the rest of the body is checked), and `credentialRef` must name a configured, unexpired GitHub credential (409 `credential-unavailable` otherwise, after the replay of a committed key; the reference is never answered or audited). `apiBaseUrl` and `cloneBaseUrl` default to GitHub.com and must be plain `https:` URLs. Nothing is fetched from GitHub. One batch inserts the `repositories` row (role `canonical`, `namespace` the owner, `repoId` `owner/name`), its provider binding, the `target_refs` row, the unverified verification row, the `repository.registered` and `target_ref.registered` audit rows and the idempotency ledger row, behind the same recheck. The answer's `knownHeadSha` is null and its `cloneUrl` is the binding's. The repository is unverified until `repositoryVerify` proves the binding against GitHub; the remote sweep then records the target ref's head. Its lane policy is the default (`private`, `repository-readers`) until a project admin declares another (`repositoryLanePolicyDeclare`). Refusals as for an Artifacts registration (409 `canonical-exists`; 409 `repository-taken` when that GitHub repository is already recorded); an Artifacts-only field (`namespace`, `repoId`, `knownHeadSha`) or an off-shape body is 400 `invalid-request`.
          */
         post: operations["repositoryCreate"];
         delete?: never;
@@ -208,7 +210,7 @@ export interface paths {
         put?: never;
         /**
          * Declare a canonical repository's lane policy
-         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Every canonical repository has exactly one lane policy, declared with the default (`repository-readers`, `private`) in the batch that records the repository (registration, creation, import, the operator's provider binding), so every verified canonical can host lanes; this route is the one way to change it. The body is the whole policy. A public repository admits claims only under `public-on-submit`, so `visibility` `public` with `repository-readers` is refused 409 `publication-undeclared` before any write. One D1 batch compares and sets the policy row from the values the request read, appends its audit row (`repository.registered` with `refs.milestone` `repository.lane_policy_declared`, the new and previous policy and `refs.declaredBy`, until the widened audit vocabulary lands) and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). Declaring the policy the repository already has answers 200 and writes only the ledger row. Claims already admitted keep running; the next claim reads the new policy. Refusals - 400 `invalid-request` (a body other than exactly `candidatePublication` and `visibility`); 404 `not-found` (no live canonical repository with that id in the project); 409 `publication-undeclared`. A replay with the same Idempotency-Key returns the committed 200; the same key with another body is 409 `idempotency-conflict`.
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Every canonical repository has exactly one lane policy, declared with the default (`repository-readers`, `private`) in the batch that records the repository (registration, creation, import), so every verified canonical can host lanes; this route is the one way to change it. The body is the whole policy. A public repository admits claims only under `public-on-submit`, so `visibility` `public` with `repository-readers` is refused 409 `publication-undeclared` before any write. One D1 batch compares and sets the policy row from the values the request read, appends its audit row (`repository.registered` with `refs.milestone` `repository.lane_policy_declared`, the new and previous policy and `refs.declaredBy`, until the widened audit vocabulary lands) and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). Declaring the policy the repository already has answers 200 and writes only the ledger row. Claims already admitted keep running; the next claim reads the new policy. Refusals - 400 `invalid-request` (a body other than exactly `candidatePublication` and `visibility`); 404 `not-found` (no live canonical repository with that id in the project); 409 `publication-undeclared`. A replay with the same Idempotency-Key returns the committed 200; the same key with another body is 409 `idempotency-conflict`.
          */
         post: operations["repositoryLanePolicyDeclare"];
         delete?: never;
@@ -2675,8 +2677,8 @@ export interface components {
             readonly artifactsNamespace: string;
             tenantId: components["schemas"]["TenantId"];
         };
-        /** @description One of three modes - register an existing repository (no `mode`, or `register`), create an empty one (`create`) or import one (`import`) in the project's own Artifacts namespace. */
-        RepositoryCreate: components["schemas"]["RepositoryRegister"] | components["schemas"]["RepositoryCreateEmpty"] | components["schemas"]["RepositoryImport"];
+        /** @description One of three modes - register an existing repository (no `mode`, or `register`; an Artifacts one in the project's namespace, or a GitHub one), create an empty one (`create`) or import one (`import`) in the project's own Artifacts namespace. */
+        RepositoryCreate: components["schemas"]["RepositoryRegister"] | components["schemas"]["RepositoryRegisterGitHub"] | components["schemas"]["RepositoryCreateEmpty"] | components["schemas"]["RepositoryImport"];
         /** @description Octocove creates an empty Artifacts repository in the project's namespace. */
         RepositoryCreateEmpty: {
             /** @enum {string} */
@@ -2724,13 +2726,35 @@ export interface components {
             /** @description Optional current head of `targetRef` (lowercase SHA-1 or SHA-256), recorded as a `seed` observation. Not verified against the provider. */
             knownHeadSha?: string;
         };
+        /** @description Register an existing GitHub repository, bound to an operator-held credential. Operator allow-list only (403 `operator-required`). It is unverified until `repositoryVerify`. */
+        RepositoryRegisterGitHub: {
+            /**
+             * @description Optional; the same request as omitting it.
+             * @enum {string}
+             */
+            mode?: "register";
+            /** @enum {string} */
+            provider: "github";
+            /** @description The repository owner (user or organization); not `.` or `..`. Answered as `namespace`. */
+            owner: string;
+            /** @description The GitHub repository name, 1-120 characters of `[A-Za-z0-9._-]`, not `.` or `..`. */
+            name: string;
+            /** @description The branch tasks land onto; `refs/heads/main` when omitted. Same rules as an Artifacts registration's `targetRef`. Verification creates it once at the default branch's head when it is missing. */
+            targetRef?: string;
+            /** @description The opaque reference of an operator-held GitHub credential (never a token; a token-shaped value is 400 `invalid-request`). An unknown, expired or non-GitHub reference is 409 `credential-unavailable`. */
+            credentialRef: string;
+            /** @description The GitHub REST base, `https://api.github.com` when omitted (for GitHub Enterprise Server, `https://HOST/api/v3`). Plain `https:` - no userinfo, query or fragment. */
+            apiBaseUrl?: string;
+            /** @description The Git clone base, `https://github.com` when omitted. Plain `https:`, like `apiBaseUrl`. */
+            cloneBaseUrl?: string;
+        };
         Repository: {
             /** @description Credential-free canonical clone URL, absent when unknown. */
             cloneUrl?: string;
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
             /**
-             * @description For `github` and `forgejo` the repository is bound under (`namespace` is its owner); a repository this API creates or registers is always `artifacts`.
+             * @description For `github` and `forgejo` the repository is bound under (`namespace` is its owner); a repository this API creates is always `artifacts`, and one it registers is `artifacts` or `github`.
              * @enum {string}
              */
             provider: "artifacts" | "github" | "forgejo";
@@ -2754,7 +2778,7 @@ export interface components {
             id: components["schemas"]["Id"];
             projectId: components["schemas"]["Id"];
             /**
-             * @description For `github` and `forgejo` the repository is bound under (`namespace` is its owner); a repository this API creates or registers is always `artifacts`.
+             * @description For `github` and `forgejo` the repository is bound under (`namespace` is its owner); a repository this API creates is always `artifacts`, and one it registers is `artifacts` or `github`.
              * @enum {string}
              */
             provider: "artifacts" | "github" | "forgejo";

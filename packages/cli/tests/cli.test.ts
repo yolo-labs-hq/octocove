@@ -287,6 +287,35 @@ describe("repo add / verify / list", () => {
     expect(JSON.parse(outText)).toMatchObject({ targetRef: "refs/heads/trunk", knownHeadSha: head });
   });
 
+  it("--provider github registers a GitHub repository with an operator-held credential reference, never printing the reference", async () => {
+    const ref = "gh-app:acme-installation";
+    const github = { ...repository, provider: "github", namespace: "acme", repoId: "acme/widgets", name: "widgets", cloneUrl: "https://github.com/acme/widgets.git" };
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, github);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github", "--owner", "acme", "--name", "widgets", "--credential-ref", ref], { kind: "human" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ provider: "github", owner: "acme", name: "widgets", credentialRef: ref });
+    expect(outText).toContain("GitHub:");
+    expect(outText).toContain("acme/widgets");
+    expect(outText).toContain(`repo verify ${PROJECT}`);
+    expect(outText + errText).not.toContain(ref);
+    expect(await cli(["--json", "repo", "add", PROJECT, "--provider", "github", "--owner", "acme", "--name", "widgets", "--credential-ref", ref, "--target-ref", "refs/heads/trunk",
+      "--api-base-url", "https://ghe.example.invalid/api/v3", "--clone-base-url", "https://ghe.example.invalid"], { kind: "human" })).toBe(0);
+    expect(calls[1]!.body).toEqual({ provider: "github", owner: "acme", name: "widgets", credentialRef: ref, targetRef: "refs/heads/trunk",
+      apiBaseUrl: "https://ghe.example.invalid/api/v3", cloneBaseUrl: "https://ghe.example.invalid" });
+    expect(outText + errText).not.toContain(ref);
+    for (const [status, code] of [[403, "operator-required"], [409, "credential-unavailable"]] as const) {
+      routes[`POST /projects/${PROJECT}/repositories`] = () => problem(status, code);
+      expect(await cli(["--json", "repo", "add", PROJECT, "--provider", "github", "--owner", "acme", "--name", "widgets", "--credential-ref", ref], { kind: "human" })).toBe(EXIT.failure);
+      expect(JSON.parse(errText).error).toMatchObject({ code, nextSteps: expect.any(String) });
+      expect(errText).not.toContain(ref);
+    }
+    calls = [];
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github", "--owner", "acme", "--name", "widgets"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github", "--owner", "acme", "--name", "w", "--credential-ref", ref, "--namespace", "ns"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--namespace", "ns", "--repo", "r", "--name", "r", "--credential-ref", ref], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "gitlab", "--name", "r"], { kind: "human" })).toBe(EXIT.usage);
+    expect(calls).toEqual([]);
+  });
+
   it("maps refusals: canonical-exists, repository-taken and forbidden exit 1 with the code, a delegation exits 77, missing flags exit 2", async () => {
     for (const [status, code] of [[409, "canonical-exists"], [409, "repository-taken"], [403, "forbidden"]] as const) {
       routes[`POST /projects/${PROJECT}/repositories`] = () => problem(status, code);
