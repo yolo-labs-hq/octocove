@@ -54,7 +54,7 @@ export interface paths {
         };
         /**
          * Read the authenticated principal and its project memberships
-         * @description Any authenticated human session (cookie or CLI bearer), agent delegation, or machine grant bearer (an unspent `ocg_` approval grant from the machine-authentication exchange, with live authority); anonymous callers get the 401 problem. No new credential is accepted - sessions and delegations use the gateway's authentication and grants the grant routes' own lookup - so a raw signed machine assertion (exchange-only) and a one-use claim bootstrap are refused with 401 like any unknown bearer. Memberships are every `auth_memberships` row for the resolved (issuer, sub), ordered by project ID - the human's own, a delegation's delegating human's, and for a machine grant its bound human (human approval principal) or the principal itself under issuer `urn:octocove:machine`. Verbs are returned exactly as stored, sorted; an empty list is a valid answer. Each membership also carries its project's `slug`, `name` and `artifactsNamespace` (null for a legacy project without one), read in the same query; they describe the project and grant nothing. `capabilities.createProjects` reports whether `POST /me/projects` would pass its `PROJECT_CREATORS` gate for this caller (the same check; false for delegations and machine grants). A human also gets `profile`, the fields `PATCH /me/profile` sets, `name` falling back to the identity provider's display name. For a human memberships are read in every tenant the caller is a candidate of, each in that tenant's own record by the caller's current membership there, and each carries `tenantId` and `tenantKind` (`organization`, or `personal` for the caller's hidden personal tenant). A human also gets `organizations`, the organizations they administer (never a personal tenant), and the explicit partial-results fields. A tenant that cannot be read is listed in `unavailableTenants` with `partial` true, and its projects are absent (never reported as no projects). Retry later for a complete answer. Memberships describe the identity; they never widen what a delegation or grant may do. Read-only and not audited, like `GET /tasks`. Never returns tokens, hashes, CSRF or verifier material, recovery ciphertext or cookie values.
+         * @description Any authenticated human session (cookie or CLI bearer), agent delegation, or machine grant bearer (an unspent `ocg_` approval grant from the machine-authentication exchange, with live authority); anonymous callers get the 401 problem. No new credential is accepted - sessions and delegations use the gateway's authentication and grants the grant routes' own lookup - so a raw signed machine assertion (exchange-only) and a one-use claim bootstrap are refused with 401 like any unknown bearer. Memberships are every `auth_memberships` row for the resolved (issuer, sub), ordered by project ID - the human's own, a delegation's delegating human's, and for a machine grant its bound human (human approval principal) or the principal itself under issuer `urn:octocove:machine`. Verbs are returned exactly as stored, sorted; an empty list is a valid answer. Each membership also carries its project's `slug`, `name` and `artifactsNamespace` (null for a legacy project without one), read in the same query; they describe the project and grant nothing. `capabilities.createProjects` reports whether `POST /me/projects` would pass its `PROJECT_CREATORS` gate for this caller (the same check; false for delegations and machine grants). A human also gets `profile`, the fields `PATCH /me/profile` sets, `name` falling back to the identity provider's display name. For a human memberships are read in every tenant the caller is a candidate of, each in that tenant's own record by the caller's current membership there, and each carries `tenantId` and `tenantKind` (`organization`, or `personal` for the caller's hidden personal tenant). A human also gets `organizations`, the organizations they administer (never a personal tenant), and the explicit partial-results fields. A tenant that cannot be read is listed in `unavailableTenants` with `partial` true, and its projects are absent (never reported as no projects). Retry later for a complete answer. Memberships describe the identity; they never widen what a delegation or grant may do. Read-only and not audited, like `GET /orgs/{orgId}/tasks`. Never returns tokens, hashes, CSRF or verifier material, recovery ciphertext or cookie values.
          */
         get: operations["meGet"];
         put?: never;
@@ -80,7 +80,7 @@ export interface paths {
         head?: never;
         /**
          * Edit the caller's own profile
-         * @description Human session only; agent delegations get 403 `human-required` and a valid machine grant bearer 403 `human-required` from the handler (an unknown one 401). Origin and CSRF are checked for cookie callers, as on every cookie POST. Sets the named fields of the caller's profile; email stays the identity provider's and the principal id never changes. The profile is stored apart from the sign-in record, so signing in again never erases it. One D1 batch upserts the named fields and appends one `profile.updated` audit row (no project, so it is in neither `GET /audit` nor `GET /events`; refs the principal id and the names of the fields set, never their values) and the idempotency ledger row, behind an in-transaction recheck of the calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`. A handle edit is atomic with the profile write. A current or retired name owned by another person returns 409 `handle-taken`; reselecting an owned retired name is allowed. Malformed, empty, null and reserved handles return 400 `invalid-profile` with details.field handle.
+         * @description Human session only; agent delegations get 403 `human-required` and a valid machine grant bearer 403 `human-required` from the handler (an unknown one 401). Origin and CSRF are checked for cookie callers, as on every cookie POST. Sets the named fields of the caller's profile; email stays the identity provider's and the principal id never changes. The profile is stored apart from the sign-in record, so signing in again never erases it. One D1 batch upserts the named fields and appends one `profile.updated` audit row (no project, so it is in neither `GET /orgs/{orgId}/audit` nor `GET /orgs/{orgId}/events`; refs the principal id and the names of the fields set, never their values) and the idempotency ledger row, behind an in-transaction recheck of the calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`. A handle edit is atomic with the profile write. A current or retired name owned by another person returns 409 `handle-taken`; reselecting an owned retired name is allowed. Malformed, empty, null and reserved handles return 400 `invalid-profile` with details.field handle.
          */
         patch: operations["meProfileUpdate"];
         trace?: never;
@@ -94,7 +94,7 @@ export interface paths {
         };
         /**
          * Summarise each of the caller's projects for the dashboard
-         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`): they are authenticated with the grant routes' own lookup first (an unknown or spent one is 401) and then refused; a delegation is confined to one task and a grant to its own routes, and neither has a dashboard. One item per membership of the caller, in `GET /me` order (by project ID), carrying exactly the identity fields `GET /me` memberships carry (`projectId`, `slug`, `name`, `artifactsNamespace`; verbs are not repeated). `taskCounts` counts the project's tasks by `status`, one key per task status the lifecycle writes, zeros included: `draft`, `ready`, `claimed`, `submitted`, `candidate`, `approved`, `landing`, `landed`, `rejected`, `superseded`. There is no `closed` status: a closed task is `rejected` or `superseded`, and `submitted` (awaiting its candidate) and `landing` (approved, fenced, being landed) are states of their own. `needsReview` is the number of the project's tasks whose `GET /tasks` item has `needsReview` true (one server predicate, the review queue's filter): `candidate`, or `approved` with a live approval that no longer holds its candidate, base (the target ref's current head) or intent version, as between a head move and the invalidation of the approvals bound to the old head. `repository.verification` is the `verification` `GET /projects/{project}/repositories` reports for the project's first canonical repository (same expression), and `repository` is null when the project has no live canonical repository with a target ref. Both underlying reads require `tasks:list`; a membership without it reports `taskCounts`, `needsReview` and `repository` as null. A constant three statements in one batch per tenant, whatever the number of projects. The items come from every tenant the caller is a candidate of, each read in its own record (at most six at once, nothing joined across tenants), each tagged with `tenantId` and `tenantKind`, ordered by project ID. A tenant that cannot be read is named in `unavailableTenants` with `partial` true and its projects are absent, never reported as zero counts. Read-only and not audited.
+         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`): they are authenticated with the grant routes' own lookup first (an unknown or spent one is 401) and then refused; a delegation is confined to one task and a grant to its own routes, and neither has a dashboard. One item per membership of the caller, in `GET /me` order (by project ID), carrying exactly the identity fields `GET /me` memberships carry (`projectId`, `slug`, `name`, `artifactsNamespace`; verbs are not repeated). `taskCounts` counts the project's tasks by `status`, one key per task status the lifecycle writes, zeros included: `draft`, `ready`, `claimed`, `submitted`, `candidate`, `approved`, `landing`, `landed`, `rejected`, `superseded`. There is no `closed` status: a closed task is `rejected` or `superseded`, and `submitted` (awaiting its candidate) and `landing` (approved, fenced, being landed) are states of their own. `needsReview` is the number of the project's tasks whose `GET /orgs/{orgId}/tasks` item has `needsReview` true (one server predicate, the review queue's filter): `candidate`, or `approved` with a live approval that no longer holds its candidate, base (the target ref's current head) or intent version, as between a head move and the invalidation of the approvals bound to the old head. `repository.verification` is the `verification` `GET /orgs/{orgId}/projects/{project}/repositories` reports for the project's first canonical repository (same expression), and `repository` is null when the project has no live canonical repository with a target ref. Both underlying reads require `tasks:list`; a membership without it reports `taskCounts`, `needsReview` and `repository` as null. A constant three statements in one batch per tenant, whatever the number of projects. The items come from every tenant the caller is a candidate of, each read in its own record (at most six at once, nothing joined across tenants), each tagged with `tenantId` and `tenantKind`, ordered by project ID. A tenant that cannot be read is named in `unavailableTenants` with `partial` true and its projects are absent, never reported as zero counts. Read-only and not audited.
          */
         get: operations["meProjectsList"];
         put?: never;
@@ -352,7 +352,7 @@ export interface paths {
         put?: never;
         /**
          * Remove a member from the project
-         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` (403 `forbidden`). Origin and CSRF are checked for cookie callers. Removing yourself is allowed while another member holds `project:admin`; removing the last `project:admin` is 409 `last-admin`, rechecked in the same D1 batch so two admins leaving at once cannot both commit. That batch also ends the removed principal's agent delegations in the project (authorizations and delegations revoked, live delegation tokens denylisted) and appends the `member.removed` audit row and the ledger row; deleting the membership disables every webhook the removed principal created in the project (`membership-revoked`, audited as `webhook.disabled`). Claims still active under the ended delegations are then ended as `POST /delegations/{id}/revoke` does. 404 `member-not-found` when the principal is not a member. A replay with the same Idempotency-Key answers 204 before any other check, even after the caller removed themselves; the same key for another member is 409 `idempotency-conflict`.
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` (403 `forbidden`). Origin and CSRF are checked for cookie callers. Removing yourself is allowed while another member holds `project:admin`; removing the last `project:admin` is 409 `last-admin`, rechecked in the same D1 batch so two admins leaving at once cannot both commit. That batch also ends the removed principal's agent delegations in the project (authorizations and delegations revoked, live delegation tokens denylisted) and appends the `member.removed` audit row and the ledger row; deleting the membership disables every webhook the removed principal created in the project (`membership-revoked`, audited as `webhook.disabled`). Claims still active under the ended delegations are then ended as `POST /orgs/{orgId}/delegations/{id}/revoke` does. 404 `member-not-found` when the principal is not a member. A replay with the same Idempotency-Key answers 204 before any other check, even after the caller removed themselves; the same key for another member is 409 `idempotency-conflict`.
          */
         post: operations["memberRemove"];
         delete?: never;
@@ -370,7 +370,7 @@ export interface paths {
         };
         /**
          * List the project's landings, newest first
-         * @description Whoever may read `GET /receipts/{id}` - a member holding `receipts:read`, or an agent delegation with `receipts:read` (its own task's landings only). 404 `not-found` for an unknown project, 403 `forbidden` for a non-member. One item per `landed` receipt, newest first (`landedAt`, then `receiptId`, descending). Each item is the same record `GET /receipts/{receiptId}` reports (`landedAt` is its `reconciledAt`); `approvedBy`, `approvedAt` and `actor` (who requested the landing) are derived from the fence's audit evidence exactly as the signed receipt export derives them. A page is read in two set-based statements, never one per task. Keyset pagination with an opaque cursor bound to the caller and project (400 `invalid-cursor` otherwise). Not audited.
+         * @description Whoever may read `GET /orgs/{orgId}/receipts/{id}` - a member holding `receipts:read`, or an agent delegation with `receipts:read` (its own task's landings only). 404 `not-found` for an unknown project, 403 `forbidden` for a non-member. One item per `landed` receipt, newest first (`landedAt`, then `receiptId`, descending). Each item is the same record `GET /orgs/{orgId}/receipts/{receiptId}` reports (`landedAt` is its `reconciledAt`); `approvedBy`, `approvedAt` and `actor` (who requested the landing) are derived from the fence's audit evidence exactly as the signed receipt export derives them. A page is read in two set-based statements, never one per task. Keyset pagination with an opaque cursor bound to the caller and project (400 `invalid-cursor` otherwise). Not audited.
          */
         get: operations["landingsList"];
         put?: never;
@@ -876,7 +876,7 @@ export interface paths {
         put?: never;
         /**
          * Reopen a landed materialized lane for more work
-         * @description A human reopens a landed task whose newest landing came from a materialized lane with a lane repository, and in the same command authorizes one agent for the reopened lane (the fresh delegation a reopened lane requires). The same command re-authorizes a task that is already reopened and has no active claim (its previous reopened claim ended with save points not yet wrapped up); that continuation keeps the lane head and its base exactly as they are, so saved work is never dropped. The caller must be a project member holding tasks:edit and tasks:claim and every verb it delegates, as for claimAuthorize; agent delegations and machine callers are refused (403 human-required) and approval is never delegable. expectedReceiptId must be the task's newest landed receipt (latestReceiptId; 409 expected-state-mismatch otherwise). The task moves landed -> reopened; its earlier receipts, approvals and candidates are unchanged, and acceptedReceiptId keeps naming the first landing. The answer reserves a new materialized claim attempt for the agent, bound to the same lane repository and its latest granted scope (every scope version carries over), and returns a five-minute one-use bootstrap; the agent claims with it through POST /tasks/{id}/claim (a declared scope must be the lane's), then calls lane/materialize, which answers the lane's current state (it creates nothing). On a reopened task only such a bootstrap admits a claim (409 lane-reopen-required otherwise). On a reopen from landed the lane head is the landed wrap-up's laneHead (any later save point would have superseded that candidate), and the claim's generation 1 is opened by a journaled `reopened` head transition onto the newest landing's canonical commit (the receipt's landedSha, not a later canonical head; refresh to move further), which already contains the landed squash: the new head's parent is the old head and its tree is the new snapshot, so the rebase cannot conflict and drops nothing, and the next wrap-up carries only new work (its message and savePointIds name only the save points since the landing). The lane history continues (save points, squash 1 landed, reopen, save points, squash 2). Until that transition settles the claim reads provisioningState pending; lane/materialize and the task alarm resume it (503 lane-repository-unavailable is retried). The claim answer's lane block carries laneHead and reopenId. Reopen re-runs the overlap and activation guard over the write scope (409 scope-overlap, with details.retryable while another lane's change is unsettled). A landed lane holds no write scope: a reopen from landed whose lane scope overlaps the write scope another task was admitted into meanwhile is refused 409 write-scope-claimed, details.holders naming that task and claim attempt; once open, the reopen holds the lane's scope until it closes. 409 lane-not-reopenable (details.reason) when the task never landed or its reopened work is already wrapped up (not-landed), its newest landing was not a materialized wrap-up (not-a-wrap-up), its lane repository is retired (retired), another task owns the lane (other-task), or the lane head moved (lane-head-moved); 409 task-closed for a rejected or superseded task; 409 already-claimed while an active claim exists; 409 fenced while a landing fence is held; 409 operation-in-progress (retryable) while a save point, head transition or wrap-up of the lane is settling. The same key and body replay the committed answer, bootstrap included, while the bootstrap is unconsumed and inside its window, then 409 idempotency-result-expired (bounded recovery, as claimAuthorize). The reopen ends and the task returns to landed when its claim ends (release, revocation, expiry), or its bootstrap lapses unclaimed, with no save point since the reopen, or when a human rejects the reopened work. Each later landing is its own candidate, exact approval, receipt and export.
+         * @description A human reopens a landed task whose newest landing came from a materialized lane with a lane repository, and in the same command authorizes one agent for the reopened lane (the fresh delegation a reopened lane requires). The same command re-authorizes a task that is already reopened and has no active claim (its previous reopened claim ended with save points not yet wrapped up); that continuation keeps the lane head and its base exactly as they are, so saved work is never dropped. The caller must be a project member holding tasks:edit and tasks:claim and every verb it delegates, as for claimAuthorize; agent delegations and machine callers are refused (403 human-required) and approval is never delegable. expectedReceiptId must be the task's newest landed receipt (latestReceiptId; 409 expected-state-mismatch otherwise). The task moves landed -> reopened; its earlier receipts, approvals and candidates are unchanged, and acceptedReceiptId keeps naming the first landing. The answer reserves a new materialized claim attempt for the agent, bound to the same lane repository and its latest granted scope (every scope version carries over), and returns a five-minute one-use bootstrap; the agent claims with it through POST /orgs/{orgId}/tasks/{id}/claim (a declared scope must be the lane's), then calls lane/materialize, which answers the lane's current state (it creates nothing). On a reopened task only such a bootstrap admits a claim (409 lane-reopen-required otherwise). On a reopen from landed the lane head is the landed wrap-up's laneHead (any later save point would have superseded that candidate), and the claim's generation 1 is opened by a journaled `reopened` head transition onto the newest landing's canonical commit (the receipt's landedSha, not a later canonical head; refresh to move further), which already contains the landed squash: the new head's parent is the old head and its tree is the new snapshot, so the rebase cannot conflict and drops nothing, and the next wrap-up carries only new work (its message and savePointIds name only the save points since the landing). The lane history continues (save points, squash 1 landed, reopen, save points, squash 2). Until that transition settles the claim reads provisioningState pending; lane/materialize and the task alarm resume it (503 lane-repository-unavailable is retried). The claim answer's lane block carries laneHead and reopenId. Reopen re-runs the overlap and activation guard over the write scope (409 scope-overlap, with details.retryable while another lane's change is unsettled). A landed lane holds no write scope: a reopen from landed whose lane scope overlaps the write scope another task was admitted into meanwhile is refused 409 write-scope-claimed, details.holders naming that task and claim attempt; once open, the reopen holds the lane's scope until it closes. 409 lane-not-reopenable (details.reason) when the task never landed or its reopened work is already wrapped up (not-landed), its newest landing was not a materialized wrap-up (not-a-wrap-up), its lane repository is retired (retired), another task owns the lane (other-task), or the lane head moved (lane-head-moved); 409 task-closed for a rejected or superseded task; 409 already-claimed while an active claim exists; 409 fenced while a landing fence is held; 409 operation-in-progress (retryable) while a save point, head transition or wrap-up of the lane is settling. The same key and body replay the committed answer, bootstrap included, while the bootstrap is unconsumed and inside its window, then 409 idempotency-result-expired (bounded recovery, as claimAuthorize). The reopen ends and the task returns to landed when its claim ends (release, revocation, expiry), or its bootstrap lapses unclaimed, with no save point since the reopen, or when a human rejects the reopened work. Each later landing is its own candidate, exact approval, receipt and export.
          */
         post: operations["laneReopen"];
         delete?: never;
@@ -1054,7 +1054,7 @@ export interface paths {
         };
         /**
          * Replay authorized collaboration events
-         * @description Same v1 envelopes and evt_<decimal audit ID> identities as webhooks, excluding webhook.attempt_started and webhook.attempt_recorded plus webhook.deliveries_inspected telemetry. Requires events:read; agents are restricted to their bound task. Machine event proofs require explicit projectId and a live event permission. Signed cursors retain the v1 tenant/principal/filter binding. Omitted after starts oldest visible. after also accepts a delivered Event ID or decimal position for exclusive webhook handoff.
+         * @description Same event envelopes and evt_<decimal audit ID> identities as webhooks, excluding webhook.attempt_started and webhook.attempt_recorded plus webhook.deliveries_inspected telemetry. Requires events:read; agents are restricted to their bound task. Machine event proofs require explicit projectId and a live event permission. Signed cursors are bound to the tenant, the principal and the filter. Omitted after starts oldest visible. after also accepts a delivered Event ID or decimal position for exclusive webhook handoff.
          */
         get: operations["eventsReplay"];
         put?: never;
@@ -1460,7 +1460,7 @@ export interface paths {
         };
         /**
          * List the agent grants the caller authorized
-         * @description Human session only (cookie or CLI bearer); agent delegations and valid machine grant bearers get 403 `human-required` (an unknown bearer 401). Lists every agent grant (`POST /tasks/{id}/authorizations`) the caller authorized from any of their own sign-ins, whatever its status, newest first, across every tenant the caller is a candidate of (each item names its `tenantId`); another principal's grants are never listed. A tenant that cannot be read is named in `unavailableTenants` with `partial` true, and its grants are absent. `status` is derived, first match wins - `revoked` (the grant, its delegation token or the sign-in it was authorized from was revoked), `expired` (past `expiresAt`, its sign-in past its idle or absolute expiry, its five-minute bootstrap passed unused, or its claim was refused or has ended), `pending` (authorized, bootstrap not yet consumed), else `active` (its claim granted and active). Keyset pagination with the `GET /tasks` cursor convention, the cursor bound to the caller. Read-only and not audited. Never returns tokens, token ids (jti), bootstrap hashes or claim ids.
+         * @description Human session only (cookie or CLI bearer); agent delegations and valid machine grant bearers get 403 `human-required` (an unknown bearer 401). Lists every agent grant (`POST /orgs/{orgId}/tasks/{id}/authorizations`) the caller authorized from any of their own sign-ins, whatever its status, newest first, across every tenant the caller is a candidate of (each item names its `tenantId`); another principal's grants are never listed. A tenant that cannot be read is named in `unavailableTenants` with `partial` true, and its grants are absent. `status` is derived, first match wins - `revoked` (the grant, its delegation token or the sign-in it was authorized from was revoked), `expired` (past `expiresAt`, its sign-in past its idle or absolute expiry, its five-minute bootstrap passed unused, or its claim was refused or has ended), `pending` (authorized, bootstrap not yet consumed), else `active` (its claim granted and active). Keyset pagination with the `GET /orgs/{orgId}/tasks` cursor convention, the cursor bound to the caller. Read-only and not audited. Never returns tokens, token ids (jti), bootstrap hashes or claim ids.
          */
         get: operations["meDelegationsList"];
         put?: never;
@@ -1480,7 +1480,7 @@ export interface paths {
         };
         /**
          * List the caller's in-app notifications
-         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`), authenticated with the grant routes' own lookup first (an unknown one is 401). One page of the caller's own notifications, newest first, and `unreadCount`, read in one batch under the same filter: only rows for projects the caller is still a member of (re-checked on every request), and none of a kind or project the caller has muted (`GET /me/notification-preferences`). Display fields are joined when read, never copied into the row: `projectSlug` and `projectName`, and `taskTitle` (the task's current intent title) only when the membership holds `tasks:read`. `unread=true` lists unread rows only; `unreadCount` is the same either way. `limit=0` reads only the count (`items` empty, `nextCursor` null), for the badge poll. Keyset pagination with the `GET /tasks` cursor convention, the cursor bound to the caller and `unread`. Read-only and not audited.
+         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`), authenticated with the grant routes' own lookup first (an unknown one is 401). One page of the caller's own notifications, newest first, and `unreadCount`, read in one batch under the same filter: only rows for projects the caller is still a member of (re-checked on every request), and none of a kind or project the caller has muted (`GET /orgs/{orgId}/me/notification-preferences`). Display fields are joined when read, never copied into the row: `projectSlug` and `projectName`, and `taskTitle` (the task's current intent title) only when the membership holds `tasks:read`. `unread=true` lists unread rows only; `unreadCount` is the same either way. `limit=0` reads only the count (`items` empty, `nextCursor` null), for the badge poll. Keyset pagination with the `GET /orgs/{orgId}/tasks` cursor convention, the cursor bound to the caller and `unread`. Read-only and not audited.
          */
         get: operations["meNotificationsList"];
         put?: never;
@@ -1502,7 +1502,7 @@ export interface paths {
         put?: never;
         /**
          * Mark the caller's notifications read
-         * @description Human session only, as `GET /me/notifications`; Origin and CSRF are checked for cookie callers. `{ids}` marks the named rows, `{upTo}` every row up to and including that id. Only the caller's own rows that `GET /me/notifications` would list (a current member, not muted) and that are still unread are stamped; anything else named (another principal's row, a hidden or muted one, an unknown id) is ignored, so the 204 reveals nothing. A mark only sets an unset `readAt`, so it is idempotent by state and keeps no ledger row; a replay with the same key answers 204 and changes nothing more. Not audited (read marks are personal state).
+         * @description Human session only, as `GET /orgs/{orgId}/me/notifications`; Origin and CSRF are checked for cookie callers. `{ids}` marks the named rows, `{upTo}` every row up to and including that id. Only the caller's own rows that `GET /orgs/{orgId}/me/notifications` would list (a current member, not muted) and that are still unread are stamped; anything else named (another principal's row, a hidden or muted one, an unknown id) is ignored, so the 204 reveals nothing. A mark only sets an unset `readAt`, so it is idempotent by state and keeps no ledger row; a replay with the same key answers 204 and changes nothing more. Not audited (read marks are personal state).
          */
         post: operations["meNotificationsMarkRead"];
         delete?: never;
@@ -1520,12 +1520,12 @@ export interface paths {
         };
         /**
          * Read the caller's notification preferences
-         * @description Human session only, as `GET /me/notifications`. Everything is on by default, so both lists are empty until the first `PUT`. `mutedProjects` lists only projects the caller is still a member of, so the answer can always be sent back as a `PUT`. Read-only and not audited.
+         * @description Human session only, as `GET /orgs/{orgId}/me/notifications`. Everything is on by default, so both lists are empty until the first `PUT`. `mutedProjects` lists only projects the caller is still a member of, so the answer can always be sent back as a `PUT`. Read-only and not audited.
          */
         get: operations["meNotificationPreferencesGet"];
         /**
          * Replace the caller's notification preferences
-         * @description Human session only, as `GET /me/notifications`; Origin and CSRF are checked for cookie callers. Replaces both lists, deduplicated and sorted; they apply at once to the list and to `unreadCount`, and no notification row is rewritten. An unknown kind is 400 `invalid-request` (`details.mutedKinds`); so is a project the caller is not a member of (`details.mutedProjects`, the ids as sent), the same answer whether or not the project exists. The preferences, one `notification_preferences.updated` audit row (refs `principalId`, `mutedKinds`, `mutedProjects`; ids only and no project, so no project's `/audit` or `/events` serves it) and the ledger row commit in one D1 batch. A replay with the same Idempotency-Key answers the committed body; the same key with another body is 409 `idempotency-conflict`.
+         * @description Human session only, as `GET /orgs/{orgId}/me/notifications`; Origin and CSRF are checked for cookie callers. Replaces both lists, deduplicated and sorted; they apply at once to the list and to `unreadCount`, and no notification row is rewritten. An unknown kind is 400 `invalid-request` (`details.mutedKinds`); so is a project the caller is not a member of (`details.mutedProjects`, the ids as sent), the same answer whether or not the project exists. The preferences, one `notification_preferences.updated` audit row (refs `principalId`, `mutedKinds`, `mutedProjects`; ids only and no project, so no project's `/orgs/{orgId}/audit` or `/orgs/{orgId}/events` serves it) and the ledger row commit in one D1 batch. A replay with the same Idempotency-Key answers the committed body; the same key with another body is 409 `idempotency-conflict`.
          */
         put: operations["meNotificationPreferencesPut"];
         post?: never;
@@ -1546,7 +1546,7 @@ export interface paths {
         put?: never;
         /**
          * Exchange verified identity proof for one exact approval grant
-         * @description Verification failures use stable machine-authority-denied without disclosing the failed check; 401 proof, 403 authority, 409 replay. Proof is verified before any record lookup, so an unauthenticated caller receives 401 whether or not the project or candidate exists. Identical authorized retries recover the same grant record without its token; a caller that lost the token exchanges a fresh assertion. `409 operation-in-progress` with `Retry-After` means an earlier attempt of this same request is still being settled; resend the identical request after the delay.
+         * @description The identity proof's `aud` must be exactly the URL it is POSTed to, `APPROVAL_API_ORIGIN/v1/orgs/{orgId}/auth/approval-grants` (the operator-configured HTTPS origin, never the request Host, plus this path with the tenant selector), as a single string; a proof for another tenant, or for the path without the selector, is refused. Verification failures use stable machine-authority-denied without disclosing the failed check; 401 proof, 403 authority, 409 replay. Proof is verified before any record lookup, so an unauthenticated caller receives 401 whether or not the project or candidate exists. Identical authorized retries recover the same grant record without its token; a caller that lost the token exchanges a fresh assertion. `409 operation-in-progress` with `Retry-After` means an earlier attempt of this same request is still being settled; resend the identical request after the delay.
          */
         post: operations["approvalGrantExchange"];
         delete?: never;
@@ -1885,7 +1885,7 @@ export interface components {
         OrganizationDiscovery: {
             organizations: components["schemas"]["OrganizationMembership"][];
         };
-        /** @description Planned identity fragment for project memberships, authorized project/attempt or grant context, and v2 events; not attached to current responses. Event consumers deduplicate by (tenantId, id) before a second organization is admitted, including webhook delivery and replay. The v1 event service runs for 90 days after v2 ships. Only a known legacy v1 event without tenantId may be qualified with octocove; never infer it from the selected org. The same recorded fact retains identity across event versions, replay and recovery; cursors/checkpoints stay tenant-scoped. */
+        /** @description Planned identity fragment for project memberships, authorized project/attempt or grant context, and v2 events; not attached to current responses. Event consumers deduplicate by (tenantId, id) before a second organization is admitted, including webhook delivery and replay. There is no legacy event without tenantId to qualify (the hard cut has no default tenant); a consumer never infers a tenant from the selected org. The same recorded fact retains identity across event versions, replay and recovery; cursors/checkpoints stay tenant-scoped. */
         TenantIdentity: {
             tenantId: components["schemas"]["TenantId"];
         };
@@ -2011,7 +2011,7 @@ export interface components {
             landingCount?: number;
             /** @description Preview. Present when the task's active claim is a materialized lane. */
             lane?: components["schemas"]["MaterializedLane"];
-            /** @description GET /tasks/{id} only (absent from the task list). The task's newest lane repository, whether or not a claim is live; absent before the task's first lane/materialize. An agent delegation reads it only for the lane its own claim is bound to. */
+            /** @description GET /orgs/{orgId}/tasks/{id} only (absent from the task list). The task's newest lane repository, whether or not a claim is live; absent before the task's first lane/materialize. An agent delegation reads it only for the lane its own claim is bound to. */
             laneRepository?: components["schemas"]["TaskLaneRepository"];
             liveAttempt: {
                 claimId: components["schemas"]["Id"] | null;
@@ -2241,7 +2241,7 @@ export interface components {
             items: components["schemas"]["Landing"][];
             nextCursor: string | null;
         };
-        /** @description A landed receipt (`GET /receipts/{receiptId}`) with its approval and requesting actor. */
+        /** @description A landed receipt (`GET /orgs/{orgId}/receipts/{receiptId}`) with its approval and requesting actor. */
         Landing: {
             workAttribution?: components["schemas"]["WorkAttribution"];
             receiptId: components["schemas"]["Id"];
@@ -2484,7 +2484,7 @@ export interface components {
         NotificationKind: "review-requested" | "approval-invalidated" | "landed" | "candidate-blocked" | "claim-ended" | "repository-needs-operator" | "member-added";
         /** @description One notification of the caller. Ids only are stored; the display fields are joined when read. */
         MeNotification: {
-            /** @description Orders the caller's feed (newest is greatest); what `POST /me/notifications/read` takes. */
+            /** @description Orders the caller's feed (newest is greatest); what `POST /orgs/{orgId}/me/notifications/read` takes. */
             id: string;
             kind: components["schemas"]["NotificationKind"];
             projectId: string;
@@ -2494,7 +2494,7 @@ export interface components {
             taskId?: string;
             /** @description The task's current intent title; absent with `taskId`, or when the membership lacks `tasks:read`. */
             taskTitle?: string;
-            /** @description The event it projects, as `GET /events` and webhooks identify it. */
+            /** @description The event it projects, as `GET /orgs/{orgId}/events` and webhooks identify it. */
             eventId: string;
             /**
              * Format: date-time
@@ -2523,7 +2523,7 @@ export interface components {
         };
         /** @description One agent grant the caller authorized. No token, token id (jti), bootstrap hash or claim id. */
         MeDelegation: {
-            /** @description The delegation id, as `POST /delegations/{id}/revoke` takes it. */
+            /** @description The delegation id, as `POST /orgs/{orgId}/delegations/{id}/revoke` takes it. */
             id: string;
             /** @description The `agentId` the grant was authorized for. */
             agent: string;
@@ -2625,7 +2625,7 @@ export interface components {
         };
         /** @description What a route would decide for this caller, answered in advance so a client can render a locked step instead of attempting the write. Each flag is computed by the same check the route applies. */
         MeCapabilities: {
-            /** @description True when `POST /projects` would admit this caller past its bootstrap gate - a human whose `issuer|sub` is listed in the deployment's `PROJECT_CREATORS` allow-list. False when the list is unset, empty or does not list the caller, and always false for a delegation or machine grant (the route is human-only). It does not foresee the per-creator cap, the throttle or a taken slug. */
+            /** @description True when `POST /orgs/{orgId}/projects` or `POST /me/projects` would admit this caller past its bootstrap gate - a human whose `issuer|sub` is listed in the deployment's `PROJECT_CREATORS` allow-list. False when the list is unset, empty or does not list the caller, and always false for a delegation or machine grant (the route is human-only). It does not foresee the per-creator cap, the throttle or a taken slug. */
             createProjects: boolean;
         };
         /** @description The kind of credential presented and when it stops authenticating; never the credential itself. `session` is the browser cookie, `bearer` a CLI session bearer (human) or a machine grant (machine), `delegation` an agent delegation. `bootstrap` is reserved and not returned today (a claim bootstrap authenticates only its claim route). */
@@ -2723,7 +2723,7 @@ export interface components {
              */
             importState?: "importing";
         };
-        /** @description A `Repository` as `GET /projects/{project}/repositories` lists it, with its verification state. */
+        /** @description A `Repository` as `GET /orgs/{orgId}/projects/{project}/repositories` lists it, with its verification state. */
         RepositoryListItem: {
             /** @description Credential-free canonical clone URL, absent when unknown. */
             cloneUrl?: string;
@@ -2742,7 +2742,7 @@ export interface components {
             targetRef: string;
             knownHeadSha: components["schemas"]["Sha"] | null;
             /**
-             * @description `namespace-mismatch` exactly when claims, provisioning and broker credentials refuse the repository 409 `repository-namespace-mismatch`: an Artifacts repository outside the project's own namespace, whatever its verification history; it can never become `verified`. Otherwise `unverified` exactly when they refuse it 409 `repository-unverified`: it was registered through the API and not yet verified (`POST /projects/{project}/repositories/{repository}/verify`). A repository a trusted path created (provisioning, seed, migration, provider binding) in its project's namespace, or a GitHub or Forgejo one, is `verified`.
+             * @description `namespace-mismatch` exactly when claims, provisioning and broker credentials refuse the repository 409 `repository-namespace-mismatch`: an Artifacts repository outside the project's own namespace, whatever its verification history; it can never become `verified`. Otherwise `unverified` exactly when they refuse it 409 `repository-unverified`: it was registered through the API and not yet verified (`POST /orgs/{orgId}/projects/{project}/repositories/{repository}/verify`). A repository a trusted path created (provisioning, seed, migration, provider binding) in its project's namespace, or a GitHub or Forgejo one, is `verified`.
              * @enum {string}
              */
             verification: "verified" | "unverified" | "namespace-mismatch";
@@ -2750,7 +2750,7 @@ export interface components {
             verifiedAt: string | null;
             /** @description Null unless Octocove imported the repository. `importing` - claims refuse 409 `repository-importing`; `ready` - nothing to wait for; `failed` - claims refuse 409 `repository-import-failed` (Artifacts lost the repository, or reported no content within an hour). An `importing` repository is reconciled from Artifacts on this read. */
             importState: ("importing" | "ready" | "failed") | null;
-            /** @description The repository's declared lane policy. Every canonical has one, declared with the default (`repository-readers`, `private`) when it was recorded and changed only by `POST /projects/{project}/repositories/{repository}/lane-policy`. */
+            /** @description The repository's declared lane policy. Every canonical has one, declared with the default (`repository-readers`, `private`) when it was recorded and changed only by `POST /orgs/{orgId}/projects/{project}/repositories/{repository}/lane-policy`. */
             lanePolicy: components["schemas"]["RepositoryLanePolicy"];
         };
         /** @description The repository's declared lane policy. candidatePublication is how a submitted candidate becomes visible; visibility is the declared repository visibility (a public repository admits claims only under public-on-submit). Every claim is materialized, so the policy names no lane kind. */
@@ -2760,7 +2760,7 @@ export interface components {
             /** @enum {string} */
             visibility: "private" | "public";
         };
-        /** @description A canonical repository's lane policy as `POST /projects/{project}/repositories/{repository}/lane-policy` declared it, with when and by whom. */
+        /** @description A canonical repository's lane policy as `POST /orgs/{orgId}/projects/{project}/repositories/{repository}/lane-policy` declared it, with when and by whom. */
         RepositoryLanePolicyDeclaration: {
             repositoryId: components["schemas"]["Id"];
             lanePolicy: components["schemas"]["RepositoryLanePolicy"];
@@ -2907,7 +2907,7 @@ export interface components {
             encoding: "utf-8";
             content: string | null;
         };
-        /** @description An open repository creation intent (`POST /projects/{project}/repositories` mode `create` or `import`; migration 0045) - it reserves its address, so a registration of the same name is 409 `repository-creation-pending` while it is listed. Terminal intents (`committed` - it is the repository in `items`; `address-taken`; `abandoned`; `resolved` by the operator) are never listed. Carries display fields only - no import URL, Artifacts id or principal. */
+        /** @description An open repository creation intent (`POST /orgs/{orgId}/projects/{project}/repositories` mode `create` or `import`; migration 0045) - it reserves its address, so a registration of the same name is 409 `repository-creation-pending` while it is listed. Terminal intents (`committed` - it is the repository in `items`; `address-taken`; `abandoned`; `resolved` by the operator) are never listed. Carries display fields only - no import URL, Artifacts id or principal. */
         RepositoryCreation: {
             /** @description Opaque; stable for the intent. */
             id: string;
@@ -3057,7 +3057,7 @@ export interface components {
             unresolved?: string[];
             /** @description `refresh-conflict` - the generation's pinned base, the old side of every conflict. */
             oldBaseSha?: components["schemas"]["Sha"];
-            /** @description `refresh-conflict` - the canonical commit the refresh or wrap-up compared against (read its side with GET /tasks/{id}/lane/blob?base=). */
+            /** @description `refresh-conflict` - the canonical commit the refresh or wrap-up compared against (read its side with GET /orgs/{orgId}/tasks/{id}/lane/blob?base=). */
             newBaseSha?: components["schemas"]["Sha"];
             /** @description `reauth-required` - a path on this API, `/v1/auth/login?reauth=1&return_path=...`. POST it `{mode: "browser"}` with the pre-login binding cookie, the session cookie and an allowed Origin, as for a browser login; the issuer is asked for a fresh authentication and the same sign-in is refreshed. */
             reauthUrl?: string;
@@ -3424,7 +3424,7 @@ export interface components {
             retiredAt: string | null;
             /** @description The lane head; null until lane/materialize completes. A retired lane keeps its last head (the commit is gone). */
             laneHead: components["schemas"]["Sha"] | null;
-            /** @description The lane's newest recorded wrap-up and its candidate's current status, as GET /submissions/{id}/candidate projects it (an active candidate off the known head reads `stale`); null when none. */
+            /** @description The lane's newest recorded wrap-up and its candidate's current status, as GET /orgs/{orgId}/submissions/{id}/candidate projects it (an active candidate off the known head reads `stale`); null when none. */
             latestWrapUp: {
                 id: components["schemas"]["Id"];
                 submissionId: components["schemas"]["Id"];
@@ -3870,7 +3870,6 @@ export interface operations {
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             403: components["responses"]["ReauthRequiredProblem"];
-            404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
@@ -3912,6 +3911,7 @@ export interface operations {
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
@@ -4006,7 +4006,7 @@ export interface operations {
                 orgId: components["parameters"]["TenantSelector"];
                 /** @description The project id (`GET /me` memberships). */
                 project: components["parameters"]["ProjectPath"];
-                /** @description The repository id (`GET /projects/{project}/repositories` items). */
+                /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
                 repository: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -4046,7 +4046,7 @@ export interface operations {
                 orgId: components["parameters"]["TenantSelector"];
                 /** @description The project id (`GET /me` memberships). */
                 project: components["parameters"]["ProjectPath"];
-                /** @description The repository id (`GET /projects/{project}/repositories` items). */
+                /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
                 repository: components["schemas"]["Id"];
             };
             cookie?: never;

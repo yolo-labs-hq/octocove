@@ -355,6 +355,12 @@ any structure nested deeper than the structural depth bound is masked.
 
 ## Credentials
 
+The approval identity proof's `aud` must be exactly `<APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/approval-grants`, the
+URL it is POSTed to: `approvalGrantAudience(apiOrigin, orgId)` returns it (and `org(orgId).grants.audience()` for the
+client's own origin). `grants.exchangeApproval` refuses a JWT proof whose `aud` is anything else (another org, or the
+path without `/orgs/{orgId}`) with a `TypeError` before sending; pass `audience` when the deployment's configured
+approval origin is not the client's. `assertionAudience(jwt)` reads an unverified `aud` for that check.
+
 `HumanSession`, `ClaimBootstrap`, `AgentDelegation`, `ApprovalGrant`, `EventAssertion`. `approvalGrantFromExchange` turns an exchange response into
 `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken` (metadata only;
 recovery is a new exchange with a fresh assertion). `principalId` is required: a response without it

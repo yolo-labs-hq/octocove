@@ -5,7 +5,9 @@ export type { ApiErrorInit, PendingOrganization, ProblemDetailsView, ReauthRequi
 export { bearer, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
 export type { BearerKind, BearerTransport, BrowserCookieTransport, ForwardedSessionTransport, Transport, UnauthenticatedTransport } from './transports.js';
 export {
+  approvalGrantAudience,
   approvalGrantFromExchange,
+  assertionAudience,
   bearerFor,
   isApprovalGrantScope,
 } from './credentials.js';

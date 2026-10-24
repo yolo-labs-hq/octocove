@@ -5,7 +5,9 @@
  */
 import { newIdempotencyKey, tenantClient, type ApiResponse, type CallableOperationId, type CallInput, type OctocoveClient, type OpenEnums, type SuccessBody, type TenantClient } from './client.js';
 import {
+  approvalGrantAudience,
   approvalGrantFromExchange,
+  assertionAudience,
   bearerFor,
   type AgentDelegation,
   type ApprovalGrant,
@@ -375,12 +377,24 @@ export function tenantJourneys(client: TenantClient) {
      * still valid and unconsumed the server returns its metadata without the token
      * (`recovered-without-token`), which can never authorize a call — get a new grant with a fresh
      * assertion and a new key.
+     *
+     * The proof's `aud` must be exactly `audience()`, `<APPROVAL_API_ORIGIN>/v1/orgs/{tenantId}/auth/approval-grants`
+     * (pass `options.audience` when the deployment's configured origin is not this client's origin). A JWT proof whose
+     * `aud` differs (another tenant, or the path without the tenant selector) is refused locally with a TypeError
+     * before anything is sent: the server would refuse it as `machine-authority-denied`.
      */
-    async exchangeApproval(assertion: string, scope: ApprovalGrantScope, options: CommandOptions): Promise<ApprovalGrantExchangeResult> {
+    async exchangeApproval(assertion: string, scope: ApprovalGrantScope, options: CommandOptions & { readonly audience?: string }): Promise<ApprovalGrantExchangeResult> {
+      const expected = options.audience ?? grants.audience();
+      const aud = assertionAudience(assertion);
+      if (aud !== undefined && aud !== expected) {
+        throw new TypeError(`the identity proof's aud must be exactly ${expected} (a single string)`);
+      }
       const response = await command(options, 'approvalGrantExchange', { body: structuredClone(scope) as Schemas['ApprovalGrantRequest'] },
         { credential: bearer({ token: assertion, kind: 'identity-assertion' }) });
       return approvalGrantFromExchange(response.body, response);
     },
+    /** The `aud` an approval identity proof for this tenant must carry, from this client's API origin. */
+    audience: (apiOrigin: string = new URL(client.baseUrl).origin): string => approvalGrantAudience(apiOrigin, client.tenantId),
   };
 
   // ---- landings and receipts ----

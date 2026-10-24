@@ -32,7 +32,11 @@ the public API (all writes require an Idempotency-Key):
    job's assertion that checks passed.
 
 The proof audience is the exact singleton string
-<configured APPROVAL_API_ORIGIN>/auth/approval-grants.
+<configured APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/approval-grants: the
+URL the proof is POSTed to, for the project's org. A proof for another org, or
+for the path without /orgs/{orgId}, is refused. The client library's
+approvalGrantAudience(origin, orgId) computes it, and its exchange journey
+refuses a JWT proof with any other aud before sending it.
 iat, nbf and exp are required; lifetime must be at most five minutes.
 GitHub's configured workflow/environment subject must match literally.
 Cron scheduling itself confers no identity.

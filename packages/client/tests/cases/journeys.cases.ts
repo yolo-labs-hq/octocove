@@ -2,6 +2,8 @@ import {
   ApiError,
   bearer,
   createClient,
+  approvalGrantAudience,
+  assertionAudience,
   journeys,
   OrgCreationPendingError,
   RouteUnavailableError,
@@ -409,6 +411,37 @@ export const journeyCases: Case[] = [
     equal(j.forProject(item).tenantId, ORG);
     const error = await rejects(() => j.projects.list({ deadline: soon() }), ApiError);
     ok(error.incomplete, 'partial without the unreadable tenants is off-shape');
+  }),
+
+  // ---- approval identity proof audience ----
+  test('approvalGrantAudience is the tenant-scoped exchange URL on the API origin, and nothing else', async () => {
+    equal(approvalGrantAudience('https://api.octocove.test', ORG), `https://api.octocove.test/v1/orgs/${ORG}/auth/approval-grants`);
+    equal(approvalGrantAudience('https://api.octocove.test/', ORG), `https://api.octocove.test/v1/orgs/${ORG}/auth/approval-grants`);
+    equal(approvalGrantAudience('http://127.0.0.1:8787', ORG), `http://127.0.0.1:8787/v1/orgs/${ORG}/auth/approval-grants`);
+    for (const [origin, tenant] of [['https://api.octocove.test/v1', ORG], ['http://api.octocove.test', ORG], ['https://api.octocove.test?x=1', ORG], ['https://api.octocove.test', 'octocove'], ['https://api.octocove.test', 'org_1']]) {
+      await rejects(async () => approvalGrantAudience(origin!, tenant!), TypeError, `${origin} ${tenant}`);
+    }
+    equal(journeys(client(scriptedFetch().fetch)).org(ORG).grants.audience(), `${BASE}/v1/orgs/${ORG}/auth/approval-grants`);
+  }),
+  test('exchangeApproval sends a proof signed for the tenant-scoped audience and refuses the unscoped or another tenant\'s before sending', async () => {
+    const b64url = (v: unknown) => btoa(JSON.stringify(v)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const jwt = (aud: unknown) => `${b64url({ alg: 'ES256', typ: 'JWT' })}.${b64url({ iss: 'https://issuer.example.invalid', sub: 'bot', aud, exp: 1 })}.c2lnbmF0dXJl`;
+    const issued = { outcome: 'issued', id: 'grant-1', principalId: 'bot:1', token: 'approval-grant-fixture-0123', expiresAt: '2026-10-09T00:05:00Z', scope: approvalScope, policyVersion: 'v1' };
+    const { fetch, calls } = scriptedFetch(json(201, issued));
+    const tenant = journeys(client(fetch)).org(ORG);
+    const audience = `${BASE}/v1/orgs/${ORG}/auth/approval-grants`;
+    equal(assertionAudience(jwt(audience)), audience);
+    await tenant.grants.exchangeApproval(jwt(audience), approvalScope, { deadline: soon() });
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${audience}`], 'the proof is POSTed to the URL its aud names');
+    const other = 'org_00000000-0000-4000-8000-000000000002';
+    for (const aud of [`${BASE}/auth/approval-grants`, `${BASE}/v1/auth/approval-grants`, `${BASE}/v1/orgs/${other}/auth/approval-grants`, [audience]]) {
+      await rejects(() => tenant.grants.exchangeApproval(jwt(aud), approvalScope, { deadline: soon() }), TypeError, JSON.stringify(aud));
+    }
+    equal(calls.length, 1, 'a proof for the wrong audience is never sent');
+    const proxied = scriptedFetch(json(201, issued));
+    const configured = `https://approvals.octocove.test/v1/orgs/${ORG}/auth/approval-grants`;
+    await journeys(client(proxied.fetch)).org(ORG).grants.exchangeApproval(jwt(configured), approvalScope, { deadline: soon(), audience: configured });
+    equal(proxied.calls.length, 1);
   }),
 
   // ---- tenants ----
