@@ -2,8 +2,8 @@
 // run `pnpm --filter ./packages/client generate -- --spec PATH`. CI fails when this file is stale.
 export const BUILD_INFO = {
   "openapiVersion": "0.1.0",
-  "openapiSha256": "6874b4d870dd7873eed1a0935100c3fcd388bd90c1fd1635aa694e9a1569f74f",
+  "openapiSha256": "1614c11204596b58357fda990a045f064927bdbbc8c3eedfdf7d1986662d674d",
   "generator": "openapi-typescript@7.13.0",
   "routingGenerator": "octocove-client-routing@1",
-  "outputSha256": "18c137e089ea34a76a4c4b4cf086dec1a69311d7ece02b1884ff49e8654f297a"
+  "outputSha256": "f38b9a42d88abf94320e49d78e73bd495ea4f0c40f18d78e30d5685a7e38a73a"
 } as const;

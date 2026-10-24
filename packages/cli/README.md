@@ -97,7 +97,7 @@ CLI sends it to `/v1/orgs/{orgId}/...`. There is no default org and no fallback 
 - **An agent** never names one. `task authorize` and `lane reopen` write the org into the bootstrap file, `task claim`
   keeps it with the delegation, and every later command of the agent acts in it; a different `--org` is refused
   (exit 78).
-- **Global commands** need no org: `login`, `logout`, `whoami`, `project list`, and `project create` without `--org`
+- **Global commands** need no org: `login`, `logout`, `whoami`, `org list`, `org create`, `project list`, and `project create` without `--org`
   (which creates the project in your personal org). `repo clone` uses the org the project's membership names.
 
 An org that does not exist or that you cannot see answers `tenant-not-found` (exit 1); one still being created
@@ -110,7 +110,7 @@ Use `octocove <command> --help` for that command's usage. `--help` takes precede
 over other options, including `--json`, and missing required arguments. Help never
 reads credentials or starts network requests.
 
-Paths below other than `/auth/*`, `/me` and `/me/projects` are relative to `/orgs/{orgId}` (see [Orgs](#orgs)).
+Paths below other than `/auth/*`, `/me`, `/me/projects` and `POST /orgs` are relative to `/orgs/{orgId}` (see [Orgs](#orgs)).
 
 | Command | API |
 | --- | --- |
@@ -118,6 +118,8 @@ Paths below other than `/auth/*`, `/me` and `/me/projects` are relative to `/org
 | `login [--wait SECONDS]` | `POST /auth/login {mode:"cli",cliChallenge}`; browser visits the returned `GET /auth/cli/start` URL and explicitly consents; CLI polls `POST /auth/cli/exchange` |
 | `logout` | `POST /auth/logout`; clear active credential after success |
 | `whoami [--json]` | `GET /me` (library `auth.me()`): the authenticated principal, credential kind and project memberships, each with its org |
+| `org list [--json]` | `GET /me` `organizations` (library `orgs.list()`): the organizations you belong to, with their org IDs, your role and their provisioning state |
+| `org create NAME [--wait SECONDS] [--json]` | `POST /orgs` (library `orgs.create()`; human, recent sign-in): create an organization and become its admin; a `202` pending organization is waited for through `GET /me` (exit 75 if still provisioning; never created twice); 403 `org-create-disabled`, 429 `org-creation-rate-limited` |
 | `project list [--json]` | `GET /me/projects` (library `projects.list()`): your projects in every org, each with its org; an org that could not be read is named on stderr (`partial`) |
 | `project create SLUG --name TEXT [--org ORG_ID] [--json]` | `POST /orgs/{orgId}/projects`, or without an org `POST /me/projects` (your personal org, provisioned on first use; `org-creation-pending` is waited out under the same key) (library `projects.create()`): allow-listed humans create a project and become its first member; 403 `project-create-disabled` otherwise |
 | `repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF] [--json]` | `POST /projects/{project}/repositories` with `mode` `create` or `import` (library `repositories.create()`): a `project:admin` human has Octocove create an empty repository (or a README root commit with `--seed` in native mode), or import a public HTTPS remote, in the project's own Artifacts namespace; born verified; an import prints `importing` and claims answer 409 `repository-importing` until `repo list` shows `(import ready)`; 400 `repository-import-url-invalid` / `repository-import-refused`, 409 `canonical-exists` / `repository-taken` / `repository-creation-pending`, 503 `broker-unavailable` / `broker-provider-unavailable` (Octocove deletes nothing; the cron records the repository if it was created, so retry with the same key, or hands it to the operator) |
@@ -148,26 +150,26 @@ Paths below other than `/auth/*`, `/me` and `/me/projects` are relative to `/org
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:962](src/cli.ts#L962 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:963](src/cli.ts#L963 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:964](src/cli.ts#L964 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:965](src/cli.ts#L965 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:966](src/cli.ts#L966 "\"task supersede\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:967](src/cli.ts#L967 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:968](src/cli.ts#L968 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:969](src/cli.ts#L969 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:964](src/cli.ts#L964 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:965](src/cli.ts#L965 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:966](src/cli.ts#L966 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:967](src/cli.ts#L967 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:968](src/cli.ts#L968 "\"task supersede\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:969](src/cli.ts#L969 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:970](src/cli.ts#L970 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:971](src/cli.ts#L971 "\"candidate reject\": governance")) |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]` | `POST /candidates/{id}/approve` |
 | `land ID --approval ID [--wait]` | `POST /candidates/{id}/land`, then `GET /receipts/{id}` |
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1280](src/cli.ts#L1280 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1292](src/cli.ts#L1292 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1308](src/cli.ts#L1308 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1320](src/cli.ts#L1320 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1332](src/cli.ts#L1332 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1360](src/cli.ts#L1360 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:544](src/cli.ts#L544 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:546](src/cli.ts#L546 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 

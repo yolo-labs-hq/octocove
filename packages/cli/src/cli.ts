@@ -69,6 +69,8 @@ Commands:
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
   whoami                                      (authenticated principal and project memberships, each with its org)
+  org list                                    (the organizations you belong to, with their org IDs and state)
+  org create NAME [--wait SECONDS]            (create an organization; you become its admin; waits while it is provisioned)
   project list                                (your projects in every org, each with the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
@@ -132,7 +134,7 @@ Orgs:
     a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
     an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
     write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
-  login, logout, whoami, project list and project create (without --org) need no org; repo clone uses the org
+  login, logout, whoami, org list, org create, project list and project create (without --org) need no org; repo clone uses the org
   the project's membership names.
 
 Global options:
@@ -329,7 +331,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
   return EXIT.failure;
 }
 
-const GROUPS = new Set(["project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane"]);
+const GROUPS = new Set(["org", "project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane"]);
 
 async function dispatch(d: Deps) {
   const globals = globalOptions(d.argv);
@@ -1018,6 +1020,32 @@ const COMMANDS: Record<string, Handler> = {
     const r = await api.root.projects.create({ slug: pos[0]!, name: need(v, "name") }, { ...api.write(COMMAND_SECONDS, v["idempotency-key"]), ...(api.orgId ? { orgId: api.orgId } : {}) });
     out(d, v.json, r, () => kv([["Project", r.id], ["Slug", r.slug], ["Name", r.name], ["Org", r.tenantId], ["Created", r.createdAt],
       ["Next", `pass --org ${r.tenantId} (or set OCTOCOVE_ORG) to work in this project`]]));
+  },
+
+  // The organizations the caller belongs to (GET /me organizations), pending ones included.
+  "org list": async (d, args) => {
+    const { v } = opts(args, {}, 0);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("org list requires a human credential");
+    const items = await api.root.orgs.list(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("invalid organization list from the control plane"));
+    out(d, v.json, { items }, () => items.map((m) => `${m.organization.name}  org ${m.organization.id}  (${m.role}${m.organization.provisioningState === "ready" ? "" : `, ${m.organization.provisioningState}`})`).join("\n")
+      || "(no organizations; projects you create without --org go to your personal org)");
+  },
+
+  // POST /v1/orgs (human, recent sign-in): the organization is ready at once, or accepted and provisioned; the command
+  // waits for it (GET /me) up to --wait seconds and never creates a second one. A retry with the same
+  // --idempotency-key answers the same organization.
+  "org create": async (d, args) => {
+    const { v, pos } = opts(args, { wait: { type: "string" } }, 1);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("org create requires a human credential with a recent sign-in");
+    const deadline = Date.now() + (intFlag(v, "wait") ?? COMMAND_SECONDS) * 1000;
+    const r = await api.root.orgs.create({ name: pos[0]! }, { ...api.until(deadline), ...(v["idempotency-key"] ? { idempotencyKey: v["idempotency-key"] } : {}) })
+      .catch(offShapeAs("org create did not return an organization"));
+    const o = r.organization;
+    out(d, v.json, { ...o, state: r.state }, () => kv([["Org", o.id], ["Name", o.name], ["State", o.provisioningState],
+      ["Next", r.state === "ready" ? `pass --org ${o.id} (or export OCTOCOVE_ORG=${o.id}) to create projects in it` : "it is still being provisioned: run `octocove org list` later; do not create it again"]]));
+    if (r.state !== "ready") throw new Emitted(new PendingError(`organization ${o.id} is still being provisioned`));
   },
 
   // The caller's projects in every org they belong to, each with the org its commands take (--org).

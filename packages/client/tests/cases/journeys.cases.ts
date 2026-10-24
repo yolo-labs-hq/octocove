@@ -450,6 +450,49 @@ export const journeyCases: Case[] = [
     equal(proxied.calls.length, 1);
   }),
 
+  // ---- organizations ----
+  test('orgs.create posts {name} to /v1/orgs under one key; 201 is ready', async () => {
+    const organization = { id: ORG, name: 'Acme', provisioningState: 'ready' };
+    const { fetch, calls } = scriptedFetch(lost(201), json(201, organization));
+    equal(await journeys(client(fetch)).orgs.create({ name: 'Acme' }, { deadline: soon() }), { state: 'ready', organization });
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/orgs`, `POST ${BASE}/v1/orgs`]);
+    equal(JSON.parse(calls[0]!.body!), { name: 'Acme' });
+    equal(keys(calls)[0], keys(calls)[1]);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).orgs.create({ name: 'Acme' }, { deadline: soon() }), TypeError);
+  }),
+  test('orgs.create waits out a 202 by reading GET /me organizations after Retry-After, never creating again', async () => {
+    const pending = { id: ORG, name: 'Acme', provisioningState: 'pending' };
+    const me = (state: string) => json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {},
+      organizations: [{ organization: { ...pending, provisioningState: state }, role: 'admin' }] });
+    const delays: number[] = [];
+    const { fetch, calls } = scriptedFetch(withRetryAfter(json(202, pending), '3'), me('pending'), me('ready'));
+    const result = await journeys(client(fetch)).orgs.create({ name: 'Acme' }, { deadline: soon(), sleep: async (ms) => { delays.push(ms); } });
+    equal(result, { state: 'ready', organization: { ...pending, provisioningState: 'ready' } });
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/orgs`, `GET ${BASE}/v1/me`, `GET ${BASE}/v1/me`]);
+    equal(delays[0], 3000);
+    const stuck = scriptedFetch(withRetryAfter(json(202, pending), '600'));
+    const timedOut = await journeys(client(stuck.fetch)).orgs.create({ name: 'Acme' }, { deadline: Date.now() + 200 });
+    equal([timedOut.state, timedOut.organization.id, stuck.calls.length], ['pending-timeout', ORG, 1]);
+  }),
+  test('orgs.create treats a replay\'s 409 org-creation-pending as the accepted organization; other refusals are thrown', async () => {
+    const pendingProblem = problem(409, 'org-creation-pending', { details: { organization: { id: ORG, name: 'Acme', provisioningState: 'pending' } } });
+    const ready = json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {},
+      organizations: [{ organization: { id: ORG, name: 'Acme', provisioningState: 'ready' }, role: 'admin' }] });
+    const { fetch } = scriptedFetch(pendingProblem, ready);
+    equal((await journeys(client(fetch)).orgs.create({ name: 'Acme' }, { deadline: soon(), pollMs: 1 })).state, 'ready');
+    for (const [status, code] of [[403, 'org-create-disabled'], [400, 'invalid-request']] as const) {
+      const refused = scriptedFetch(problem(status, code));
+      equal((await rejects(() => journeys(client(refused.fetch)).orgs.create({ name: 'Acme' }, { deadline: soon() }), ApiError)).code, code);
+    }
+  }),
+  test('orgs.list reads GET /me organizations', async () => {
+    const memberships = [{ organization: { id: ORG, name: 'Acme', provisioningState: 'ready' }, role: 'admin' }];
+    const { fetch, calls } = scriptedFetch(json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {}, organizations: memberships }));
+    equal(await journeys(client(fetch)).orgs.list({ deadline: soon() }), memberships);
+    equal(calls.map((c) => c.url), [`${BASE}/v1/me`]);
+  }),
+
   // ---- tenants ----
   test('a tenant client fills orgId on tenant routes only, and refuses a malformed tenant or a conflicting orgId', async () => {
     const { fetch, calls } = scriptedFetch(json(200, { id: 't' }), json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {} }));

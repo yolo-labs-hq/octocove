@@ -245,6 +245,8 @@ Commands:
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
   whoami                                      (authenticated principal and project memberships, each with its org)
+  org list                                    (the organizations you belong to, with their org IDs and state)
+  org create NAME [--wait SECONDS]            (create an organization; you become its admin; waits while it is provisioned)
   project list                                (your projects in every org, each with the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
@@ -308,7 +310,7 @@ Orgs:
     a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
     an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
     write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
-  login, logout, whoami, project list and project create (without --org) need no org; repo clone uses the org
+  login, logout, whoami, org list, org create, project list and project create (without --org) need no org; repo clone uses the org
   the project's membership names.
 
 Global options:

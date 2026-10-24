@@ -266,6 +266,11 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
+  "organizationCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
   "projectRepositoryGitRefsGet": {
     "callable": false,
     "reason": "excluded"

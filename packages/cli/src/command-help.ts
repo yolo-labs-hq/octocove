@@ -48,6 +48,7 @@ const FLAGS: Record<string,string> = {
 const POSITIONALS: Record<string,string> = {
   PROJECT:'Project slug or ID.', REPOSITORY:'Repository ID (clone also accepts a name; optional only when exactly one canonical exists).',
   DIR:'Destination directory; defaults to repository name. Must be absent or empty.', SLUG:'URL-safe project slug.',
+  NAME:'Organization display name (1-120 characters; not unique, never an org ID).',
   CANDIDATE_ID:'Candidate ID to land (not a task ID).',
   TASK:'Task ID (lane materialize: of an active claim; lane reopen: a landed task; lane retire: a landed, rejected or superseded task).', PATH:'Repository-relative path of an unresolved conflict.',
   FILE:'With --resolve PATH=FILE: a local file whose content resolves the conflict at PATH.', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
@@ -80,6 +81,7 @@ export function commandHelp(command: string, originalUsage: string, description 
     let detail = FLAGS[flag];
     if (flag === 'wait' && ['land','receipt show'].includes(command)) detail = 'Wait for the final receipt (boolean flag, no value).';
     if (flag === 'wait' && command === 'login') detail = 'Browser-consent wait in seconds (default 600).';
+    if (flag === 'wait' && command === 'org create') detail = 'How long to wait for a new organization to be provisioned, in seconds (default 120).';
     if (flag === 'wait' && ['lane refresh','lane wrap-up'].includes(command)) detail = 'Bounded wait in seconds (default 150), including any wait for another save, refresh or wrap-up settling on the lane.';
     if (!detail) throw new Error(`missing option help: ${command} --${flag}`);
     return `  ${label.padEnd(28)} ${detail}`;

@@ -188,6 +188,39 @@ describe("project create", () => {
   });
 });
 
+describe("org create / org list", () => {
+  const me = (state: string) => json(200, { principal: { id: "u", kind: "human" }, credential: { kind: "session" }, memberships: [], capabilities: {},
+    organizations: [{ organization: { id: ORG, name: "Acme", provisioningState: state }, role: "admin" }] });
+
+  it("creates an organization with POST /v1/orgs and prints its org id", async () => {
+    routes["POST /orgs"] = () => json(201, { id: ORG, name: "Acme", provisioningState: "ready" });
+    expect(await cli(["org", "create", "Acme"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["POST /v1/orgs"]);
+    expect(calls[0]!.body).toEqual({ name: "Acme" });
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(outText).toContain(`--org ${ORG}`);
+    expect(await cli(["org", "create", "Acme"], { kind: "agent" })).toBe(EXIT.humanRequired);
+  });
+
+  it("waits for a pending organization through GET /me, and exits pending when it is still provisioning", async () => {
+    let reads = 0;
+    routes["POST /orgs"] = () => json(202, { id: ORG, name: "Acme", provisioningState: "pending" }, { "retry-after": "1" });
+    routes["GET /me"] = () => me(++reads < 2 ? "pending" : "ready");
+    expect(await cli(["--json", "org", "create", "Acme"], { kind: "human" })).toBe(0);
+    expect(JSON.parse(outText)).toMatchObject({ id: ORG, state: "ready", provisioningState: "ready" });
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    routes["GET /me"] = () => me("pending");
+    expect(await cli(["org", "create", "Acme", "--wait", "1"], { kind: "human" })).toBe(EXIT.pending);
+    expect(outText).toContain("do not create it again");
+  });
+
+  it("lists the organizations from GET /me", async () => {
+    routes["GET /me"] = () => me("ready");
+    expect(await cli(["org", "list"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(outText).toContain(`Acme  org ${ORG}  (admin)`);
+  });
+});
+
 describe("project list and orgs", () => {
   const OTHER = "org_00000000-0000-4000-8000-000000000002";
   const item = { projectId: "P1", slug: "tools", name: "Tools", artifactsNamespace: "ns", taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: "organization" };

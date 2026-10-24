@@ -27,7 +27,7 @@ export type {
   HumanSession,
 } from './credentials.js';
 export { redact, redactText, SECRET_KEY } from './redact.js';
-export { journeys, tenantJourneys, staleBaseRefusal, CANDIDATE_POLL_MS, ORG_PENDING_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS } from './journeys.js';
+export { journeys, tenantJourneys, staleBaseRefusal, CANDIDATE_POLL_MS, ORG_PENDING_POLL_MS, ORG_READY_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS } from './journeys.js';
 export type {
   Approval,
   BoundTo,
@@ -40,6 +40,9 @@ export type {
   LandResult,
   MeProject,
   MeProjectList,
+  Organization,
+  OrganizationCreateResult,
+  OrganizationMembership,
   RepositoryLanePolicy,
   RepositoryLanePolicyDeclaration,
   TenantJourneys,

@@ -109,6 +109,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an organization; the caller becomes its admin
+         * @description Human session only (agent delegations get 403 `human-required`; a cookie session needs the allowed `Origin` and `X-CSRF-Token`). A global creation operation, never under a tenant selector. Takes `{name}` (1-120 characters, no control or format characters, no leading or trailing whitespace) and an `Idempotency-Key`. Acceptance reserves one stable `org_<UUIDv4>` id and the caller's admin membership. A retry with the same key and body answers the same organization before every gate below, never a second one, with its current state; the same key with another body is 409 `idempotency-conflict`. Admission, in order - self-serve creation must be open on the deployment and the caller must be on the creator allow-list while it is enforced (403 `org-create-disabled` otherwise); the caller's accepted organizations, pending ones included, must be under the per-user limit (default three; 429 `org-creation-rate-limited` with `details.limit` and `Retry-After`); a UTC day admits at most 20 organizations into provisioning, and a request past that is still accepted and stays `pending` until a later day. The request then provisions the organization's record; the answer is 201 with `provisioningState` `ready`, or 202 `pending` with `Retry-After` while it is not ready yet. `pending` becomes `ready` under the same id; refresh `GET /me` `organizations` for readiness rather than retrying creation. Resource routes of a pending organization answer 409 `org-creation-pending`. A revoked session or family admits nothing (401 `credential-revoked`); an off-shape body is 400 `invalid-request`.
+         */
+        post: operations["organizationCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs/{orgId}/projects": {
         parameters: {
             query?: never;
@@ -1864,7 +1884,7 @@ export interface components {
     schemas: {
         /** @description And the hard cut. Opaque immutable tenant id, org_<lowercase UUIDv4>, for an organization or a user's hidden personal tenant alike. There is no legacy tenant: octocove is not a tenant id. Clients compare the whole string; it encodes no name, kind, location or authority. */
         TenantId: string;
-        /** @description Planned; runtime not yet shipped. Ownership, record and recovery boundary; each project belongs permanently to exactly one organization. Project slugs, repository namespaces, canonical targets and machine-assertion replay ownership stay globally unique across organizations. Planned POST /v1/orgs returns this object with 201 when ready or 202 when pending. A pending result reserves this id and the creator's admin membership; it requires Retry-After in positive integer seconds. Refresh planned GET /me discovery for readiness. Creation requires a signed-in human, who becomes admin, and an Idempotency-Key. Until per-user creation limits, a global provisioning rate limit and pending/queued provisioning are all in place, the existing creator allow-list still applies. Same-key, same-body recovery returns the accepted result before creation limits. */
+        /** @description Ownership, record and recovery boundary; each project belongs permanently to exactly one organization. Project slugs, repository namespaces, canonical targets and machine-assertion replay ownership stay globally unique across organizations. POST /v1/orgs returns this object with 201 when ready or 202 (with Retry-After in positive integer seconds) when pending; a pending result has reserved this id and the creator's admin membership. GET /v1/me organizations reports readiness. */
         Organization: {
             id: components["schemas"]["TenantId"];
             /** @description Mutable display name; never a tenant selector. */
@@ -1875,7 +1895,11 @@ export interface components {
              */
             provisioningState: "pending" | "ready";
         };
-        /** @description Planned human organization membership, distinct from project membership. Ordinary membership grants no project verbs. Org admin authority covers org metadata and creating/administering projects, without implicit task, approval, landing or machine verbs; those require explicit per-project permissions or grants. */
+        OrganizationCreate: {
+            /** @description Display name; not unique and never a tenant selector. */
+            name: string;
+        };
+        /** @description A human's organization membership (GET /v1/me organizations), distinct from project membership. Ordinary membership grants no project verbs. Org admin authority covers org metadata and creating/administering projects, without implicit task, approval, landing or machine verbs; those require explicit per-project permissions or grants. */
         OrganizationMembership: {
             organization: components["schemas"]["Organization"];
             /** @enum {string} */
@@ -1922,7 +1946,7 @@ export interface components {
                 };
             };
         };
-        /** @description Planned application/problem+json when a per-user org creation limit or the global provisioning rate limit refuses admission. No organization was created by this attempt. Requires Retry-After as positive integer seconds; wait, then retry with the same idempotency key. Recovery of an already accepted creation precedes these limits; a rate-limit response never replaces an accepted result. */
+        /** @description application/problem+json from POST /v1/orgs when the per-user org creation limit refuses admission (details.limit; the global daily limit queues instead). No organization was created by this attempt. Requires Retry-After as positive integer seconds; wait, then retry with the same idempotency key. Recovery of an already accepted creation precedes these limits; a rate-limit response never replaces an accepted result. */
         OrganizationCreationRateLimitedProblem: components["schemas"]["Problem"] & {
             /** @constant */
             type?: "urn:octocove:problem:org-creation-rate-limited";
@@ -3872,6 +3896,55 @@ export interface operations {
             403: components["responses"]["ReauthRequiredProblem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    organizationCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationCreate"];
+            };
+        };
+        responses: {
+            /** @description The organization, ready (or the same answer to a replay of the same key and body once ready). */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            /** @description The organization, accepted and still provisioning (`provisioningState` `pending`). */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            409: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };

@@ -65,6 +65,21 @@ export interface MeProjectList {
   readonly partial: boolean;
   readonly unavailableTenants: readonly UnavailableTenant[];
 }
+/** An organization (`organizationCreate`'s answer): its tenant id, name and `provisioningState`. */
+export type Organization = OpenEnums<Schemas['Organization']>;
+/** A `GET /me` `organizations` entry: an organization the human caller belongs to, with their role. */
+export type OrganizationMembership = OpenEnums<Schemas['OrganizationMembership']>;
+export type OrganizationCreateResult =
+  /** The organization is provisioned: its id is a tenant its resource routes take. */
+  | { readonly state: 'ready'; readonly organization: Organization }
+  /**
+   * Accepted, still provisioning when the wait ended: the id is reserved. Read `orgs.list()` later (never create
+   * again); its resource routes answer `409 org-creation-pending` until it is ready.
+   */
+  | { readonly state: 'pending-timeout'; readonly organization: Organization; readonly retryAfter: number | undefined; readonly reason: WaitStop };
+/** Polls `GET /me` for a pending organization when no Retry-After is sent. */
+export const ORG_READY_POLL_MS = 2000;
+
 /** A repository's lane policy, and `repositoryLanePolicyDeclare`'s answer. */
 export type RepositoryLanePolicy = Schemas['RepositoryLanePolicy'];
 export type RepositoryLanePolicyDeclaration = OpenEnums<Schemas['RepositoryLanePolicyDeclaration']>;
@@ -574,6 +589,59 @@ export function journeys(client: OctocoveClient) {
     },
   };
 
+  const isOrganization = (o: unknown): o is Organization => isObject(o) && isString(o.id) && isString(o.name) && isString(o.provisioningState);
+  const orgs = {
+    /** Human only: `GET /me` `organizations`, the organizations the caller belongs to (pending ones included). */
+    async list(options: JourneyOptions): Promise<readonly OrganizationMembership[]> {
+      requireHuman(client, 'orgs.list');
+      const me = await authJourneys(client).me(options);
+      const list: unknown = me.organizations ?? [];
+      if (!Array.isArray(list) || !list.every((m) => isObject(m) && isOrganization(m.organization) && isString(m.role))) {
+        throw new ApiError({ status: 200, code: 'http-200', detail: 'GET /me organizations is off-shape', incomplete: true, operationId: 'meGet' });
+      }
+      return list as OrganizationMembership[];
+    },
+    /**
+     * Human only, recent sign-in: `organizationCreate` (`POST /v1/orgs`, a global route) creates an organization and
+     * makes the caller its admin. `201` is ready. `202` (and `409 org-creation-pending` on a replay) is accepted and
+     * provisioning: its id is reserved, and the journey then reads `GET /me` `organizations` after each Retry-After
+     * until it is ready or the deadline ends (`pending-timeout`); it never creates again. A replay under the same
+     * `idempotencyKey` and name answers the same organization. `403 org-create-disabled`, `429
+     * org-creation-rate-limited` (`details.limit`, Retry-After; waited out under the same key while the deadline allows)
+     * and `403 reauth-required` are thrown as ApiErrors.
+     */
+    async create(input: Body<'organizationCreate'>, options: WaitOptions & CommandOptions): Promise<OrganizationCreateResult> {
+      requireHuman(client, 'orgs.create');
+      const scope = journeyScope(options);
+      try {
+        let organization: Organization, retryAfter: number | undefined;
+        try {
+          const response = await send(client, scope, options, 'organizationCreate', { body: { name: input.name } }, { idempotencyKey: options.idempotencyKey });
+          if (!isOrganization(response.body)) throw offShape(response, 'the response is not an organization');
+          organization = response.body;
+          retryAfter = response.retryAfter;
+        } catch (error) {
+          const pending = error instanceof OrgCreationPendingError ? error.organization : undefined;
+          if (!pending || !isOrganization(pending)) throw error;
+          organization = pending as Organization;
+          retryAfter = (error as OrgCreationPendingError).retryAfter;
+        }
+        if (organization.provisioningState === 'ready') return { state: 'ready', organization };
+        const id = organization.id;
+        const result = await pollUntil<Organization>(scope, (after) => pollDelay(after, options.pollMs, ORG_READY_POLL_MS), async () => {
+          const r = await send(client, scope, options, 'meGet', {});
+          const list: unknown = (r.body as { organizations?: unknown }).organizations;
+          const found = Array.isArray(list) ? list.find((m) => isObject(m) && isOrganization(m.organization) && m.organization.id === id) : undefined;
+          if (found && (found.organization as Organization).provisioningState === 'ready') return done(found.organization as Organization);
+          if (found) organization = found.organization as Organization;
+          return again(r.retryAfter);
+        }, { firstDelayMs: pollDelay(retryAfter, options.pollMs, ORG_READY_POLL_MS) });
+        if (result.kind === 'done') return { state: 'ready', organization: result.value };
+        return { state: 'pending-timeout', organization, retryAfter, reason: result.reason };
+      } finally { scope.dispose(); }
+    },
+  };
+
   /** One keyed command on a global route, under the same replay rule (tenant routes: `org(tenantId).command`). */
   const command = async <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) => {
@@ -587,6 +655,7 @@ export function journeys(client: OctocoveClient) {
     client,
     auth: authJourneys(client),
     projects,
+    orgs,
     org,
     /** The journeys of a discovered project's tenant (`projects.list()` items, `GET /me` memberships). */
     forProject: (project: { readonly tenantId: string }) => org(project.tenantId),
