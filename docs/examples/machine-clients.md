@@ -9,7 +9,7 @@ Before running, a current human project administrator must provision through
 the public API (all writes require an Idempotency-Key):
 
 1. Register immutable principals with
-   POST /v1/projects/{project}/approval-principals. Use separate canonical
+   POST /v1/orgs/{orgId}/projects/{project}/approval-principals. Use separate canonical
    submitter and approver identities. Multiple subjects or rotated keys for one
    identity are aliases, not separation of duties.
 2. Pin trust bindings: exact issuer, subject, algorithm, key ID and public JWK;
@@ -17,7 +17,11 @@ the public API (all writes require an Idempotency-Key):
    register variant github_actions and exact repository_id, repository,
    workflow_ref, ref and environment claims. For Cron register workers_cron,
    worker_id and literal schedule claims with a pinned ES256 public key.
-   Only the administrator can rotate trust.
+   Only the administrator can rotate trust. A registered-key binding is
+   activated with the challenge its activation-challenge route returns: sign
+   exactly the returned challenge audience
+   (APPROVAL_API_ORIGIN/v1/orgs/{orgId}/auth/trust-activation) and nonce;
+   never build the audience yourself.
 3. Append approval-policies for each principal and a null-principal project
    target policy. Bind exact canonical/source repository IDs and target ref,
    checkIdentity and acceptableEvidence. Opt in with allowMachine:true and

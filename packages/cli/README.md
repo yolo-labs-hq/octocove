@@ -286,7 +286,9 @@ follower per checkpoint file. Empty pages are polled every second; permission an
 cursor errors require operator correction, never an automatic reset to zero.
 
 CI can store a machine signed assertion as a protected CLI credential with
-`kind: "machine"`. Use audience `<API origin>/auth/event-authority`, project-scoped
+`kind: "machine"`. Its audience is exactly `<APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/event-authority` for the
+org the command acts in (`eventAuthorityAudience` in the client library; the tenant-less `/auth/event-authority`
+and another org's audience are refused), project-scoped
 `events:read`, and refresh the assertion before its five-minute expiry. The stored
 cursor survives assertion rotation for the same principal. Machine subscription
 management is authorized separately.

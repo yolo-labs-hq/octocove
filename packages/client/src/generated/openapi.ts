@@ -370,7 +370,7 @@ export interface paths {
         };
         /**
          * List the project's landings, newest first
-         * @description Whoever may read `GET /orgs/{orgId}/receipts/{id}` - a member holding `receipts:read`, or an agent delegation with `receipts:read` (its own task's landings only). 404 `not-found` for an unknown project, 403 `forbidden` for a non-member. One item per `landed` receipt, newest first (`landedAt`, then `receiptId`, descending). Each item is the same record `GET /orgs/{orgId}/receipts/{receiptId}` reports (`landedAt` is its `reconciledAt`); `approvedBy`, `approvedAt` and `actor` (who requested the landing) are derived from the fence's audit evidence exactly as the signed receipt export derives them. A page is read in two set-based statements, never one per task. Keyset pagination with an opaque cursor bound to the caller and project (400 `invalid-cursor` otherwise). Not audited.
+         * @description Whoever may read `GET /orgs/{orgId}/receipts/{id}` - a member holding `receipts:read`, or an agent delegation with `receipts:read` (its own task's landings only). 404 `not-found` for an unknown project, 403 `forbidden` for a non-member. One item per `landed` receipt, newest first (`landedAt`, then `receiptId`, descending). Each item is the same record `GET /orgs/{orgId}/receipts/{receiptId}` reports (`landedAt` is its `reconciledAt`); `approvedBy`, `approvedAt` and `actor` (who requested the landing) are derived from the fence's audit evidence exactly as the signed receipt export derives them. A page is read in two set-based statements, never one per task. Keyset pagination with an opaque cursor bound to the tenant, the caller and project (400 `invalid-cursor` otherwise). Not audited.
          */
         get: operations["landingsList"];
         put?: never;
@@ -1480,7 +1480,7 @@ export interface paths {
         };
         /**
          * List the caller's in-app notifications
-         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`), authenticated with the grant routes' own lookup first (an unknown one is 401). One page of the caller's own notifications, newest first, and `unreadCount`, read in one batch under the same filter: only rows for projects the caller is still a member of (re-checked on every request), and none of a kind or project the caller has muted (`GET /orgs/{orgId}/me/notification-preferences`). Display fields are joined when read, never copied into the row: `projectSlug` and `projectName`, and `taskTitle` (the task's current intent title) only when the membership holds `tasks:read`. `unread=true` lists unread rows only; `unreadCount` is the same either way. `limit=0` reads only the count (`items` empty, `nextCursor` null), for the badge poll. Keyset pagination with the `GET /orgs/{orgId}/tasks` cursor convention, the cursor bound to the caller and `unread`. Read-only and not audited.
+         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`), authenticated with the grant routes' own lookup first (an unknown one is 401). One page of the caller's own notifications, newest first, and `unreadCount`, read in one batch under the same filter: only rows for projects the caller is still a member of (re-checked on every request), and none of a kind or project the caller has muted (`GET /orgs/{orgId}/me/notification-preferences`). Display fields are joined when read, never copied into the row: `projectSlug` and `projectName`, and `taskTitle` (the task's current intent title) only when the membership holds `tasks:read`. `unread=true` lists unread rows only; `unreadCount` is the same either way. `limit=0` reads only the count (`items` empty, `nextCursor` null), for the badge poll. Keyset pagination with the `GET /orgs/{orgId}/tasks` cursor convention, the cursor bound to the tenant, the caller and `unread`. Read-only and not audited.
          */
         get: operations["meNotificationsList"];
         put?: never;
@@ -1751,7 +1751,7 @@ export interface paths {
         put?: never;
         /**
          * Activate a proposed human signing key with proof of possession
-         * @description The bound human, from their own session, submits a JWT signed by the proposed key (header alg/kid of the binding) with iss and sub of the binding, aud equal to the challenge audience, nonce equal to the challenge, trust_binding_id, iat and exp at most 300 seconds apart. Activation is write-once; until it succeeds the binding authorizes nothing. Retrying after success returns the same result.
+         * @description The bound human, from their own session, submits a JWT signed by the proposed key (header alg/kid of the binding) with iss and sub of the binding, aud equal to the challenge audience (`APPROVAL_API_ORIGIN/v1/orgs/{orgId}/auth/trust-activation`, this tenant's; a proof for another tenant's audience is refused 403 trust-activation-denied), nonce equal to the challenge, trust_binding_id, iat and exp at most 300 seconds apart. Activation is write-once; until it succeeds the binding authorizes nothing. Retrying after success returns the same result.
          */
         post: operations["approvalTrustActivate"];
         delete?: never;
@@ -3598,7 +3598,7 @@ export interface components {
         CsrfToken: string;
         /** @description Page size. */
         Limit: number;
-        /** @description Opaque keyset cursor scoped to principal and filters. */
+        /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
         Cursor: string;
         /** @description Opaque exclusive event/audit cursor; omit to start from oldest visible row. */
         After: string;
@@ -3637,7 +3637,7 @@ export interface operations {
                 projectId: components["parameters"]["ProjectId"];
                 /** @description Page size. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque keyset cursor scoped to principal and filters. */
+                /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
                 cursor?: components["parameters"]["Cursor"];
                 status?: components["schemas"]["TaskStatus"];
             };
@@ -4431,7 +4431,7 @@ export interface operations {
             query?: {
                 /** @description Page size. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque keyset cursor scoped to principal and filters. */
+                /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -5956,7 +5956,7 @@ export interface operations {
         parameters: {
             query?: {
                 since?: string;
-                /** @description Opaque keyset cursor scoped to principal and filters. */
+                /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Page size. */
                 limit?: components["parameters"]["Limit"];
@@ -5994,7 +5994,7 @@ export interface operations {
                 projectId: components["parameters"]["ProjectId"];
                 /** @description Signed domain cursor, delivered evt_<rowId>, or decimal audit position (0 starts oldest). A nonzero raw position must belong to the authorized project/task and since filter. Exclusive; no access granted. */
                 after?: string;
-                /** @description Opaque keyset cursor scoped to principal and filters. */
+                /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Exclusive timestamp filter, bound into the cursor. Cannot change between pages. */
                 since?: string;
@@ -6836,7 +6836,7 @@ export interface operations {
             query?: {
                 /** @description Page size. */
                 limit?: components["parameters"]["Limit"];
-                /** @description Opaque keyset cursor scoped to principal and filters. */
+                /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -6869,7 +6869,7 @@ export interface operations {
                 unread?: "true" | "false";
                 /** @description Page size; 0 answers only `unreadCount`. */
                 limit?: number;
-                /** @description Opaque keyset cursor scoped to principal and filters. */
+                /** @description Opaque keyset cursor scoped to principal and filters and, on a tenant route, to that tenant; a cursor issued in another tenant is 400 invalid-cursor. */
                 cursor?: components["parameters"]["Cursor"];
             };
             header?: never;
@@ -7435,7 +7435,10 @@ export interface operations {
                     "application/json": {
                         trustBindingId: components["schemas"]["Id"];
                         challenge: string;
-                        /** Format: uri */
+                        /**
+                         * Format: uri
+                         * @description The audience the activation proof must carry: `APPROVAL_API_ORIGIN/v1/orgs/{orgId}/auth/trust-activation`, naming this tenant. It identifies the authority and is not a route. Sign it exactly as returned.
+                         */
                         audience: string;
                         /** Format: date-time */
                         expiresAt: string;

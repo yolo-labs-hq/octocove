@@ -8,6 +8,7 @@ import {
   approvalGrantAudience,
   approvalGrantFromExchange,
   assertionAudience,
+  eventAuthorityAudience,
   bearerFor,
   type AgentDelegation,
   type ApprovalGrant,
@@ -483,6 +484,8 @@ export function tenantJourneys(client: TenantClient) {
 
   const events = {
     follow: (options: FollowOptions) => follow(client, options),
+    /** The `aud` an event-authority assertion for this tenant must carry, from this client's API origin. */
+    audience: (apiOrigin: string = new URL(client.baseUrl).origin): string => eventAuthorityAudience(apiOrigin, client.tenantId),
   };
 
   /**

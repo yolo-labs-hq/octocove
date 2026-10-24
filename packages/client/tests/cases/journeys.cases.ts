@@ -4,6 +4,7 @@ import {
   createClient,
   approvalGrantAudience,
   assertionAudience,
+  eventAuthorityAudience,
   journeys,
   OrgCreationPendingError,
   RouteUnavailableError,
@@ -414,7 +415,7 @@ export const journeyCases: Case[] = [
   }),
 
   // ---- approval identity proof audience ----
-  test('approvalGrantAudience is the tenant-scoped exchange URL on the API origin, and nothing else', async () => {
+  test('approvalGrantAudience and eventAuthorityAudience are the tenant-scoped audiences on the API origin, and nothing else', async () => {
     equal(approvalGrantAudience('https://api.octocove.test', ORG), `https://api.octocove.test/v1/orgs/${ORG}/auth/approval-grants`);
     equal(approvalGrantAudience('https://api.octocove.test/', ORG), `https://api.octocove.test/v1/orgs/${ORG}/auth/approval-grants`);
     equal(approvalGrantAudience('http://127.0.0.1:8787', ORG), `http://127.0.0.1:8787/v1/orgs/${ORG}/auth/approval-grants`);
@@ -422,6 +423,11 @@ export const journeyCases: Case[] = [
       await rejects(async () => approvalGrantAudience(origin!, tenant!), TypeError, `${origin} ${tenant}`);
     }
     equal(journeys(client(scriptedFetch().fetch)).org(ORG).grants.audience(), `${BASE}/v1/orgs/${ORG}/auth/approval-grants`);
+    equal(eventAuthorityAudience('https://api.octocove.test', ORG), `https://api.octocove.test/v1/orgs/${ORG}/auth/event-authority`);
+    equal(journeys(client(scriptedFetch().fetch)).org(ORG).events.audience(), `${BASE}/v1/orgs/${ORG}/auth/event-authority`);
+    for (const [origin, tenant] of [['https://api.octocove.test/v1', ORG], ['https://api.octocove.test', 'octocove']]) {
+      await rejects(async () => eventAuthorityAudience(origin!, tenant!), TypeError, `${origin} ${tenant}`);
+    }
   }),
   test('exchangeApproval sends a proof signed for the tenant-scoped audience and refuses the unscoped or another tenant\'s before sending', async () => {
     const b64url = (v: unknown) => btoa(JSON.stringify(v)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

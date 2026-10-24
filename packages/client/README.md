@@ -361,6 +361,11 @@ client's own origin). `grants.exchangeApproval` refuses a JWT proof whose `aud` 
 path without `/orgs/{orgId}`) with a `TypeError` before sending; pass `audience` when the deployment's configured
 approval origin is not the client's. `assertionAudience(jwt)` reads an unverified `aud` for that check.
 
+An event-authority assertion (`EventAssertion`, a registered workload's proof for the event and webhook operations)
+carries exactly `<APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/event-authority`: `eventAuthorityAudience(apiOrigin, orgId)`
+(and `org(orgId).events.audience()`). Trust activation is different: sign exactly the `audience` that
+`approvalTrustActivationChallenge` returns (`.../v1/orgs/{orgId}/auth/trust-activation`); the client never builds it.
+
 `HumanSession`, `ClaimBootstrap`, `AgentDelegation`, `ApprovalGrant`, `EventAssertion`. `approvalGrantFromExchange` turns an exchange response into
 `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken` (metadata only;
 recovery is a new exchange with a fresh assertion). `principalId` is required: a response without it

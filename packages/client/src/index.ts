@@ -7,6 +7,7 @@ export type { BearerKind, BearerTransport, BrowserCookieTransport, ForwardedSess
 export {
   approvalGrantAudience,
   approvalGrantFromExchange,
+  eventAuthorityAudience,
   assertionAudience,
   bearerFor,
   isApprovalGrantScope,
