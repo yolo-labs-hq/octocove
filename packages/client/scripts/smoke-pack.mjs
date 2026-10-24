@@ -45,7 +45,7 @@ try {
   const manifest = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8'));
   const core = await import(pathToFileURL(join(pkg, manifest.exports['.'].import)).href);
   const node = await import(pathToFileURL(join(pkg, manifest.exports['./node'].import)).href);
-  for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys']) {
+  for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys', 'tenantClient', 'tenantJourneys', 'verifyWebhook', 'eventKey', 'approvalGrantAudience', 'eventAuthorityAudience', 'TenantNotFoundError', 'OrgCreationPendingError', 'RouteUnavailableError']) {
     if (!(name in core)) throw new Error(`packed root entry does not export ${name}`);
   }
   for (const name of ['credentialStore', 'ProtectedStoreError']) {
@@ -56,7 +56,7 @@ try {
   if (JSON.stringify(manifest.octocove) !== JSON.stringify({ openapiVersion: core.BUILD.openapiVersion, generator: core.BUILD.generator, routingGenerator: core.BUILD.routingGenerator })) {
     throw new Error('packed manifest and runtime build record disagree');
   }
-  if (Object.keys(core.routing).length !== 94) throw new Error('packed routing table does not cover 94 operations');
+  if (Object.keys(core.routing).length !== 100) throw new Error('packed routing table does not cover 100 operations');
   process.stdout.write(`${filename}: ${files.length} files, ${packed.size} bytes, sha512 ${packed.integrity}\n`);
   process.stdout.write(`built from OpenAPI ${core.BUILD.openapiVersion} (${core.BUILD.openapiSha256.slice(0, 12)}), ${core.BUILD.generator}\n`);
 } finally {
