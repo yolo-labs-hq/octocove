@@ -21,7 +21,7 @@ npm i @yolo-labs/octocove-client
 
 | Entry | Contents |
 | --- | --- |
-| root | `createClient`, transports, `ApiError`/`TransportError`, credential and proof types, `journeys`, `follow`, `routing`, `BUILD` |
+| root | `createClient`, `tenantClient`, transports, `ApiError`/`TransportError` and the tenant errors, credential and proof types, `journeys`, `follow`, `eventKey`, `verifyWebhook`, `routing`, `BUILD` |
 | `/openapi` | Generated `paths`, `components`, `operations` types only |
 | `/node` | The root plus the protected credential store (`credentialStore()`, Linux and macOS) |
 
@@ -32,8 +32,42 @@ const client = createClient({
   fetch,                                     // injected; defaults to the global fetch
   deadline: Date.now() + 30_000,             // absolute epoch ms, bounds every request, body read and retry sleep
 });
-const { body } = await client.call('taskGet', { path: { id: taskId } });
+const { body } = await tenantClient(client, orgId).call('taskGet', { path: { id: taskId } });
 ```
+
+## Orgs (tenants)
+
+Every project lives in one org (tenant): an organization, or a user's own hidden personal tenant, with an opaque id
+`org_<uuid>`. Every resource operation is tenant-scoped: its route is `/v1/orgs/{orgId}/...` and its generated type
+takes `path.orgId`. Only `/auth/*`, `organizationCreate`, `meGet`, `meProfileUpdate`, `meProjectsList`, `meProjectCreate`,
+`meDelegationsList`, the `meSessions*` routes and `peopleGet` are global. There is no default tenant and no fallback: the client never infers
+one.
+
+The model is an org-aware handle. Discovery names each project's org: `journeys(client).projects.list()`
+(`GET /me/projects`) and `auth.me()` memberships carry `tenantId` (and `tenantKind`). Bind to it once and every call
+of the handle goes to that org:
+
+```ts
+const oc = journeys(client);
+const { items, partial, unavailableTenants } = await oc.projects.list({ deadline });
+const work = oc.forProject(items[0]!);              // = oc.org(items[0]!.tenantId)
+await work.tasks.get(taskId, { deadline });          // GET /v1/orgs/{tenantId}/tasks/{taskId}
+const bound = tenantClient(client, items[0]!.tenantId); // the same, for raw calls (path.orgId is filled)
+```
+
+`tenantClient` and `org()` refuse a malformed id before sending; a raw `client.call` of a tenant-scoped operation
+without a valid `path.orgId` is refused the same way (`isTenantScoped(operationId)` says which operations are). An
+agent's delegation is valid in one tenant only: bind the handle to the tenant its task's project is in. Cross-tenant
+reads (`projects.list()`, `auth.me()` for a human, `auth.delegations.list()`) report `partial: true` and the
+`unavailableTenants` they could not read; those tenants' items are missing, never reported as empty.
+
+The tenant and project problems are typed errors, subclasses of `ApiError`: `TenantNotFoundError` (`404 tenant-not-found`:
+unknown, malformed or not visible to you; refresh discovery, never try another tenant), `ProjectNotFoundError`
+(`404 project-not-found`: the `{project}` id or slug, or the `projectId` query, names no project of this org; refresh
+discovery for the project's org and id), `OrgCreationPendingError` (`409 org-creation-pending`, with `organization` and
+`retryAfter`: the org is still being provisioned) and `RouteUnavailableError` (`503 route-unavailable`: the tenant is
+not reachable right now; retry later). A project path segment (`{project}`) takes the project's id or its slug; the
+`projectId` query takes the id only.
 
 ## Transports
 
@@ -56,7 +90,7 @@ const { body } = await client.call('taskGet', { path: { id: taskId } });
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 94 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 103 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -98,7 +132,7 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the five unca
 | --- | --- | --- | --- |
 | `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet` | `network-only` | `null` | safe reads (`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
-| `taskCreate`, `projectCreate`, `repositoryCreate`, `repositoryVerify`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation and repository registration and verification, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
+| `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `meNotificationPreferencesPut` | `network-only` | `stored-result` | the per-principal admin-operation ledger, checked before membership, so a replay answers the committed body even after the caller left a muted project; another body under the same key is `409 idempotency-conflict` |
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
 | `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | lanes: ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes). On a GitHub canonical, `laneMaterialize`, `laneGenerationCreate` and `laneWrapUp` answer `429 rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After` while the provider's request budget is low, retried like any `429` under the same key (nothing was created); the lane manifest and blob reads can answer that `429` too, and `413` with `details.reason: rest-budget` when one operation would need too many provider requests (never retried); `laneChangesSubmit` answers a `LaneSavePoint` and refuses `409 lane-not-materialized` before `laneMaterialize`. `laneScopeGrant` (like `taskClaim` and `laneReopen`) answers `409 write-scope-claimed` with `details.requested` and, to a human with `tasks:read`, `details.holders` |
@@ -118,12 +152,12 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the five unca
 | `approvalTrustActivate` | `never` | `state` | an already-activated binding answers with its activation record, provided the binding still qualifies |
 | `approvalGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
 | `authCallback`, `authCliStart` | `callable: false` | `navigation` | browser navigation, never fetched by the library |
-| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery` | `callable: false` | `excluded` | the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers |
+| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus`, `orgRecordRestoreAbort` | `callable: false` | `excluded` | the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators |
 
 ## Journeys
 
 ```ts
-const oc = journeys(client);
+const oc = journeys(client).org(orgId);                      // the task's org (see Orgs above)
 const deadline = Date.now() + 120_000;                       // one absolute deadline per journey
 const bootstrap = await oc.claims.authorize(taskId, { agentId, verbs, ttl: 3600 }, { deadline });
 const { claim, delegation } = await oc.claims.claim(bootstrap, taskId, { intentVersion: 1 }, { deadline });
@@ -131,10 +165,18 @@ const candidate = await oc.candidates.waitFor(submissionId, { deadline });   // 
 const landing = await oc.landings.land(candidateId, { approvalId, deadline }); // final (receipt.outcome) | pending-timeout
 ```
 
-`tasks.*`, `projects.create`, `repositories.*`, `claims.authorize/claim/status/waitForProvisioning/release`,
+`journeys(client)` holds the global journeys: `auth.*` (below), `orgs.list` (`GET /me` `organizations`), `orgs.create({name})`
+(`POST /v1/orgs`: `ready` on `201`; on `202`, or `409 org-creation-pending` from a replay, it reads `GET /me` after each
+Retry-After until the organization is ready, else `pending-timeout`, never creating it again), `projects.list` (`GET /me/projects`),
+`projects.create(input, { orgId? })` (`POST /orgs/{orgId}/projects`, or without `orgId` `POST /me/projects` in the
+caller's personal tenant; `409 org-creation-pending` is waited out under the same key and body until the deadline,
+then thrown as `OrgCreationPendingError`), `org(tenantId)`, `forProject(project)` and `command` for a global
+operation. `org(tenantId)` (`tenantJourneys`) holds the rest, all under `/v1/orgs/{tenantId}`: `tasks.*`,
+`repositories.*` (including `declareLanePolicy`), `claims.authorize/claim/status/waitForProvisioning/release`,
 `candidates.get/waitFor/withdraw/reject`, `approvals.approve/approveWithGrant/withdraw`,
-`grants.exchangeApproval`, `landings.land/waitForReceipt`, `receipts.get`, `lanes.retire`, `webhooks.*`, `log.task`, `audit.list`, `events.follow`, `command` (one keyed operation without a
-shaped journey, under the same replay rule), and `auth.*` (below).
+`grants.exchangeApproval`, `landings.land/waitForReceipt`, `receipts.get`, `lanes.retire`, `webhooks.*`, `log.task`,
+`audit.list`, `events.follow`, `auth.delegation.renew`, `auth.notifications.*` and
+`command` (one keyed operation without a shaped journey, under the same replay rule).
 
 `command(operationId, input, options)` accepts every callable operation and runs it through the same
 machinery as the shaped journeys, so their safeguards are not bypassed: the replay rule below, and the
@@ -179,13 +221,31 @@ that polls under the same key with its own progress messages.
 
 ### `events.follow`
 
-`journeys(client).events.follow({cursor, filter: {projectId, taskId?, since?}, signal})` is an async
-iterator over `eventsReplay`. It yields `{type: 'event', event, cursor}` and, at each page end,
+`journeys(client).org(orgId).events.follow({cursor, filter: {projectId, taskId?, since?}, signal})` is an async
+iterator over one tenant's `eventsReplay`. It yields `{type: 'event', event, cursor}` and, at each page end,
 `{type: 'position', cursor}` (empty pages and filter progress advance it too); checkpoint the cursor
-after consuming each item. The cursor is opaque and sent back verbatim; the filter is sent unchanged
-on every page; duplicates after a crash are possible (deduplicate by `event.id`); only envelope
-`schemaVersion: 1` is accepted — any other version is refused before that page is yielded. Record
-state is re-read, never inferred from an event. Aborting the signal ends the iterator.
+after consuming each item. The cursor is opaque, bound to the tenant (another tenant's cursor is `400
+invalid-cursor`) and sent back verbatim; the filter is sent unchanged on every page. Only envelope schema v2 is
+accepted: `{id, type, schemaVersion: 2, tenantId, projectId, taskId, occurredAt, sequence, data}`. A page holding
+any other version (v1 included), an event of another tenant, or an envelope missing a v2 field is refused before
+any of it is yielded (`envelopeProblem(event, tenantId?)` is the same check). Duplicates after a crash are possible:
+deduplicate by `eventKey(event)`, the pair (`tenantId`, `id`); an event id is unique only within its tenant.
+`sequence` is the tenant's decimal audit position: it orders events within one tenant, may have gaps, and is never
+compared across tenants or used for deduplication. Record state is re-read, never inferred from an event. Aborting
+the signal ends the iterator.
+
+### Webhook deliveries
+
+`verifyWebhook({body, headers, secret, toleranceSeconds?, now?})` checks one signed delivery
+(`collaborationEventDelivery`) on the receiving side, with Web Crypto only. It verifies, in order: the
+`Octocove-Signature` (`v1=` HMAC-SHA256 over `timestamp + "." + rawBody`) with the secret of the one signing
+generation `Octocove-Signing-Key-Id` names (`secret(keyId)` returns it, base64 text or bytes, or `undefined`); the
+`Octocove-Timestamp` window (five minutes by default); then the v2 envelope, the `Octocove-Tenant-Id` header equal to
+`body.tenantId`, and `Octocove-Event-Id` equal to `body.id`. Nothing in the body or the tenant header is read before
+the signature holds. It returns `{event, tenantId, eventId, deliveryId, signingKeyId, timestamp}` or throws a
+`WebhookVerificationError` (`code`: `missing-header`, `unknown-signing-key`, `signature-invalid`,
+`timestamp-out-of-window`, `envelope-invalid`, `tenant-mismatch`, `event-id-mismatch`); answer such a delivery with a
+non-2xx status. Deliveries are at least once and may arrive out of order: deduplicate by `eventKey(event)`.
 
 Two separate waits keep the follower polite. `pollMs` (default 1 s) only paces the next request after
 an **empty page**; a caller doing its own pacing may set it to 0. `errorBackoffMs` (default 1 s,
@@ -213,7 +273,7 @@ always wins over both. `sleep(ms, signal)` replaces the timer behind every wait 
   `auth.cli.waitForSession(tx, {deadline})` polls the exchange from `intervalSeconds`, then at the
   server's `Retry-After` (`authorization-pending` / `slow-down`), until the earlier of the deadline and
   `expiresAt`, under one key.
-- `auth.session.renew`, `auth.delegation.renew`, `auth.logout` are recovery-authenticated: a resend
+- `auth.session.renew`, `auth.logout` and, on a tenant's journeys, `org(tenantId).auth.delegation.renew` are recovery-authenticated: a resend
   after a lost answer carries the credential sent the first time and the same key, and the recovered
   replacement is adopted into the `credentialSlot` you pass (whose `transport` the client reads).
   Cookie renewals rotate the cookie and CSRF state without ever yielding a bearer. Per cookie transport:
@@ -282,6 +342,8 @@ macOS host.
   `secret=value; trailing` only has its value replaced (`secret=[redacted]; trailing`). Typed views:
   `staleFenceDetails(error)`, `reauthRequiredDetails(error)` (403 `reauth-required`: `authenticatedAt` and the
   `reauthUrl` login path that re-authenticates the same sign-in) and `problemDetails(error)`, all behind runtime guards.
+  The tenant and project problems are `ApiError` subclasses: `TenantNotFoundError`, `ProjectNotFoundError`,
+  `OrgCreationPendingError` (`organization`, `retryAfter`) and `RouteUnavailableError` ([Orgs](#orgs-tenants)).
 - `TransportError`: `deadline-exceeded`, `network-error`, `insecure-api-url`, `aborted`. A server
   refusal (`409 idempotency-result-expired`, `401 bootstrap-consumed`, …) is always an `ApiError`.
 
@@ -297,6 +359,17 @@ and plain objects between them do not, so it is not a limit on containment in ge
 any structure nested deeper than the structural depth bound is masked.
 
 ## Credentials
+
+The approval identity proof's `aud` must be exactly `<APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/approval-grants`, the
+URL it is POSTed to: `approvalGrantAudience(apiOrigin, orgId)` returns it (and `org(orgId).grants.audience()` for the
+client's own origin). `grants.exchangeApproval` refuses a JWT proof whose `aud` is anything else (another org, or the
+path without `/orgs/{orgId}`) with a `TypeError` before sending; pass `audience` when the deployment's configured
+approval origin is not the client's. `assertionAudience(jwt)` reads an unverified `aud` for that check.
+
+An event-authority assertion (`EventAssertion`, a registered workload's proof for the event and webhook operations)
+carries exactly `<APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/event-authority`: `eventAuthorityAudience(apiOrigin, orgId)`
+(and `org(orgId).events.audience()`). Trust activation is different: sign exactly the `audience` that
+`approvalTrustActivationChallenge` returns (`.../v1/orgs/{orgId}/auth/trust-activation`); the client never builds it.
 
 `HumanSession`, `ClaimBootstrap`, `AgentDelegation`, `ApprovalGrant`, `EventAssertion`. `approvalGrantFromExchange` turns an exchange response into
 `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken` (metadata only;

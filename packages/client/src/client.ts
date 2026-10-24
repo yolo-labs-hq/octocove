@@ -55,9 +55,24 @@ type BodyField<K> = [JsonBody<Op<K>['requestBody']>] extends [never]
   ? unknown
   : undefined extends Op<K>['requestBody'] ? { readonly body?: JsonBody<Op<K>['requestBody']> } : { readonly body: JsonBody<Op<K>['requestBody']> };
 
+type PathOf<K> = Params<K> extends { path?: infer P } ? P : never;
+type QueryField<K> = Field<'query', Params<K> extends { query?: infer Q } ? Q : never>;
+
 export type CallInput<K extends CallableOperationId> =
-  Field<'path', Params<K> extends { path?: infer P } ? P : never>
-  & Field<'query', Params<K> extends { query?: infer Q } ? Q : never>
+  Field<'path', PathOf<K>>
+  & QueryField<K>
+  & BodyField<K>
+  & CallOptions;
+
+/** Operations under `/v1/orgs/{orgId}/...`: every resource route. The rest (`/auth/*`, `/me`, `/me/projects`, ...) are global. */
+export type TenantScopedOperationId = {
+  [K in CallableOperationId]: [PathOf<K>] extends [never] ? never : PathOf<K> extends { orgId: unknown } ? K : never;
+}[CallableOperationId];
+type Tenantless<P> = [P] extends [never] ? never : P extends { orgId: unknown } ? Omit<P, 'orgId'> : P;
+/** A call through a {@link TenantClient}: the tenant fills `path.orgId`, so the caller never names it. */
+export type TenantCallInput<K extends CallableOperationId> =
+  Field<'path', Tenantless<PathOf<K>>>
+  & QueryField<K>
   & BodyField<K>
   & CallOptions;
 
@@ -94,11 +109,49 @@ export interface ApiResponse<T> {
 }
 
 type CallArgs<K extends CallableOperationId> = {} extends CallInput<K> ? [input?: CallInput<K>] : [input: CallInput<K>];
+type TenantCallArgs<K extends CallableOperationId> = {} extends TenantCallInput<K> ? [input?: TenantCallInput<K>] : [input: TenantCallInput<K>];
 
 export interface OctocoveClient {
   readonly baseUrl: string;
   readonly transport: Transport;
+  /** A tenant-scoped operation needs `path.orgId`; prefer {@link tenantClient}, which fills it. */
   call<K extends CallableOperationId>(operationId: K, ...args: CallArgs<K>): Promise<ApiResponse<SuccessBody<K>>>;
+}
+
+/**
+ * One client bound to one tenant (`org_<uuid>`, an organization or the caller's own personal tenant). Every
+ * tenant-scoped operation goes to `/v1/orgs/{tenantId}/...`; global operations are sent unchanged. The tenant is
+ * never inferred: it comes from discovery (`GET /me/projects` items, `GET /me` memberships, each with `tenantId`).
+ */
+export interface TenantClient {
+  readonly baseUrl: string;
+  readonly transport: Transport;
+  readonly tenantId: string;
+  /** The unbound client this one sends through. */
+  readonly client: OctocoveClient;
+  call<K extends CallableOperationId>(operationId: K, ...args: TenantCallArgs<K>): Promise<ApiResponse<SuccessBody<K>>>;
+}
+
+/** `org_` followed by a lowercase UUIDv4: the only tenant id shape (there is no default or legacy tenant). */
+export const TENANT_ID = /^org_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const isTenantId = (value: unknown): value is string => typeof value === 'string' && TENANT_ID.test(value);
+
+/** Whether the operation is tenant-scoped (its route names `{orgId}`). */
+export function isTenantScoped(operationId: string): boolean {
+  const route = (routing as Record<string, RouteEntry>)[operationId];
+  return !!route && route.parameters.path.some((p) => p.name === 'orgId');
+}
+
+/** Binds a client to one tenant. A malformed id is refused before anything is sent. */
+export function tenantClient(client: OctocoveClient, tenantId: string): TenantClient {
+  if (!isTenantId(tenantId)) throw new TypeError('tenantId must be an org_<uuid> tenant id (from GET /me/projects or GET /me)');
+  const call = (operationId: CallableOperationId, input: Record<string, unknown> & CallOptions = {}) => {
+    if (!isTenantScoped(operationId)) return (client.call as (id: string, input: unknown) => Promise<ApiResponse<unknown>>)(operationId, input);
+    const path = (input.path ?? {}) as Record<string, unknown>;
+    if (path.orgId !== undefined && path.orgId !== tenantId) throw new TypeError(`${operationId}: path.orgId differs from the bound tenant`);
+    return (client.call as (id: string, input: unknown) => Promise<ApiResponse<unknown>>)(operationId, { ...input, path: { ...path, orgId: tenantId } });
+  };
+  return Object.freeze({ baseUrl: client.baseUrl, transport: client.transport, tenantId, client, call: call as TenantClient['call'] });
 }
 
 /** Idempotency keys from Web Crypto (no `node:` imports in the core). */
@@ -184,6 +237,9 @@ export function createClient(options: ClientOptions): OctocoveClient {
     try {
       const credential = credentialHeaders(transport, route.method, input.credential);
       const retry = retryClassFor(route);
+      if (route.parameters.path.some((p) => p.name === 'orgId') && !isTenantId((input.path as Record<string, unknown> | undefined)?.orgId)) {
+        throw new TypeError(`${operationId} is tenant-scoped: path.orgId must be an org_<uuid> tenant id (or call it through tenantClient)`);
+      }
       const url = buildUrl(base, route, input.path as Record<string, unknown>, input.query as Record<string, unknown>);
       const headers: Record<string, string> = { accept: 'application/json, application/problem+json', ...credential.headers };
       let body: string | undefined;

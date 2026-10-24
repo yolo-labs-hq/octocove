@@ -4,7 +4,7 @@ const FLAGS: Record<string,string> = {
   acceptance: 'JSON array of strings, for example \'["Tests pass", "Help describes every flag"]\'. Quote the array as one shell argument.',
   task: 'Task ID.',
   title: 'Short human-readable task title.', description: 'Task intent and implementation context.',
-  project: 'Project ID (or slug where accepted by the command).', repository: 'Canonical repository ID for the task.',
+  project: 'Project ID, not a slug (`project list --verbose` shows it); a PROJECT argument takes the slug or the ID.', repository: 'Canonical repository ID for the task.',
   'target-ref': 'Full canonical branch ref, for example refs/heads/main.', key: 'Unique task key within the project.',
   'change-note': 'Reason for editing the intent contract.', 'intent-version': 'Current positive intent version; rejects a stale contract.',
   'expected-status': 'Exact current task status required for this transition.', upstream: 'Upstream task ID whose landed receipt this task requires.',
@@ -31,20 +31,28 @@ const FLAGS: Record<string,string> = {
   after: 'Exclusive event/delivery cursor to start after.', through: 'Inclusive final event cursor to replay through.',
   from: 'Starting live-event cursor.', checkpoint: 'Local file for resumable event cursors.', follow: 'Follow the project event stream until interrupted.',
   limit: 'Maximum number of records in one page; server bounds apply.', cursor: 'Opaque continuation cursor from the previous page.',
-  status: 'Filter by record status; permitted values appear in Usage.', name: 'Human-readable project/repository name.',
+  status: 'Filter by record status; permitted values appear in Usage.', name: 'Human-readable project/repository name (repo add --provider github: the GitHub repository name).',
   principal: 'Existing principal ID to add to this project.', role: 'Member role: member (default) or approver.',
-  namespace: 'Artifacts namespace for an existing canonical repository.', repo: 'Provider repository ID.', head: 'Exact known head SHA of the target ref.',
+  namespace: 'Artifacts namespace for an existing canonical repository.', repo: 'Artifacts repository ID.', head: 'Exact known head SHA of the target ref.',
   seed: 'Create an initial README commit; create mode only, default false.', import: 'Credential-free HTTPS source to import; cannot be combined with --seed.',
   branch: 'Branch to import from the source.', url: 'HTTPS webhook destination.', types: 'Comma-separated webhook event types.',
   'secret-stdin': 'Read the webhook signing secret from stdin; never place it in arguments.', delivery: 'Exact delivery ID to redrive.',
   'overlap-seconds': 'Seconds to accept the previous webhook secret during rotation.',
   as: 'Expected machine principal ID; never an actor override.', scope: 'Exact machine grant scope as one JSON object.',
   grant: 'Protected approval grant ID; activates the headless path.',
+  provider: 'Repository provider: artifacts (default) or github.', owner: 'GitHub repository owner (user or organization).',
+  'credential-ref': 'Opaque reference of an operator-held GitHub credential (never a token); sent, never printed.',
+  'api-base-url': 'GitHub REST base (default https://api.github.com; GitHub Enterprise Server: https://HOST/api/v3).',
+  'clone-base-url': 'Git clone base (default https://github.com).',
+  org: 'Org ID (org_<uuid>) the command acts in; `project list` shows each project\'s org. Also OCTOCOVE_ORG.',
+  publication: 'How a submitted candidate becomes visible: repository-readers, or public-on-submit (required for a public repository).',
+  visibility: 'The repository\'s declared visibility: private or public.',
   'token-stdin': 'Read workload proof from stdin instead of OCTOCOVE_WORKLOAD_TOKEN.', timeout: 'Machine command deadline in seconds, 1–300 (default 30).',
 };
 const POSITIONALS: Record<string,string> = {
   PROJECT:'Project slug or ID.', REPOSITORY:'Repository ID (clone also accepts a name; optional only when exactly one canonical exists).',
   DIR:'Destination directory; defaults to repository name. Must be absent or empty.', SLUG:'URL-safe project slug.',
+  NAME:'Organization display name (1-120 characters; not unique, never an org ID).',
   CANDIDATE_ID:'Candidate ID to land (not a task ID).',
   TASK:'Task ID (lane materialize: of an active claim; lane reopen: a landed task; lane retire: a landed, rejected or superseded task).', PATH:'Repository-relative path of an unresolved conflict.',
   FILE:'With --resolve PATH=FILE: a local file whose content resolves the conflict at PATH.', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
@@ -77,6 +85,7 @@ export function commandHelp(command: string, originalUsage: string, description 
     let detail = FLAGS[flag];
     if (flag === 'wait' && ['land','receipt show'].includes(command)) detail = 'Wait for the final receipt (boolean flag, no value).';
     if (flag === 'wait' && command === 'login') detail = 'Browser-consent wait in seconds (default 600).';
+    if (flag === 'wait' && command === 'org create') detail = 'How long to wait for a new organization to be provisioned, in seconds (default 120).';
     if (flag === 'wait' && ['lane refresh','lane wrap-up'].includes(command)) detail = 'Bounded wait in seconds (default 150), including any wait for another save, refresh or wrap-up settling on the lane.';
     if (!detail) throw new Error(`missing option help: ${command} --${flag}`);
     return `  ${label.padEnd(28)} ${detail}`;

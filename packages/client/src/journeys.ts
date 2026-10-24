@@ -3,9 +3,12 @@
  * `deadline`; waits are cancellation-aware and stop with the ids needed to resume, never reissuing the
  * command. Outcomes (`conflict`, `stale-base`, `raced`, …) are values; server refusals are ApiErrors.
  */
-import type { ApiResponse, CallableOperationId, CallInput, OctocoveClient, OpenEnums, SuccessBody } from './client.js';
+import { newIdempotencyKey, tenantClient, type ApiResponse, type CallableOperationId, type CallInput, type OctocoveClient, type OpenEnums, type SuccessBody, type TenantClient } from './client.js';
 import {
+  approvalGrantAudience,
   approvalGrantFromExchange,
+  assertionAudience,
+  eventAuthorityAudience,
   bearerFor,
   type AgentDelegation,
   type ApprovalGrant,
@@ -13,7 +16,7 @@ import {
   type ApprovalGrantScope,
   type ClaimBootstrap,
 } from './credentials.js';
-import { ApiError, isBoundTo, staleFenceDetails } from './errors.js';
+import { ApiError, isBoundTo, OrgCreationPendingError, staleFenceDetails } from './errors.js';
 import type { components } from './generated/openapi.js';
 import {
   isObject,
@@ -26,13 +29,15 @@ import {
   pollUntil,
   send,
   type CommandOptions,
+  type JourneyClient,
   type JourneyOptions,
+  type SendInput,
   type SendOptions,
   type WaitOptions,
   type WaitStop,
 } from './journey-core.js';
 import { bearer, type BearerTransport } from './transports.js';
-import { authJourneys } from './auth.js';
+import { authJourneys, isPartialRead, tenantAuthJourneys, type UnavailableTenant } from './auth.js';
 import { follow, type FollowOptions } from './events.js';
 
 type Schemas = components['schemas'];
@@ -50,8 +55,34 @@ export type Approval = OpenEnums<Schemas['Approval']>;
 export type BoundTo = Schemas['BoundTo'];
 /** `laneRetire`'s answer: `202` while the task's lane repositories are being deleted, `200` once all of them are retired. */
 export type LaneRetirement = OpenEnums<Schemas['LaneRetirement']> | OpenEnums<Schemas['LaneRetired']>;
-/** `projectCreate`'s answer: the created project. */
+/** `projectCreate`'s and `meProjectCreate`'s answer: the created project, with the tenant its routes name. */
 export type Project = Schemas['Project'];
+/** A `GET /me/projects` item: one of the caller's projects, with its `tenantId` (the org its routes name) and `tenantKind`. */
+export type MeProject = OpenEnums<Schemas['MeProject']>;
+/** `GET /me/projects`: every tenant's projects; with `partial` true the tenants in `unavailableTenants` are missing. */
+export interface MeProjectList {
+  readonly items: readonly MeProject[];
+  readonly partial: boolean;
+  readonly unavailableTenants: readonly UnavailableTenant[];
+}
+/** An organization (`organizationCreate`'s answer): its tenant id, name and `provisioningState`. */
+export type Organization = OpenEnums<Schemas['Organization']>;
+/** A `GET /me` `organizations` entry: an organization the human caller belongs to, with their role. */
+export type OrganizationMembership = OpenEnums<Schemas['OrganizationMembership']>;
+export type OrganizationCreateResult =
+  /** The organization is provisioned: its id is a tenant its resource routes take. */
+  | { readonly state: 'ready'; readonly organization: Organization }
+  /**
+   * Accepted, still provisioning when the wait ended: the id is reserved. Read `orgs.list()` later (never create
+   * again); its resource routes answer `409 org-creation-pending` until it is ready.
+   */
+  | { readonly state: 'pending-timeout'; readonly organization: Organization; readonly retryAfter: number | undefined; readonly reason: WaitStop };
+/** Polls `GET /me` for a pending organization when no Retry-After is sent. */
+export const ORG_READY_POLL_MS = 2000;
+
+/** A repository's lane policy, and `repositoryLanePolicyDeclare`'s answer. */
+export type RepositoryLanePolicy = Schemas['RepositoryLanePolicy'];
+export type RepositoryLanePolicyDeclaration = OpenEnums<Schemas['RepositoryLanePolicyDeclaration']>;
 /** A project's canonical repository and target ref (`repositoryCreate`'s answer). */
 export type Repository = OpenEnums<Schemas['Repository']>;
 /** A `repositoriesList` item: a `Repository` with its verification state (`namespace-mismatch` or `unverified`
@@ -135,7 +166,7 @@ export const RECEIPT_POLL_MS = 2000;
 export const PROVISIONING_POLL_MS = 2000;
 
 /** Fails before sending when the client's credential is known not to be a human session. */
-function requireHuman(client: OctocoveClient, what: string): void {
+function requireHuman(client: JourneyClient, what: string): void {
   const t = client.transport;
   const kind = t.type === 'bearer' ? t.kind : t.type === 'forwardedSession' && t.authorizationHeader ? (t.bearerKind ?? 'session') : t.type === 'unauthenticated' ? 'none' : 'session';
   if (kind !== 'session') throw new TypeError(`${what} requires a human session (this client presents ${kind})`);
@@ -148,12 +179,19 @@ function delegationOf(response: { status: number; requestId?: string; operationI
   return Object.freeze({ kind: 'agent-delegation', token: value.accessToken, delegationId: value.delegationId, revocationId: value.revocationId, expiresAt: value.expiresAt });
 }
 
-export function journeys(client: OctocoveClient) {
+/** Waits out `409 org-creation-pending` before retrying when the answer names no Retry-After. */
+export const ORG_PENDING_POLL_MS = 2000;
+
+/**
+ * Journeys of one tenant: every resource route, `/v1/orgs/{tenantId}/...`. Reached as `journeys(client).org(tenantId)`
+ * (or `journeys(client).forProject(meProject)`); the tenant comes from discovery, never a default.
+ */
+export function tenantJourneys(client: TenantClient) {
   /** One command in its own journey scope. */
   async function command<K extends CallableOperationId>(
     options: CommandOptions,
     operationId: K,
-    input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>,
+    input: SendInput<K>,
     extra: Omit<SendOptions, 'idempotencyKey'> = {},
   ): Promise<ApiResponse<SuccessBody<K>>> {
     const scope = journeyScope(options);
@@ -163,7 +201,7 @@ export function journeys(client: OctocoveClient) {
       scope.dispose();
     }
   }
-  const body = async <K extends CallableOperationId>(options: CommandOptions, operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, extra?: Omit<SendOptions, 'idempotencyKey'>) =>
+  const body = async <K extends CallableOperationId>(options: CommandOptions, operationId: K, input: SendInput<K>, extra?: Omit<SendOptions, 'idempotencyKey'>) =>
     (await command(options, operationId, input, extra)).body;
 
   // ---- tasks ----
@@ -179,22 +217,6 @@ export function journeys(client: OctocoveClient) {
     dependencies: {
       add: (taskId: string, input: Expectation & { readonly upstreamTaskId: string }, options: CommandOptions) => body(options, 'taskDependencyAdd', { path: { id: taskId }, body: { ...input } }),
       remove: (taskId: string, input: Expectation & { readonly upstreamTaskId: string }, options: CommandOptions) => body(options, 'taskDependencyRemove', { path: { id: taskId }, body: { ...input } }),
-    },
-  };
-
-  // ---- projects ----
-  const projects = {
-    /**
-     * Human only: create a project and become its first member with every verb. Allow-listed creators only
-     * (`403 project-create-disabled` otherwise); a taken slug is `409 slug-taken`, a UUID-shaped one
-     * `422 invalid-slug`; past the per-creator cap
-     * `403 project-quota-exceeded`; too many attempts `429 rate-limited` (Retry-After). `stored-result` replay:
-     * a lost answer is resent under the same key and body and returns the committed project. The project's own
-     * Artifacts namespace (`artifactsNamespace`, `oc-<id>`) is assigned here; its repositories must live in it.
-     */
-    create(input: Body<'projectCreate'>, options: CommandOptions): Promise<Project> {
-      requireHuman(client, 'projects.create');
-      return body(options, 'projectCreate', { body: input });
     },
   };
 
@@ -227,6 +249,16 @@ export function journeys(client: OctocoveClient) {
     verify(projectId: string, repositoryId: string, options: CommandOptions): Promise<RepositoryVerification> {
       requireHuman(client, 'repositories.verify');
       return body(options, 'repositoryVerify', { path: { project: projectId, repository: repositoryId } });
+    },
+    /**
+     * Human only, `project:admin` with a recent sign-in: replace the repository's lane policy (the whole policy:
+     * `candidatePublication` and `visibility`). A public repository needs `public-on-submit` (`409
+     * publication-undeclared` otherwise); declaring the current policy answers it unchanged. `stored-result` replay.
+     */
+    declareLanePolicy(projectId: string, repositoryId: string, policy: RepositoryLanePolicy, options: CommandOptions): Promise<RepositoryLanePolicyDeclaration> {
+      requireHuman(client, 'repositories.declareLanePolicy');
+      const { candidatePublication, visibility } = policy;
+      return body(options, 'repositoryLanePolicyDeclare', { path: { project: projectId, repository: repositoryId }, body: { candidatePublication, visibility } });
     },
     /** The project's canonical repositories, one item per target ref: what a task is created against. */
     list: async (projectId: string, options: JourneyOptions): Promise<readonly RepositoryListItem[]> =>
@@ -361,12 +393,24 @@ export function journeys(client: OctocoveClient) {
      * still valid and unconsumed the server returns its metadata without the token
      * (`recovered-without-token`), which can never authorize a call — get a new grant with a fresh
      * assertion and a new key.
+     *
+     * The proof's `aud` must be exactly `audience()`, `<APPROVAL_API_ORIGIN>/v1/orgs/{tenantId}/auth/approval-grants`
+     * (pass `options.audience` when the deployment's configured origin is not this client's origin). A JWT proof whose
+     * `aud` differs (another tenant, or the path without the tenant selector) is refused locally with a TypeError
+     * before anything is sent: the server would refuse it as `machine-authority-denied`.
      */
-    async exchangeApproval(assertion: string, scope: ApprovalGrantScope, options: CommandOptions): Promise<ApprovalGrantExchangeResult> {
+    async exchangeApproval(assertion: string, scope: ApprovalGrantScope, options: CommandOptions & { readonly audience?: string }): Promise<ApprovalGrantExchangeResult> {
+      const expected = options.audience ?? grants.audience();
+      const aud = assertionAudience(assertion);
+      if (aud !== undefined && aud !== expected) {
+        throw new TypeError(`the identity proof's aud must be exactly ${expected} (a single string)`);
+      }
       const response = await command(options, 'approvalGrantExchange', { body: structuredClone(scope) as Schemas['ApprovalGrantRequest'] },
         { credential: bearer({ token: assertion, kind: 'identity-assertion' }) });
       return approvalGrantFromExchange(response.body, response);
     },
+    /** The `aud` an approval identity proof for this tenant must carry, from this client's API origin. */
+    audience: (apiOrigin: string = new URL(client.baseUrl).origin): string => approvalGrantAudience(apiOrigin, client.tenantId),
   };
 
   // ---- landings and receipts ----
@@ -455,6 +499,8 @@ export function journeys(client: OctocoveClient) {
 
   const events = {
     follow: (options: FollowOptions) => follow(client, options),
+    /** The `aud` an event-authority assertion for this tenant must carry, from this client's API origin. */
+    audience: (apiOrigin: string = new URL(client.baseUrl).origin): string => eventAuthorityAudience(apiOrigin, client.tenantId),
   };
 
   /**
@@ -465,11 +511,156 @@ export function journeys(client: OctocoveClient) {
    * `operation-in-progress` are surfaced to the caller (which polls with its own messaging) instead of
    * being waited out under the same key.
    */
-  const keyed = <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
+  const keyed = <K extends CallableOperationId>(operationId: K, input: SendInput<K>, options: CommandOptions,
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) =>
     command(options, operationId, input, extra.busyIsFinal ? { busyIsFinal: true } : {});
 
-  return { client, command: keyed, tasks, projects, repositories, claims, candidates, approvals, grants, landings, receipts, lanes, webhooks, log, audit, events, auth: authJourneys(client) };
+  return {
+    client, tenantId: client.tenantId, command: keyed, tasks, repositories, claims, candidates, approvals, grants, landings, receipts, lanes,
+    webhooks, log, audit, events, auth: tenantAuthJourneys(client),
+  };
+}
+
+export type TenantJourneys = ReturnType<typeof tenantJourneys>;
+
+/**
+ * The journeys of one client: the global routes (sign-in, `GET /me`, the caller's projects across every tenant, project
+ * creation) and, through `org(tenantId)`, every tenant's resource routes.
+ */
+export function journeys(client: OctocoveClient) {
+  const tenants = new Map<string, TenantJourneys>();
+  /** The journeys of one tenant (an `org_<uuid>` id from `projects.list()` or `GET /me`); a malformed id is refused. */
+  const org = (tenantId: string): TenantJourneys => {
+    let bound = tenants.get(tenantId);
+    if (!bound) tenants.set(tenantId, bound = tenantJourneys(tenantClient(client, tenantId)));
+    return bound;
+  };
+
+  const projects = {
+    /**
+     * Human only: `GET /me/projects`, the caller's projects in every tenant, each with the `tenantId` its routes name.
+     * With `partial` true the tenants in `unavailableTenants` could not be read now; their projects are missing (never
+     * reported as empty). Retry later for those.
+     */
+    async list(options: JourneyOptions): Promise<MeProjectList> {
+      requireHuman(client, 'projects.list');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'meProjectsList', {});
+        const b: unknown = response.body;
+        if (!isObject(b) || !Array.isArray(b.items) || !isPartialRead(b) || !b.items.every((p) => isObject(p) && isString(p.projectId) && isString(p.tenantId))) {
+          throw offShape(response, 'the response is not a project list');
+        }
+        return { items: response.body.items, partial: response.body.partial, unavailableTenants: response.body.unavailableTenants };
+      } finally { scope.dispose(); }
+    },
+    /**
+     * Human only, recent sign-in: create a project and become its first member with every verb. With `orgId`, in that
+     * organization (`projectCreate`; the caller administers it); without, in the caller's own personal tenant
+     * (`meProjectCreate`), provisioned on first use. The answer's `tenantId` names the tenant its routes take.
+     * Allow-listed creators only (`403 project-create-disabled`); a taken slug is `409 slug-taken`, a UUID-shaped one
+     * `422 invalid-slug`; past a quota `403 project-quota-exceeded`; too many attempts `429 rate-limited`. While the
+     * tenant is still provisioning (`409 org-creation-pending`) the same key and body are sent again after its
+     * Retry-After, until the deadline; then the `OrgCreationPendingError` is thrown and a later call with the same
+     * `idempotencyKey` completes the same project. `stored-result` replay otherwise.
+     */
+    async create(input: Body<'projectCreate'>, options: CommandOptions & { readonly orgId?: string; readonly pollMs?: number }): Promise<Project> {
+      requireHuman(client, 'projects.create');
+      const scope = journeyScope(options);
+      const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
+      const target: JourneyClient = options.orgId === undefined ? client : org(options.orgId).client;
+      try {
+        for (;;) {
+          try {
+            const response = options.orgId === undefined
+              ? await send(target, scope, options, 'meProjectCreate', { body: input }, { idempotencyKey })
+              : await send(target, scope, options, 'projectCreate', { body: input }, { idempotencyKey });
+            const p: unknown = response.body;
+            if (!isObject(p) || !isString(p.id) || !isString(p.tenantId)) throw offShape(response, 'the response is not a project');
+            return response.body;
+          } catch (error) {
+            if (!(error instanceof OrgCreationPendingError)) throw error;
+            const wait = pollDelay(error.retryAfter, options.pollMs, ORG_PENDING_POLL_MS);
+            if (wait >= scope.remaining()) throw error;
+            await scope.sleep(wait);
+          }
+        }
+      } finally { scope.dispose(); }
+    },
+  };
+
+  const isOrganization = (o: unknown): o is Organization => isObject(o) && isString(o.id) && isString(o.name) && isString(o.provisioningState);
+  const orgs = {
+    /** Human only: `GET /me` `organizations`, the organizations the caller belongs to (pending ones included). */
+    async list(options: JourneyOptions): Promise<readonly OrganizationMembership[]> {
+      requireHuman(client, 'orgs.list');
+      const me = await authJourneys(client).me(options);
+      const list: unknown = me.organizations ?? [];
+      if (!Array.isArray(list) || !list.every((m) => isObject(m) && isOrganization(m.organization) && isString(m.role))) {
+        throw new ApiError({ status: 200, code: 'http-200', detail: 'GET /me organizations is off-shape', incomplete: true, operationId: 'meGet' });
+      }
+      return list as OrganizationMembership[];
+    },
+    /**
+     * Human only, recent sign-in: `organizationCreate` (`POST /v1/orgs`, a global route) creates an organization and
+     * makes the caller its admin. `201` is ready. `202` (and `409 org-creation-pending` on a replay) is accepted and
+     * provisioning: its id is reserved, and the journey then reads `GET /me` `organizations` after each Retry-After
+     * until it is ready or the deadline ends (`pending-timeout`); it never creates again. A replay under the same
+     * `idempotencyKey` and name answers the same organization. `403 org-create-disabled`, `429
+     * org-creation-rate-limited` (`details.limit`, Retry-After; waited out under the same key while the deadline allows)
+     * and `403 reauth-required` are thrown as ApiErrors.
+     */
+    async create(input: Body<'organizationCreate'>, options: WaitOptions & CommandOptions): Promise<OrganizationCreateResult> {
+      requireHuman(client, 'orgs.create');
+      const scope = journeyScope(options);
+      try {
+        let organization: Organization, retryAfter: number | undefined;
+        try {
+          const response = await send(client, scope, options, 'organizationCreate', { body: { name: input.name } }, { idempotencyKey: options.idempotencyKey });
+          if (!isOrganization(response.body)) throw offShape(response, 'the response is not an organization');
+          organization = response.body;
+          retryAfter = response.retryAfter;
+        } catch (error) {
+          const pending = error instanceof OrgCreationPendingError ? error.organization : undefined;
+          if (!pending || !isOrganization(pending)) throw error;
+          organization = pending as Organization;
+          retryAfter = (error as OrgCreationPendingError).retryAfter;
+        }
+        if (organization.provisioningState === 'ready') return { state: 'ready', organization };
+        const id = organization.id;
+        const result = await pollUntil<Organization>(scope, (after) => pollDelay(after, options.pollMs, ORG_READY_POLL_MS), async () => {
+          const r = await send(client, scope, options, 'meGet', {});
+          const list: unknown = (r.body as { organizations?: unknown }).organizations;
+          const found = Array.isArray(list) ? list.find((m) => isObject(m) && isOrganization(m.organization) && m.organization.id === id) : undefined;
+          if (found && (found.organization as Organization).provisioningState === 'ready') return done(found.organization as Organization);
+          if (found) organization = found.organization as Organization;
+          return again(r.retryAfter);
+        }, { firstDelayMs: pollDelay(retryAfter, options.pollMs, ORG_READY_POLL_MS) });
+        if (result.kind === 'done') return { state: 'ready', organization: result.value };
+        return { state: 'pending-timeout', organization, retryAfter, reason: result.reason };
+      } finally { scope.dispose(); }
+    },
+  };
+
+  /** One keyed command on a global route, under the same replay rule (tenant routes: `org(tenantId).command`). */
+  const command = async <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
+    extra: Pick<SendOptions, 'busyIsFinal'> = {}) => {
+    const scope = journeyScope(options);
+    try {
+      return await send(client, scope, options, operationId, input as SendInput<K>, { idempotencyKey: options.idempotencyKey, ...(extra.busyIsFinal ? { busyIsFinal: true } : {}) });
+    } finally { scope.dispose(); }
+  };
+
+  return {
+    client,
+    auth: authJourneys(client),
+    projects,
+    orgs,
+    org,
+    /** The journeys of a discovered project's tenant (`projects.list()` items, `GET /me` memberships). */
+    forProject: (project: { readonly tenantId: string }) => org(project.tenantId),
+    command,
+  };
 }
 
 export type Journeys = ReturnType<typeof journeys>;

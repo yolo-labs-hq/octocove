@@ -9,7 +9,7 @@ Before running, a current human project administrator must provision through
 the public API (all writes require an Idempotency-Key):
 
 1. Register immutable principals with
-   POST /v1/projects/{project}/approval-principals. Use separate canonical
+   POST /v1/orgs/{orgId}/projects/{project}/approval-principals. Use separate canonical
    submitter and approver identities. Multiple subjects or rotated keys for one
    identity are aliases, not separation of duties.
 2. Pin trust bindings: exact issuer, subject, algorithm, key ID and public JWK;
@@ -17,7 +17,11 @@ the public API (all writes require an Idempotency-Key):
    register variant github_actions and exact repository_id, repository,
    workflow_ref, ref and environment claims. For Cron register workers_cron,
    worker_id and literal schedule claims with a pinned ES256 public key.
-   Only the administrator can rotate trust.
+   Only the administrator can rotate trust. A registered-key binding is
+   activated with the challenge its activation-challenge route returns: sign
+   exactly the returned challenge audience
+   (APPROVAL_API_ORIGIN/v1/orgs/{orgId}/auth/trust-activation) and nonce;
+   never build the audience yourself.
 3. Append approval-policies for each principal and a null-principal project
    target policy. Bind exact canonical/source repository IDs and target ref,
    checkIdentity and acceptableEvidence. Opt in with allowMachine:true and
@@ -32,14 +36,19 @@ the public API (all writes require an Idempotency-Key):
    job's assertion that checks passed.
 
 The proof audience is the exact singleton string
-<configured APPROVAL_API_ORIGIN>/auth/approval-grants.
+<configured APPROVAL_API_ORIGIN>/v1/orgs/{orgId}/auth/approval-grants: the
+URL the proof is POSTed to, for the project's org. A proof for another org, or
+for the path without /orgs/{orgId}, is refused. The client library's
+approvalGrantAudience(origin, orgId) computes it, and its exchange journey
+refuses a JWT proof with any other aud before sending it.
 iat, nbf and exp are required; lifetime must be at most five minutes.
 GitHub's configured workflow/environment subject must match literally.
 Cron scheduling itself confers no identity.
 
 ## CLI
 
-Set OCTOCOVE_API_URL to the control plane /v1 URL. Exchange needs no human
+Set OCTOCOVE_API_URL to the control plane /v1 URL and OCTOCOVE_ORG (or --org) to
+the project's org; the grant file keeps that org for its use. Exchange needs no human
 session and accepts OCTOCOVE_WORKLOAD_TOKEN or --token-stdin. Tokens never
 belong in argv. --as is the registered canonical principal ID expected by the
 caller; it cannot select the server's actor kind or identity.
@@ -51,7 +60,7 @@ caller; it cannot select the server's actor kind or identity.
 An approval grant cannot save, wrap up, land or claim; the server refuses
 canonical self-approval, including immutable delegated on-behalf-of provenance.
 
-Exchange prints a JSON descriptor with id, principalId, expiresAt,
+Exchange prints a JSON descriptor with id, orgId, principalId, expiresAt,
 scope and policyVersion, never the workload proof or grant bearer. Bearers
 are stored with mode 0600 below OCTOCOVE_CONFIG_DIR/grants in directories
 with mode 0700; keep that directory private to the job and remove it at job

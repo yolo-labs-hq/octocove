@@ -8,12 +8,13 @@ import { afterEach, expect, it } from 'vitest';
 import { saveCredentials, loadCredentials, type Credentials } from '../src/config.js';
 import { humanSessionFetch } from '../src/session.js';
 import { run, type Deps } from '../src/cli.js';
+const ORG='org_00000000-0000-4000-8000-000000000001';
 const dirs:string[]=[];
 afterEach(async()=>{for(const dir of dirs.splice(0))await rm(dir,{recursive:true,force:true});});
 const future=(ms:number)=>new Date(Date.now()+ms).toISOString();
 async function fixture(extra:Partial<Credentials>={}){
   const dir=await mkdtemp(join(tmpdir(),'oc-session-'));dirs.push(dir);
-  const env={OCTOCOVE_CONFIG_DIR:dir};
+  const env={OCTOCOVE_CONFIG_DIR:dir,OCTOCOVE_ORG:ORG};
   const credential:Credentials={apiUrl:'https://api.example.invalid/v1',kind:'human',token:'old-session',...extra};
   await saveCredentials(env,credential);let output='';
   const calls:{path:string,token:string|null,key:string|null}[]=[];let rotations=0;
@@ -31,7 +32,7 @@ async function fixture(extra:Partial<Credentials>={}){
 }
 it('renews an expired stored human token, atomically persists it and retries the request once',async()=>{
   const f=await fixture();expect(await run(f.deps),f.output).toBe(0);
-  expect(f.calls.map(c=>c.path)).toEqual(['/v1/tasks','/v1/auth/session/renew','/v1/tasks']);
+  expect(f.calls.map(c=>c.path)).toEqual([`/v1/orgs/${ORG}/tasks`,'/v1/auth/session/renew',`/v1/orgs/${ORG}/tasks`]);
   expect(f.calls.map(c=>c.token)).toEqual(['Bearer old-session','Bearer old-session','Bearer new-session']);
   expect(f.rotations).toBe(1);
   expect(await loadCredentials(f.env)).toMatchObject({token:'new-session',kind:'human',idleExpiresAt:expect.any(String),absoluteExpiresAt:expect.any(String),issuedAt:expect.any(String)});
@@ -51,7 +52,7 @@ it('a server-side idle or absolute limit refuses renewal and asks for sign-in',a
   expect(await run(f.deps)).toBe(1);expect(f.output).toContain('sign in again');expect((await loadCredentials(f.env)).token).toBe('old-session');
 });
 it('agents never enter the human session renewal route',async()=>{
-  const f=await fixture({kind:'agent',expiresAt:future(-1000)});expect(await run(f.deps)).toBe(1);
+  const f=await fixture({kind:'agent',orgId:ORG,expiresAt:future(-1000)});expect(await run(f.deps)).toBe(1);
   expect(f.rotations).toBe(0);expect(f.calls.filter(c=>c.path.endsWith('/auth/session/renew'))).toHaveLength(0);
 });
 it('revocation does not trigger a rotation',async()=>{

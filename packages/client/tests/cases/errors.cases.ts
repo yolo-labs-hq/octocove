@@ -16,6 +16,7 @@ import {
 import { dumpError, equal, json, ok, problem, rejects, scriptedFetch, test, type Case } from '../harness.js';
 
 const BASE = 'https://cp.octocove.test';
+const ORG = 'org_00000000-0000-4000-8000-000000000001';
 const TOKEN = 'session-bearer-fixture-0123456789';
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -24,7 +25,7 @@ async function failWith(response: Response, call: 'taskGet' | 'authCliExchange' 
   const { fetch } = scriptedFetch(response);
   const c = createClient({ baseUrl: BASE, transport: bearer({ token }), fetch });
   return rejects(() => (call === 'taskGet'
-    ? c.call('taskGet', { path: { id: 't' } })
+    ? c.call('taskGet', { path: { orgId: ORG, id: 't' } })
     : c.call('authCliExchange', { body: { deviceCode: 'device-code-secret-0123456789', verifier: 'pkce-verifier-secret-0123456789' } as never })), ApiError);
 }
 
@@ -190,7 +191,7 @@ export const errorCases: Case[] = [
       attempts: [{ log: ['retry with "accessToken":"nested-array-leak"'] }],
     });
     const network = await rejects(() => createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN }), fetch: scriptedFetch(injected(), injected(), injected()).fetch, retryDelayMs: () => 1 })
-      .call('taskGet', { path: { id: 't' } }), TransportError);
+      .call('taskGet', { path: { orgId: ORG, id: 't' } }), TransportError);
     equal([network.code, leaks(network)], ['network-error', []]);
     const request = (network.cause as { request: { headers: Record<string, string>; body: string } }).request;
     equal(request.headers['authorization'], 'Bearer [redacted]', 'the non-secret key keeps its structure, the bearer value is gone');
@@ -198,7 +199,7 @@ export const errorCases: Case[] = [
     const controller = new AbortController();
     controller.abort({ reason: 'user cancelled', note: 'Bearer reason-bearer-leak', context: { payload: 'refreshToken=reason-leak-value' } });
     const aborted = await rejects(() => createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN }), fetch: scriptedFetch(json(200, {})).fetch })
-      .call('taskGet', { path: { id: 't' }, signal: controller.signal }), TransportError);
+      .call('taskGet', { path: { orgId: ORG, id: 't' }, signal: controller.signal }), TransportError);
     equal([aborted.code, leaks(aborted)], ['aborted', []]);
     equal((aborted.cause as { reason: string }).reason, 'user cancelled', 'non-secret diagnostics survive');
   }),
@@ -208,7 +209,7 @@ export const errorCases: Case[] = [
     const leaks = (error: TransportError) => ['getter-credential', 'Bearer getter', TOKEN].filter((s) => dumpError(error).includes(s));
     const both = (name: string, make: () => Error, check: (cause: Error & Record<string, unknown>) => void) => test(name, async () => {
       const network = await rejects(() => createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN }), fetch: scriptedFetch(make(), make(), make()).fetch, retryDelayMs: () => 1 })
-        .call('taskGet', { path: { id: 't' } }), TransportError);
+        .call('taskGet', { path: { orgId: ORG, id: 't' } }), TransportError);
       equal([network.code, leaks(network)], ['network-error', []]);
       ok(network.cause instanceof Error, 'the sanitized cause is a copy, never the inspection failure');
       check(network.cause as Error & Record<string, unknown>);
@@ -216,7 +217,7 @@ export const errorCases: Case[] = [
       const controller = new AbortController();
       controller.abort(make());
       const aborted = await rejects(() => createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN }), fetch: scriptedFetch(json(200, {})).fetch })
-        .call('taskGet', { path: { id: 't' }, signal: controller.signal }), TransportError);
+        .call('taskGet', { path: { orgId: ORG, id: 't' }, signal: controller.signal }), TransportError);
       equal([aborted.code, leaks(aborted)], ['aborted', []]);
       check(aborted.cause as Error & Record<string, unknown>);
     });
@@ -290,7 +291,7 @@ export const errorCases: Case[] = [
   }),
   test('TransportError never carries a server refusal and never echoes the bearer', async () => {
     const { fetch } = scriptedFetch(new TypeError(`connect failed`), new TypeError('again'), new TypeError('again'));
-    const error = await rejects(() => createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN }), fetch, retryDelayMs: () => 1 }).call('taskGet', { path: { id: 't' } }), TransportError);
+    const error = await rejects(() => createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN }), fetch, retryDelayMs: () => 1 }).call('taskGet', { path: { orgId: ORG, id: 't' } }), TransportError);
     ok(['deadline-exceeded', 'network-error', 'insecure-api-url', 'aborted'].includes(error.code));
     ok(!error.message.includes(TOKEN));
   }),

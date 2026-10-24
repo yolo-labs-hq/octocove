@@ -9,6 +9,11 @@ export interface Credentials {
   apiUrl: string;
   token: string;
   kind: CredentialKind;
+  /**
+   * The org (tenant id) the credential acts in. Always set for an agent delegation or a claim bootstrap, which are
+   * issued in one org and refused anywhere else; never stored for a human session, which names its org per command.
+   */
+  orgId?: string;
   delegationId?: string;
   agentId?: string;
   issuedAt?: string;
@@ -19,6 +24,8 @@ export interface Credentials {
 }
 export class ConfigError extends Error {}
 const KINDS = new Set<string>(["human", "agent", "bootstrap", "machine"]);
+/** `org_` and a lowercase UUIDv4: the only tenant id shape. */
+export const ORG_ID = /^org_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export function configDir(env: NodeJS.ProcessEnv): string {
   return env.OCTOCOVE_CONFIG_DIR ?? join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "octocove");
@@ -31,6 +38,8 @@ function parseCredentials(raw: string): Credentials {
     if (!file || typeof file.apiUrl !== "string" || !file.apiUrl || typeof file.token !== "string" || !file.token || !KINDS.has(file.kind)) throw new Error();
     if (file.agentId !== undefined && (typeof file.agentId !== "string" || !file.agentId)) throw new Error();
     if (file.delegationId !== undefined && typeof file.delegationId !== "string") throw new Error();
+    // An agent delegation and a claim bootstrap belong to the org they were issued in; a human session to none.
+    if (file.kind === "agent" || file.kind === "bootstrap" ? typeof file.orgId !== "string" || !ORG_ID.test(file.orgId) : file.orgId !== undefined) throw new Error();
     const lifetime: Partial<Credentials> = {};
     for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt", "claimExpiresAt"] as const) {
       if (file[key] !== undefined) {
@@ -38,7 +47,7 @@ function parseCredentials(raw: string): Credentials {
         lifetime[key] = file[key];
       }
     }
-    return { ...lifetime, apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
+    return { ...lifetime, apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.orgId ? { orgId: file.orgId } : {}), ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
   } catch { throw new ConfigError("invalid credentials file"); }
 }
 
@@ -89,8 +98,8 @@ export async function saveCredentials(env: NodeJS.ProcessEnv, creds: Credentials
   return atomicSecret(activeFile(env), creds);
 }
 
-export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, token: string, agentId?: string, lifetime: Pick<Credentials, "expiresAt" | "absoluteExpiresAt"> = {}): Promise<string> {
-  return atomicSecret(join(configDir(env), "credentials", `bootstrap-${randomUUID()}.json`), { ...lifetime, apiUrl, token, kind: "bootstrap", ...(agentId ? { agentId } : {}) });
+export async function saveBootstrap(env: NodeJS.ProcessEnv, apiUrl: string, orgId: string, token: string, agentId?: string, lifetime: Pick<Credentials, "expiresAt" | "absoluteExpiresAt"> = {}): Promise<string> {
+  return atomicSecret(join(configDir(env), "credentials", `bootstrap-${randomUUID()}.json`), { ...lifetime, apiUrl, orgId, token, kind: "bootstrap", ...(agentId ? { agentId } : {}) });
 }
 
 export async function clearCredentials(env: NodeJS.ProcessEnv): Promise<void> {

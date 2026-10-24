@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { run, EXIT, type Deps } from "../src/cli.js";
 import { loadCredentials, saveCredentials, type Credentials } from "../src/config.js";
 import { DEFAULT_API_ORIGIN, resolveApiOrigin } from "../src/origin.js";
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 
 const STORED = "https://stored.example.invalid/v1";
 const OVERRIDE = "https://override.example.invalid/v1";
@@ -19,7 +20,7 @@ function cli(argv: string[], env: NodeJS.ProcessEnv = {}, credentials?: Credenti
   const calls: { url: string; bearer: string | null }[] = [];
   let output = "";
   const deps: Deps = {
-    argv, env: { OCTOCOVE_CONFIG_DIR: dir, ...env }, credentials,
+    argv, env: { OCTOCOVE_CONFIG_DIR: dir, OCTOCOVE_ORG: ORG, ...env }, credentials,
     git: async () => { throw new Error("no Git expected"); },
     stdin: async () => "", sleep: async () => {},
     stdout: (s) => void (output += s), stderr: (s) => void (output += s),
@@ -81,14 +82,14 @@ describe("CLI API origin", () => {
     expect(await c.code).toBe(EXIT.config);
     expect(c.calls).toEqual([]);
     expect(c.output()).toContain("OCTOCOVE_API_URL must be an absolute https:// URL");
-    const t = cli(["task", "show", "T1", "--json"], { OCTOCOVE_API_URL: "ftp://x.invalid" }, { apiUrl: STORED, token: TOKEN, kind: "agent" });
+    const t = cli(["task", "show", "T1", "--json"], { OCTOCOVE_API_URL: "ftp://x.invalid" }, { apiUrl: STORED, token: TOKEN, kind: "agent", orgId: ORG });
     expect(await t.code).toBe(EXIT.config);
     expect(t.calls).toEqual([]);
   });
   it("never sends a stored credential to a differing OCTOCOVE_API_URL; it keeps its issuing origin", async () => {
-    const c = cli(["task", "show", "T1", "--json"], { OCTOCOVE_API_URL: OVERRIDE }, { apiUrl: STORED, token: TOKEN, kind: "agent" });
+    const c = cli(["task", "show", "T1", "--json"], { OCTOCOVE_API_URL: OVERRIDE }, { apiUrl: STORED, token: TOKEN, kind: "agent", orgId: ORG });
     expect(await c.code).toBe(EXIT.ok);
-    expect(c.calls.map(x => x.url)).toEqual([`${STORED}/tasks/T1`]);
+    expect(c.calls.map(x => x.url)).toEqual([`${STORED}/orgs/${ORG}/tasks/T1`]);
     expect(c.calls[0]!.bearer).toBe(`Bearer ${TOKEN}`);
   });
   it("machine exchange resolves its origin the same way", async () => {
@@ -98,7 +99,7 @@ describe("CLI API origin", () => {
     expect(byDefault.calls.map(x => new URL(x.url).origin)).toEqual([DEFAULT_API_ORIGIN]);
     const overridden = cli(args, { OCTOCOVE_WORKLOAD_TOKEN: "proof", OCTOCOVE_API_URL: OVERRIDE });
     expect(await overridden.code).toBe(EXIT.ok);
-    expect(overridden.calls.map(x => x.url)).toEqual([`${OVERRIDE}/auth/approval-grants`]);
+    expect(overridden.calls.map(x => x.url)).toEqual([`${OVERRIDE}/orgs/${ORG}/auth/approval-grants`]);
     const refused = cli(args, { OCTOCOVE_WORKLOAD_TOKEN: "proof", OCTOCOVE_API_URL: "http://10.0.0.1/v1" });
     expect(await refused.code).toBe(EXIT.config);
     expect(refused.calls).toEqual([]);
@@ -109,16 +110,16 @@ describe("CLI API origin", () => {
     const args = ["auth", "exchange", "--as", "p", "--scope", JSON.stringify(SCOPE)];
     const exchange = cli(args, { OCTOCOVE_WORKLOAD_TOKEN: "proof" });
     expect(await exchange.code, exchange.output()).toBe(EXIT.ok);
-    expect(exchange.calls.map(x => x.url)).toEqual([`${OVERRIDE}/auth/approval-grants`]);
+    expect(exchange.calls.map(x => x.url)).toEqual([`${OVERRIDE}/orgs/${ORG}/auth/approval-grants`]);
     expect(exchange.calls[0]!.bearer).toBe("Bearer proof");
     expect(exchange.output()).not.toContain(TOKEN);
     // An explicit override still wins over the stored origin, and a principal mismatch is still refused.
     const moved = cli(args, { OCTOCOVE_WORKLOAD_TOKEN: "proof", OCTOCOVE_API_URL: STORED });
     expect(await moved.code).toBe(EXIT.ok);
-    expect(moved.calls.map(x => x.url)).toEqual([`${STORED}/auth/approval-grants`]);
+    expect(moved.calls.map(x => x.url)).toEqual([`${STORED}/orgs/${ORG}/auth/approval-grants`]);
     const mismatch = cli(["auth", "exchange", "--as", "someone-else", "--scope", JSON.stringify(SCOPE)], { OCTOCOVE_WORKLOAD_TOKEN: "proof" });
     expect(await mismatch.code).not.toBe(EXIT.ok);
-    expect(mismatch.calls.map(x => x.url)).toEqual([`${OVERRIDE}/auth/approval-grants`]);
+    expect(mismatch.calls.map(x => x.url)).toEqual([`${OVERRIDE}/orgs/${ORG}/auth/approval-grants`]);
     expect(mismatch.output()).toContain("exchange principal or grant kind does not match");
   });
 });

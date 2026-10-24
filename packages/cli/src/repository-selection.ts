@@ -1,10 +1,11 @@
 import { CloneError, cloneProblem } from './clone-errors.js';
 import type { components } from '../../client/src/generated/openapi.js';
-import type { Journeys } from './http.js';
+import type { TenantJourneys } from './http.js';
+import type { OpenEnums } from '../../client/src/client.js';
 import { ConfigError } from './config.js';
 
-type Membership = components['schemas']['Me']['memberships'][number];
-type Repository = Awaited<ReturnType<Journeys['repositories']['list']>>[number];
+type Membership = OpenEnums<components['schemas']['Me']['memberships'][number]>;
+type Repository = Awaited<ReturnType<TenantJourneys['repositories']['list']>>[number];
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 export function cloneProject(memberships: readonly Membership[], selector: string): Membership {

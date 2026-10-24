@@ -6,6 +6,8 @@ import { canonicalReadUrl, humanGitConfig } from './human-git.js';
 import type { GitRunner } from './git.js';
 
 export interface CloneBinding {
+  /** The project's org, as its `GET /me` membership names it. */
+  orgId: string;
   projectId: string;
   repositoryId: string;
   targetRef: string;
@@ -30,7 +32,7 @@ export async function cloneWorkspace({ git, binding, directory, helperPath, sign
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
-  const url=canonicalReadUrl(binding.apiUrl,binding.projectId,binding.repositoryId);
+  const url=canonicalReadUrl(binding.apiUrl,binding.orgId,binding.projectId,binding.repositoryId);
   const configuration=await humanGitConfig(url,binding.configDirectory,helperPath);
   await preflight?.();
   const metadata = Object.fromEntries(configuration);

@@ -7,6 +7,7 @@ import { run, EXIT, type Deps } from "../src/cli.js";
 import { loadCredentials, saveCredentials, importBootstrap } from "../src/config.js";
 import { atomicSecret } from "../src/store.js";
 
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 const API = "https://api.example.invalid/v1";
 const BOOT = "private-bootstrap-value";
 const AGENT = "private-delegation-value";
@@ -25,13 +26,13 @@ let extraSecrets: string[];
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "octocove-security-"));
-  env = { OCTOCOVE_CONFIG_DIR: dir, OCTOCOVE_API_URL: API };
+  env = { OCTOCOVE_CONFIG_DIR: dir, OCTOCOVE_API_URL: API, OCTOCOVE_ORG: ORG };
   stdout = stderr = ""; routes = {}; calls = []; gitArgs = []; extraSecrets = [];
 });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 const activeFile = () => join(dir, "credentials", "cli.json");
 const active = async () => JSON.parse(await readFile(activeFile(), "utf8"));
-const saved = (kind: "human" | "agent" | "bootstrap", token: string, delegationId?: string) => saveCredentials(env, { apiUrl: API, kind, token, delegationId });
+const saved = (kind: "human" | "agent" | "bootstrap", token: string, delegationId?: string) => saveCredentials(env, { apiUrl: API, kind, token, delegationId, ...(kind === "human" ? {} : { orgId: ORG }) });
 
 async function cli(argv: string[], overrides: Partial<Deps> = {}) {
   stdout = stderr = "";
@@ -39,7 +40,7 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
     argv, env, stdout: (s) => { stdout += s; }, stderr: (s) => { stderr += s; }, stdin: async () => "",
     git: async (args) => { gitArgs.push(args); return ""; }, sleep: async () => {},
     fetch: async (url, init) => {
-      const u = new URL(url), route = `${init.method} ${u.pathname}`;
+      const u = new URL(url), route = `${init.method} ${u.pathname.replace(`/orgs/${ORG}`, "")}`;
       calls.push({ route, init });
       const handler = routes[route];
       if (!handler) throw new Error(`Unexpected request ${route}`);
@@ -61,7 +62,7 @@ const claimArgs = ["task", "claim", "T1", "--intent-version", "1", "--read", "sr
 
 describe("bootstrap hand-off", () => {
   it("carries the authorization ceiling and claim lease into the saved delegation", async () => {
-    await saveCredentials(env, { apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "worker", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" });
+    await saveCredentials(env, { apiUrl: API, orgId: ORG, token: BOOT, kind: "bootstrap", agentId: "worker", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" });
     routes["POST /v1/tasks/T1/claim"] = () => response({ claim: { ...claim, provisioningState: "ready", expiresAt: "2030-01-01T12:00:00Z" }, delegation }, 201);
     expect(await cli([...claimArgs, "--json"])).toBe(EXIT.ok);
     expect(await active()).toMatchObject({ kind: "agent", agentId: "worker", token: AGENT, expiresAt: delegation.expiresAt, absoluteExpiresAt: "2030-01-02T00:00:00Z", claimExpiresAt: "2030-01-01T12:00:00Z" });
@@ -69,7 +70,7 @@ describe("bootstrap hand-off", () => {
 
   it("explicitly imports a fresh bootstrap over an old agent credential", async () => {
     await saved("agent", "old-agent-credential", "old-delegation");
-    const file = await atomicSecret(join(dir, "credentials", "fresh.json"), { apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "new-worker" });
+    const file = await atomicSecret(join(dir, "credentials", "fresh.json"), { apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG, agentId: "new-worker" });
     routes["POST /v1/tasks/T1/claim"] = init => {
       expect((init.headers as any).authorization).toBe(`Bearer ${BOOT}`);
       return response({ claim: { ...claim, provisioningState: "ready" }, delegation }, 201);
@@ -79,7 +80,7 @@ describe("bootstrap hand-off", () => {
   });
 
   it("persists a 202 delegation, reports the pending lane and uses the delegation on the next invocation", async () => {
-    const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
+    const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG });
     env.OCTOCOVE_BOOTSTRAP_FILE = file;
     routes["POST /v1/tasks/T1/claim"] = (init) => {
       expect((init.headers as any).authorization).toBe(`Bearer ${BOOT}`);
@@ -133,7 +134,7 @@ describe("bootstrap hand-off", () => {
     const file = json ? JSON.parse(stdout).bootstrapFile : stdout.match(/Bootstrap file:\s+(.+)/)![1]!;
     expect(file).toContain(join(dir, "credentials", "bootstrap-"));
     expect((await stat(file)).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ apiUrl: API, token: BOOT, kind: "bootstrap", agentId: "A1", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-01T00:00:00Z" });
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ apiUrl: API, orgId: ORG, token: BOOT, kind: "bootstrap", agentId: "A1", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-01T00:00:00Z" });
     expect((await active()).token).toBe(SESSION);
     if (json) expect(JSON.parse(stdout)).not.toHaveProperty("bootstrapToken");
     // The receiving job imports the file without a secret in argv or environment.
@@ -151,7 +152,7 @@ describe("bootstrap hand-off", () => {
 
 describe("protected credential imports", () => {
   it("imports the bootstrap and surfaces claim-held without touching Git", async () => {
-    const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
+    const file = await atomicSecret(join(dir, "credentials", "job.json"), { apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG });
     routes["POST /v1/tasks/T1/claim"] = () => response({ code: "claim-held" }, 409);
     expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.failure);
     expect(stderr).toContain("claim-held");
@@ -184,14 +185,14 @@ describe("protected credential imports", () => {
 
   it("refuses a 0644 bootstrap file", async () => {
     const file = join(dir, "import.json");
-    await writeFile(file, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap" }), { mode: 0o644 });
+    await writeFile(file, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG }), { mode: 0o644 });
     await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
     await expect(stat(activeFile())).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("refuses a symlinked bootstrap file", async () => {
     const target = join(dir, "target.json");
-    await writeFile(target, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap" }), { mode: 0o600 });
+    await writeFile(target, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG }), { mode: 0o600 });
     const file = join(dir, "import.json");
     await symlink(target, file);
     await expect(importBootstrap(env, file)).rejects.toThrow("unprotected");
@@ -208,7 +209,7 @@ describe("protected credential imports", () => {
 
   it("fails closed when the opened bootstrap file descriptor belongs to another owner", async () => {
     const file = join(dir, "import.json");
-    await writeFile(file, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap" }), { mode: 0o600 });
+    await writeFile(file, JSON.stringify({ apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG }), { mode: 0o600 });
     const handle = await open(file, "r");
     const original = handle.stat;
     // File ownership fixtures require root; change only descriptor stat's owner for a portable check.
@@ -443,7 +444,7 @@ describe("auth verbs", () => {
 
   it.each(["logout", "revoke"])("%s clears the active credential and prevents stale imports resurrecting it", async (verb) => {
     await saved(verb === "logout" ? "human" : "agent", verb === "logout" ? SESSION : AGENT, verb === "revoke" ? "D1" : undefined);
-    const file = await atomicSecret(join(dir, "credentials", "old-bootstrap.json"), { apiUrl: API, token: BOOT, kind: "bootstrap" });
+    const file = await atomicSecret(join(dir, "credentials", "old-bootstrap.json"), { apiUrl: API, token: BOOT, kind: "bootstrap", orgId: ORG });
     env.OCTOCOVE_BOOTSTRAP_FILE = file;
     routes[verb === "logout" ? "POST /v1/auth/logout" : "POST /v1/delegations/D1/revoke"] = () => new Response(null, { status: 204 });
     expect(await cli(verb === "logout" ? ["logout", "--json"] : ["auth", "revoke", "--json"])).toBe(EXIT.ok);
@@ -554,13 +555,13 @@ describe("API transport", () => {
     // The CLI's transport is the client library's; drive it through a command.
     for (const apiUrl of ["http://api.example.invalid/v1", "http://10.0.0.1/v1", "ftp://api.example.invalid/v1"]) {
       const fetch = vi.fn();
-      expect(await cli(["task", "show", "T1", "--json"], { credentials: { apiUrl, token: BOOT, kind: "agent" }, fetch })).toBe(EXIT.failure);
+      expect(await cli(["task", "show", "T1", "--json"], { credentials: { apiUrl, token: BOOT, kind: "agent", orgId: ORG }, fetch })).toBe(EXIT.failure);
       expect(JSON.parse(stderr).error.code).toBe("insecure-api-url");
       expect(fetch).not.toHaveBeenCalled();
     }
     for (const apiUrl of [API, "http://127.0.0.1:8787/v1", "http://localhost:8787/v1", "http://[::1]:8787/v1"]) {
       const fetch = vi.fn(async () => response({ id: "T1", intentVersion: 1 }));
-      expect(await cli(["task", "show", "T1", "--json"], { credentials: { apiUrl, token: BOOT, kind: "agent" }, fetch })).toBe(EXIT.ok);
+      expect(await cli(["task", "show", "T1", "--json"], { credentials: { apiUrl, token: BOOT, kind: "agent", orgId: ORG }, fetch })).toBe(EXIT.ok);
       expect(fetch).toHaveBeenCalledOnce();
     }
   });

@@ -176,3 +176,58 @@ export function bearerFor(credential: Credential): BearerTransport {
   }
   return bearer({ token: credential.token, kind: BEARER_KIND[credential.kind] });
 }
+
+// ---- approval identity proof audience ----
+
+const TENANT = /^org_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+/** `<origin>/v1/orgs/{tenantId}/auth/<authority>`: a tenant-bound proof audience on the configured API origin. */
+function tenantAudience(apiOrigin: string, tenantId: string, authority: string): string {
+  let url: URL;
+  try { url = new URL(apiOrigin); } catch { throw new TypeError('apiOrigin must be an absolute URL'); }
+  const loopback = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/.test(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) throw new TypeError('apiOrigin must use https:// (http:// only for loopback)');
+  if (url.pathname.replace(/\/+$/, '') !== '' || url.search || url.hash || url.username || url.password) {
+    throw new TypeError('apiOrigin is the API origin alone, without a path such as /v1');
+  }
+  if (!TENANT.test(tenantId)) throw new TypeError('tenantId must be an org_<uuid> tenant id');
+  return `${url.origin}/v1/orgs/${tenantId}/auth/${authority}`;
+}
+
+/**
+ * The exact `aud` an approval identity proof must carry: the URL it is POSTed to,
+ * `<APPROVAL_API_ORIGIN>/v1/orgs/{tenantId}/auth/approval-grants`, as one string. A proof for another tenant, or for
+ * the path without the tenant selector, is refused by the server. `apiOrigin` is the deployment's configured HTTPS
+ * origin (no path, query or fragment; `http://` only for loopback).
+ */
+export function approvalGrantAudience(apiOrigin: string, tenantId: string): string {
+  return tenantAudience(apiOrigin, tenantId, 'approval-grants');
+}
+
+/**
+ * The exact `aud` of an event-authority assertion (a registered workload's `EventAssertion` for the event and webhook
+ * operations): `<APPROVAL_API_ORIGIN>/v1/orgs/{tenantId}/auth/event-authority`, one string naming the tenant the
+ * request selects. It names the authority and is not a route. The tenant-less `.../auth/event-authority` and another
+ * tenant's audience are refused 401.
+ *
+ * Trust activation has no such helper on purpose: sign exactly the `audience` that
+ * `approvalTrustActivationChallenge` returns (`.../v1/orgs/{tenantId}/auth/trust-activation`), never one you build.
+ */
+export function eventAuthorityAudience(apiOrigin: string, tenantId: string): string {
+  return tenantAudience(apiOrigin, tenantId, 'event-authority');
+}
+
+/**
+ * The `aud` of a JWT-shaped assertion (header.payload.signature), read without verifying it; undefined when the
+ * assertion is not a JWT or its payload carries no audience. Only for a local fail-fast check: the server verifies.
+ */
+export function assertionAudience(assertion: string): string | readonly string[] | undefined {
+  const parts = assertion.split('.');
+  if (parts.length !== 3 || !parts[1]) return undefined;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)), (c) => c.charCodeAt(0)));
+    const aud = (JSON.parse(text) as { aud?: unknown }).aud;
+    return typeof aud === 'string' || (Array.isArray(aud) && aud.every((a) => typeof a === 'string')) ? aud as string | string[] : undefined;
+  } catch { return undefined; }
+}

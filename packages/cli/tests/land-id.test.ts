@@ -1,13 +1,15 @@
 import { expect, it, vi } from "vitest";
 import { EXIT, run } from "../src/cli.js";
 
+const ORG = "org_00000000-0000-4000-8000-000000000001";
+
 function command(argv: string[], configured = false) {
   let stdout = "", stderr = "";
   const fetch = vi.fn(async (_url: string, init: RequestInit) => init.method === "POST"
     ? Response.json({ receiptId: "R1", status: "pending" }, { status: 202 })
     : Response.json({ receiptId: "R1", outcome: "landed" }));
   const git = vi.fn();
-  const done = run({ argv, env: configured ? {} : { OCTOCOVE_CONFIG_DIR: "/nonexistent", OCTOCOVE_API_URL: "invalid" },
+  const done = run({ argv, env: configured ? { OCTOCOVE_ORG: ORG } : { OCTOCOVE_CONFIG_DIR: "/nonexistent", OCTOCOVE_API_URL: "invalid" },
     ...(configured ? { credentials: { apiUrl: "https://api.example.invalid/v1", token: "fixture", kind: "human" as const } } : {}),
     fetch, git, stdout: s => { stdout += s; }, stderr: s => { stderr += s; }, stdin: async () => "" });
   return { done, fetch, git, output: () => ({ stdout, stderr }) };
@@ -36,7 +38,7 @@ it.each([false, true])("task IDs fail before credentials or network in JSON=%s",
 it.each(["candidate-example", "c7b59458-1127-4f18-8e7a-4a4512271b81"])("valid candidate %s reaches the landing route", async candidate => {
   const running = command(["land", candidate, "--approval", "A1", "--wait", "--json"], true);
   expect(await running.done).toBe(EXIT.ok);
-  expect(running.fetch.mock.calls[0]?.[0]).toBe(`https://api.example.invalid/v1/candidates/${candidate}/land`);
+  expect(running.fetch.mock.calls[0]?.[0]).toBe(`https://api.example.invalid/v1/orgs/${ORG}/candidates/${candidate}/land`);
   expect(JSON.parse(running.fetch.mock.calls[0]![1].body as string)).toEqual({ approvalId: "A1" });
   expect(JSON.parse(running.output().stdout).receipt.outcome).toBe("landed");
   expect(running.output().stderr).toBe("");

@@ -8,6 +8,7 @@ import { afterEach, expect, it } from 'vitest';
 import { saveCredentials, loadCredentials, type Credentials } from '../src/config.js';
 import { agentSessionFetch } from '../src/session.js';
 import { run, type Deps } from '../src/cli.js';
+const ORG='org_00000000-0000-4000-8000-000000000001';
 const dirs: string[] = [];
 const authHeader = (value: string) => { const headers = new Headers(); headers.set('authorization', value); return headers; };
 afterEach(async()=>{for(const dir of dirs.splice(0)) await rm(dir,{recursive:true,force:true});});
@@ -15,7 +16,7 @@ const future = (ms: number) => new Date(Date.now()+ms).toISOString();
 async function fixture(extra: Partial<Credentials> = {}) {
   const dir = await mkdtemp(join(tmpdir(),'oc-delegation-')); dirs.push(dir);
   const env = { OCTOCOVE_CONFIG_DIR:dir };
-  const credential: Credentials = {apiUrl:'https://api.example.invalid/v1',kind:'agent',agentId:'agent-one',delegationId:'D1',token:'old-delegation',...extra};
+  const credential: Credentials = {apiUrl:'https://api.example.invalid/v1',kind:'agent',orgId:ORG,agentId:'agent-one',delegationId:'D1',token:'old-delegation',...extra};
   await saveCredentials(env,credential);
   const calls: {path:string;token:string|null;key:string|null}[] = [];
   let output = '', rotations = 0;
@@ -34,18 +35,18 @@ async function fixture(extra: Partial<Credentials> = {}) {
 }
 it('renews an expired delegation once, persists before retry and stays scoped to the agent',async()=>{
   const f=await fixture(); expect(await run(f.deps),f.output).toBe(0);
-  expect(f.calls.map(c=>c.path)).toEqual(['/v1/tasks','/v1/delegations/D1/renew','/v1/tasks']);
+  expect(f.calls.map(c=>c.path)).toEqual([`/v1/orgs/${ORG}/tasks`,`/v1/orgs/${ORG}/delegations/D1/renew`,`/v1/orgs/${ORG}/tasks`]);
   expect(f.calls.map(c=>c.token)).toEqual(['Bearer old-delegation','Bearer old-delegation','Bearer new-delegation']);
   expect(await loadCredentials(f.env)).toMatchObject({kind:'agent',agentId:'agent-one',delegationId:'D1',token:'new-delegation',expiresAt:expect.any(String)});
   expect((await stat(join(f.env.OCTOCOVE_CONFIG_DIR,'credentials','cli.json'))).mode&0o777).toBe(0o600);
 });
 it.each([110000,-1000])('renews proactively at %s ms remaining',async(ms)=>{
   const f=await fixture({expiresAt:future(ms),absoluteExpiresAt:future(3600000),claimExpiresAt:future(1800000)});
-  expect(await run(f.deps),f.output).toBe(0); expect(f.calls[0]?.path).toBe('/v1/delegations/D1/renew'); expect(f.rotations).toBe(1);
+  expect(await run(f.deps),f.output).toBe(0); expect(f.calls[0]?.path).toBe(`/v1/orgs/${ORG}/delegations/D1/renew`); expect(f.rotations).toBe(1);
 });
 it('without a stored expiry, renewal is scheduled from the issue time, never from the token',async()=>{
   const issued=await fixture({issuedAt:future(-14*60000)});expect(await run(issued.deps),issued.output).toBe(0);
-  expect(issued.calls[0]?.path).toBe('/v1/delegations/D1/renew');expect(issued.rotations).toBe(1);
+  expect(issued.calls[0]?.path).toBe(`/v1/orgs/${ORG}/delegations/D1/renew`);expect(issued.rotations).toBe(1);
   // A token that looks like a JWT about to expire is opaque: it renews only on the server's expiry answer.
   const token='x.'+Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+60})).toString('base64url')+'.x';
   const opaque=await fixture({token});opaque.deps.fetch=async(url,init)=>new URL(url).pathname.endsWith('/renew')?Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),tokenType:'Bearer'}):Response.json({items:[]});

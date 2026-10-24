@@ -9,15 +9,17 @@ Every claim is a lane, and every lane that materializes has a lane repository (s
 resolutions, reopen and retirement). `candidate show` always says whether `land` is available to you, and why not
 when it isn't. See the [CLI guide](../../packages/cli/README.md#lanes).
 
-You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.5.0 or later), and a project whose repository admits
+You need the CLI (`npx --yes @yolo-labs/octocove@latest`, 0.6.0 or later), and a project whose repository admits
 lanes. The service operator declares that per repository. A human with `tasks:create` and
 `tasks:authorize` on the project runs steps 1, 7 and 8; the agent runs steps 2 to 6.
 
 ## 1. Authorize an agent (human)
 
-Create and publish a task, then hand the agent a one-time bootstrap file:
+Create and publish a task, then hand the agent a one-time bootstrap file. The human names the project's org
+(`octocove project list` shows it); the bootstrap file carries it to the agent, which never passes one:
 
 ```sh
+export OCTOCOVE_ORG=ORG_ID
 octocove task create --project PROJECT --repository REPO --target-ref refs/heads/main \
   --key docs-update --title "Update the docs" --description "Edit docs/ only" --acceptance '["docs build"]' --json > task.json
 TASK=$(node -e 'process.stdout.write(require("./task.json").id)')

@@ -13,7 +13,7 @@ What remains, and why:
 - `src/merge.mjs` — `mergeIndex`, `mergeCandidate`: Git merge primitives for Git
   tooling; the caller supplies `runGit`.
 - `src/event-queue.ts` — `forwardEventEnvelope`: trusted scheduler ingress that
-  validates an event envelope and forwards the received bytes to a queue.
+  validates a schema v2 event envelope (with its `tenantId`) and forwards the received bytes to a queue.
 
 The CLI and the client library import nothing from this package. Other consumers import these files by
 relative path or by subpath. Every export, its importers and

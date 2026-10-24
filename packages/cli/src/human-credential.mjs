@@ -17,7 +17,7 @@ export async function humanCredential({ argv, stdin, stdout, stderr, fetch, env,
     if(!values['config-dir'] || !values.url)throw new Error();
     const remote=new URL(values.url);
     checkBaseUrl(remote.origin);
-    if(remote.username || remote.password || remote.search || remote.hash || !/^\/v1\/projects\/[^/]+\/repositories\/[^/]+\/git$/.test(remote.pathname))throw new Error();
+    if(remote.username || remote.password || remote.search || remote.hash || !/^\/v1\/orgs\/org_[0-9a-f-]{36}\/projects\/[^/]+\/repositories\/[^/]+\/git$/.test(remote.pathname))throw new Error();
     const fields=Object.fromEntries(input.split('\n').filter(Boolean).map(line=>{const at=line.indexOf('=');if(at<1)throw new Error();return [line.slice(0,at),line.slice(at+1)];}));
     if(fields.protocol!==remote.protocol.slice(0,-1) || fields.host!==remote.host || fields.path!==remote.pathname.slice(1) || (fields.username && fields.username!=='octocove'))return 0;
     const selected={...env,OCTOCOVE_CONFIG_DIR:resolve(values['config-dir'])};
@@ -25,7 +25,7 @@ export async function humanCredential({ argv, stdin, stdout, stderr, fetch, env,
     const credential=await activeCredentials(selected);
     if(!credential || credential.kind!=='human' || checkBaseUrl(baseUrlOf(credential.apiUrl))!==remote.origin)throw new Error();
     const api=new Api({apiUrl:credential.apiUrl,credential,fetch:humanSessionFetch(selected,credential,fetch),signal});
-    const me=await api.j.auth.me(api.until(Date.now()+30000));
+    const me=await api.root.auth.me(api.until(Date.now()+30000));
     if(me.principal.kind!=='human')throw new Error();
     const current=await activeCredentials(selected);
     if(!current || current.kind!=='human' || current.apiUrl!==credential.apiUrl || /[\r\n\0]/.test(current.token))throw new Error();

@@ -19,9 +19,11 @@ jobs:
         # Green checks trigger evaluation; the server still verifies its record.
         env:
           OCTOCOVE_API_URL: ${{ vars.OCTOCOVE_API_URL }}
+          OCTOCOVE_ORG: ${{ vars.OCTOCOVE_ORG }}
           OCTOCOVE_CONFIG_DIR: ${{ runner.temp }}/octocove-machine
           EXPECTED_PRINCIPAL: ${{ vars.OCTOCOVE_APPROVER_PRINCIPAL }}
-          PROOF_AUDIENCE: ${{ vars.OCTOCOVE_APPROVAL_AUDIENCE }}
+          # The exact tenant-scoped exchange URL; the server refuses any other aud.
+          PROOF_AUDIENCE: ${{ vars.OCTOCOVE_APPROVAL_API_ORIGIN }}/v1/orgs/${{ vars.OCTOCOVE_ORG }}/auth/approval-grants
           APPROVAL_SCOPE: ${{ vars.OCTOCOVE_APPROVAL_SCOPE }}
         shell: bash
         run: |

@@ -13,6 +13,7 @@ import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
 interface Call { method: string; url: URL; headers: Record<string, string>; body?: any }
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const API = "https://api.example.invalid/v1";
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 const SHA = (s: string) => createHash("sha1").update(s).digest("hex");
 const sha256 = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64");
@@ -23,8 +24,8 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
   outText = errText = "";
   return run({
     argv,
-    env: { OCTOCOVE_CONFIG_DIR: join(work, "cfg") },
-    credentials: { apiUrl: API, token: "tok", kind: "agent" },
+    env: { OCTOCOVE_CONFIG_DIR: join(work, "cfg"), OCTOCOVE_ORG: ORG },
+    credentials: { apiUrl: API, token: "tok", kind: "agent", orgId: ORG },
     git: systemGit(work),
     // Directory commands run inside the materialized directory once it exists; materialize runs from its parent.
     cwd: argv[1] !== "materialize" && existsSync(join(dir, SIDECAR)) ? dir : work,
@@ -32,7 +33,7 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
       const u = new URL(url);
       const call: Call = { method: init.method ?? "GET", url: u, headers: init.headers as any, body: init.body ? JSON.parse(init.body as string) : undefined };
       calls.push(call);
-      const route = routes[`${call.method} ${u.pathname.replace("/v1", "")}`];
+      const route = routes[`${call.method} ${u.pathname.replace(`/v1/orgs/${ORG}`, "").replace("/v1", "")}`];
       return route ? route(call) : json(404, { code: "not-found", status: 404 });
     },
     stdout: (s) => (outText += s), stderr: (s) => (errText += s), stdin: async () => "", sleep: async () => {},
@@ -203,7 +204,7 @@ describe("octocove lane (materialized)", () => {
   it("claims the lane with its scope and no clone", async () => {
     routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id: "C1", taskId: "T1", status: "active", provisioningState: "ready", lane: { kind: "materialized", claimAttemptId: "C1", generation: 1, baseSha: base1, scopeVersion: 1, scope } },
       delegation: { delegationId: "D1", accessToken: "claimed-delegation", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1" } });
-    const bootstrap = { credentials: { apiUrl: API, token: "boot", kind: "bootstrap" as const } };
+    const bootstrap = { credentials: { apiUrl: API, token: "boot", kind: "bootstrap" as const, orgId: ORG } };
     expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/,README.md", "--write", "src/"], bootstrap)).toBe(EXIT.ok);
     const claim = calls.find((c) => c.method === "POST" && c.url.pathname.endsWith("/claim"))!;
     expect(claim.body).toEqual({ intentVersion: 3, scope: { read: ["src/", "README.md"], write: ["src/"] } });

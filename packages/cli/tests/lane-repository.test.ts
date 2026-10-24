@@ -16,6 +16,7 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 const problem = (status: number, code: string, details?: unknown, retryAfter?: number) => new Response(JSON.stringify({ type: "about:blank", title: code, status, code, detail: code, requestId: "R1", ...(details ? { details } : {}) }),
   { status, headers: { "content-type": "application/problem+json", ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) } });
 const API = "https://api.example.invalid/v1";
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 const SHA = (s: string) => createHash("sha1").update(s).digest("hex");
 const sha256 = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64");
@@ -34,15 +35,15 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
   outText = errText = "";
   return run({
     argv,
-    env: { OCTOCOVE_CONFIG_DIR: join(work, "cfg") },
-    credentials: { apiUrl: API, token: "tok", kind: "agent" },
+    env: { OCTOCOVE_CONFIG_DIR: join(work, "cfg"), OCTOCOVE_ORG: ORG },
+    credentials: { apiUrl: API, token: "tok", kind: "agent", orgId: ORG },
     git: systemGit(work),
     cwd: argv[1] !== "materialize" && existsSync(join(dir, SIDECAR)) ? dir : work,
     fetch: async (url, init) => {
       const u = new URL(url);
       const call: Call = { method: init.method ?? "GET", url: u, headers: init.headers as any, body: init.body ? JSON.parse(init.body as string) : undefined };
       calls.push(call);
-      const route = routes[`${call.method} ${u.pathname.replace("/v1", "")}`];
+      const route = routes[`${call.method} ${u.pathname.replace(`/v1/orgs/${ORG}`, "").replace("/v1", "")}`];
       return route ? route(call) : problem(404, "not-found");
     },
     stdout: (s) => (outText += s), stderr: (s) => (errText += s), stdin: async () => "", sleep: async (ms) => { slept.push(ms); },
@@ -460,7 +461,7 @@ describe("octocove lane with a lane repository", () => {
       delegation: { delegationId: "D3", accessToken: "reopenedAgentCredential", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
 
     it("claims with the reopen bootstrap without a scope, and points at lane materialize", async () => {
-      const file = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "boot") }, { apiUrl: API, token: "reopen-boot", kind: "bootstrap", agentId: "agent-1" });
+      const file = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "boot") }, { apiUrl: API, orgId: ORG, token: "reopen-boot", kind: "bootstrap", agentId: "agent-1" });
       routes["POST /tasks/T1/claim"] = reopenedClaim("pending");
       expect(await cli([...claimArgs, "--bootstrap-file", file])).toBe(EXIT.ok);
       const claim = posts("/claim")[0]!;
@@ -477,7 +478,7 @@ describe("octocove lane with a lane repository", () => {
       expect(await cli(claimArgs)).toBe(EXIT.config);
       expect(posts("/claim")).toHaveLength(0);
       routes["POST /tasks/T1/claim"] = () => problem(409, "lane-reopen-required");
-      expect(await cli([...claimArgs, "--read", "src/", "--write", "src/"], { credentials: { apiUrl: API, token: "other-boot", kind: "bootstrap" } })).toBe(EXIT.failure);
+      expect(await cli([...claimArgs, "--read", "src/", "--write", "src/"], { credentials: { apiUrl: API, token: "other-boot", kind: "bootstrap", orgId: ORG } })).toBe(EXIT.failure);
       expect(errText).toContain("only the bootstrap `octocove lane reopen` stored admits a claim");
     });
   });
@@ -502,7 +503,7 @@ describe("octocove lane with a lane repository", () => {
 
     it("--handover takes the open execution and stores the new execution's delegation privately", async () => {
       const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
-      await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "cfg") }, { apiUrl: API, token: "tok", kind: "agent", delegationId: "D1", agentId: "agent-1", absoluteExpiresAt: "2099-01-01T00:00:00Z" });
+      await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "cfg") }, { apiUrl: API, orgId: ORG, token: "tok", kind: "agent", delegationId: "D1", agentId: "agent-1", absoluteExpiresAt: "2099-01-01T00:00:00Z" });
       let busy = 1;
       routes["POST /tasks/T1/lane/executions"] = (c) => {
         expect(c.body).toEqual({});
@@ -601,7 +602,7 @@ describe("lane repository state, write scope and retirement", () => {
 
   it("a claim refused write-scope-claimed says nothing was recorded and that the holder is not named", async () => {
     routes["POST /tasks/T1/claim"] = () => problem(409, "write-scope-claimed", { requested: ["src/app/"] });
-    expect(await cli(["task", "claim", "T1", "--read", "src/", "--write", "src/app/", "--intent-version", "3"], { credentials: { apiUrl: API, token: "boot", kind: "bootstrap" } })).toBe(EXIT.failure);
+    expect(await cli(["task", "claim", "T1", "--read", "src/", "--write", "src/app/", "--intent-version", "3"], { credentials: { apiUrl: API, token: "boot", kind: "bootstrap", orgId: ORG } })).toBe(EXIT.failure);
     expect(errText).toContain("overlapping write scope for src/app/, so nothing was recorded");
     expect(errText).toContain("the holder is named only to a project member");
   });

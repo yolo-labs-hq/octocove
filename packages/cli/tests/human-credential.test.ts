@@ -8,8 +8,8 @@ import { humanCredential } from '../src/human-credential.mjs';
 import { saveCredentials, loadCredentials, type Credentials } from '../src/config.js';
 const dirs:string[]=[];afterEach(async()=>{await Promise.all(dirs.splice(0).map(p=>rm(p,{recursive:true,force:true})));});
 const credentialPipe=(value:string)=>[['username','octocove'],['password',value]].map(([key,value])=>`${key}=${value}`).join('\n')+'\n\n';
-const remote='https://api.example.invalid/v1/projects/P1/repositories/R1/git';
-const input='protocol=https\nhost=api.example.invalid\npath=v1/projects/P1/repositories/R1/git\n\n';
+const remote='https://api.example.invalid/v1/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories/R1/git';
+const input='protocol=https\nhost=api.example.invalid\npath=v1/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories/R1/git\n\n';
 async function fixture(extra:Partial<Credentials>={}){
  const dir=await mkdtemp(join(tmpdir(),'human-git-'));dirs.push(dir);const env={OCTOCOVE_CONFIG_DIR:dir};
  await saveCredentials(env,{apiUrl:'https://api.example.invalid/v1',kind:'human',token:'old-session',...extra});
@@ -36,7 +36,7 @@ it('never stores or echoes a credential sent back by Git',async()=>{
  const f=await fixture();for(const operation of ['store','erase'])expect(await humanCredential({...f.deps,argv:[...f.deps.argv.slice(0,-1),operation],stdin:Readable.from([input+credentialPipe('git-secret')])})).toBe(0);
  expect(f.stdout).toBe('');expect(f.stderr).toBe('');expect(f.paths).toEqual([]);expect((await loadCredentials(f.env)).token).toBe('old-session');
 });
-it.each(['protocol=http\nhost=api.example.invalid\npath=v1/projects/P1/repositories/R1/git\n','protocol=https\nhost=elsewhere.invalid\npath=v1/projects/P1/repositories/R1/git\n','protocol=https\nhost=api.example.invalid\npath=v1/projects/P2/repositories/R2/git\n'])('does not emit credentials for another origin or repository path',async(request)=>{
+it.each(['protocol=http\nhost=api.example.invalid\npath=v1/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories/R1/git\n','protocol=https\nhost=elsewhere.invalid\npath=v1/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories/R1/git\n','protocol=https\nhost=api.example.invalid\npath=v1/projects/P2/repositories/R2/git\n'])('does not emit credentials for another origin or repository path',async(request)=>{
  const f=await fixture();expect(await humanCredential({...f.deps,stdin:Readable.from([request])})).toBe(0);expect(f.stdout).toBe('');expect(f.paths).toEqual([]);
 });
 it('absolute expiry fails closed with a sign-in instruction and no token',async()=>{

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
+const ORG = "org_00000000-0000-4000-8000-000000000001";
 const stalled = () => new Promise<Response>(() => {});
 const git = vi.fn(async () => "");
 
@@ -8,8 +9,8 @@ afterEach(() => vi.useRealTimers());
 
 function command(argv: string[], fetch: Deps["fetch"], overrides: Partial<Deps> = {}) {
   let stdout = "", stderr = "";
-  const done = run({ argv: [...argv, "--json"], env: {},
-    credentials: { apiUrl: "https://api.example.invalid/v1", token: "test-token", kind: "agent" },
+  const done = run({ argv: [...argv, "--json"], env: { OCTOCOVE_ORG: ORG },
+    credentials: { apiUrl: "https://api.example.invalid/v1", token: "test-token", kind: "agent", orgId: ORG },
     git, fetch, stdout: s => { stdout += s; }, stderr: s => { stderr += s; }, stdin: async () => "", ...overrides });
   return { done, output: () => ({ stdout, stderr }) };
 }

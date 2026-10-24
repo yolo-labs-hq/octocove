@@ -7,7 +7,7 @@ afterEach(() => vi.useRealTimers());
 function land(wait: boolean, receipt: Deps["fetch"]) {
   let stdout = "", stderr = "";
   const calls: string[] = [];
-  const done = run({ argv: ["land", "K1", "--approval", "A1", "--json", ...(wait ? ["--wait"] : [])], env: {},
+  const done = run({ argv: ["land", "K1", "--approval", "A1", "--json", ...(wait ? ["--wait"] : [])], env: { OCTOCOVE_ORG: "org_00000000-0000-4000-8000-000000000001" },
     credentials: { apiUrl: "https://api.example.invalid/v1", token: "fixture", kind: "human" },
     fetch: async (url, init) => {
       calls.push(init.method ?? "GET");

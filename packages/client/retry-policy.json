@@ -261,11 +261,45 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
+  "meProjectCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "organizationCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
   "projectRepositoryGitRefsGet": {
     "callable": false,
     "reason": "excluded"
   },
   "projectRepositoryGitUploadPack": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordInspect": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordExportSchema": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordExportChunk": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordRestore": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordRestoreStatus": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordRestoreAbort": {
     "callable": false,
     "reason": "excluded"
   },
@@ -285,6 +319,11 @@
     "replay": "stored-result"
   },
   "repositoryVerify": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "repositoryLanePolicyDeclare": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"

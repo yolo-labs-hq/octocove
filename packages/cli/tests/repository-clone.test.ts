@@ -24,16 +24,16 @@ async function fixture({empty=false,multiple=false,member=true,kind='human'}={})
  const root=await mkdtemp(join(tmpdir(),'octocove-clone-'));roots.push(root);
  const canonical=join(root,'canonical');await mkdir(canonical);git(canonical,'init','-q','--initial-branch=trunk');
  if(!empty){await writeFile(join(canonical,'README.md'),'initial\n');git(canonical,'add','README.md');git(canonical,'-c','user.name=Reader','-c','user.email=reader@example.invalid','commit','-qm','initial');}
- const project={projectId:'P1',slug:'tools',name:'Tools',artifactsNamespace:'ns',verbs:['tasks:read']};
- const repository={id:'R1',projectId:'P1',provider:'artifacts',namespace:'ns',repoId:'tools',name:'tools',role:'canonical',targetRef:'refs/heads/trunk',knownHeadSha:empty?null:git(canonical,'rev-parse','HEAD'),verification:'verified',verifiedAt:null,importState:null};
+ const project={projectId:'P1',slug:'tools',name:'Tools',artifactsNamespace:'ns',verbs:['tasks:read'],tenantId:'org_00000000-0000-4000-8000-000000000001',tenantKind:'organization'};
+ const repository={id:'R1',projectId:'P1',provider:'artifacts',namespace:'ns',repoId:'tools',name:'tools',role:'canonical',targetRef:'refs/heads/trunk',lanePolicy:{candidatePublication:'repository-readers',visibility:'private'},knownHeadSha:empty?null:git(canonical,'rev-parse','HEAD'),verification:'verified',verifiedAt:null,importState:null};
  const calls:string[]=[];let received=0;
  const server=createServer(async(req,res)=>{
   const url=new URL(req.url!,'http://localhost');calls.push(`${req.method} ${url.pathname}`);
-  const isGit=url.pathname.startsWith('/v1/projects/P1/repositories/R1/git/');
+  const isGit=url.pathname.startsWith('/v1/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories/R1/git/');
   const expected=isGit?'Basic '+Buffer.from('octocove:'+session).toString('base64'):'Bearer '+session;
   if(req.headers['authorization']!==expected && !(isGit && req.headers['authorization']==='Bearer '+session)){res.writeHead(401,{'WWW-Authenticate':'Basic realm="octocove"'});res.end();return;}
   if(url.pathname==='/v1/me'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({principal:{id:'reader',kind},credential:{kind:'session',expiresAt:'2099-01-01T00:00:00Z'},memberships:member?[project]:[],capabilities:{createProjects:false}}));return;}
-  if(url.pathname==='/v1/projects/P1/repositories'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({items:multiple?[repository,{...repository,id:'R2',name:'second',repoId:'second'}]:[repository],creations:[]}));return;}
+  if(url.pathname==='/v1/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({items:multiple?[repository,{...repository,id:'R2',name:'second',repoId:'second'}]:[repository],creations:[]}));return;}
   if(isGit){received++;const env={...process.env,GIT_PROTOCOL:req.headers['git-protocol'] as string??''};
    if(req.method==='GET'&&url.searchParams.get('service')==='git-upload-pack'){
     const text='# service=git-upload-pack\n',packet=(Buffer.byteLength(text)+4).toString(16).padStart(4,'0')+text+'0000';
@@ -44,7 +44,7 @@ async function fixture({empty=false,multiple=false,member=true,kind='human'}={})
   res.writeHead(404);res.end();
  });servers.push(server);await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
  const address=server.address() as import('node:net').AddressInfo,apiUrl=`http://127.0.0.1:${address.port}/v1`,cfg=join(root,'human config');
- await saveCredentials({OCTOCOVE_CONFIG_DIR:cfg},{apiUrl,token:session,kind:kind==='human'?'human':'agent'});
+ await saveCredentials({OCTOCOVE_CONFIG_DIR:cfg},kind==='human'?{apiUrl,token:session,kind:'human'}:{apiUrl,token:session,kind:'agent',orgId:'org_00000000-0000-4000-8000-000000000001'});
  let stdout='',stderr='';
  const deps={argv:['repo','clone','tools'],env:{...process.env,OCTOCOVE_CONFIG_DIR:cfg},cwd:root,humanCredentialPath:join(helperDir,'octocove-human-credential.mjs'),git:systemGit(root),fetch:(url:string,init?:RequestInit)=>fetch(url,init),stdout:(text:string)=>{stdout+=text;},stderr:(text:string)=>{stderr+=text;},stdin:async()=>''};
  return {root,canonical,cfg,apiUrl,repository,calls,deps,get output(){return stdout+stderr;},get stdout(){return stdout;},get stderr(){return stderr;},get received(){return received;}};
@@ -53,7 +53,7 @@ it('clones a selected canonical target branch through the human pipe and later p
  const f=await fixture();expect(await run(f.deps)).toBe(0);const target=join(f.root,'tools');
  expect(await readFile(join(target,'README.md'),'utf8')).toBe('initial\n');expect(git(target,'branch','--show-current')).toBe('trunk');
  const config=await readFile(join(target,'.git','config'),'utf8');expect(config).not.toContain(session);expect(config).toContain('octocove-human-credential.mjs');expect(config).toContain('helper = \n');
- expect(git(target,'remote','get-url','origin')).toBe(`${f.apiUrl}/projects/P1/repositories/R1/git`);
+ expect(git(target,'remote','get-url','origin')).toBe(`${f.apiUrl}/orgs/org_00000000-0000-4000-8000-000000000001/projects/P1/repositories/R1/git`);
  expect(f.output).toContain('Cloned to');expect(f.output).toContain('tasks and lanes');expect(f.output).not.toContain(session);
  await writeFile(join(f.canonical,'README.md'),'moved\n');git(f.canonical,'add','README.md');git(f.canonical,'-c','user.name=Reader','-c','user.email=reader@example.invalid','commit','-qm','moved');
  const marker=join(f.root,'inherited-helper-ran'),globalConfig=join(f.root,'global-git-config');

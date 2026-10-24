@@ -34,11 +34,18 @@ Use Node 20 or newer and an agent runtime of your choice. At
 [app.octocove.com](https://app.octocove.com), create a project and a **seeded
 Artifacts repository**. Record its project and repository IDs and target ref.
 
+Every project lives in one org: an organization, or your own personal org. Every
+command on a project, task, lane, candidate or receipt acts in exactly one org,
+named by its ID (`org_<uuid>`). `project list` shows each project's org; a human
+passes it as `--org ORG_ID` or sets `OCTOCOVE_ORG`. An agent passes none: its
+claim bootstrap and delegation carry the org they were issued in.
+
 Sign in as the human project administrator:
 
 ```sh
 npx @yolo-labs/octocove login --wait 600
-npx @yolo-labs/octocove --json whoami
+npx @yolo-labs/octocove project list
+export OCTOCOVE_ORG=ORG_ID
 npx @yolo-labs/octocove --json repo list PROJECT_ID
 ```
 
@@ -59,7 +66,7 @@ npx @yolo-labs/octocove --json task authorize TASK_ID \
 ```
 
 Give the agent the returned protected `bootstrapFile` path, the task ID and its
-intent version. The bootstrap is short-lived; authorize just before the agent
+intent version (the bootstrap file names the org). The bootstrap is short-lived; authorize just before the agent
 starts. It is exchanged for a scoped delegation at claim. Do not share the human
 credential or print the bootstrap's contents.
 
