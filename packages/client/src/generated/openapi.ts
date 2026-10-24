@@ -392,7 +392,7 @@ export interface paths {
         };
         /**
          * List the project's landings, newest first
-         * @description Whoever may read `GET /orgs/{orgId}/receipts/{id}` - a member holding `receipts:read`, or an agent delegation with `receipts:read` (its own task's landings only). 404 `not-found` for an unknown project, 403 `forbidden` for a non-member. One item per `landed` receipt, newest first (`landedAt`, then `receiptId`, descending). Each item is the same record `GET /orgs/{orgId}/receipts/{receiptId}` reports (`landedAt` is its `reconciledAt`); `approvedBy`, `approvedAt` and `actor` (who requested the landing) are derived from the fence's audit evidence exactly as the signed receipt export derives them. A page is read in two set-based statements, never one per task. Keyset pagination with an opaque cursor bound to the tenant, the caller and project (400 `invalid-cursor` otherwise). Not audited.
+         * @description Whoever may read `GET /orgs/{orgId}/receipts/{id}` - a member holding `receipts:read`, or an agent delegation with `receipts:read` (its own task's landings only). 404 `project-not-found` for an unknown project, 403 `forbidden` for a non-member. One item per `landed` receipt, newest first (`landedAt`, then `receiptId`, descending). Each item is the same record `GET /orgs/{orgId}/receipts/{receiptId}` reports (`landedAt` is its `reconciledAt`); `approvedBy`, `approvedAt` and `actor` (who requested the landing) are derived from the fence's audit evidence exactly as the signed receipt export derives them. A page is read in two set-based statements, never one per task. Keyset pagination with an opaque cursor bound to the tenant, the caller and project (400 `invalid-cursor` otherwise). Not audited.
          */
         get: operations["landingsList"];
         put?: never;
@@ -3756,9 +3756,9 @@ export interface components {
         CodeDirectoryPath: string;
         /** @description A file, normalised and refused as `CodeDirectoryPath`; the root is 422. */
         CodeFilePath: string;
-        /** @description The project id (`GET /me` memberships). */
-        ProjectPath: components["schemas"]["Id"];
-        /** @description Authorized project. Agents can only name their bound project. */
+        /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+        ProjectPath: string;
+        /** @description Authorized project, by id (no slug). Agents can only name their bound project. An id that names no project of this organization is 404 `project-not-found`, as for `{project}`. */
         ProjectId: components["schemas"]["Id"];
     };
     requestBodies: never;
@@ -3781,7 +3781,7 @@ export interface operations {
     tasksList: {
         parameters: {
             query: {
-                /** @description Authorized project. Agents can only name their bound project. */
+                /** @description Authorized project, by id (no slug). Agents can only name their bound project. An id that names no project of this organization is 404 `project-not-found`, as for `{project}`. */
                 projectId: components["parameters"]["ProjectId"];
                 /** @description Page size. */
                 limit?: components["parameters"]["Limit"];
@@ -4122,7 +4122,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4159,7 +4159,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4201,7 +4201,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
                 /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
                 repository: components["schemas"]["Id"];
@@ -4241,7 +4241,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
                 /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
                 repository: components["schemas"]["Id"];
@@ -4284,7 +4284,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 repository: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -4322,7 +4323,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 repository: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -4368,7 +4370,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4407,7 +4409,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4444,7 +4446,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4483,7 +4485,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4517,7 +4519,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4554,7 +4556,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -4597,7 +4599,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
                 /** @description The member's `issuer|sub` (`Member.principalId`), percent-encoded as one path segment. */
                 principalId: string;
@@ -4635,7 +4637,7 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                /** @description The project id (`GET /me` memberships). */
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
                 project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
@@ -6187,7 +6189,7 @@ export interface operations {
     eventsReplay: {
         parameters: {
             query: {
-                /** @description Authorized project. Agents can only name their bound project. */
+                /** @description Authorized project, by id (no slug). Agents can only name their bound project. An id that names no project of this organization is 404 `project-not-found`, as for `{project}`. */
                 projectId: components["parameters"]["ProjectId"];
                 /** @description Signed domain cursor, delivered evt_<rowId>, or decimal audit position (0 starts oldest). A nonzero raw position must belong to the authorized project/task and since filter. Exclusive; no access granted. */
                 after?: string;
@@ -7328,7 +7330,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: string;
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
         };
@@ -7377,7 +7380,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: string;
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: string;
             };
             cookie?: never;
@@ -7412,7 +7416,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
         };
@@ -7459,7 +7464,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
             };
             cookie?: never;
         };
@@ -7502,7 +7508,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -7547,7 +7554,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -7582,7 +7590,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -7615,7 +7624,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -7660,7 +7670,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: components["schemas"]["Id"];
             };
             cookie?: never;
@@ -7707,7 +7718,8 @@ export interface operations {
             path: {
                 /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
                 orgId: components["parameters"]["TenantSelector"];
-                project: components["schemas"]["Id"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
                 id: components["schemas"]["Id"];
             };
             cookie?: never;
