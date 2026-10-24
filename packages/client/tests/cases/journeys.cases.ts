@@ -11,6 +11,7 @@ import {
   staleBaseRefusal,
   tenantClient,
   TenantNotFoundError,
+  ProjectNotFoundError,
   TransportError,
   type ClaimBootstrap,
   type ClientOptions,
@@ -505,17 +506,19 @@ export const journeyCases: Case[] = [
     await rejects(() => client(fetch).call('taskGet', { path: { id: 't' } } as never), TypeError);
     equal(calls.length, 2, 'nothing was sent for a refused tenant');
   }),
-  test('tenant-not-found, org-creation-pending and route-unavailable are typed ApiErrors', async () => {
-    const { fetch } = scriptedFetch(problem(404, 'tenant-not-found'), problem(409, 'org-creation-pending', { details: { organization: { id: ORG, provisioningState: 'pending', name: 'Acme' } } }),
+  test('tenant-not-found, project-not-found, org-creation-pending and route-unavailable are typed ApiErrors', async () => {
+    const { fetch } = scriptedFetch(problem(404, 'tenant-not-found'), problem(404, 'project-not-found'), problem(409, 'org-creation-pending', { details: { organization: { id: ORG, provisioningState: 'pending', name: 'Acme' } } }),
       problem(503, 'route-unavailable'), problem(404, 'not-found'));
     const tasks = journeys(client(fetch)).org(ORG).tasks;
     const missing = await rejects(() => tasks.get('t', { deadline: soon() }), TenantNotFoundError);
     ok(missing instanceof ApiError && missing.code === 'tenant-not-found');
+    const project = await rejects(() => tasks.get('t', { deadline: soon() }), ProjectNotFoundError);
+    ok(project instanceof ApiError && project.code === 'project-not-found' && !(project instanceof TenantNotFoundError));
     const pending = await rejects(() => tasks.get('t', { deadline: soon() }), OrgCreationPendingError);
     equal(pending.organization?.name, 'Acme');
     await rejects(() => tasks.get('t', { deadline: soon() }), RouteUnavailableError);
     const other = await rejects(() => tasks.get('t', { deadline: soon() }), ApiError);
-    ok(!(other instanceof TenantNotFoundError), 'a resource 404 is not a tenant 404');
+    ok(!(other instanceof TenantNotFoundError) && !(other instanceof ProjectNotFoundError), 'a resource 404 is neither a tenant nor a project 404');
   }),
 
   // ---- repositories ----

@@ -61,10 +61,13 @@ agent's delegation is valid in one tenant only: bind the handle to the tenant it
 reads (`projects.list()`, `auth.me()` for a human, `auth.delegations.list()`) report `partial: true` and the
 `unavailableTenants` they could not read; those tenants' items are missing, never reported as empty.
 
-Three tenant problems are typed errors, subclasses of `ApiError`: `TenantNotFoundError` (`404 tenant-not-found`:
-unknown, malformed or not visible to you; refresh discovery, never try another tenant), `OrgCreationPendingError`
-(`409 org-creation-pending`, with `organization` and `retryAfter`: the org is still being provisioned) and
-`RouteUnavailableError` (`503 route-unavailable`: the tenant is not reachable right now; retry later).
+The tenant and project problems are typed errors, subclasses of `ApiError`: `TenantNotFoundError` (`404 tenant-not-found`:
+unknown, malformed or not visible to you; refresh discovery, never try another tenant), `ProjectNotFoundError`
+(`404 project-not-found`: the `{project}` id or slug, or the `projectId` query, names no project of this org; refresh
+discovery for the project's org and id), `OrgCreationPendingError` (`409 org-creation-pending`, with `organization` and
+`retryAfter`: the org is still being provisioned) and `RouteUnavailableError` (`503 route-unavailable`: the tenant is
+not reachable right now; retry later). A project path segment (`{project}`) takes the project's id or its slug; the
+`projectId` query takes the id only.
 
 ## Transports
 
@@ -87,7 +90,7 @@ unknown, malformed or not visible to you; refresh discovery, never try another t
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 102 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 103 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -149,7 +152,7 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the five unca
 | `approvalTrustActivate` | `never` | `state` | an already-activated binding answers with its activation record, provided the binding still qualifies |
 | `approvalGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
 | `authCallback`, `authCliStart` | `callable: false` | `navigation` | browser navigation, never fetched by the library |
-| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus` | `callable: false` | `excluded` | the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators |
+| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus`, `orgRecordRestoreAbort` | `callable: false` | `excluded` | the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators |
 
 ## Journeys
 
@@ -339,8 +342,8 @@ macOS host.
   `secret=value; trailing` only has its value replaced (`secret=[redacted]; trailing`). Typed views:
   `staleFenceDetails(error)`, `reauthRequiredDetails(error)` (403 `reauth-required`: `authenticatedAt` and the
   `reauthUrl` login path that re-authenticates the same sign-in) and `problemDetails(error)`, all behind runtime guards.
-  The tenant problems are `ApiError` subclasses: `TenantNotFoundError`, `OrgCreationPendingError` (`organization`,
-  `retryAfter`) and `RouteUnavailableError` ([Orgs](#orgs-tenants)).
+  The tenant and project problems are `ApiError` subclasses: `TenantNotFoundError`, `ProjectNotFoundError`,
+  `OrgCreationPendingError` (`organization`, `retryAfter`) and `RouteUnavailableError` ([Orgs](#orgs-tenants)).
 - `TransportError`: `deadline-exceeded`, `network-error`, `insecure-api-url`, `aborted`. A server
   refusal (`409 idempotency-result-expired`, `401 bootstrap-consumed`, …) is always an `ApiError`.
 

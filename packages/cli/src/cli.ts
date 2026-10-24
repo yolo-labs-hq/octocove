@@ -316,6 +316,8 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "The credential reference does not name a configured, unexpired GitHub credential; ask the operator for the right --credential-ref. Nothing was registered."
       : err.code === "tenant-not-found"
         ? "The org does not exist or you cannot see it. Check --org (or OCTOCOVE_ORG) against `octocove project list`; an agent asks its delegating human for a new authorization."
+      : err.code === "project-not-found"
+        ? "No project in this org has that slug or ID. Check the project against `octocove project list` (its slug, its org, and with --verbose its ID) and the org against --org (or OCTOCOVE_ORG)."
       : err.code === "org-creation-pending"
         ? `The org is still being created; nothing was recorded. Run the same command again${err.retryAfter ? ` after ${err.retryAfter} s` : " shortly"} with the same --idempotency-key if you passed one.`
       : err.code === "route-unavailable"

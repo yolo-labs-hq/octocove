@@ -299,6 +299,10 @@
     "callable": false,
     "reason": "excluded"
   },
+  "orgRecordRestoreAbort": {
+    "callable": false,
+    "reason": "excluded"
+  },
   "receiptGet": {
     "callable": true,
     "autoRetry": "network-only",

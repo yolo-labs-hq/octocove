@@ -87,6 +87,16 @@ export class TenantNotFoundError extends ApiError {
 }
 
 /**
+ * `404 project-not-found`: the `{project}` path segment (an id or a slug) or the `projectId` query names no project of
+ * the selected organization (an unknown id or slug, or a project of another organization, with one answer). The org
+ * itself is there; refresh discovery (`GET /me/projects`) for the project's org and id, never retry against another
+ * tenant.
+ */
+export class ProjectNotFoundError extends ApiError {
+  override readonly name = 'ProjectNotFoundError';
+}
+
+/**
  * `409 org-creation-pending`: the selected organization (or the caller's personal tenant, on `meProjectCreate`) is
  * still being provisioned. Wait `retryAfter` seconds and retry the same request; a project creation keeps its
  * reservation, so the same key and body completes it.
@@ -107,9 +117,10 @@ export class RouteUnavailableError extends ApiError {
   override readonly name = 'RouteUnavailableError';
 }
 
-/** The typed error class for a server problem: the three tenant problems, else a plain ApiError. */
+/** The typed error class for a server problem: the tenant and project problems, else a plain ApiError. */
 export function apiErrorFor(init: ApiErrorInit): ApiError {
   if (init.status === 404 && init.code === 'tenant-not-found') return new TenantNotFoundError(init);
+  if (init.status === 404 && init.code === 'project-not-found') return new ProjectNotFoundError(init);
   if (init.status === 409 && init.code === 'org-creation-pending') return new OrgCreationPendingError(init);
   if (init.status === 503 && init.code === 'route-unavailable') return new RouteUnavailableError(init);
   return new ApiError(init);

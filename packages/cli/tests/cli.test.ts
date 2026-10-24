@@ -253,11 +253,16 @@ describe("project list and orgs", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("explains tenant-not-found and route-unavailable", async () => {
+  it("explains tenant-not-found, project-not-found and route-unavailable", async () => {
     const problem = (status: number, code: string) => json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r" });
     routes["GET /tasks/T1"] = () => problem(404, "tenant-not-found");
     expect(await cli(["--json", "task", "show", "T1"], { kind: "human" })).toBe(EXIT.failure);
     expect(JSON.parse(errText).error.nextSteps).toContain("project list");
+    routes["GET /tasks/T1"] = () => problem(404, "project-not-found");
+    errText = "";
+    expect(await cli(["--json", "task", "show", "T1"], { kind: "human" })).toBe(EXIT.failure);
+    expect(JSON.parse(errText).error.code).toBe("project-not-found");
+    expect(JSON.parse(errText).error.nextSteps).toContain("No project in this org has that slug or ID");
     routes["GET /tasks/T1"] = () => problem(503, "route-unavailable");
     expect(await cli(["--json", "task", "show", "T1"], { kind: "human" })).toBe(EXIT.pending);
   });

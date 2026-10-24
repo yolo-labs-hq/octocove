@@ -1870,7 +1870,7 @@ export interface paths {
         put?: never;
         /**
          * Start or resume a point-in-time restore of an organization's record
-         * @description Operator-only (the operator allow-list; anyone else 403 `operator-required`) with a recent sign-in, required whatever `AUTH_REQUIRE_RECENT_SIGN_IN` says (403 `reauth-required`). The body is `{ operationId, restorePoint }`; `operationId` (8-100 of `A-Za-z0-9._-`, starting alphanumeric) names the restore and `restorePoint` is an RFC 3339 UTC time within the last 30 days, before now and after the organization's current record epoch became active (else 400 `restore-point-out-of-range`). The `Idempotency-Key` is bound to the operation at its start; the same key and body resumes it, while another key or body for the operation is 409 `idempotency-conflict`. Each call is audited (`org_record_restore_calls`) and runs the restore as far as it can. From the first call the organization is fenced (its record routes answer 503 `route-unavailable`) until the restored epoch activates. The answer is the restore status, 200 once `phase` is `completed`, else 202 with `Retry-After`: `restart-pending` (the source object has not restarted onto its bookmark yet; call again, and deploy a Worker version if it stays) or `activation-waiting` (call again at `activationNotBefore`, when delegation tokens issued before the restore point have expired). After completion the organization serves a new epoch with a new event stream (`streamId`), and every `/audit` and `/events` cursor issued before is `invalid-cursor`. Refusals - 404 `tenant-not-found`, 409 `restore-in-progress` (another restore of the organization is open), 409 `restore-busy` (another call is driving this restore), 409 `restore-landing-in-flight` (a landing holds its fence; retry once it settles), 409 or 503 from a failed step (the status keeps `phase` `failed` and its `errorCode`; the same request resumes).
+         * @description Operator-only (the operator allow-list; anyone else 403 `operator-required`) with a recent sign-in, required whatever `AUTH_REQUIRE_RECENT_SIGN_IN` says (403 `reauth-required`). The body is `{ operationId, restorePoint }`; `operationId` (8-100 of `A-Za-z0-9._-`, starting alphanumeric) names the restore and `restorePoint` is an RFC 3339 UTC time within the last 30 days, before now and after the organization's current record epoch became active (else 400 `restore-point-out-of-range`). The `Idempotency-Key` is bound to the operation at its start; the same key and body resumes it, while another key or body for the operation is 409 `idempotency-conflict`. Each call is audited (`org_record_restore_calls`) and runs the restore as far as it can. From the first call the organization is fenced (its record routes answer 503 `route-unavailable`) until the restored epoch activates. The answer is the restore status, 200 once `phase` is `completed`, else 202 with `Retry-After`: `restart-pending` (the source object has not restarted onto its bookmark yet; call again, and deploy a Worker version if it stays) or `activation-waiting` (call again at `activationNotBefore`, when delegation tokens issued before the restore point have expired). After completion the organization serves a new epoch with a new event stream (`streamId`), and every `/audit` and `/events` cursor issued before is `invalid-cursor`. Refusals - 404 `tenant-not-found`, 409 `restore-in-progress` (another restore of the organization is open), 409 `restore-busy` (another call is driving this restore), 409 `restore-landing-in-flight` (a landing holds its fence; retry once it settles), 409 or 503 from a failed step (the status keeps `phase` `failed` and its `errorCode`; the same request resumes, and never restarts a source that already rewound). A restore that cannot complete is aborted with `POST.../restore/{operationId}/abort`. Once aborted, the same request answers the aborted status (200).
          */
         post: operations["orgRecordRestore"];
         delete?: never;
@@ -1893,6 +1893,26 @@ export interface paths {
         get: operations["orgRecordRestoreStatus"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/operator/restore/{operationId}/abort": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abort a point-in-time restore and release the organization at its fenced state
+         * @description Operator-only (the operator allow-list; anyone else 403 `operator-required`) with a recent sign-in, required whatever `AUTH_REQUIRE_RECENT_SIGN_IN` says. Not keyed: the restore's `operationId` names it, and any operator may abort it. The path for an organization a restore left fenced that cannot complete: the restore stops rewinding, and the organization's record is copied, as it was when the restore fenced it (nothing rewound; the fenced source refused every write since), into a new epoch, which activates and lifts the fence. The call is audited like a start or resume (`org_record_restore_calls`, kind `abort`), and sets `abortRequestedAt`; from then on this call and every later call (abort, or a resume of the restore) drive the abort until `phase` is `aborted`. The answer is the restore status, 200 once `aborted`, else 202 with `Retry-After` (the same `restart-pending` and `failed` phases as a restore, resumed the same way). The released epoch has a new event stream, and cursors issued before are `invalid-cursor`. A restore that drained nothing is `aborted` at once. Refusals - 404 `restore-not-found`, 409 `restore-not-abortable` (the restore completed or was refused, or its rewound state was already imported: complete it by resuming), 409 `restore-busy` (another call is driving it).
+         */
+        post: operations["orgRecordRestoreAbort"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1933,14 +1953,19 @@ export interface components {
             /** Format: date-time */
             restorePoint: string;
             /** @enum {string} */
-            phase: "in-progress" | "restart-pending" | "activation-waiting" | "failed" | "refused" | "completed";
+            phase: "in-progress" | "restart-pending" | "activation-waiting" | "failed" | "refused" | "completed" | "aborted";
             /**
              * @description The recovery step reached; null before the source was drained.
              * @enum {string|null}
              */
             step: "drained" | "fenced" | "evidence" | "rewind-scheduled" | "rewound" | "imported" | "activated" | "retired" | null;
-            /** @description True from the drain until the restored epoch is active; the organization's record routes answer 503 `route-unavailable` meanwhile. */
+            /** @description True from the drain until the restored (or, aborting, released) epoch is active; the organization's record routes answer 503 `route-unavailable` meanwhile. */
             tenantFenced: boolean;
+            /**
+             * Format: date-time
+             * @description When an operator aborted the restore (`POST.../abort`); null unless it was aborted.
+             */
+            abortRequestedAt: string | null;
             sourceEpoch: number | null;
             destinationEpoch: number | null;
             /** Format: date-time */
@@ -7906,6 +7931,52 @@ export interface operations {
             401: components["responses"]["Problem"];
             403: components["responses"]["ReauthRequiredProblem"];
             404: components["responses"]["Problem"];
+        };
+    };
+    orgRecordRestoreAbort: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The organization (`org_<uuid>`). Selecting it grants nothing; the operator allow-list does. */
+                orgId: string;
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The restore is aborted and the organization is released. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgRecordRestore"];
+                };
+            };
+            /** @description The abort is under way; call again after `Retry-After`. */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgRecordRestore"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
     collaborationEventDelivery: {

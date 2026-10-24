@@ -4,7 +4,7 @@ const FLAGS: Record<string,string> = {
   acceptance: 'JSON array of strings, for example \'["Tests pass", "Help describes every flag"]\'. Quote the array as one shell argument.',
   task: 'Task ID.',
   title: 'Short human-readable task title.', description: 'Task intent and implementation context.',
-  project: 'Project ID (or slug where accepted by the command).', repository: 'Canonical repository ID for the task.',
+  project: 'Project ID, not a slug (`project list --verbose` shows it); a PROJECT argument takes the slug or the ID.', repository: 'Canonical repository ID for the task.',
   'target-ref': 'Full canonical branch ref, for example refs/heads/main.', key: 'Unique task key within the project.',
   'change-note': 'Reason for editing the intent contract.', 'intent-version': 'Current positive intent version; rejects a stale contract.',
   'expected-status': 'Exact current task status required for this transition.', upstream: 'Upstream task ID whose landed receipt this task requires.',

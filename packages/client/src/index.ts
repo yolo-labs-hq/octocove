@@ -1,6 +1,6 @@
 export { createClient, newIdempotencyKey, buildUrl, retryClassFor, tenantClient, isTenantId, isTenantScoped, MAX_RESENDS, TENANT_ID } from './client.js';
 export type { ApiResponse, CallableOperationId, OpenEnums, CallInput, CallOptions, ClientOptions, FetchLike, OctocoveClient, SuccessBody, TenantCallInput, TenantClient, TenantScopedOperationId } from './client.js';
-export { ApiError, TransportError, TenantNotFoundError, OrgCreationPendingError, RouteUnavailableError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
+export { ApiError, TransportError, TenantNotFoundError, ProjectNotFoundError, OrgCreationPendingError, RouteUnavailableError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
 export type { ApiErrorInit, PendingOrganization, ProblemDetailsView, ReauthRequiredView, StaleFenceView, TransportErrorCode } from './errors.js';
 export { bearer, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
 export type { BearerKind, BearerTransport, BrowserCookieTransport, ForwardedSessionTransport, Transport, UnauthenticatedTransport } from './transports.js';
