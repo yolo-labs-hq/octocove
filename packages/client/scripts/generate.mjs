@@ -146,6 +146,8 @@ function publicText(text) {
     .replace(/\s*\([^()]*\bADR[- ]?\d{1,4}\b[^()]*\)/g, '')
     // "bound under <record>, ..." loses the whole phrase; "Under <record> protected-runtime admission" keeps "Under".
     .replace(/\s*\b(?:under|per|see|in|by|from|via|following)\s+ADR[- ]?\d{1,4}\b(?=\s*(?:[,.;:)]|$|(?:whose|which|that|and)\b))/gi, '')
+    // A possessive record name keeps the noun it qualified: "runs ADR 0031's restore" reads "runs the restore".
+    .replace(/\bADR[- ]?\d{1,4}'s\s+/g, 'the ')
     .replace(/\bADR[- ]?\d{1,4}\b[:.,]?\s*/g, '')
     // Dated decision labels: "(operator decision YYYY-MM-DD)" is dropped, and "Operator decision YYYY-MM-DD - the rule
     // ..." reads "The rule ...".

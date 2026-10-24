@@ -4858,6 +4858,131 @@ export const routing = {
       "reason": "excluded"
     }
   },
+  "orgRecordRestore": {
+    "operationId": "orgRecordRestore",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/operator/restore",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "202": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      202
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "orgRecordRestoreStatus": {
+    "operationId": "orgRecordRestoreStatus",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/operator/restore/{operationId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "operationId",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
   "organizationCreate": {
     "operationId": "organizationCreate",
     "kind": "path",

@@ -1859,6 +1859,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{orgId}/operator/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start or resume a point-in-time restore of an organization's record
+         * @description Operator-only (the operator allow-list; anyone else 403 `operator-required`) with a recent sign-in, required whatever `AUTH_REQUIRE_RECENT_SIGN_IN` says (403 `reauth-required`). The body is `{ operationId, restorePoint }`; `operationId` (8-100 of `A-Za-z0-9._-`, starting alphanumeric) names the restore and `restorePoint` is an RFC 3339 UTC time within the last 30 days, before now and after the organization's current record epoch became active (else 400 `restore-point-out-of-range`). The `Idempotency-Key` is bound to the operation at its start; the same key and body resumes it, while another key or body for the operation is 409 `idempotency-conflict`. Each call is audited (`org_record_restore_calls`) and runs the restore as far as it can. From the first call the organization is fenced (its record routes answer 503 `route-unavailable`) until the restored epoch activates. The answer is the restore status, 200 once `phase` is `completed`, else 202 with `Retry-After`: `restart-pending` (the source object has not restarted onto its bookmark yet; call again, and deploy a Worker version if it stays) or `activation-waiting` (call again at `activationNotBefore`, when delegation tokens issued before the restore point have expired). After completion the organization serves a new epoch with a new event stream (`streamId`), and every `/audit` and `/events` cursor issued before is `invalid-cursor`. Refusals - 404 `tenant-not-found`, 409 `restore-in-progress` (another restore of the organization is open), 409 `restore-busy` (another call is driving this restore), 409 `restore-landing-in-flight` (a landing holds its fence; retry once it settles), 409 or 503 from a failed step (the status keeps `phase` `failed` and its `errorCode`; the same request resumes).
+         */
+        post: operations["orgRecordRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/operator/restore/{operationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a point-in-time restore's status
+         * @description Operator-only with a recent sign-in. Reads the control store only and drives nothing; poll it while a restore is open. 404 `restore-not-found` when the organization has no restore of that id.
+         */
+        get: operations["orgRecordRestoreStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     collaborationEvent: {
@@ -1886,6 +1926,41 @@ export interface components {
     schemas: {
         /** @description And the hard cut. Opaque immutable tenant id, org_<lowercase UUIDv4>, for an organization or a user's hidden personal tenant alike. There is no legacy tenant: octocove is not a tenant id. Clients compare the whole string; it encodes no name, kind, location or authority. */
         TenantId: string;
+        /** @description A point-in-time restore of an organization's record (`POST /orgs/{orgId}/operator/restore`). */
+        OrgRecordRestore: {
+            operationId: string;
+            tenantId: string;
+            /** Format: date-time */
+            restorePoint: string;
+            /** @enum {string} */
+            phase: "in-progress" | "restart-pending" | "activation-waiting" | "failed" | "refused" | "completed";
+            /**
+             * @description The recovery step reached; null before the source was drained.
+             * @enum {string|null}
+             */
+            step: "drained" | "fenced" | "evidence" | "rewind-scheduled" | "rewound" | "imported" | "activated" | "retired" | null;
+            /** @description True from the drain until the restored epoch is active; the organization's record routes answer 503 `route-unavailable` meanwhile. */
+            tenantFenced: boolean;
+            sourceEpoch: number | null;
+            destinationEpoch: number | null;
+            /** Format: date-time */
+            activationNotBefore: string;
+            importedRows: number | null;
+            skippedDeletedRows: number | null;
+            /** @description The bookmark that undoes the source's rewind (kept on the retired source). */
+            undoBookmark: string | null;
+            /** @description What the fenced source still held, set once by the reconciliation; the operator settles it. */
+            uncertainWork: {
+                heldLandingFences: string[];
+                pendingWebhookDeliveries: number;
+            } | null;
+            errorCode: string | null;
+            requestedBy: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         /** @description Ownership, record and recovery boundary; each project belongs permanently to exactly one organization. Project slugs, repository namespaces, canonical targets and machine-assertion replay ownership stay globally unique across organizations. POST /v1/orgs returns this object with 201 when ready or 202 (with Retry-After in positive integer seconds) when pending; a pending result has reserved this id and the creator's admin membership. GET /v1/me organizations reports readiness. */
         Organization: {
             id: components["schemas"]["TenantId"];
@@ -7746,6 +7821,91 @@ export interface operations {
             404: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
             504: components["responses"]["Problem"];
+        };
+    };
+    orgRecordRestore: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The organization (`org_<uuid>`). Selecting it grants nothing; the operator allow-list does. */
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    operationId: string;
+                    /** Format: date-time */
+                    restorePoint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The restore completed. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgRecordRestore"];
+                };
+            };
+            /** @description The restore is open; call again after `Retry-After`. */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgRecordRestore"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    orgRecordRestoreStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The organization (`org_<uuid>`). */
+                orgId: string;
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The restore status. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgRecordRestore"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
         };
     };
     collaborationEventDelivery: {
