@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.0
+
+Release `@yolo-labs/octocove` 0.7.0 and `@yolo-labs/octocove-client` 0.8.0: owner slugs. An organization has a slug, and organization slugs and user handles share one case-insensitive owner namespace that names a project's owner in web URLs (`/<owner>/<project>`). Routes, tokens and events keep the org ID.
+
+- Client 0.8.0: regenerated from the current API contract.
+  - New `organizationUpdate` (`PATCH /v1/orgs/{orgId}` `{slug}`, `network-only` / `stored-result`): an org admin with a recent sign-in renames the organization's slug; the old slug is retired, stays reserved to the organization and keeps resolving to it. New journey `orgs.update(orgId, {slug})`.
+  - New `ownerResolve` (`GET /v1/owners/{slug}`, global, `network-only` / `null`): a current or retired name resolves to `{kind: 'organization', orgId, slug, canonical}` or `{kind: 'user', handle, personalOrgId, canonical}`; a name you cannot see, an unknown or a reserved one is `404 owner-not-found`. New journey `owners.resolve(slug)` and type `OwnerResolution`.
+  - New `tenantOwnerGet` (`GET /v1/orgs/{orgId}/owner`, `network-only` / `null`): a tenant's current owner, `{kind: 'organization', slug}` or `{kind: 'user', handle}`. New journey `org(orgId).owner()` and type `TenantOwner`.
+  - `Organization.slug` is required (new schema `OwnerSlug`); `OrganizationCreate` takes an optional `slug` and `orgs.create({name, slug?})` sends it (omitted, the server derives one from the name). `MeProject.owner` (`{kind: 'organization' | 'user', slug}`) is required; `projects.list()` and the organization journeys refuse an answer without them as off-shape. `org-creation-pending`'s `details.organization` may carry a `slug`. The `Handle` reserved list is updated.
+  - Slug refusals are plain `ApiError`s: `400 slug-invalid`, `400 slug-reserved`, `409 slug-taken`, `404 owner-not-found`.
+  - The retry policy and the README table cover 106 operation ids.
+- CLI 0.7.0:
+  - `org create NAME [--slug SLUG]` picks the organization's slug; without it the server derives one from `NAME`. The answer prints the slug.
+  - New `org rename ORG --slug SLUG` (org admin, recent sign-in): `ORG` is the org ID, or a current or retired slug resolved first through `GET /owners/{slug}`; a person's handle is refused (exit 2).
+  - `org list` shows each organization's slug; `project list` shows each project's owner slug, and `whoami` each membership's (text output, for a human).
+  - `slug-invalid`, `slug-reserved`, `slug-taken` and `owner-not-found` exit 1 with a hint.
+
 ## 0.6.0
 
 Release `@yolo-labs/octocove` 0.6.0 and `@yolo-labs/octocove-client` 0.7.0, for the service's split into per-org records. Every project now lives in one org (an organization, or a user's own hidden personal org) and every resource route names it. There is no default org, no unscoped route and no compatibility path: this release talks only to the split service, and an earlier release cannot talk to it.

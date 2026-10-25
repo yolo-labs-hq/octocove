@@ -98,7 +98,7 @@ describe("whoami", () => {
   it("prints the principal and memberships from GET /v1/me with the stored credential", async () => {
     routes["GET /me"] = () => json(200, me);
     expect(await cli(["whoami"], { kind: "human" })).toBe(0);
-    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["GET /v1/me"]);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["GET /v1/me", "GET /v1/me/projects"]);
     expect(calls[0]!.headers.authorization).toBe("Bearer tok");
     expect(outText).toContain("https://issuer.example.invalid|alice");
     expect(outText).toContain("Alice");
@@ -108,6 +108,16 @@ describe("whoami", () => {
     expect(outText).toContain("P1  tasks:list,tasks:read");
     expect(outText).not.toContain("tok");
     expect(outText).not.toContain("tok");
+  });
+
+  it("prints each project's owner slug from GET /v1/me/projects", async () => {
+    routes["GET /me"] = () => json(200, me);
+    routes["GET /me/projects"] = () => json(200, { items: [{ projectId: "P1", slug: "p1", name: "P1", tenantId: ORG, tenantKind: "organization", owner: { kind: "organization", slug: "acme" } }], partial: false, unavailableTenants: [] });
+    expect(await cli(["whoami"], { kind: "human" })).toBe(0);
+    expect(outText).toContain("P1 (reader)  owner acme");
+    calls = [];
+    expect(await cli(["--json", "whoami"], { kind: "human" })).toBe(0);
+    expect(calls.map((c) => c.url.pathname)).toEqual(["/v1/me"]);
   });
 
   it("--json prints the response; no memberships is a valid answer", async () => {
@@ -190,10 +200,10 @@ describe("project create", () => {
 
 describe("org create / org list", () => {
   const me = (state: string) => json(200, { principal: { id: "u", kind: "human" }, credential: { kind: "session" }, memberships: [], capabilities: {},
-    organizations: [{ organization: { id: ORG, name: "Acme", provisioningState: state }, role: "admin" }] });
+    organizations: [{ organization: { id: ORG, name: "Acme", slug: "acme", provisioningState: state }, role: "admin" }] });
 
   it("creates an organization with POST /v1/orgs and prints its org id", async () => {
-    routes["POST /orgs"] = () => json(201, { id: ORG, name: "Acme", provisioningState: "ready" });
+    routes["POST /orgs"] = () => json(201, { id: ORG, name: "Acme", slug: "acme", provisioningState: "ready" });
     expect(await cli(["org", "create", "Acme"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
     expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["POST /v1/orgs"]);
     expect(calls[0]!.body).toEqual({ name: "Acme" });
@@ -204,7 +214,7 @@ describe("org create / org list", () => {
 
   it("waits for a pending organization through GET /me, and exits pending when it is still provisioning", async () => {
     let reads = 0;
-    routes["POST /orgs"] = () => json(202, { id: ORG, name: "Acme", provisioningState: "pending" }, { "retry-after": "1" });
+    routes["POST /orgs"] = () => json(202, { id: ORG, name: "Acme", slug: "acme", provisioningState: "pending" }, { "retry-after": "1" });
     routes["GET /me"] = () => me(++reads < 2 ? "pending" : "ready");
     expect(await cli(["--json", "org", "create", "Acme"], { kind: "human" })).toBe(0);
     expect(JSON.parse(outText)).toMatchObject({ id: ORG, state: "ready", provisioningState: "ready" });
@@ -217,19 +227,56 @@ describe("org create / org list", () => {
   it("lists the organizations from GET /me", async () => {
     routes["GET /me"] = () => me("ready");
     expect(await cli(["org", "list"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
-    expect(outText).toContain(`Acme  org ${ORG}  (admin)`);
+    expect(outText).toContain(`Acme  (acme)  org ${ORG}  (admin)`);
+  });
+
+  it("org create --slug sends the slug and explains slug refusals", async () => {
+    routes["POST /orgs"] = (c) => json(201, { id: ORG, name: "Acme", slug: c.body.slug, provisioningState: "ready" });
+    expect(await cli(["org", "create", "Acme", "--slug", "acme-labs"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ name: "Acme", slug: "acme-labs" });
+    expect(outText).toContain("acme-labs");
+    const problem = (status: number, code: string) => json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r" });
+    for (const [status, code, hint] of [[400, "slug-invalid", "lowercase letters"], [400, "slug-reserved", "reserved word"], [409, "slug-taken", "already taken"]] as const) {
+      routes["POST /orgs"] = () => problem(status, code);
+      expect(await cli(["--json", "org", "create", "Acme", "--slug", "x"], { kind: "human" })).toBe(EXIT.failure);
+      expect(JSON.parse(errText).error).toMatchObject({ code, nextSteps: expect.stringContaining(hint) });
+    }
+  });
+
+  it("org rename patches the organization by id, or by a slug resolved first", async () => {
+    // The test router strips /v1/orgs/{ORG}, so PATCH /v1/orgs/{ORG} is the bare "PATCH " route.
+    routes["PATCH "] = (c) => json(200, { id: ORG, name: "Acme", slug: c.body.slug, provisioningState: "ready" });
+    expect(await cli(["org", "rename", ORG, "--slug", "acme-labs"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`PATCH /v1/orgs/${ORG}`]);
+    expect(calls[0]!.body).toEqual({ slug: "acme-labs" });
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(outText).toContain("acme-labs");
+    calls = [];
+    routes["GET /owners/acme"] = () => json(200, { kind: "organization", orgId: ORG, slug: "acme", canonical: true });
+    expect(await cli(["--json", "org", "rename", "acme", "--slug", "acme-labs"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["GET /v1/owners/acme", `PATCH /v1/orgs/${ORG}`]);
+    expect(JSON.parse(outText)).toMatchObject({ id: ORG, slug: "acme-labs" });
+    calls = [];
+    routes["GET /owners/jane"] = () => json(200, { kind: "user", handle: "jane", personalOrgId: null, canonical: true });
+    expect(await cli(["org", "rename", "jane", "--slug", "x"], { kind: "human" })).toBe(EXIT.usage);
+    expect(calls).toHaveLength(1);
+    routes["GET /owners/nobody"] = () => json(404, { type: "urn:octocove:problem:owner-not-found", title: "owner-not-found", status: 404, code: "owner-not-found", detail: "owner-not-found", requestId: "r" });
+    expect(await cli(["--json", "org", "rename", "nobody", "--slug", "x"], { kind: "human" })).toBe(EXIT.failure);
+    expect(JSON.parse(errText).error).toMatchObject({ code: "owner-not-found", nextSteps: expect.stringContaining("org list") });
+    expect(await cli(["org", "rename", ORG], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["org", "rename", ORG, "--slug", "x"], { kind: "agent" })).toBe(EXIT.humanRequired);
   });
 });
 
 describe("project list and orgs", () => {
   const OTHER = "org_00000000-0000-4000-8000-000000000002";
-  const item = { projectId: "P1", slug: "tools", name: "Tools", artifactsNamespace: "ns", taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: "organization" };
+  const item = { projectId: "P1", slug: "tools", name: "Tools", artifactsNamespace: "ns", taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: "organization", owner: { kind: "organization", slug: "acme" } };
 
   it("lists every org's projects with the org their commands take, and reports a partial read", async () => {
     routes["GET /me/projects"] = () => json(200, { items: [item], partial: true, unavailableTenants: [{ tenantId: OTHER }] });
     expect(await cli(["project", "list"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
     expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual(["GET /v1/me/projects"]);
-    expect(outText).toContain(`org ${ORG}`);
+    expect(outText).toContain(`Tools  (tools)  owner acme  org ${ORG}`);
     expect(errText).toContain(OTHER);
     expect(await cli(["project", "list"], { kind: "agent" })).toBe(EXIT.humanRequired);
   });

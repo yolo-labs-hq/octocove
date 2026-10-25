@@ -5119,6 +5119,128 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "organizationUpdate": {
+    "operationId": "organizationUpdate",
+    "kind": "path",
+    "method": "PATCH",
+    "path": "/orgs/{orgId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "ownerResolve": {
+    "operationId": "ownerResolve",
+    "kind": "path",
+    "method": "GET",
+    "path": "/owners/{slug}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "slug",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "peopleGet": {
     "operationId": "peopleGet",
     "kind": "path",
@@ -6886,6 +7008,60 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "tenantOwnerGet": {
+    "operationId": "tenantOwnerGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/owner",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
       "HumanCliSession",
       "HumanSession"
     ],

@@ -404,7 +404,7 @@ export const journeyCases: Case[] = [
   }),
   test('projects.list reads /me/projects with each project\'s tenant and reports a partial read', async () => {
     const other = 'org_00000000-0000-4000-8000-000000000002';
-    const item = { projectId: 'project-1', slug: 'first', name: 'First', artifactsNamespace: 'oc-project-1', taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: 'personal' };
+    const item = { projectId: 'project-1', slug: 'first', name: 'First', artifactsNamespace: 'oc-project-1', taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: 'personal', owner: { kind: 'user', slug: 'jane' } };
     const page = { items: [item], partial: true, unavailableTenants: [{ tenantId: other }] };
     const { fetch, calls } = scriptedFetch(json(200, page), json(200, { items: [item], partial: true, unavailableTenants: [] }));
     const j = journeys(client(fetch));
@@ -453,7 +453,7 @@ export const journeyCases: Case[] = [
 
   // ---- organizations ----
   test('orgs.create posts {name} to /v1/orgs under one key; 201 is ready', async () => {
-    const organization = { id: ORG, name: 'Acme', provisioningState: 'ready' };
+    const organization = { id: ORG, name: 'Acme', slug: 'acme', provisioningState: 'ready' };
     const { fetch, calls } = scriptedFetch(lost(201), json(201, organization));
     equal(await journeys(client(fetch)).orgs.create({ name: 'Acme' }, { deadline: soon() }), { state: 'ready', organization });
     equal(calls.map((c) => `${c.method} ${c.url}`), [`POST ${BASE}/v1/orgs`, `POST ${BASE}/v1/orgs`]);
@@ -463,7 +463,7 @@ export const journeyCases: Case[] = [
     await rejects(() => journeys(delegated).orgs.create({ name: 'Acme' }, { deadline: soon() }), TypeError);
   }),
   test('orgs.create waits out a 202 by reading GET /me organizations after Retry-After, never creating again', async () => {
-    const pending = { id: ORG, name: 'Acme', provisioningState: 'pending' };
+    const pending = { id: ORG, name: 'Acme', slug: 'acme', provisioningState: 'pending' };
     const me = (state: string) => json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {},
       organizations: [{ organization: { ...pending, provisioningState: state }, role: 'admin' }] });
     const delays: number[] = [];
@@ -477,9 +477,9 @@ export const journeyCases: Case[] = [
     equal([timedOut.state, timedOut.organization.id, stuck.calls.length], ['pending-timeout', ORG, 1]);
   }),
   test('orgs.create treats a replay\'s 409 org-creation-pending as the accepted organization; other refusals are thrown', async () => {
-    const pendingProblem = problem(409, 'org-creation-pending', { details: { organization: { id: ORG, name: 'Acme', provisioningState: 'pending' } } });
+    const pendingProblem = problem(409, 'org-creation-pending', { details: { organization: { id: ORG, name: 'Acme', slug: 'acme', provisioningState: 'pending' } } });
     const ready = json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {},
-      organizations: [{ organization: { id: ORG, name: 'Acme', provisioningState: 'ready' }, role: 'admin' }] });
+      organizations: [{ organization: { id: ORG, name: 'Acme', slug: 'acme', provisioningState: 'ready' }, role: 'admin' }] });
     const { fetch } = scriptedFetch(pendingProblem, ready);
     equal((await journeys(client(fetch)).orgs.create({ name: 'Acme' }, { deadline: soon(), pollMs: 1 })).state, 'ready');
     for (const [status, code] of [[403, 'org-create-disabled'], [400, 'invalid-request']] as const) {
@@ -487,8 +487,50 @@ export const journeyCases: Case[] = [
       equal((await rejects(() => journeys(client(refused.fetch)).orgs.create({ name: 'Acme' }, { deadline: soon() }), ApiError)).code, code);
     }
   }),
+  test('orgs.create sends the slug when one is given', async () => {
+    const organization = { id: ORG, name: 'Acme', slug: 'acme-inc', provisioningState: 'ready' };
+    const { fetch, calls } = scriptedFetch(json(201, organization));
+    equal(await journeys(client(fetch)).orgs.create({ name: 'Acme', slug: 'acme-inc' }, { deadline: soon() }), { state: 'ready', organization });
+    equal(JSON.parse(calls[0]!.body!), { name: 'Acme', slug: 'acme-inc' });
+    const refused = scriptedFetch(problem(409, 'slug-taken'));
+    equal((await rejects(() => journeys(client(refused.fetch)).orgs.create({ name: 'Acme', slug: 'acme' }, { deadline: soon() }), ApiError)).code, 'slug-taken');
+  }),
+  test('orgs.update patches /v1/orgs/{orgId} with {slug} under one key; refusals are thrown', async () => {
+    const organization = { id: ORG, name: 'Acme', slug: 'acme-labs', provisioningState: 'ready' };
+    const { fetch, calls } = scriptedFetch(lost(200), json(200, organization));
+    equal(await journeys(client(fetch)).orgs.update(ORG, { slug: 'acme-labs' }, { deadline: soon() }), organization);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`PATCH ${BASE}/v1/orgs/${ORG}`, `PATCH ${BASE}/v1/orgs/${ORG}`]);
+    equal(JSON.parse(calls[0]!.body!), { slug: 'acme-labs' });
+    ok(keys(calls)[0] !== undefined && keys(calls)[0] === keys(calls)[1], 'the same key on the resend');
+    for (const [status, code] of [[400, 'slug-invalid'], [400, 'slug-reserved'], [409, 'slug-taken']] as const) {
+      const refused = scriptedFetch(problem(status, code));
+      equal((await rejects(() => journeys(client(refused.fetch)).orgs.update(ORG, { slug: 'x' }, { deadline: soon() }), ApiError)).code, code);
+    }
+    await rejects(() => journeys(client(fetch)).orgs.update('octocove', { slug: 'x' }, { deadline: soon() }), TypeError);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).orgs.update(ORG, { slug: 'x' }, { deadline: soon() }), TypeError);
+  }),
+  test('owners.resolve reads GET /v1/owners/{slug}: an organization or a user; owner-not-found is thrown', async () => {
+    const orgOwner = { kind: 'organization', orgId: ORG, slug: 'acme', canonical: false };
+    const userOwner = { kind: 'user', handle: 'jane', personalOrgId: null, canonical: true };
+    const { fetch, calls } = scriptedFetch(json(200, orgOwner), json(200, userOwner), problem(404, 'owner-not-found'), json(200, { kind: 'organization', slug: 'acme' }));
+    const oc = journeys(client(fetch));
+    equal(await oc.owners.resolve('Acme-Old', { deadline: soon() }), orgOwner);
+    equal(await oc.owners.resolve('jane', { deadline: soon() }), userOwner);
+    equal((await rejects(() => oc.owners.resolve('nobody', { deadline: soon() }), ApiError)).code, 'owner-not-found');
+    await rejects(() => oc.owners.resolve('acme', { deadline: soon() }), ApiError, 'an off-shape answer');
+    equal(calls.map((c) => `${c.method} ${c.url}`).slice(0, 2), [`GET ${BASE}/v1/owners/Acme-Old`, `GET ${BASE}/v1/owners/jane`]);
+  }),
+  test('org(orgId).owner() reads GET /v1/orgs/{orgId}/owner', async () => {
+    const { fetch, calls } = scriptedFetch(json(200, { kind: 'organization', slug: 'acme' }), json(200, { kind: 'user', handle: 'jane' }), problem(404, 'tenant-not-found'));
+    const tenant = journeys(client(fetch)).org(ORG);
+    equal(await tenant.owner({ deadline: soon() }), { kind: 'organization', slug: 'acme' });
+    equal(await tenant.owner({ deadline: soon() }), { kind: 'user', handle: 'jane' });
+    await rejects(() => tenant.owner({ deadline: soon() }), TenantNotFoundError);
+    equal(calls.map((c) => c.url)[0], `${BASE}/v1/orgs/${ORG}/owner`);
+  }),
   test('orgs.list reads GET /me organizations', async () => {
-    const memberships = [{ organization: { id: ORG, name: 'Acme', provisioningState: 'ready' }, role: 'admin' }];
+    const memberships = [{ organization: { id: ORG, name: 'Acme', slug: 'acme', provisioningState: 'ready' }, role: 'admin' }];
     const { fetch, calls } = scriptedFetch(json(200, { principal: { id: 'u', kind: 'human' }, credential: { kind: 'session' }, memberships: [], capabilities: {}, organizations: memberships }));
     equal(await journeys(client(fetch)).orgs.list({ deadline: soon() }), memberships);
     equal(calls.map((c) => c.url), [`${BASE}/v1/me`]);

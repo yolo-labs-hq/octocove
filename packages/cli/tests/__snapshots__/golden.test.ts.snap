@@ -244,10 +244,11 @@ Commands:
   version                                     (installed package version; no sign-in required)
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
-  whoami                                      (authenticated principal and project memberships, each with its org)
-  org list                                    (the organizations you belong to, with their org IDs and state)
-  org create NAME [--wait SECONDS]            (create an organization; you become its admin; waits while it is provisioned)
-  project list                                (your projects in every org, each with the org ID its commands take)
+  whoami                                      (authenticated principal and project memberships, each with its org and owner)
+  org list                                    (the organizations you belong to, with their slugs, org IDs and state)
+  org create NAME [--slug SLUG] [--wait SECONDS]   (create an organization; you become its admin; waits while it is provisioned)
+  org rename ORG --slug SLUG                  (org admin, recent sign-in: change the organization's slug; the old one is retired)
+  project list                                (your projects in every org, each with its owner and the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
@@ -310,8 +311,10 @@ Orgs:
     a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
     an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
     write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
-  login, logout, whoami, org list, org create, project list and project create (without --org) need no org; repo clone uses the org
-  the project's membership names.
+  login, logout, whoami, org list, org create, org rename, project list and project create (without --org) need no org; repo clone
+  uses the org the project's membership names.
+  Owner slugs (an organization's slug or a user's handle, one namespace) name owners in web URLs (/<owner>/<project>) only;
+  commands take the org ID. org rename also takes the organization's current or a retired slug.
 
 Global options:
   --org ORG_ID            the org a tenant-scoped command acts in (also OCTOCOVE_ORG)

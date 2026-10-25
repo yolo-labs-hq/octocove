@@ -43,6 +43,8 @@ export type {
   Organization,
   OrganizationCreateResult,
   OrganizationMembership,
+  OwnerResolution,
+  TenantOwner,
   RepositoryLanePolicy,
   RepositoryLanePolicyDeclaration,
   TenantJourneys,
