@@ -338,6 +338,16 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
+  "repositoryBranchesList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "repositoryTargetRefRegister": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
   "sessionRenew": {
     "callable": true,
     "autoRetry": "network-only",
@@ -517,5 +527,21 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "state"
+  },
+  "eventsStream": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "liveTenant": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "meLive": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "machineReadGrantExchange": {
+    "callable": false,
+    "reason": "excluded"
   }
 }
