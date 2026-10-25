@@ -1,7 +1,7 @@
 # Releasing the CLI and client
 
 Two packages are prepared for npm under the `@yolo-labs` scope: `@yolo-labs/octocove`
-(`packages/cli`, the `octocove` binary, one bundled ESM file that inlines the client and
+(`packages/cli`, the `octo` command, one bundled ESM file that inlines the client and
 shared sources and has no runtime dependencies) and `@yolo-labs/octocove-client`
 (`packages/client`). Both are Apache-2.0 and ship the root `LICENSE` and `NOTICE`, which
 `prepack` copies in. Each is versioned on its own and released by its own tag:

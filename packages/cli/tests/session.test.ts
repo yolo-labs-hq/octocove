@@ -45,7 +45,7 @@ it.each(['expiresAt','issuedAt'] as const)('renews proactively using stored %s',
 });
 it.each(['absoluteExpiresAt','idleExpiresAt'] as const)('the %s limit requires sign-in with no renewal',async(field)=>{
   const f=await fixture({[field]:future(-1000)});expect(await run(f.deps)).toBe(1);
-  expect(f.calls).toEqual([]);expect(f.output).toContain('sign in again');expect(f.output).toContain('octocove login');
+  expect(f.calls).toEqual([]);expect(f.output).toContain('sign in again');expect(f.output).toContain('octo login');
 });
 it('a server-side idle or absolute limit refuses renewal and asks for sign-in',async()=>{
   const f=await fixture(),fetch=f.deps.fetch;f.deps.fetch=(url,init)=>new URL(url).pathname.endsWith('/renew')?Promise.resolve(Response.json({code:'credential-expired'},{status:401})):fetch(url,init);

@@ -3,7 +3,7 @@
 This repository contains the Octocove command-line client and the npm libraries it is built from, under the
 Apache-2.0 [LICENSE](../LICENSE):
 
-- the `octocove` CLI ([`packages/cli`](../packages/cli/README.md), published as `@yolo-labs/octocove`);
+- the `octo` CLI ([`packages/cli`](../packages/cli/README.md), published as `@yolo-labs/octocove`);
 - the typed client library ([`packages/client`](../packages/client/README.md), published as
   `@yolo-labs/octocove-client`), including its retry table, which code and checks read;
 - shared runtime utilities ([`packages/shared`](../packages/shared/README.md));

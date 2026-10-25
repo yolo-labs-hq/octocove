@@ -23,7 +23,7 @@ export function cloneRepositorySelection(repositories: readonly Repository[], pr
   if (matches.length !== 1) {
     const choices = items.map(r => `${r.id} (${r.name}, ${r.targetRef})`).join('; ');
     if(!items.length || !matches.length) throw new CloneError(404, 'repository-not-found', !items.length ? 'This project has no canonical repository. Ask a project admin to create one first.' : `Repository not found in this project. Available repositories: ${choices}`, 66);
-    throw new ConfigError(`Choose a repository explicitly: octocove repo clone PROJECT REPOSITORY [DIR]. Available repositories: ${choices}`);
+    throw new ConfigError(`Choose a repository explicitly: octo repo clone PROJECT REPOSITORY [DIR]. Available repositories: ${choices}`);
   }
   const r = matches[0]!;
   if (r.verification !== 'verified') throw new ConfigError('This repository is not verified. Ask a project admin to verify it before cloning.');

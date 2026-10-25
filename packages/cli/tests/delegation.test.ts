@@ -53,7 +53,7 @@ it('without a stored expiry, renewal is scheduled from the issue time, never fro
   expect(await run(opaque.deps),opaque.output).toBe(0);expect(opaque.rotations).toBe(0);
 });
 it.each(['absoluteExpiresAt','claimExpiresAt'] as const)('never renews beyond %s',async(field)=>{
-  const f=await fixture({[field]:future(-1000)});expect(await run(f.deps)).not.toBe(0);expect(f.calls).toEqual([]);expect(f.output).toContain('new task authorization');expect(f.output).not.toContain('octocove login');
+  const f=await fixture({[field]:future(-1000)});expect(await run(f.deps)).not.toBe(0);expect(f.calls).toEqual([]);expect(f.output).toContain('new task authorization');expect(f.output).not.toContain('octo login');
 });
 it('concurrent commands adopt one renewal',async()=>{
   const f=await fixture({expiresAt:future(30000)});expect(await Promise.all([run({...f.deps}),run({...f.deps})])).toEqual([0,0]);expect(f.rotations).toBe(1);

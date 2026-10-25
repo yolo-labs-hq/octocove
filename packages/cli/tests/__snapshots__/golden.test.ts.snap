@@ -44,7 +44,7 @@ exports[`approve as agent 1`] = `
 {
   "code": 77,
   "requests": [],
-  "stderr": "octocove: approve requires a human credential; agent delegations and claim bootstraps can never approve
+  "stderr": "octo: approve requires a human credential; agent delegations and claim bootstraps can never approve
 ",
   "stdout": "",
 }
@@ -56,7 +56,7 @@ exports[`approve human-required 1`] = `
   "requests": [
     "POST /candidates/CA1/approve",
   ],
-  "stderr": "octocove: human-required: HTTP 403
+  "stderr": "octo: human-required: HTTP 403
 ",
   "stdout": "",
 }
@@ -68,7 +68,7 @@ exports[`approve mismatch 1`] = `
   "requests": [
     "POST /candidates/CA1/approve",
   ],
-  "stderr": "octocove: approval-mismatch: the candidate moved
+  "stderr": "octo: approval-mismatch: the candidate moved
 details: {"currentBoundTo":{"candidateSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","baseSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","intentVersion":3}}
 ",
   "stdout": "",
@@ -103,7 +103,7 @@ exports[`auth renew bootstrap 1`] = `
 {
   "code": 78,
   "requests": [],
-  "stderr": "octocove: a bootstrap cannot be renewed; claim first
+  "stderr": "octo: a bootstrap cannot be renewed; claim first
 ",
   "stdout": "",
 }
@@ -236,9 +236,9 @@ exports[`help 1`] = `
   "code": 0,
   "requests": [],
   "stderr": "",
-  "stdout": "octocove — Git hosting for humans and agents
+  "stdout": "octo — Git hosting for humans and agents
 
-Usage: octocove [--json] <command> [options]
+Usage: octo [--json] <command> [options]
 
 Commands:
   version                                     (installed package version; no sign-in required)
@@ -292,7 +292,7 @@ Commands:
   task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
-  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octocove land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
+  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
   receipt show ID [--wait]
   log ID [--after CURSOR] [--limit N]
   events --follow --project ID [--task ID] [--from CURSOR] [--checkpoint FILE]
@@ -308,7 +308,7 @@ Commands:
 Orgs:
   Every project lives in one org (an organization, or your own personal org) and every command on a project, task,
   lane, candidate, receipt or webhook acts in exactly one org, named by its ID (org_<uuid>):
-    a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
+    a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octo project list\` shows each project's org);
     an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
     write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
   login, logout, whoami, org list, org create, org rename, project list and project create (without --org) need no org; repo clone
@@ -390,7 +390,7 @@ exports[`land fenced 1`] = `
   "requests": [
     "POST /candidates/CA1/land",
   ],
-  "stderr": "octocove: fenced: another landing holds the fence A landing on this target is in progress; run the same command again once its receipt is final.
+  "stderr": "octo: fenced: another landing holds the fence A landing on this target is in progress; run the same command again once its receipt is final.
 ",
   "stdout": "",
 }
@@ -429,7 +429,7 @@ exports[`lane retire as agent 1`] = `
 {
   "code": 77,
   "requests": [],
-  "stderr": "octocove: lane retire requires a human credential (project:admin, with a recent sign-in)
+  "stderr": "octo: lane retire requires a human credential (project:admin, with a recent sign-in)
 ",
   "stdout": "",
 }
@@ -441,7 +441,7 @@ exports[`lane retire pending 1`] = `
   "requests": [
     "POST /tasks/T1/lane/retire",
   ],
-  "stderr": "octocove: lane-retention-pending: lane-retention-pending The lane cannot be retired yet: a claim of the task is still active; it must be released, revoked or expire first. Nothing was deleted. Run the same command again once it settles.
+  "stderr": "octo: lane-retention-pending: lane-retention-pending The lane cannot be retired yet: a claim of the task is still active; it must be released, revoked or expire first. Nothing was deleted. Run the same command again once it settles.
 details: {"reason":"claim-active","laneRepositoryId":"LR1"}
 ",
   "stdout": "",
@@ -484,7 +484,7 @@ exports[`login denied 1`] = `
     "POST /auth/login",
     "POST /auth/cli/exchange",
   ],
-  "stderr": "octocove: access-denied: denied [redacted]
+  "stderr": "octo: access-denied: denied [redacted]
 details: {"deviceCode":"[redacted]"}
 ",
   "stdout": "Open https://api.example.invalid/auth/cli/start?userCode=CONSENT and confirm code CONSENT.
@@ -522,7 +522,7 @@ exports[`receipt show --wait timeout with changing pending metadata --json 1`] =
   "requests": [
     "GET /receipts/F1",
   ],
-  "stderr": "{"error":{"code":"pending","message":"landing pending; poll with \`octocove receipt show F1 --wait\`"}}
+  "stderr": "{"error":{"code":"pending","message":"landing pending; poll with \`octo receipt show F1 --wait\`"}}
 ",
   "stdout": "{
   "receiptId": "F1",
@@ -540,7 +540,7 @@ exports[`receipt show --wait timeout with changing pending metadata 1`] = `
   "requests": [
     "GET /receipts/F1",
   ],
-  "stderr": "octocove: landing pending; poll with \`octocove receipt show F1 --wait\`
+  "stderr": "octo: landing pending; poll with \`octo receipt show F1 --wait\`
 ",
   "stdout": "Receipt:          F1
 Landing:          pending
@@ -597,7 +597,7 @@ exports[`receipt show pending --json 1`] = `
   "requests": [
     "GET /receipts/F1",
   ],
-  "stderr": "{"error":{"code":"pending","message":"landing pending; poll with \`octocove receipt show F1 --wait\`"}}
+  "stderr": "{"error":{"code":"pending","message":"landing pending; poll with \`octo receipt show F1 --wait\`"}}
 ",
   "stdout": "{
   "receiptId": "F1",
@@ -615,7 +615,7 @@ exports[`receipt show pending 1`] = `
   "requests": [
     "GET /receipts/F1",
   ],
-  "stderr": "octocove: landing pending; poll with \`octocove receipt show F1 --wait\`
+  "stderr": "octo: landing pending; poll with \`octo receipt show F1 --wait\`
 ",
   "stdout": "Receipt:          F1
 Landing:          pending
@@ -716,7 +716,7 @@ Read:             src/
 Write:            src/app/
 Upstream results: T0 receipt R0 landed bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 Credentials:      <root>/cfg/credentials/cli.json
-Next:             octocove lane materialize T1 DIR
+Next:             octo lane materialize T1 DIR
 ",
 }
 `;
@@ -725,7 +725,7 @@ exports[`task claim as agent --json 1`] = `
 {
   "code": 78,
   "requests": [],
-  "stderr": "{"error":{"code":"config","message":"task claim needs the claim bootstrap a human issued with \`octocove task authorize\` (or \`octocove lane reopen\`): pass --bootstrap-file FILE"}}
+  "stderr": "{"error":{"code":"config","message":"task claim needs the claim bootstrap a human issued with \`octo task authorize\` (or \`octo lane reopen\`): pass --bootstrap-file FILE"}}
 ",
   "stdout": "",
 }
@@ -737,7 +737,7 @@ exports[`task claim refused 1`] = `
   "requests": [
     "POST /tasks/T1/claim",
   ],
-  "stderr": "octocove: dependency-unlanded: blocked
+  "stderr": "octo: dependency-unlanded: blocked
 details: {"claimResult":"refused-dependency-unlanded"}
 ",
   "stdout": "",
@@ -765,7 +765,7 @@ Reopen:           RO1 (continues the landed lane)
 Lane head:        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 Provisioning:     pending (the lane is still being prepared)
 Credentials:      <root>/cfg/credentials/cli.json
-Next:             octocove lane materialize T1 DIR (it finishes preparing the lane first)
+Next:             octo lane materialize T1 DIR (it finishes preparing the lane first)
 ",
 }
 `;
@@ -895,7 +895,7 @@ exports[`task publish as agent 1`] = `
 {
   "code": 77,
   "requests": [],
-  "stderr": "octocove: task publish requires a human credential
+  "stderr": "octo: task publish requires a human credential
 ",
   "stdout": "",
 }
@@ -1039,8 +1039,8 @@ Landed
 Receipt ID:       R1
 Landed SHA:       aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 Candidate ID:     CA1
-Next:             octocove receipt show R1
-History:          octocove log T1
+Next:             octo receipt show R1
+History:          octo log T1
 ",
 }
 `;
@@ -1059,7 +1059,7 @@ exports[`task show network error 1`] = `
 {
   "code": 1,
   "requests": [],
-  "stderr": "octocove: network-error: API request failed
+  "stderr": "octo: network-error: API request failed
 ",
   "stdout": "",
 }
@@ -1083,7 +1083,7 @@ exports[`task show not found 1`] = `
   "requests": [
     "GET /tasks/T1",
   ],
-  "stderr": "octocove: not-found: no such task
+  "stderr": "octo: not-found: no such task
 details: {"taskId":"T1"}
 ",
   "stdout": "",
@@ -1108,7 +1108,7 @@ exports[`task show request id from header 1`] = `
   "requests": [
     "GET /tasks/T1",
   ],
-  "stderr": "octocove: temporarily-unavailable: HTTP 503
+  "stderr": "octo: temporarily-unavailable: HTTP 503
 ",
   "stdout": "",
 }
@@ -1118,7 +1118,7 @@ exports[`task show without credentials 1`] = `
 {
   "code": 78,
   "requests": [],
-  "stderr": "octocove: no credential: run octocove login or import a protected --bootstrap-file
+  "stderr": "octo: no credential: run octo login or import a protected --bootstrap-file
 ",
   "stdout": "",
 }
@@ -1138,8 +1138,8 @@ exports[`unknown command 1`] = `
 {
   "code": 2,
   "requests": [],
-  "stderr": "octocove: unknown command: bogus
-Run \`octocove --help\` for usage.
+  "stderr": "octo: unknown command: bogus
+Run \`octo --help\` for usage.
 ",
   "stdout": "",
 }
@@ -1163,8 +1163,8 @@ exports[`webhook create without stdin flag 1`] = `
 {
   "code": 2,
   "requests": [],
-  "stderr": "octocove: --secret-stdin is required; pipe the base64 signing secret on stdin
-Run \`octocove --help\` for usage.
+  "stderr": "octo: --secret-stdin is required; pipe the base64 signing secret on stdin
+Run \`octo --help\` for usage.
 ",
   "stdout": "",
 }

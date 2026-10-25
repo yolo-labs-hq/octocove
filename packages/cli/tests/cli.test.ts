@@ -563,7 +563,7 @@ describe("task claim", () => {
     expect(post.body).toEqual({ intentVersion: 3, scope: { read: ["src/"], write: ["src/app/"] } });
     expect(post.headers["idempotency-key"]).toMatch(/^oc-[0-9a-f]{32}$/);
     expect(outText).toContain("Claim:");
-    expect(outText).toContain("octocove lane materialize T1 DIR");
+    expect(outText).toContain("octo lane materialize T1 DIR");
     expect(outText + errText).not.toContain("SECRET-JWT");
     const file = join(cfg(), "credentials", "cli.json");
     expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ token: "SECRET-JWT", kind: "agent", delegationId: "D1", agentId: "worker", claimExpiresAt: "2030-01-01T00:00:00Z" });
@@ -1059,10 +1059,10 @@ describe("expired session recovery guidance", () => {
     routes["GET /me"] = () => json(401, { code: "credential-expired", detail: "credential-expired", status: 401, requestId: "request-expired" });
     expect(await cli(["whoami", ...(jsonMode ? ["--json"] : [])], { kind: "human" })).toBe(EXIT.failure);
     expect(outText).toBe("");
-    expect(errText).toContain("octocove auth renew");
-    expect(errText).toContain("octocove login");
+    expect(errText).toContain("octo auth renew");
+    expect(errText).toContain("octo login");
     expect(errText).not.toContain("credential-expired: credential-expired");
-    if (jsonMode) expect(JSON.parse(errText).error).toMatchObject({ code: "credential-expired", status: 401, requestId: "request-expired", nextSteps: expect.stringContaining("octocove auth renew"), hint: expect.stringContaining("octocove login") });
+    if (jsonMode) expect(JSON.parse(errText).error).toMatchObject({ code: "credential-expired", status: 401, requestId: "request-expired", nextSteps: expect.stringContaining("octo auth renew"), hint: expect.stringContaining("octo login") });
     expect(calls).toHaveLength(1);
   });
 });
@@ -1116,7 +1116,7 @@ describe("agent presentation and recovery", () => {
   it.each(["stale-base", "already-claimed"])("adds a recovery hint for %s without discarding the problem", async code => {
     routes["GET /tasks/T1"] = () => json(409, { code, status: 409, detail: "original refusal", requestId: "request-1" });
     expect(await cli(["--json", "task", "show", "T1"])).toBe(EXIT.failure);
-    expect(JSON.parse(errText).error).toMatchObject({ code, status: 409, requestId: "request-1", hint: expect.stringContaining("octocove task show"), message: expect.stringContaining("original refusal") });
+    expect(JSON.parse(errText).error).toMatchObject({ code, status: 409, requestId: "request-1", hint: expect.stringContaining("octo task show"), message: expect.stringContaining("original refusal") });
   });
 });
 
@@ -1178,8 +1178,8 @@ describe("presenter output", () => {
     expect(outText).toContain("Landed\n");
     expect(outText).toContain("Receipt ID:       R1");
     expect(outText).toContain("Candidate ID:     CA1");
-    expect(outText).toContain("octocove receipt show R1");
-    expect(outText).toContain("octocove log T1");
+    expect(outText).toContain("octo receipt show R1");
+    expect(outText).toContain("octo log T1");
     expect(outText).not.toContain("Live attempt");
     expect(outText).not.toContain("null");
   });

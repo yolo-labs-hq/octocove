@@ -530,7 +530,7 @@ describe("JSON errors and candidate display", () => {
     expect([error.code, error.status, error.requestId]).toEqual([code, 401, requestId]);
     expect(error.message).toContain(code);
     expect(await cli(["task", "show", "T1"])).toBe(EXIT.failure);
-    expect(stderr).toContain(`octocove: ${code}`);
+    expect(stderr).toContain(`octo: ${code}`);
   });
 
   it.each([0, 1])("login redacts request-body secrets echoed in a refusal (case %i), text and JSON", async (i) => {
@@ -546,7 +546,7 @@ describe("JSON errors and candidate display", () => {
     const { error } = JSON.parse(stderr);
     expect([error.code, error.status, error.requestId]).toEqual([code, 401, requestId]);
     expect(await cli(["login"])).toBe(EXIT.failure);
-    expect(stderr).toContain(`octocove: ${code}`);
+    expect(stderr).toContain(`octo: ${code}`);
   });
 });
 

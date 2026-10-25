@@ -40,5 +40,5 @@ it.each(['protocol=http\nhost=api.example.invalid\npath=v1/orgs/org_00000000-000
  const f=await fixture();expect(await humanCredential({...f.deps,stdin:Readable.from([request])})).toBe(0);expect(f.stdout).toBe('');expect(f.paths).toEqual([]);
 });
 it('absolute expiry fails closed with a sign-in instruction and no token',async()=>{
- const f=await fixture({absoluteExpiresAt:new Date(Date.now()-1000).toISOString()});expect(await humanCredential(f.deps)).toBe(1);expect(f.stdout).toBe('quit=true\n\n');expect(f.stderr).toContain('octocove login');expect(f.paths).toEqual([]);
+ const f=await fixture({absoluteExpiresAt:new Date(Date.now()-1000).toISOString()});expect(await humanCredential(f.deps)).toBe(1);expect(f.stdout).toBe('quit=true\n\n');expect(f.stderr).toContain('octo login');expect(f.paths).toEqual([]);
 });

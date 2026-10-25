@@ -28,7 +28,7 @@ export { isTenantId } from "../../client/src/node.js";
 export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike } from "../../client/src/node.js";
 
 /** Why a tenant-scoped command could not run: no org was given. */
-export const ORG_REQUIRED = "this command acts in one organization: pass --org ORG_ID or set OCTOCOVE_ORG (`octocove projects` lists each project's org)";
+export const ORG_REQUIRED = "this command acts in one organization: pass --org ORG_ID or set OCTOCOVE_ORG (`octo projects` lists each project's org)";
 
 /** The local credential label selects the bearer kind. */
 const BEARER: Record<CredentialKind, BearerKind> = { human: "session", agent: "delegation", bootstrap: "bootstrap", machine: "event-assertion" };
@@ -58,7 +58,7 @@ type Input<K extends CallableOperationId> = {} extends TenantCallInput<K> ? [inp
 export class Api {
   #journeys: Journeys | undefined;
   constructor(private readonly options: ConnectOptions) {
-    if (options.orgId !== undefined && !isTenantId(options.orgId)) throw new ConfigError("--org must be an org id (org_ followed by a UUID); `octocove projects` lists each project's org");
+    if (options.orgId !== undefined && !isTenantId(options.orgId)) throw new ConfigError("--org must be an org id (org_ followed by a UUID); `octo projects` lists each project's org");
   }
 
   get orgId(): string | undefined { return this.options.orgId; }

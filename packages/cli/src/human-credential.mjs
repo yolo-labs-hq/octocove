@@ -33,7 +33,7 @@ export async function humanCredential({ argv, stdin, stdout, stderr, fetch, env,
     return 0;
   } catch {
     stdout('quit=true\n\n');
-    stderr('octocove: human Git credential unavailable; sign in with octocove login using the selected config directory. Agent credentials cannot be used for human clones.\n');
+    stderr('octo: human Git credential unavailable; sign in with octo login using the selected config directory. Agent credentials cannot be used for human clones.\n');
     return 1;
   }
 }

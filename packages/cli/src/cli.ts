@@ -44,7 +44,7 @@ class CandidateIdRequiredError extends UsageError {
   readonly code = "candidate-id-required";
   readonly hint: string;
   constructor(taskId: string) {
-    const hint = `Run \`octocove task show ${taskId}\` to find the candidate, then pass its candidate ID to \`octocove land\`.`;
+    const hint = `Run \`octo task show ${taskId}\` to find the candidate, then pass its candidate ID to \`octo land\`.`;
     super(`land requires a candidate ID; ${taskId} is a task ID. ${hint}`);
     this.hint = hint;
   }
@@ -55,14 +55,14 @@ class CandidateFailedError extends Error {
   readonly code = "candidate-failed";
   constructor(conflict: boolean) {
     super(conflict
-      ? "Candidate has conflicts: run `octocove lane wrap-up` again with one --resolve PATH=lane|base|FILE for each listed path."
-      : "Candidate failed: inspect its checks and error, fix the cause in the lane directory, save it with `octocove lane submit`, then run `octocove lane wrap-up` again.");
+      ? "Candidate has conflicts: run `octo lane wrap-up` again with one --resolve PATH=lane|base|FILE for each listed path."
+      : "Candidate failed: inspect its checks and error, fix the cause in the lane directory, save it with `octo lane submit`, then run `octo lane wrap-up` again.");
   }
 }
 
-const HELP = `octocove — Git hosting for humans and agents
+const HELP = `octo — Git hosting for humans and agents
 
-Usage: octocove [--json] <command> [options]
+Usage: octo [--json] <command> [options]
 
 Commands:
   version                                     (installed package version; no sign-in required)
@@ -116,7 +116,7 @@ Commands:
   task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
   candidate show --submission ID
   approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
-  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octocove land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
+  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
   receipt show ID [--wait]
   log ID [--after CURSOR] [--limit N]
   events --follow --project ID [--task ID] [--from CURSOR] [--checkpoint FILE]
@@ -132,7 +132,7 @@ Commands:
 Orgs:
   Every project lives in one org (an organization, or your own personal org) and every command on a project, task,
   lane, candidate, receipt or webhook acts in exactly one org, named by its ID (org_<uuid>):
-    a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
+    a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octo project list\` shows each project's org);
     an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
     write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
   login, logout, whoami, org list, org create, org rename, project list and project create (without --org) need no org; repo clone
@@ -247,11 +247,11 @@ function report(d: Deps, err: unknown, json: boolean): number {
   const quiet = err instanceof Emitted;
   if (err instanceof Emitted) err = err.inner;
   const emit = (code: string, message: string, extra: object = {}) =>
-    quiet ? undefined : d.stderr(json ? JSON.stringify({ error: { code, message, ...extra } }) + "\n" : `octocove: ${message}\n`);
+    quiet ? undefined : d.stderr(json ? JSON.stringify({ error: { code, message, ...extra } }) + "\n" : `octo: ${message}\n`);
   if (err instanceof UsageError) {
     emit(err instanceof CandidateIdRequiredError ? err.code : "usage", err.message,
       err instanceof CandidateIdRequiredError ? { hint: err.hint } : {});
-    if (!json) d.stderr("Run `octocove --help` for usage.\n");
+    if (!json) d.stderr("Run `octo --help` for usage.\n");
     return EXIT.usage;
   }
   if (err instanceof CloneError) return emit(err.code, err.message, { status: err.status }), err.exitCode;
@@ -263,29 +263,29 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof TransportError) return emit(err.code, `${err.code}: ${TRANSPORT_DETAIL[err.code] ?? err.message}`, { status: 0 }), EXIT.failure;
   if (err instanceof ApiError) {
     const nextSteps = err.code === "credential-expired"
-      ? "Run `octocove auth renew` to recover the expired credential. If a human session cannot be renewed, run `octocove login`. For an agent delegation, ask the delegating human for a new task authorization and import its bootstrap into the agent config directory."
+      ? "Run `octo auth renew` to recover the expired credential. If a human session cannot be renewed, run `octo login`. For an agent delegation, ask the delegating human for a new task authorization and import its bootstrap into the agent config directory."
       : ["stale-base", "stale-head"].includes(err.code)
-        ? "Run `octocove task show TASK_ID` to inspect the current base and replacement candidate. Obtain a fresh approval for the current candidate before landing."
+        ? "Run `octo task show TASK_ID` to inspect the current base and replacement candidate. Obtain a fresh approval for the current candidate before landing."
         : err.code === "generation-superseded"
-        ? "Run `octocove lane refresh` to take the current generation (local edits are kept), then submit again."
+        ? "Run `octo lane refresh` to take the current generation (local edits are kept), then submit again."
       : err.code === "lane-head-moved"
-        ? "Your local edits are untouched. Run `octocove lane refresh` to take the new lane head (unedited files follow it; an edited file keeps your copy, with the other under .octocove/incoming), then run the command again."
+        ? "Your local edits are untouched. Run `octo lane refresh` to take the new lane head (unedited files follow it; an edited file keeps your copy, with the other under .octocove/incoming), then run the command again."
       : err.code === "lane-not-materialized"
-        ? "This lane has no lane repository yet: run `octocove lane materialize TASK DIR` first, edit there, then save with `octocove lane submit`."
+        ? "This lane has no lane repository yet: run `octo lane materialize TASK DIR` first, edit there, then save with `octo lane submit`."
       : err.code === "write-scope-claimed"
         ? writeScopeClaimed(err)
       : err.code === "execution-superseded"
-        ? `This credential's lane execution${isRecord(err.details) && typeof err.details.executionId === "string" ? ` (${err.details.executionId})` : ""} was handed over to another environment, so it is no longer authoritative here. Continue in the environment that took it over, or run \`octocove lane materialize TASK DIR --handover\` to take the lane back into a new directory. Keep this directory's unsaved edits with \`octocove lane patch\`.`
+        ? `This credential's lane execution${isRecord(err.details) && typeof err.details.executionId === "string" ? ` (${err.details.executionId})` : ""} was handed over to another environment, so it is no longer authoritative here. Continue in the environment that took it over, or run \`octo lane materialize TASK DIR --handover\` to take the lane back into a new directory. Keep this directory's unsaved edits with \`octo lane patch\`.`
       : err.code === "execution-inactive"
-        ? "This claim has no open lane execution. Run `octocove task show TASK_ID` to inspect it; after a release or revocation a human authorizes a new claim."
+        ? "This claim has no open lane execution. Run `octo task show TASK_ID` to inspect it; after a release or revocation a human authorizes a new claim."
       : err.code === "lane-retention-pending"
         ? `The lane cannot be retired yet: ${RETENTION_PENDING[reason(err) ?? ""] ?? `a retention guard holds (${reason(err) ?? "unknown"})`}. Nothing was deleted.${reason(err) === "task-not-terminal" ? "" : " Run the same command again once it settles."}`
       : err.code === "lane-retired"
-        ? "This lane was retired: its lane repository is gone and it is never materialized or reopened again. The landed result stays on the repository (`octocove task show TASK_ID`)."
+        ? "This lane was retired: its lane repository is gone and it is never materialized or reopened again. The landed result stays on the repository (`octo task show TASK_ID`)."
       : err.code === "refresh-conflict"
         ? "Decide every listed path and run the same command again with one --resolve PATH=lane|base|FILE each: lane keeps the saved lane version, base takes upstream, FILE uploads that file (the upstream copies are under .octocove/incoming)."
       : err.code === "nothing-to-wrap-up"
-        ? "With reason no-changes, save changes first (`octocove lane submit`); with already-wrapped-up, the candidate in details.candidateId is current."
+        ? "With reason no-changes, save changes first (`octo lane submit`); with already-wrapped-up, the candidate in details.candidateId is current."
       : err.code === "base-unknown"
         ? "Octocove has not observed the target branch head yet; try again shortly."
       : err.code === "materialization-too-large"
@@ -295,14 +295,14 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "rate-limited" && reason(err) === "provider-rest-budget"
         ? `The GitHub repository's REST budget is low, so nothing was created or written. Run the same command again${err.retryAfter ? ` after ${err.retryAfter} s` : " later"} (Retry-After).`
       : err.code === "lane-reopen-required"
-        ? "This task was reopened for more work: only the bootstrap `octocove lane reopen` stored admits a claim (--bootstrap-file FILE). If it was used or expired, the human runs `octocove lane reopen` again."
+        ? "This task was reopened for more work: only the bootstrap `octo lane reopen` stored admits a claim (--bootstrap-file FILE). If it was used or expired, the human runs `octo lane reopen` again."
       : err.code === "lane-not-reopenable"
         ? ({ "not-landed": "The task has not landed, or its reopened work is already wrapped up; there is nothing to reopen.",
             "not-a-wrap-up": "The task's newest landing did not come from a lane wrap-up, so there is no lane to continue; start further work as a new task.",
             retired: "The lane repository is retired; start further work as a new task.",
             "other-task": "Another task owns this lane; start further work as a new task.",
-            "lane-head-moved": "The lane head moved since the landing; run `octocove task show TASK_ID` and try again." } as Record<string, string>)[reason(err) ?? ""]
-          ?? "Run `octocove task show TASK_ID` to inspect the task; start further work as a new task."
+            "lane-head-moved": "The lane head moved since the landing; run `octo task show TASK_ID` and try again." } as Record<string, string>)[reason(err) ?? ""]
+          ?? "Run `octo task show TASK_ID` to inspect the task; start further work as a new task."
       : err.code === "idempotency-result-expired"
         ? "The answer recorded under this idempotency key is no longer available (for an authorization or a reopen: its one-use bootstrap was used or its five minutes passed), and nothing new was issued. To issue a new one, run the command again without --idempotency-key, or with a new key."
       : err.code === "fenced"
@@ -310,17 +310,17 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "repository-provider-unsupported"
         ? "This repository's provider has no lane repositories; a materialized lane needs an Artifacts or GitHub repository."
       : err.code === "reauth-required"
-        ? "This command needs a recent sign-in: run `octocove login`, then run it again with the same --idempotency-key if you passed one."
+        ? "This command needs a recent sign-in: run `octo login`, then run it again with the same --idempotency-key if you passed one."
       : err.code === "lane-conflicts-unresolved"
-        ? "Run `octocove lane status`, then `octocove lane resolve PATH --keep local|incoming` for each conflict."
+        ? "Run `octo lane status`, then `octo lane resolve PATH --keep local|incoming` for each conflict."
       : err.code === "operator-required"
         ? "Registering a GitHub repository binds an operator-held credential, so only a deployment operator can do it; ask an operator to run the command."
       : err.code === "credential-unavailable"
         ? "The credential reference does not name a configured, unexpired GitHub credential; ask the operator for the right --credential-ref. Nothing was registered."
       : err.code === "tenant-not-found"
-        ? "The org does not exist or you cannot see it. Check --org (or OCTOCOVE_ORG) against `octocove project list`; an agent asks its delegating human for a new authorization."
+        ? "The org does not exist or you cannot see it. Check --org (or OCTOCOVE_ORG) against `octo project list`; an agent asks its delegating human for a new authorization."
       : err.code === "project-not-found"
-        ? "No project in this org has that slug or ID. Check the project against `octocove project list` (its slug, its org, and with --verbose its ID) and the org against --org (or OCTOCOVE_ORG)."
+        ? "No project in this org has that slug or ID. Check the project against `octo project list` (its slug, its org, and with --verbose its ID) and the org against --org (or OCTOCOVE_ORG)."
       : err.code === "org-creation-pending"
         ? `The org is still being created; nothing was recorded. Run the same command again${err.retryAfter ? ` after ${err.retryAfter} s` : " shortly"} with the same --idempotency-key if you passed one.`
       : err.code === "route-unavailable"
@@ -332,9 +332,9 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "slug-taken"
         ? "That slug is already taken; choose another. An organization slug is unique across every organization and user handle, current or retired, case-insensitively; a project slug across projects. Nothing was changed."
       : err.code === "owner-not-found"
-        ? "No organization you can see has that slug. Check it against `octocove org list`, or pass the org ID (org_<uuid>)."
+        ? "No organization you can see has that slug. Check it against `octo org list`, or pass the org ID (org_<uuid>)."
       : err.code === "already-claimed"
-          ? "Run `octocove task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octocove task release TASK_ID --claim ID`)."
+          ? "Run `octo task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octo task release TASK_ID --claim ID`)."
           : undefined;
     emit(err.code, nextSteps ? err.code === "credential-expired" ? `credential-expired: ${nextSteps}` : `${err.message} ${nextSteps}` : err.message,
       { status: err.status, requestId: err.requestId, details: err.details, ...(nextSteps ? { nextSteps, hint: nextSteps } : {}) });
@@ -368,7 +368,7 @@ async function dispatch(d: Deps) {
       if (!entry) throw new Error(`missing help for command: ${command}`);
       const [signature, description] = entry.trim().split(/\s{2,}/);
       const usage = [...commandWords, ...signature!.split(" ").slice(commandWords.length)].join(" ");
-      d.stdout(`octocove — Git hosting for humans and agents\n\n${commandHelp(command, usage, description)}\n${HELP.slice(HELP.indexOf("Global options:"))}`);
+      d.stdout(`octo — Git hosting for humans and agents\n\n${commandHelp(command, usage, description)}\n${HELP.slice(HELP.indexOf("Global options:"))}`);
     } else {
       d.stdout(HELP);
     }
@@ -654,7 +654,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
     const body = server === undefined ? st : "error" in server ? { ...st, laneRepositoryError: server.error } : { ...st, laneRepository: server.laneRepository };
     out(d, v.json, body, () => kv([["Task", st.taskId], ["Generation", st.generation], ["Base", st.baseSha], ["Lane head", st.laneHead], ["Modified", list(st.modified)], ["Added", list(st.added)],
       ["Deleted", list(st.deleted)], ["Conflicts", st.conflicts.map(c => `${c.path} (${c.kind}${c.incoming ? `, upstream copy at ${c.incoming}` : ""})`).join("; ") || "(none)"],
-      ...(st.pending ? [[`Unresolved ${st.pending.operation} conflicts`, `${st.pending.conflicts.map(c => c.path).join(", ")}${st.pending.stale ? " (the lane moved since; run the command again to list them afresh)" : ` (decide with octocove lane ${st.pending.operation} --resolve PATH=lane|base|FILE)`}`] as [string, string]] : []),
+      ...(st.pending ? [[`Unresolved ${st.pending.operation} conflicts`, `${st.pending.conflicts.map(c => c.path).join(", ")}${st.pending.stale ? " (the lane moved since; run the command again to list them afresh)" : ` (decide with octo lane ${st.pending.operation} --resolve PATH=lane|base|FILE)`}`] as [string, string]] : []),
       ...(server === undefined ? [] : "error" in server ? [["Lane repository", `unavailable (${server.error})`] as [string, unknown]]
         : server.laneRepository ? laneRepositoryRows(server.laneRepository, "Server lane head") : [["Lane repository", "(none recorded)"] as [string, unknown]])]));
     return;
@@ -671,12 +671,12 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
     const r = await writeUnsavedPatch(dir, { cwd, out: v.out });
     out(d, v.json, r.path ? { path: r.path, files: r.files, skipped: r.skipped, conflicts: r.conflicts } : { path: null, files: [], skipped: r.skipped, conflicts: r.conflicts },
       () => r.path ? kv([["Patch", r.path], ["Files", list(r.files)], ...(r.skipped.length ? [["Not in the patch (submodules)", list(r.skipped)] as [string, string]] : []),
-        ["Apply", `git apply ${shq(r.path)} in a lane directory, then octocove lane submit`]]) : "No unsaved edits; nothing written.");
+        ["Apply", `git apply ${shq(r.path)} in a lane directory, then octo lane submit`]]) : "No unsaved edits; nothing written.");
     return;
   }
   const { api, creds } = await client(d);
   if (creds.kind !== "agent") throw new ConfigError(`lane ${action} requires the agent delegation of a claim`);
-  const notify = (line: string) => d.stderr(v.json ? JSON.stringify({ notice: line }) + "\n" : `octocove: ${line}\n`);
+  const notify = (line: string) => d.stderr(v.json ? JSON.stringify({ notice: line }) + "\n" : `octo: ${line}\n`);
   const options = { deadline, idempotencyKey: v["idempotency-key"], notify };
   if (action === "materialize") {
     let lane = api, handover: Awaited<ReturnType<typeof handoverLane>> | undefined, credentialsFile: string | undefined;
@@ -698,7 +698,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
         ["Credentials", credentialsFile ?? "unchanged (this credential already belongs to the new execution)"]] as [string, unknown][] : []),
       ...(r.reopenId ? [["Reopen", `${r.reopenId} (continues the landed lane; the next wrap-up carries only new work)`] as [string, string]] : []),
       ["Scope version", r.scopeVersion], ["Read", r.scope.read.join(", ")], ["Write", r.scope.write.join(", ") || "(none)"], ["Files", r.files],
-      ["Next", `edit, then octocove lane submit ${shq(shown)} --message TEXT`]]));
+      ["Next", `edit, then octo lane submit ${shq(shown)} --message TEXT`]]));
     return;
   }
   if (action === "refresh") {
@@ -706,7 +706,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
     out(d, v.json, r, () => kv([["Refreshed", r.refreshed ? "yes" : "no (base unchanged)"], ["Generation", r.generation], ["Base", r.baseSha], ["Lane head", r.laneHead],
       ...(r.caughtUp ? [["Took saved work", `the lane head another save had moved (${r.caughtUp})`] as [string, string]] : []),
       ["Updated", list(r.updated)], ["Added", list(r.added)], ["Removed", list(r.removed)], ["Conflicts", list(r.conflicts)],
-      ...(r.conflicts.length ? [["Next", "octocove lane resolve PATH --keep local|incoming for each conflict"] as [string, string]] : [])]));
+      ...(r.conflicts.length ? [["Next", "octo lane resolve PATH --keep local|incoming for each conflict"] as [string, string]] : [])]));
     return;
   }
   if (action === "wrap-up") {
@@ -715,13 +715,13 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
       ["Wrap-up", r.wrapUpId], ["Lane head", r.laneHead], ["Save points", r.savePointCount], ["Contribution ref", r.contributionRef],
       ...(r.supersededCandidateId ? [["Superseded candidate", r.supersededCandidateId] as [string, string]] : []),
       ...(r.unsavedLeftOut.length ? [["Left out (unsaved)", list(r.unsavedLeftOut)] as [string, string]] : []),
-      ["Next", `a human reviews it: octocove candidate show --submission ${r.submissionId}, then approve and land`]]));
+      ["Next", `a human reviews it: octo candidate show --submission ${r.submissionId}, then approve and land`]]));
     return;
   }
   const r = await submitLaneChanges(api, dir, { ...options, message: v.message });
   out(d, v.json, r, () => kv([["Save point", r.savePointId], ["Lane head", r.laneHead], ["Previous head", r.previousHead], ["Generation", r.generation], ["Operations", r.operations],
     ...(r.supersededCandidateId ? [["Superseded candidate", `${r.supersededCandidateId} (wrap up again for review)`] as [string, string]] : []),
-    ["Next", `keep editing and saving, or octocove lane wrap-up ${shq(shown)} for review`]]));
+    ["Next", `keep editing and saving, or octo lane wrap-up ${shq(shown)} for review`]]));
 };
 /**
  * Before a claim ends or a lane is reopened: unsaved edits in the task's lane directory (DIR, or the working
@@ -734,7 +734,7 @@ async function keepUnsaved(d: Deps, taskId: string, dirArg: string | undefined) 
   if (st.taskId !== taskId) { if (dirArg !== undefined) throw new ConfigError(`${dirArg} holds task ${st.taskId}, not ${taskId}`); return null; }
   if (!st.modified.length && !st.added.length && !st.deleted.length) return null;
   const r = await writeUnsavedPatch(dir);
-  if (r.path) d.stderr(`octocove: ${r.files.length} unsaved edit(s) in ${dir} kept as a patch: ${r.path} (git apply it in a lane directory, then octocove lane submit)\n`);
+  if (r.path) d.stderr(`octo: ${r.files.length} unsaved edit(s) in ${dir} kept as a patch: ${r.path} (git apply it in a lane directory, then octo lane submit)\n`);
   return r.path;
 }
 /**
@@ -749,7 +749,7 @@ async function claimTask(d: Deps, taskId: string, v: Record<string, any>) {
   const intentVersion = intFlag(v, "intent-version");
   if (intentVersion === undefined) throw new UsageError("--intent-version is required: a claim bootstrap cannot read the task");
   const creds = v["bootstrap-file"] ? await importBootstrap(d.env, v["bootstrap-file"]) : (await client(d)).creds;
-  if (creds.kind !== "bootstrap") throw new ConfigError("task claim needs the claim bootstrap a human issued with `octocove task authorize` (or `octocove lane reopen`): pass --bootstrap-file FILE");
+  if (creds.kind !== "bootstrap") throw new ConfigError("task claim needs the claim bootstrap a human issued with `octo task authorize` (or `octo lane reopen`): pass --bootstrap-file FILE");
   const api = connect(d, creds);
   const bootstrap: ClaimBootstrap = { kind: "claim-bootstrap", token: creds.token, taskId, authorizationId: "", projectId: "", claimAttemptId: "", delegationId: "", expiresAt: "", authorizationExpiresAt: "", verbs: [] };
   // A lost answer is recovered under the same key and bootstrap within its five minutes, never claimed afresh.
@@ -773,7 +773,7 @@ async function claimTask(d: Deps, taskId: string, v: Record<string, any>) {
     ["Upstream results", (Array.isArray(claim.dependencyResults) ? claim.dependencyResults : []).map((r: any) => `${r.upstreamTaskId} receipt ${r.receiptId} landed ${r.landedSha}`).join("; ") || "(none)"],
     ...(typeof lane?.reopenId === "string" ? [["Reopen", `${lane.reopenId} (continues the landed lane)`], ["Lane head", lane.laneHead]] as [string, unknown][] : []),
     ...(pending ? [["Provisioning", "pending (the lane is still being prepared)"]] as [string, unknown][] : []),
-    ["Credentials", credentialsFile], ["Next", `octocove lane materialize ${taskId} DIR${pending ? " (it finishes preparing the lane first)" : ""}`]]));
+    ["Credentials", credentialsFile], ["Next", `octo lane materialize ${taskId} DIR${pending ? " (it finishes preparing the lane first)" : ""}`]]));
 }
 
 const COMMANDS: Record<string, Handler> = {
@@ -781,7 +781,7 @@ const COMMANDS: Record<string, Handler> = {
     const { v } = opts(args, {}, 0);
     // Both src/ and the installed dist/ sit beside the package's own manifest.
     const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-    out(d, v.json, { version }, () => `octocove ${version}`);
+    out(d, v.json, { version }, () => `octo ${version}`);
   },
   "lane status": materializedLane("status"),
   "lane materialize": materializedLane("materialize"),
@@ -819,11 +819,11 @@ const COMMANDS: Record<string, Handler> = {
       const metadata = { reopenId: r.reopenId, taskId, status: r.status, reopenedFromReceiptId: r.reopenedFromReceiptId, landingCount: r.landingCount, laneRepositoryId: r.laneRepositoryId,
         claimAttemptId: b.claimAttemptId, delegationId: b.delegationId, verbs: b.verbs, bootstrapExpiresAt: b.bootstrapExpiresAt, intentVersion, bootstrapFile, unsavedPatch: saved };
       // The lane keeps its granted scope, so the agent's claim names none; this bootstrap is the only one a reopened task admits.
-      const claimLine = `octocove task claim ${taskId} --intent-version ${intentVersion ?? "N"} --bootstrap-file ${shq(bootstrapFile)}`;
+      const claimLine = `octo task claim ${taskId} --intent-version ${intentVersion ?? "N"} --bootstrap-file ${shq(bootstrapFile)}`;
       out(d, v.json, metadata, () => kv([["Reopen", metadata.reopenId], ["Task", taskId], ["Status", metadata.status], ["Reopened from receipt", metadata.reopenedFromReceiptId], ["Landings", metadata.landingCount],
         ["Claim attempt", metadata.claimAttemptId], ["Bootstrap expires", metadata.bootstrapExpiresAt], ["Bootstrap file", bootstrapFile],
         ...(saved ? [["Unsaved edits", `kept as ${saved}`] as [string, string]] : []),
-        ["Next", `hand the bootstrap file to the agent, which claims within 5 minutes: ${claimLine}, then octocove lane materialize ${taskId} DIR (it continues the lane head)`]]));
+        ["Next", `hand the bootstrap file to the agent, which claims within 5 minutes: ${claimLine}, then octo lane materialize ${taskId} DIR (it continues the lane head)`]]));
     } finally { await output?.close(); }
   },
   // The authoritative scope-request record of the task's claims; agent delegations are refused.
@@ -910,7 +910,7 @@ const COMMANDS: Record<string, Handler> = {
       else d.stdout("Logged in; credential saved privately.\n");
       return;
     }
-    throw new PendingError("login still awaiting browser consent; run octocove login again");
+    throw new PendingError("login still awaiting browser consent; run octo login again");
   },
 
   logout: async (d, args) => {
@@ -1023,8 +1023,8 @@ const COMMANDS: Record<string, Handler> = {
       const landed = kv([
         ["Receipt ID", latestReceiptId ?? "not recorded"], ["Landed SHA", receipt?.landedSha ?? "unavailable"], ["Candidate ID", receipt?.candidateId ?? "unavailable"],
         ...(landings !== undefined && landings > 1 ? [["Landings", `${landings} (first: ${task.acceptedReceiptId})`]] as [string, unknown][] : []),
-        ["Next", latestReceiptId ? `octocove receipt show ${latestReceiptId}` : undefined],
-        ["History", `octocove log ${task.id}`],
+        ["Next", latestReceiptId ? `octo receipt show ${latestReceiptId}` : undefined],
+        ["History", `octo log ${task.id}`],
       ]);
       // The task's lane repository, whether or not a claim is live: it reads after a landing, a reopen and a retirement.
       const lane = isRecord(task.laneRepository) ? `\n\nLane\n${kv(laneRepositoryRows(task.laneRepository))}` : "";
@@ -1070,7 +1070,7 @@ const COMMANDS: Record<string, Handler> = {
       .catch(offShapeAs("org create did not return an organization"));
     const o = r.organization;
     out(d, v.json, { ...o, state: r.state }, () => kv([["Org", o.id], ["Name", o.name], ["Slug", o.slug], ["State", o.provisioningState],
-      ["Next", r.state === "ready" ? `pass --org ${o.id} (or export OCTOCOVE_ORG=${o.id}) to create projects in it` : "it is still being provisioned: run `octocove org list` later; do not create it again"]]));
+      ["Next", r.state === "ready" ? `pass --org ${o.id} (or export OCTOCOVE_ORG=${o.id}) to create projects in it` : "it is still being provisioned: run `octo org list` later; do not create it again"]]));
     if (r.state !== "ready") throw new Emitted(new PendingError(`organization ${o.id} is still being provisioned`));
   },
 
@@ -1099,7 +1099,7 @@ const COMMANDS: Record<string, Handler> = {
     if (creds.kind !== "human") throw new HumanRequiredError("project list requires a human credential");
     const r = await api.root.projects.list(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("invalid project list from the control plane"));
     if (r.partial) d.stderr(v.json ? JSON.stringify({ notice: "partial", unavailableTenants: r.unavailableTenants }) + "\n"
-      : `octocove: some orgs could not be read right now; their projects are missing (${r.unavailableTenants.map((t) => t.tenantId).join(", ")}). Run the command again later.\n`);
+      : `octo: some orgs could not be read right now; their projects are missing (${r.unavailableTenants.map((t) => t.tenantId).join(", ")}). Run the command again later.\n`);
     out(d, v.json, r, () => r.items.map((p) => `${p.name ?? p.slug}  (${p.slug})  owner ${p.owner.slug}  org ${p.tenantId}${p.tenantKind === "personal" ? " (personal)" : ""}${v.verbose ? `\n  ${p.projectId}` : ""}`).join("\n") || "(no projects)");
   },
 
@@ -1141,7 +1141,7 @@ const COMMANDS: Record<string, Handler> = {
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
     out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), r.provider === "github" ? `${r.namespace}/${r.name}` : `${r.namespace}/${r.repoId}`], ["Name", r.name],
       ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable (not observed yet)"],
-      ...(r.provider === "github" ? [["Next", `verify it against GitHub: octocove repo verify ${pos[0]} ${r.id}`]] as [string, unknown][] : [])]));
+      ...(r.provider === "github" ? [["Next", `verify it against GitHub: octo repo verify ${pos[0]} ${r.id}`]] as [string, unknown][] : [])]));
   },
 
   "repo create": async (d, args) => {
@@ -1188,7 +1188,7 @@ const COMMANDS: Record<string, Handler> = {
     try {
     const { v, pos } = opts(args, {}, 3, 1);
     const { api, creds } = await client(d);
-    if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agents work in lane directories (`octocove lane materialize`); no human credential fallback is used.");
+    if (creds.kind !== "human") throw new HumanRequiredError("repo clone requires a human session in the selected config directory. Agents work in lane directories (`octo lane materialize`); no human credential fallback is used.");
     const me = await api.root.auth.me(api.until(Date.now() + READ_SECONDS * 1000));
     if (me.principal.kind !== "human") throw new HumanRequiredError("repo clone requires a human session.");
     const project = cloneProject(me.memberships, pos[0]!);
@@ -1444,7 +1444,7 @@ const RECEIPT_WAIT_SECONDS = 120;
 
 /** Prints a receipt; with a deadline, waits for it to become final. A wait never re-lands. */
 async function printReceipt(d: Deps, api: Api, receiptId: string, deadline: number | undefined, json: boolean, accepted?: unknown, verbose = false) {
-  const pending = () => new PendingError(`landing pending; poll with \`octocove receipt show ${receiptId} --wait\``);
+  const pending = () => new PendingError(`landing pending; poll with \`octo receipt show ${receiptId} --wait\``);
   let r;
   try { r = await api.call("receiptGet", { path: { id: receiptId }, deadline }); }
   catch (err) { throw deadline !== undefined && err instanceof TransportError && err.code === "deadline-exceeded" ? pending() : err; }

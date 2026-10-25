@@ -18,8 +18,8 @@ function command(argv: string[], configured = false) {
 it("land help names the candidate ID and provides an example without configuration", async () => {
   const running = command(["land", "--help"]);
   expect(await running.done).toBe(EXIT.ok);
-  expect(running.output().stdout).toContain("Usage: octocove land CANDIDATE_ID --approval APPROVAL_ID");
-  expect(running.output().stdout).toContain("Example: octocove land candidate-EXAMPLE --approval approval-EXAMPLE --wait");
+  expect(running.output().stdout).toContain("Usage: octo land CANDIDATE_ID --approval APPROVAL_ID");
+  expect(running.output().stdout).toContain("Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait");
   expect(running.output().stderr).toBe("");
   expect(running.fetch).not.toHaveBeenCalled();
 });
@@ -29,8 +29,8 @@ it.each([false, true])("task IDs fail before credentials or network in JSON=%s",
   expect(await running.done).toBe(EXIT.usage);
   expect(running.output().stdout).toBe("");
   expect(running.output().stderr).toContain("land requires a candidate ID");
-  expect(running.output().stderr).toContain("octocove task show task-example");
-  if (jsonMode) expect(JSON.parse(running.output().stderr).error).toMatchObject({ code: "candidate-id-required", hint: expect.stringContaining("octocove task show task-example") });
+  expect(running.output().stderr).toContain("octo task show task-example");
+  if (jsonMode) expect(JSON.parse(running.output().stderr).error).toMatchObject({ code: "candidate-id-required", hint: expect.stringContaining("octo task show task-example") });
   expect(running.fetch).not.toHaveBeenCalled();
   expect(running.git).not.toHaveBeenCalled();
 });

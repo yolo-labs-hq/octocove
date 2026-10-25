@@ -116,7 +116,7 @@ const read = (path: string) => readFileSync(join(dir, path), "utf8");
 const sidecar = () => JSON.parse(readFileSync(join(dir, SIDECAR), "utf8"));
 const posts = (suffix: string) => calls.filter((c) => c.method === "POST" && c.url.pathname.endsWith(suffix));
 
-describe("octocove lane with a lane repository", () => {
+describe("octo lane with a lane repository", () => {
   it("materialize asks for the lane repository and writes the files at the lane head", async () => {
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
     expect(posts("/lane/materialize")).toHaveLength(1);
@@ -169,7 +169,7 @@ describe("octocove lane with a lane repository", () => {
     const before = sidecar();
     expect(await cli(["lane", "submit", "--message", "x"])).toBe(EXIT.failure);
     expect(errText).toContain("lane-head-moved");
-    expect(errText).toContain("octocove lane refresh");
+    expect(errText).toContain("octo lane refresh");
     expect(read("src/a.txt")).toBe("alpha mine\n");
     expect(sidecar()).toEqual(before);
   });
@@ -190,7 +190,7 @@ describe("octocove lane with a lane repository", () => {
     routes["POST /tasks/T1/lane/changes"] = () => problem(409, "lane-not-materialized");
     writeFileSync(join(dir, "src/a.txt"), "alpha 2\n");
     expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
-    expect(errText).toContain("octocove lane materialize TASK DIR");
+    expect(errText).toContain("octo lane materialize TASK DIR");
     expect(posts("/lane/changes")).toHaveLength(1);
     expect(posts("/lane/materialize")).toHaveLength(1);
   });
@@ -434,7 +434,7 @@ describe("octocove lane with a lane repository", () => {
       expect(await cli([...args, "--reason", "follow-up"], human)).toBe(EXIT.ok);
       expect(posts("/lane/reopen")[0]!.body).toEqual({ expectedReceiptId: "RC2", agentId: "agent-1", verbs: ["tasks:read", "submissions:create"], expiresAt: "2026-10-23T00:00:00Z", reason: "follow-up" });
       expect(outText).toMatch(/Landings: +2/);
-      expect(outText).toContain("octocove task claim T1 --intent-version 3 --bootstrap-file");
+      expect(outText).toContain("octo task claim T1 --intent-version 3 --bootstrap-file");
       expect(outText).not.toContain("--read");
       expect(outText + errText).not.toContain("reopen-bootstrap-secret");
     });
@@ -470,7 +470,7 @@ describe("octocove lane with a lane repository", () => {
       expect(outText).toMatch(/Reopen: +RO1/);
       expect(outText).toMatch(/Read: +src\/, README\.md/);
       expect(outText).toContain("pending");
-      expect(outText).toContain("octocove lane materialize T1 DIR");
+      expect(outText).toContain("octo lane materialize T1 DIR");
       expect(outText + errText).not.toContain("reopenedAgentCredential");
     });
 
@@ -479,7 +479,7 @@ describe("octocove lane with a lane repository", () => {
       expect(posts("/claim")).toHaveLength(0);
       routes["POST /tasks/T1/claim"] = () => problem(409, "lane-reopen-required");
       expect(await cli([...claimArgs, "--read", "src/", "--write", "src/"], { credentials: { apiUrl: API, token: "other-boot", kind: "bootstrap", orgId: ORG } })).toBe(EXIT.failure);
-      expect(errText).toContain("only the bootstrap `octocove lane reopen` stored admits a claim");
+      expect(errText).toContain("only the bootstrap `octo lane reopen` stored admits a claim");
     });
   });
 
@@ -540,7 +540,7 @@ describe("octocove lane with a lane repository", () => {
       writeFileSync(join(dir, "src/a.txt"), "alpha stale\n");
       expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
       expect(errText).toContain("execution (X1) was handed over to another environment");
-      expect(errText).toContain("octocove lane patch");
+      expect(errText).toContain("octo lane patch");
       expect(read("src/a.txt")).toBe("alpha stale\n");
     });
 

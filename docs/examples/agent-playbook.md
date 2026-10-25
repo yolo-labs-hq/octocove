@@ -1,6 +1,6 @@
 # Agent task workflow
 
-Every claim is a lane: `octocove task claim TASK_ID --intent-version N --read PREFIXES --write PREFIXES --bootstrap-file FILE` claims the task with the scope the agent needs, and `octocove lane materialize TASK_ID DIR` writes the files at the lane head into a plain directory. The [lane walkthrough](materialized-lane.md) covers every lane command.
+Every claim is a lane: `octo task claim TASK_ID --intent-version N --read PREFIXES --write PREFIXES --bootstrap-file FILE` claims the task with the scope the agent needs, and `octo lane materialize TASK_ID DIR` writes the files at the lane head into a plain directory. The [lane walkthrough](materialized-lane.md) covers every lane command.
 
 The delegating human runs `task authorize TASK_ID --agent WORKER_ID --verbs tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read --expires-at TIME`. Use a future ISO 8601 time within server policy. `WORKER_ID` is a human-chosen opaque ID (1–128 characters), not a human sign-in or a registration requirement. `task authorize --help` describes every permission.
 
@@ -10,18 +10,18 @@ Run `task create --help` for intent fields. `--acceptance` is a JSON array of st
 
 ## Candidate recovery
 
-Run `octocove candidate show --submission ID --json` to inspect computation.
+Run `octo candidate show --submission ID --json` to inspect computation.
 The candidate envelope remains on stdout, including conflict files, checks and
 error detail. Exit 74 (`candidate-failed`) means a completed computation has a
 conflict or error outcome, or the candidate has failed. Recovery guidance appears
 on stderr; scripts should branch on the exit code before requesting approval.
 
-For conflicts, run `octocove lane wrap-up` again with one `--resolve
+For conflicts, run `octo lane wrap-up` again with one `--resolve
 PATH=lane|base|FILE` for each listed path (the upstream copies are under
 `.octocove/incoming/`). For a failed candidate, inspect its checks and error, fix
-the cause in the lane directory, save it with `octocove lane submit` and wrap up
+the cause in the lane directory, save it with `octo lane submit` and wrap up
 again. When the repository has moved, wrap up again: wrap-up squashes the saved
-lane onto the current head; `octocove lane refresh` brings the upstream changes
+lane onto the current head; `octo lane refresh` brings the upstream changes
 into the lane directory first if you need to read them.
 
 Pending and superseded envelopes retain their existing retrieval-success exit

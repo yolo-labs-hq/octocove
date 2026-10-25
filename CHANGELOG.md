@@ -12,6 +12,7 @@ Release `@yolo-labs/octocove` 0.7.0 and `@yolo-labs/octocove-client` 0.8.0: owne
   - Slug refusals are plain `ApiError`s: `400 slug-invalid`, `400 slug-reserved`, `409 slug-taken`, `404 owner-not-found`.
   - The retry policy and the README table cover 106 operation ids.
 - CLI 0.7.0:
+  - The command is now `octo`: the package installs an `octo` bin, and help, usage, errors and next-step hints name `octo` (`octo login`, `octo lane submit`, ...). `octocove` stays as an alias of the same file so that `npx @yolo-labs/octocove` keeps resolving; `octocove-human-credential` is unchanged. `octo version` prints `octo X.Y.Z`.
   - `org create NAME [--slug SLUG]` picks the organization's slug; without it the server derives one from `NAME`. The answer prints the slug.
   - New `org rename ORG --slug SLUG` (org admin, recent sign-in): `ORG` is the org ID, or a current or retired slug resolved first through `GET /owners/{slug}`; a person's handle is refused (exit 2).
   - `org list` shows each organization's slug; `project list` shows each project's owner slug, and `whoami` each membership's (text output, for a human).

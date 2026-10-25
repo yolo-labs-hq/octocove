@@ -113,7 +113,7 @@ async function load(dir: string): Promise<Sidecar> {
   await sidecarDir(dir);
   let text: string;
   try { text = await readFile(join(dir, SIDECAR), 'utf8'); }
-  catch { throw new ConfigError(`${dir} is not a lane directory (no ${SIDECAR}); run octocove lane materialize first`); }
+  catch { throw new ConfigError(`${dir} is not a lane directory (no ${SIDECAR}); run octo lane materialize first`); }
   let sc: unknown;
   try { sc = JSON.parse(text); } catch { throw new ConfigError(`${SIDECAR} is not valid JSON`); }
   if (!isRecord(sc) || sc.version !== 1 || typeof sc.taskId !== 'string' || !Number.isInteger(sc.generation) || !isRecord(sc.files) || !isRecord(sc.conflicts) || !isRecord(sc.scope))
@@ -353,7 +353,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   const task = (await api.call('taskGet', { path: { id: taskId }, deadline: options.deadline })).body;
   const lane = isRecord(task) ? task.lane : undefined;
   if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string')
-    throw new ConfigError('this task has no active lane; claim it first (octocove task claim TASK --intent-version N --read PREFIXES --bootstrap-file FILE)');
+    throw new ConfigError('this task has no active lane; claim it first (octo task claim TASK --intent-version N --read PREFIXES --bootstrap-file FILE)');
   // One key for every attempt: a lane repository that is still being created, or a reopened lane still being
   // rebased onto its landing, resumes under it (503 lane-repository-unavailable).
   const key = keyed(options);
@@ -526,9 +526,9 @@ async function uploadBlob(api: Api, sc: Sidecar, content: Buffer, deadline: numb
 async function resolutionsFor(api: Api, dir: string, sc: Sidecar, operation: Pending['operation'], options: ResolveOptions): Promise<Resolution[] | undefined> {
   if (!options.resolve?.length) return undefined;
   const p = sc.pending;
-  if (!p) fail(409, 'lane-conflicts-unknown', `no recorded conflicts to resolve in ${dir}; run octocove lane ${operation} without --resolve first`);
+  if (!p) fail(409, 'lane-conflicts-unknown', `no recorded conflicts to resolve in ${dir}; run octo lane ${operation} without --resolve first`);
   if (p!.operation !== operation) fail(409, 'lane-conflicts-unknown', `the recorded conflicts came from lane ${p!.operation}; resolve them with lane ${p!.operation}, or run lane ${operation} without --resolve`);
-  if (p!.laneHead !== sc.laneHead || p!.generation !== sc.generation) fail(409, 'lane-conflicts-stale', `the lane moved since the conflicts were recorded; run octocove lane ${operation} without --resolve to list them again`);
+  if (p!.laneHead !== sc.laneHead || p!.generation !== sc.generation) fail(409, 'lane-conflicts-stale', `the lane moved since the conflicts were recorded; run octo lane ${operation} without --resolve to list them again`);
   const listed = new Set(p!.conflicts.map((c) => c.path));
   const out = new Map<string, Resolution>();
   for (const arg of options.resolve) {
@@ -644,13 +644,13 @@ export async function resolveConflict(dir: string, path: string, keep: 'local' |
   const sc = await load(dir);
   const c = has(sc.conflicts, path) ? sc.conflicts[path] : undefined;
   if (!c) fail(404, 'lane-conflict-unknown', sc.pending?.conflicts.some((p) => p.path === path)
-    ? `${path} is a conflict between the saved lane and upstream; decide it with octocove lane ${sc.pending.operation} --resolve ${path}=lane|base|FILE`
-    : `${path} has no unresolved conflict; run octocove lane status`);
+    ? `${path} is a conflict between the saved lane and upstream; decide it with octo lane ${sc.pending.operation} --resolve ${path}=lane|base|FILE`
+    : `${path} has no unresolved conflict; run octo lane status`);
   const target = await safeJoin(dir, path);
   const source = c!.incoming ? await incomingTarget(dir, c!.incoming) : null;
   // Check everything before changing anything: a failed resolve leaves the local file and the conflict as they were.
   if (keep === 'incoming' && source && !await lstatOrNull(source))
-    fail(409, 'lane-incoming-missing', `the upstream copy ${c!.incoming} is gone; run octocove lane refresh to fetch it again, or keep local`);
+    fail(409, 'lane-incoming-missing', `the upstream copy ${c!.incoming} is gone; run octo lane refresh to fetch it again, or keep local`);
   const blocked = keep === 'incoming' && source ? await blockingParent(dir, path) : null;
   if (blocked) fail(409, 'lane-resolve-blocked', `${blocked.at} is a file where ${path} needs a directory; resolve ${blocked.at} first`);
   if (keep === 'incoming') {
@@ -674,7 +674,7 @@ export interface SubmitOptions extends MaterializeOptions { message?: string }
 export async function submit(api: Api, dir: string, options: SubmitOptions) {
   const sc = await load(dir);
   const st = await status(dir);
-  if (st.conflicts.length) fail(409, 'lane-conflicts-unresolved', `resolve ${st.conflicts.map((c) => c.path).join(', ')} first (octocove lane resolve PATH --keep local|incoming)`);
+  if (st.conflicts.length) fail(409, 'lane-conflicts-unresolved', `resolve ${st.conflicts.map((c) => c.path).join(', ')} first (octo lane resolve PATH --keep local|incoming)`);
   const puts = [...st.modified, ...st.added], deletes = st.deleted;
   if (!puts.length && !deletes.length) fail(409, 'nothing-to-submit', 'no local changes against the lane head');
   for (const path of [...puts, ...deletes]) if (!inScope(path, sc.scope.write)) fail(403, 'scope-refused', `${path} is outside the lane's write scope (${sc.scope.write.join(', ') || 'none'})`);
@@ -723,7 +723,7 @@ export async function wrapUp(api: Api, dir: string, options: WrapUpOptions) {
   const unsaved = [...st.modified, ...st.added, ...st.deleted].filter((p) => !resolvedByContent.has(p)).sort();
   if ((unsaved.length || st.conflicts.length) && !options.allowUnsaved) {
     const listed = [...unsaved, ...st.conflicts.map((c) => `${c.path} (conflict)`)];
-    fail(409, 'lane-unsaved-edits', `${listed.length} unsaved edit(s) would not be part of the candidate: ${listed.join(', ')}. Save them first (octocove lane submit --message TEXT), keep them aside (octocove lane patch), or pass --allow-unsaved to wrap up the saved lane head without them`,
+    fail(409, 'lane-unsaved-edits', `${listed.length} unsaved edit(s) would not be part of the candidate: ${listed.join(', ')}. Save them first (octo lane submit --message TEXT), keep them aside (octo lane patch), or pass --allow-unsaved to wrap up the saved lane head without them`,
       { unsaved, conflicts: st.conflicts.map((c) => c.path) });
   }
   const body = { generation: sc.generation, laneHead: sc.laneHead, ...(options.message ? { message: options.message } : {}), ...(resolutions ? { resolutions } : {}) };

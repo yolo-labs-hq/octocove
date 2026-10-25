@@ -37,40 +37,40 @@ describe("command help before execution", () => {
     for (let position = 0; position <= args.length; position++) {
       const argv = [...args.slice(0, position), "--help", ...args.slice(position)];
       const stdout = await help(argv);
-      expect(stdout).toContain(`Usage: octocove ${command}`);
+      expect(stdout).toContain(`Usage: octo ${command}`);
       expect(stdout).toContain("Global options:");
       expect(stdout).not.toContain("\nCommands:");
     }
-    expect(await help([...words, "--help"])).toContain(`Usage: octocove ${command}`);
+    expect(await help([...words, "--help"])).toContain(`Usage: octo ${command}`);
   });
 
   it.each([["--help"], ["--json", "--help"], ["--help", "--json"]])("root help honors option ordering %j", async (...argv) => {
-    expect(await help(argv)).toContain("Usage: octocove [--json] <command> [options]");
+    expect(await help(argv)).toContain("Usage: octo [--json] <command> [options]");
   });
 
   it.each(["--version", "-v"])("%s alias prints version command help", async (alias) => {
-    expect(await help([alias, "--help", "--json"])).toContain("Usage: octocove version");
+    expect(await help([alias, "--help", "--json"])).toContain("Usage: octo version");
   });
 
   it("login help never starts the device flow", async () => {
-    expect(await help(["login", "--help", "--wait", "8", "--json"])).toContain("Usage: octocove login [--wait SECONDS]");
+    expect(await help(["login", "--help", "--wait", "8", "--json"])).toContain("Usage: octo login [--wait SECONDS]");
   });
 
   it("events follow help wins over the special dispatch path", async () => {
-    expect(await help(["events", "--follow", "--help", "--project", "P1"])).toContain("Usage: octocove events --follow");
+    expect(await help(["events", "--follow", "--help", "--project", "P1"])).toContain("Usage: octo events --follow");
   });
 });
 
 
 it.each(["claim", "task claim"])("%s help advertises the bootstrap claim and its scope", async command => {
   const text = await help([...command.split(" "), "--help"]);
-  for (const part of ["--intent-version N", "--read a,b", "--write a,b", "--bootstrap-file FILE", "claim bootstrap", "octocove lane materialize"]) expect(text).toContain(part);
+  for (const part of ["--intent-version N", "--read a,b", "--write a,b", "--bootstrap-file FILE", "claim bootstrap", "octo lane materialize"]) expect(text).toContain(part);
   for (const removed of ["--lane", "--canonical", "--source-ref", "--remote", "--wait", "chain"]) expect(text).not.toContain(removed);
 });
 
 it("lane retire help names its one argument", async () => {
   const text = await help(["lane", "retire", "--help"]);
-  expect(text).toContain("Usage: octocove lane retire TASK");
+  expect(text).toContain("Usage: octo lane retire TASK");
   expect(text).not.toContain("--task");
 });
 

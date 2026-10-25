@@ -5,14 +5,14 @@ export class CloneError extends Error {
 }
 export function cloneProblem(status:number, code:string, gitEndpoint=false) {
   const safeCode=isServerCode(code)?code:`http-${status}`;
-  if(status===401)return new CloneError(status,safeCode,'Sign-in required or expired. Run octocove login in the same config directory, then retry repo clone.',77);
+  if(status===401)return new CloneError(status,safeCode,'Sign-in required or expired. Run octo login in the same config directory, then retry repo clone.',77);
   if(status===403)return new CloneError(status,safeCode,/scope|permission|tasks-read/.test(code)
     ? 'Your membership lacks tasks:read. Ask a project admin for repository read access.'
-    : 'Repository read access denied: you are not a member of this project or your membership lacks tasks:read. Check octocove whoami or ask a project admin.',78);
+    : 'Repository read access denied: you are not a member of this project or your membership lacks tasks:read. Check octo whoami or ask a project admin.',78);
   if(gitEndpoint && [404,405].includes(status))return new CloneError(status,safeCode,"This server doesn't support member clone yet. Ask the operator to enable the canonical read endpoint.",69);
-  if(status===404)return new CloneError(status,safeCode,'Unknown project or repository. Check the project slug and repository ID with octocove repo list PROJECT.',66);
+  if(status===404)return new CloneError(status,safeCode,'Unknown project or repository. Check the project slug and repository ID with octo repo list PROJECT.',66);
   if(status===429)return new CloneError(status,safeCode,'Repository clone is rate limited. Wait before retrying; do not create another clone request immediately.',75);
-  return new CloneError(status,safeCode,'Repository clone failed. Check your sign-in and project read access with octocove whoami. Inspect the destination before retrying.',1);
+  return new CloneError(status,safeCode,'Repository clone failed. Check your sign-in and project read access with octo whoami. Inspect the destination before retrying.',1);
 }
 
 /** Authenticate/read admission before Git, preserving server problem codes without echoing diagnostics. */
