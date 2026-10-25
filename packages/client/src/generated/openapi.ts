@@ -315,7 +315,7 @@ export interface paths {
         };
         /**
          * List a canonical repository's branches, its default branch and their current heads
-         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `tasks:create` in the project (403 `forbidden` otherwise). Landing destinations - one read of the provider's smart-HTTP ref advertisement (no clone; on GitHub also the repository metadata for its default branch) with a 60-second repo-scoped read credential revoked before the answer. Lists every `refs/heads/*` branch the provider advertises, at most 500 (`truncated` past that), with its current `headSha`, plus every registered target ref of the repository (`registered: true`, the record's `knownHeadSha`); a registered target the provider no longer advertises (deleted or renamed) has `headSha` null. `defaultBranch` is the full ref the provider names as its default (GitHub's `default_branch`; on Artifacts the advertisement's `HEAD` symref), or null when it names none. Writes nothing, not audited. Refusals - 404 `not-found` (no live canonical repository with that id in the project); 409 `repository-unverified`, `repository-namespace-mismatch`, `repository-provider-unsupported` (not Artifacts or GitHub), `credential-unavailable` (GitHub, no usable credential for the binding), `repository-remote-not-found`; 503 provider failures (`native-git-unavailable`, `broker-provider-unavailable`, retryable).
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `tasks:create` in the project (403 `forbidden` otherwise). Landing destinations - one read of the provider's smart-HTTP ref advertisement (no clone; on GitHub also the repository metadata for its default branch) with a 60-second repo-scoped read credential revoked before the answer. Lists every `refs/heads/*` branch the provider advertises (every registered one, and up to 500 others - `truncated` past that), with its current `headSha`, plus every registered target ref of the repository (`registered: true`, the record's `knownHeadSha`); a registered target the provider no longer advertises (deleted or renamed) has `headSha` null. `defaultBranch` is the full ref the provider names as its default (GitHub's `default_branch`; on Artifacts the advertisement's `HEAD` symref), or null when it names none. Writes nothing, not audited. Refusals - 404 `not-found` (no live canonical repository with that id in the project); 409 `repository-unverified`, `repository-namespace-mismatch`, `repository-provider-unsupported` (not Artifacts or GitHub), `credential-unavailable` (GitHub, no usable credential for the binding), `repository-remote-not-found`; 503 provider failures (`native-git-unavailable`, `broker-provider-unavailable`, retryable).
          */
         get: operations["repositoryBranchesList"];
         put?: never;
@@ -1664,7 +1664,9 @@ export interface paths {
          *     fenceId, receiptId, position}` once, on the commit after which `GET /orgs/{orgId}/receipts/{fenceId}` is final;
          *     `notifications` `{tenantId, unreadCount, latestId}`, the caller's own state as `GET /orgs/{orgId}/me/notifications`
          *     counts it, on connect and when it changes (after a projection, a read mark or a preference change). A hint names
-         *     a resource class and ids only, never record data: the client rereads through the authorized routes. Positions
+         *     a resource class and ids only, never record data: the client rereads through the authorized routes. An
+         *     observation that explicitly records no change (remote reconciliation re-reads every ~45 s) sends no hint; a
+         *     first observation, a change or an error does. Positions
          *     and resume as `GET /orgs/{orgId}/events/stream`; more than 1000 positions behind answers `reset`.
          *     Subscribes before its first snapshot, re-authorizes the caller on every hub ring and on every `heartbeat` frame
          *     (each 25 s), and ends after 5 minutes with a `closed` frame (`lifetime`), or at once on a refusal (`revoked`, with
@@ -3158,7 +3160,7 @@ export interface components {
             provider: "artifacts" | "github";
             /** @description The provider's default branch as a full ref, or null when it names none. */
             defaultBranch: string | null;
-            /** @description True when the provider advertised more than 500 branches. */
+            /** @description True when the provider advertised more unregistered branches than the 500 listed; registered targets are always listed. */
             truncated: boolean;
             items: {
                 /** @description Full branch ref. */
