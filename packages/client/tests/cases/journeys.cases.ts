@@ -511,8 +511,8 @@ export const journeyCases: Case[] = [
     await rejects(() => journeys(delegated).orgs.update(ORG, { slug: 'x' }, { deadline: soon() }), TypeError);
   }),
   test('owners.resolve reads GET /v1/owners/{slug}: an organization or a user; owner-not-found is thrown', async () => {
-    const orgOwner = { kind: 'organization', orgId: ORG, slug: 'acme', canonical: false };
-    const userOwner = { kind: 'user', handle: 'jane', personalOrgId: null, canonical: true };
+    const orgOwner = { kind: 'organization', orgId: ORG, slug: 'acme', canonical: false } as const;
+    const userOwner = { kind: 'user', handle: 'jane', personalOrgId: null, canonical: true } as const;
     const { fetch, calls } = scriptedFetch(json(200, orgOwner), json(200, userOwner), problem(404, 'owner-not-found'), json(200, { kind: 'organization', slug: 'acme' }));
     const oc = journeys(client(fetch));
     equal(await oc.owners.resolve('Acme-Old', { deadline: soon() }), orgOwner);
