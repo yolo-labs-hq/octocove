@@ -23,5 +23,5 @@ it('preserves command argument values and the positional separator',()=>{
 it('help with a leading idempotency key does not execute anything',async()=>{
  let output='';const unexpected=async()=>{throw new Error('unexpected side effect');};
  expect(await run({argv:['--idempotency-key','K','task','--verbose','authorize','--help'],env:{},stdout:s=>output+=s,stderr:s=>output+=s,fetch:unexpected,git:unexpected,stdin:unexpected})).toBe(0);
- expect(output).toContain('Usage: octocove task authorize');expect(output).toContain('--bootstrap-out PATH');
+ expect(output).toContain('Usage: octo task authorize');expect(output).toContain('--bootstrap-out PATH');
 });

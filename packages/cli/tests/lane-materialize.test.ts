@@ -84,7 +84,7 @@ const read = (path: string) => readFileSync(join(dir, path), "utf8");
 const sidecar = () => JSON.parse(readFileSync(join(dir, SIDECAR), "utf8"));
 const changes = () => calls.filter((c) => c.method === "POST" && c.url.pathname.endsWith("/lane/changes"));
 
-describe("octocove lane (materialized)", () => {
+describe("octo lane (materialized)", () => {
   it("materializes the open generation into a plain directory with a sidecar and no .git", async () => {
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
     expect(read("src/a.txt")).toBe("alpha\n");
@@ -193,7 +193,7 @@ describe("octocove lane (materialized)", () => {
     rmSync(join(dir, "src/link")); execFileSync("ln", ["-s", "run.sh", join(dir, "src/link")]);
     routes["POST /tasks/T1/lane/changes"] = () => json(409, { code: "generation-superseded", status: 409 });
     expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
-    expect(errText).toContain("octocove lane refresh");
+    expect(errText).toContain("octo lane refresh");
     expect(changes()[0]!.body.operations).toEqual([
       { op: "put", path: "src/link", blobId: sha256("run.sh"), mode: "120000" },
       { op: "put", path: "src/run.sh", blobId: sha256("#!/bin/sh\necho changed\n"), mode: "100755" },
@@ -208,7 +208,7 @@ describe("octocove lane (materialized)", () => {
     expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/,README.md", "--write", "src/"], bootstrap)).toBe(EXIT.ok);
     const claim = calls.find((c) => c.method === "POST" && c.url.pathname.endsWith("/claim"))!;
     expect(claim.body).toEqual({ intentVersion: 3, scope: { read: ["src/", "README.md"], write: ["src/"] } });
-    expect(outText).toContain("octocove lane materialize T1");
+    expect(outText).toContain("octo lane materialize T1");
     expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--lane", "materialized", "--read", "src/"], bootstrap)).toBe(EXIT.usage);
   });
 

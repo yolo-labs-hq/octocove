@@ -7,7 +7,7 @@ import { Api, ApiError, type FetchLike } from './http.js';
 import { ConfigError, configDir, activeCredentials, loadCredentials, saveCredentials, type Credentials } from './config.js';
 
 const wrappedFetches = new WeakMap<FetchLike, { apiUrl: string; directory: string; fetch: FetchLike }>();
-const SIGN_IN = 'Human session ended or was revoked; sign in again with `octocove login`.';
+const SIGN_IN = 'Human session ended or was revoked; sign in again with `octo login`.';
 function checkLimits(creds: Credentials) {
   for (const field of ['absoluteExpiresAt', 'idleExpiresAt'] as const) {
     if (creds[field] && Date.parse(creds[field]) <= Date.now()) throw new ConfigError(SIGN_IN);

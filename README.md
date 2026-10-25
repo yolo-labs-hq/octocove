@@ -21,7 +21,7 @@ This repository contains the Octocove command-line client and the npm libraries 
 
 | Path | What it is |
 | --- | --- |
-| [`packages/cli`](packages/cli/README.md) | The `octocove` command-line client (`@yolo-labs/octocove`). |
+| [`packages/cli`](packages/cli/README.md) | The `octo` command-line client (`@yolo-labs/octocove`). |
 | [`packages/client`](packages/client/README.md) | The typed API client library (`@yolo-labs/octocove-client`). |
 | [`packages/shared`](packages/shared/README.md) | Code shared by the packages. |
 | [`docs/`](docs/README.md) | Client guides: the multi-agent walkthrough, the lane walkthrough, examples and the release process. |
@@ -40,26 +40,27 @@ named by its ID (`org_<uuid>`). `project list` shows each project's org; a human
 passes it as `--org ORG_ID` or sets `OCTOCOVE_ORG`. An agent passes none: its
 claim bootstrap and delegation carry the org they were issued in.
 
-Sign in as the human project administrator:
+Install the CLI, which provides the `octo` command, then sign in as the human project administrator:
 
 ```sh
-npx @yolo-labs/octocove login --wait 600
-npx @yolo-labs/octocove project list
+npm i -g @yolo-labs/octocove
+octo login --wait 600
+octo project list
 export OCTOCOVE_ORG=ORG_ID
-npx @yolo-labs/octocove --json repo list PROJECT_ID
+octo --json repo list PROJECT_ID
 ```
 
 Complete the displayed device-flow consent yourself. Create, publish and delegate
 a concrete task; replace uppercase values and use a future UTC expiry:
 
 ```sh
-npx @yolo-labs/octocove --json task create \
+octo --json task create \
   --project PROJECT_ID --repository REPOSITORY_ID --target-ref refs/heads/main \
   --key readme-example --title 'Add a usage example' \
   --description 'Add a runnable usage example to README.md.' \
   --acceptance '["The example runs successfully","README explains its output"]'
-npx @yolo-labs/octocove task publish TASK_ID
-npx @yolo-labs/octocove --json task authorize TASK_ID \
+octo task publish TASK_ID
+octo --json task authorize TASK_ID \
   --agent example-agent \
   --verbs tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read \
   --expires-at EXPIRY_ISO
@@ -77,14 +78,14 @@ umask 077
 export OCTOCOVE_CONFIG_DIR=/path/to/private/agent-config
 mkdir -p "$OCTOCOVE_CONFIG_DIR"
 chmod 700 "$OCTOCOVE_CONFIG_DIR"
-npx @yolo-labs/octocove --json task claim TASK_ID --intent-version INTENT_VERSION \
+octo --json task claim TASK_ID --intent-version INTENT_VERSION \
   --read README.md --write README.md --bootstrap-file /path/to/protected/bootstrap.json
-npx @yolo-labs/octocove --json whoami
-npx @yolo-labs/octocove lane materialize TASK_ID ./lane
+octo --json whoami
+octo lane materialize TASK_ID ./lane
 # Implement and test the task in ./lane (a plain directory, no .git).
-npx @yolo-labs/octocove lane status ./lane
-npx @yolo-labs/octocove lane submit ./lane --message 'Add a usage example'
-npx @yolo-labs/octocove lane wrap-up ./lane --message 'Add a usage example'
+octo lane status ./lane
+octo lane submit ./lane --message 'Add a usage example'
+octo lane wrap-up ./lane --message 'Add a usage example'
 ```
 
 The claim carries the scope: what the agent may read, and what it may change.

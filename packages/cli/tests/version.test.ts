@@ -15,7 +15,7 @@ describe("installed package version", () => {
       const stdin = vi.fn(() => { throw new Error("unexpected stdin access"); });
       expect(await run({ argv, env: { OCTOCOVE_CONFIG_DIR: "/nonexistent", OCTOCOVE_API_URL: "invalid" },
         fetch, git, stdin, stdout: (s) => { stdout += s; }, stderr: (s) => { stderr += s; } })).toBe(EXIT.ok);
-      expect(stdout).toBe(flags.length ? JSON.stringify({ version: manifest.version }, null, 2) + "\n" : `octocove ${manifest.version}\n`);
+      expect(stdout).toBe(flags.length ? JSON.stringify({ version: manifest.version }, null, 2) + "\n" : `octo ${manifest.version}\n`);
       expect(stderr).toBe("");
       expect(fetch).not.toHaveBeenCalled();
       expect(git).not.toHaveBeenCalled();

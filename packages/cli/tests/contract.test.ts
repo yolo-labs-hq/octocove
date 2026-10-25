@@ -60,7 +60,7 @@ describe("task claim against recorded responses", () => {
     const { claim } = fixture("claim-post-bootstrap").body;
     routes[`POST /tasks/${claim.taskId}/claim`] = () => recorded("claim-post-bootstrap");
     expect(await cli(["task", "claim", claim.taskId, "--intent-version", "1", "--read", "t/a/", "--write", "t/a/"], boot)).toBe(EXIT.ok);
-    for (const text of [claim.id, claim.lane.baseSha, "t/a/", `octocove lane materialize ${claim.taskId} DIR`]) expect(out).toContain(text);
+    for (const text of [claim.id, claim.lane.baseSha, "t/a/", `octo lane materialize ${claim.taskId} DIR`]) expect(out).toContain(text);
     expect(out + err).not.toContain("fixture-access-token");
   });
 
@@ -119,7 +119,7 @@ describe("candidate show against recorded responses", () => {
     expect(out).toContain("src/file.ts");
     expect(out).toContain("conflict");
     expect(err).toContain("--resolve PATH=lane|base|FILE");
-    expect(err).toContain("octocove lane wrap-up");
+    expect(err).toContain("octo lane wrap-up");
     expect(await show("candidate-conflict", "--json")).toBe(EXIT.candidateFailed);
     expect(out).toBe(JSON.stringify(fixture("candidate-conflict").body, null, 2) + "\n");
     expect(JSON.parse(err).error.code).toBe("candidate-failed");
@@ -131,7 +131,7 @@ describe("candidate show against recorded responses", () => {
       expect(await cli(["candidate","show","--submission","S1",...(json?["--json"]:[])])).toBe(EXIT.candidateFailed);
       if(json)expect(out).toBe(JSON.stringify(body,null,2)+"\n");
       else expect(out).toContain("Compute needs recovery");
-      expect(err).toContain("octocove lane wrap-up");
+      expect(err).toContain("octo lane wrap-up");
     }
   });
   it("a computed active candidate with a failed check retains retrieval success", async () => {

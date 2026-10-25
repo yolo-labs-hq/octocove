@@ -53,9 +53,9 @@ session and accepts OCTOCOVE_WORKLOAD_TOKEN or --token-stdin. Tokens never
 belong in argv. --as is the registered canonical principal ID expected by the
 caller; it cannot select the server's actor kind or identity.
 
-    octocove auth exchange --as PRINCIPAL --scope "$APPROVAL_SCOPE" --token-stdin
-    octocove auth approve --as PRINCIPAL --grant GRANT_ID
-    octocove approve --grant GRANT_ID
+    octo auth exchange --as PRINCIPAL --scope "$APPROVAL_SCOPE" --token-stdin
+    octo auth approve --as PRINCIPAL --grant GRANT_ID
+    octo approve --grant GRANT_ID
 
 An approval grant cannot save, wrap up, land or claim; the server refuses
 canonical self-approval, including immutable delegated on-behalf-of provenance.
@@ -70,11 +70,11 @@ reuse does not extend authority. Error JSON contains the server's stable code
 and status, exit 1 for refused API decisions, 78 for invalid local storage.
 Ordinary human/delegation commands retain their existing exit codes.
 
-    octocove --json auth revoke --grant GRANT_ID
+    octo --json auth revoke --grant GRANT_ID
 
 Revocation requires a current human administrator session against the same API;
 no bearer possession is needed; a bot cannot revoke or provision itself. Landing and receipt reads require
-independent existing authorization. Use octocove land CANDIDATE --approval ID
+independent existing authorization. Use octo land CANDIDATE --approval ID
 and receipt show with that credential. Verify both the remote target Git object
 and exported receipt object; a successful HTTP approval is not a landing.
 

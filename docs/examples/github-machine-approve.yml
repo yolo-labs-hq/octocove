@@ -44,9 +44,9 @@ jobs:
           const value = await r.json();
           process.stdout.write(value.value);
           JS
-            octocove auth exchange --as "$EXPECTED_PRINCIPAL" \
+            octo auth exchange --as "$EXPECTED_PRINCIPAL" \
               --scope "$APPROVAL_SCOPE" --token-stdin |
             jq -er .id
           )
-          octocove auth approve --as "$EXPECTED_PRINCIPAL" --grant "$grant"
+          octo auth approve --as "$EXPECTED_PRINCIPAL" --grant "$grant"
           # A separately authorized coordinator lands and verifies the receipt.

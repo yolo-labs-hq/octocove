@@ -1,6 +1,6 @@
-# octocove CLI
+# octo CLI
 
-One `octocove` binary with a subcommand per record API verb. A human terminal and an
+One `octo` command with a subcommand per record API verb. A human terminal and an
 agent sandbox run the same commands against the same API with the same semantics; only the credential differs. No
 CLI-managed background daemons: anything that waits (a lane settling, landing) polls for a bounded time and then exits.
 An agent works in a lane: a plain directory of the files its claim may read, saved and wrapped up through the API. No
@@ -13,17 +13,17 @@ directory and the human read-only clone.
 
 ## Clone a repository as a human
 
-Sign in, then clone the project's canonical repository:
+With the CLI installed (see [Install](#install)), sign in, then clone the project's canonical repository:
 
 ```sh
-npx --yes @yolo-labs/octocove@latest login
-npx --yes @yolo-labs/octocove@latest repo clone my-project
+octo login
+octo repo clone my-project
 ```
 
 `PROJECT` is your project slug or ID. The directory defaults to the repository name. To choose a repository and destination explicitly:
 
 ```sh
-npx --yes @yolo-labs/octocove@latest repo clone my-project REPOSITORY_ID ./my-copy
+octo repo clone my-project REPOSITORY_ID ./my-copy
 ```
 
 If several canonicals are available, the CLI lists their IDs and refuses to guess. It checks out the canonical target branch, including a non-default branch. An empty repository produces an empty working tree on that target branch. Use `--json` for a structured result with the project, repository, directory, branch and empty status.
@@ -38,20 +38,20 @@ Commands automatically renew the stored human bearer session near its token expi
 or once after a `credential-expired` response, and save the replacement with mode
 0600 in the same config directory. Concurrent CLI processes share a renewal lock
 and adopt the saved replacement. An idle or absolute session limit, or revocation,
-requires `octocove login`. A crashed renewal lock is not stolen automatically.
-Agent delegation tokens also renew automatically within their authorization ceiling and live claim lease, using only that agent's scoped credential. `octocove auth renew` remains available explicitly. Revoked or ended agent grants require a new human authorization.
+requires `octo login`. A crashed renewal lock is not stolen automatically.
+Agent delegation tokens also renew automatically within their authorization ceiling and live claim lease, using only that agent's scoped credential. `octo auth renew` remains available explicitly. Revoked or ended agent grants require a new human authorization.
 
 ## Install
 
-The npm package is `@yolo-labs/octocove`; you can also build from source (below). One
+The npm package is `@yolo-labs/octocove` and installs the `octo` command; you can also build from source (below). It also installs `octocove`, an alias of `octo` kept so that `npx @yolo-labs/octocove` resolves. One
 self-contained CLI bundle (plus the bundled human Git credential helper for `repo clone`) with no runtime dependencies; Node.js 20 or newer, Linux or macOS.
 
 ```sh
 npm i -g @yolo-labs/octocove
-octocove --version    # installed CLI package version; also: -v or version --json
-octocove login        # prints a verification URL and code; open it, sign in and explicitly allow this CLI
-octocove whoami       # the signed-in principal, credential kind and project memberships
-octocove repo list PROJECT   # or `project create`, `task list --project ID`, ... (see Commands)
+octo --version    # installed CLI package version; also: -v or version --json
+octo login        # prints a verification URL and code; open it, sign in and explicitly allow this CLI
+octo whoami       # the signed-in principal, credential kind and project memberships
+octo repo list PROJECT   # or `project create`, `task list --project ID`, ... (see Commands)
 ```
 
 The CLI talks to the hosted service at `https://api.octocove.com` by default. To use another control plane,
@@ -61,7 +61,7 @@ otherwise the default. `login` stores the origin with the credential. Every othe
 credential only to that stored origin; a different `OCTOCOVE_API_URL` never redirects it, so log in again to
 switch control planes. `login` waits up to `--wait SECONDS`
 (default 600) while the browser consents, then stores a human session in the protected store described under
-Configuration. `octocove logout` ends it.
+Configuration. `octo logout` ends it.
 
 ## Development
 
@@ -92,7 +92,7 @@ task, lane, candidate, approval, receipt or webhook acts in exactly one org, nam
 CLI sends it to `/v1/orgs/{orgId}/...`. There is no default org and no fallback to another one.
 
 - **A human** names the org: `--org ORG_ID` (a global flag, anywhere on the command line) or `OCTOCOVE_ORG`.
-  `octocove project list` shows each of your projects with its org; `whoami` shows it per membership. A
+  `octo project list` shows each of your projects with its org; `whoami` shows it per membership. A
   tenant-scoped command without an org fails before sending anything (exit 78).
 - **An agent** never names one. `task authorize` and `lane reopen` write the org into the bootstrap file, `task claim`
   keeps it with the delegation, and every later command of the agent acts in it; a different `--org` is refused
@@ -115,7 +115,7 @@ reserved word `slug-reserved` and one another owner holds `slug-taken` (all exit
 
 ## Commands
 
-Use `octocove <command> --help` for that command's usage. `--help` takes precedence
+Use `octo <command> --help` for that command's usage. `--help` takes precedence
 over other options, including `--json`, and missing required arguments. Help never
 reads credentials or starts network requests.
 
@@ -202,7 +202,7 @@ metadata when the credential is saved. It never emits the device code, verifier,
   import settings cannot reactivate credentials. Failed operations preserve the active credential.
 - **task authorize --bootstrap-out PATH** writes directly to a new file with mode 0600 in a private parent with mode 0700. Missing parent directories are created privately; existing files and symlinks are refused before the authorization request. Choose a path outside every working tree, hand it only to the named agent, and keep each agent config separate. Only the path and metadata are printed, never the token. Without this option, **task authorize** writes a unique `credentials/bootstrap-<id>.json` (0600, inside a 0700 directory), and prints
   its path and authorization metadata. The protected file also carries the agent label for `whoami`; the server remains the authority for the delegating human. Give each agent its own `OCTOCOVE_CONFIG_DIR`. Securely pass that file to the named job and run
-  `octocove task claim TASK --intent-version N --read PREFIXES --write PREFIXES --bootstrap-file FILE` there. The flag and
+  `octo task claim TASK --intent-version N --read PREFIXES --write PREFIXES --bootstrap-file FILE` there. The flag and
   `OCTOCOVE_BOOTSTRAP_FILE` carry paths only. An explicit flag intentionally imports a new bootstrap; an environment
   import path never overrides an active delegation.
 
@@ -289,7 +289,7 @@ Creation and verification also include a `nextSteps` field in JSON output.
 
 ## Following events
 
-`octocove events --follow --project PROJECT [--task TASK] [--from CURSOR]
+`octo events --follow --project PROJECT [--task TASK] [--from CURSOR]
 [--checkpoint FILE]` streams one org's newline-delimited v2 envelopes and resumes its
 private local checkpoint. The cursor and the checkpoint are bound to that org: another org's checkpoint is refused.
 `--from` overrides saved progress. Ctrl-C stops cleanly; a crash between output and checkpoint can repeat an event,
@@ -332,13 +332,13 @@ operations. The CLI keeps that journey in a plain directory with
 a `.octocove/lane.json` sidecar (lane head, generation, pinned base, scope, one digest per file) and never a `.git`:
 
 ```sh
-octocove task claim TASK --intent-version N --read src/,README.md --write src/ --bootstrap-file FILE
-octocove lane materialize TASK work/        # creates or reuses the lane repository; writes the files at the lane head
+octo task claim TASK --intent-version N --read src/,README.md --write src/ --bootstrap-file FILE
+octo lane materialize TASK work/        # creates or reuses the lane repository; writes the files at the lane head
 cd work && $EDITOR src/app.ts
-octocove lane status                        # lane head, modified, added (inside the write scope), deleted, conflicts, lane repository
-octocove lane submit --message "Step 1"     # a save point on the lane head
-octocove lane wrap-up --message "Header layout"   # one candidate for review: id, SHA and base
-octocove lane refresh                       # rebase onto the target's current head; see below
+octo lane status                        # lane head, modified, added (inside the write scope), deleted, conflicts, lane repository
+octo lane submit --message "Step 1"     # a save point on the lane head
+octo lane wrap-up --message "Header layout"   # one candidate for review: id, SHA and base
+octo lane refresh                       # rebase onto the target's current head; see below
 ```
 
 **Save points.** `lane submit` reads the sidecar's generation and lane head, refuses locally any change outside the
@@ -452,7 +452,7 @@ Canonical self-approval is refused by the authoritative server.
 
 ## Command help and agent hand-off
 
-Run `octocove COMMAND --help` for argument and flag descriptions without reading credentials or calling the API. Task acceptance is one JSON array of strings, for example `--acceptance '["Tests pass", "No credentials in output"]'`.
+Run `octo COMMAND --help` for argument and flag descriptions without reading credentials or calling the API. Task acceptance is one JSON array of strings, for example `--acceptance '["Tests pass", "No credentials in output"]'`.
 
 For a complete agent workflow, grant `tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read` explicitly. `task authorize --help` explains each permission. `--agent` is a human-chosen, nonempty opaque agent ID of at most 128 characters; it does not require registration or select a human login. Give each worker its own config directory and bootstrap file. The bootstrap must be claimed within about five minutes of authorization. `--expires-at` controls the delegation renewal ceiling, bounded by server policy, the claim lease and the delegating human's live session. It does not extend the bootstrap window.
 
@@ -477,8 +477,8 @@ Changes still go through tasks and lanes; a human clone is read-only.
 Global `--json`, `--verbose`, `--idempotency-key KEY`, `--org ORG_ID` and `--help` work before or after the command, including between command words. For example:
 
 ```sh
-octocove --json --idempotency-key create-example project create example --name Example
-octocove task --verbose show TASK
+octo --json --idempotency-key create-example project create example --name Example
+octo task --verbose show TASK
 ```
 
 Scoped agent delegations renew automatically within about two minutes of their 15-minute token expiry, or once after a specific expired-token response. The authorization's `--expires-at` ceiling and the live claim lease still apply; renewal never extends either. Each rotation uses the agent's own config directory, the existing idempotent renewal journey and the same private lock as human sessions. A replacement is atomically saved before the command continues; concurrent processes adopt that replacement. A revoked or ended grant requires a new human authorization, with no human-login fallback. `auth renew` remains available explicitly.
@@ -486,7 +486,7 @@ Scoped agent delegations renew automatically within about two minutes of their 1
 Write agent hand-offs outside all repositories:
 
 ```sh
-octocove task authorize TASK --agent worker-one \
+octo task authorize TASK --agent worker-one \
   --verbs tasks:list,tasks:read,tasks:claim,claims:read,submissions:create,candidates:read,receipts:read \
   --expires-at '<RFC 3339 timestamp>' --bootstrap-out "$HOME/.config/octocove-handoffs/worker-one/bootstrap.json"
 ```

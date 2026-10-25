@@ -80,7 +80,7 @@ export async function loadCredentials(env: NodeJS.ProcessEnv): Promise<Credentia
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw new ConfigError("credentials file is unreadable or invalid");
   }
   if (env.OCTOCOVE_BOOTSTRAP_FILE) return importBootstrap(env, env.OCTOCOVE_BOOTSTRAP_FILE);
-  throw new ConfigError("no credential: run octocove login or import a protected --bootstrap-file");
+  throw new ConfigError("no credential: run octo login or import a protected --bootstrap-file");
 }
 
 export async function importBootstrap(env: NodeJS.ProcessEnv, path: string): Promise<Credentials> {

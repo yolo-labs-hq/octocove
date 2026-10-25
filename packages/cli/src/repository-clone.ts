@@ -53,7 +53,7 @@ export async function cloneWorkspace({ git, binding, directory, helperPath, sign
     const status = /(?:requested URL returned error:|HTTP[^\d]*)\s*(401|403|404|405|429)\b/i.exec(error instanceof Error ? error.message : "")?.[1];
     if(status)throw cloneProblem(Number(status),`clone-http-${status}`,true);
     // A remote's error text can echo auth data. Never surface raw transport output.
-    throw new Error(`Repository clone failed. Check your sign-in and project read access with octocove whoami; run octocove login in the same config directory if needed. Inspect ${target} before retrying. Existing destination files are preserved.`);
+    throw new Error(`Repository clone failed. Check your sign-in and project read access with octo whoami; run octo login in the same config directory if needed. Inspect ${target} before retrying. Existing destination files are preserved.`);
   }
   const local = (args: string[]) => git(['-C',target,...args], { env, signal });
   const refs = (await local(['for-each-ref','--format=%(refname)','refs/remotes/origin/'])).split('\n').filter(Boolean);
