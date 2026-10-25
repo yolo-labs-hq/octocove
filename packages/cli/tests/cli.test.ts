@@ -479,7 +479,7 @@ describe("repo add / verify / list", () => {
     expect(await cli(["repo", "target-add", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x", "--expected-head", SHA_A], { kind: "human" })).toBe(0);
     expect(calls[0]!.body).toEqual({ mode: "existing", targetRef: "refs/heads/feature/x", expectedHeadSha: SHA_A });
     expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
-    expect(await cli(["repo", "target-create", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x", "--from", "refs/heads/main", "--at", SHA_A], { kind: "human" })).toBe(0);
+    expect(await cli(["repo", "target-create", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x", "--from-ref", "refs/heads/main", "--at", SHA_A], { kind: "human" })).toBe(0);
     expect(calls[1]!.body).toEqual({ mode: "create", targetRef: "refs/heads/feature/x", sourceRef: "refs/heads/main", sourceSha: SHA_A });
     expect(outText).toContain("created from refs/heads/main");
     calls = [];

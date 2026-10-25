@@ -259,7 +259,7 @@ Commands:
   repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
   repo branches PROJECT REPOSITORY            (the provider's branches, default branch and heads; which ones tasks can target)
   repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]   (project admin, recent sign-in: make an existing branch a landing destination)
-  repo target-create PROJECT REPOSITORY --target-ref REF --from REF --at SHA   (project admin, recent sign-in: create the branch from REF at SHA and make it a landing destination; never moves an existing branch)
+  repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA   (project admin, recent sign-in: create the branch from a source branch at a pinned SHA and make it a landing destination; never moves an existing branch)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)

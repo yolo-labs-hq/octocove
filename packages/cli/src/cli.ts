@@ -83,7 +83,7 @@ Commands:
   repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
   repo branches PROJECT REPOSITORY            (the provider's branches, default branch and heads; which ones tasks can target)
   repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]   (project admin, recent sign-in: make an existing branch a landing destination)
-  repo target-create PROJECT REPOSITORY --target-ref REF --from REF --at SHA   (project admin, recent sign-in: create the branch from REF at SHA and make it a landing destination; never moves an existing branch)
+  repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA   (project admin, recent sign-in: create the branch from a source branch at a pinned SHA and make it a landing destination; never moves an existing branch)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -1217,8 +1217,8 @@ const COMMANDS: Record<string, Handler> = {
     out(d, v.json, r, () => targetRows(r));
   },
   "repo target-create": async (d, args) => {
-    const { v, pos } = opts(args, { "target-ref": { type: "string" }, from: { type: "string" }, at: { type: "string" } }, 2);
-    const targetRef = need(v, "target-ref"), sourceRef = need(v, "from"), sourceSha = need(v, "at");
+    const { v, pos } = opts(args, { "target-ref": { type: "string" }, "from-ref": { type: "string" }, at: { type: "string" } }, 2);
+    const targetRef = need(v, "target-ref"), sourceRef = need(v, "from-ref"), sourceSha = need(v, "at");
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo target-create requires a human credential (project:admin, with a recent sign-in)");
     const r = await api.j.repositories.registerTargetRef(pos[0]!, pos[1]!, { mode: "create", targetRef, sourceRef, sourceSha }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
