@@ -57,7 +57,7 @@ export type BoundTo = Schemas['BoundTo'];
 export type LaneRetirement = OpenEnums<Schemas['LaneRetirement']> | OpenEnums<Schemas['LaneRetired']>;
 /** `projectCreate`'s and `meProjectCreate`'s answer: the created project, with the tenant its routes name. */
 export type Project = Schemas['Project'];
-/** A `GET /me/projects` item: one of the caller's projects, with its `tenantId` (the org its routes name) and `tenantKind`. */
+/** A `GET /me/projects` item: one of the caller's projects, with its `tenantId` (the org its routes name), `tenantKind` and `owner` (`{kind, slug}`, the `<owner>` of its web URL). */
 export type MeProject = OpenEnums<Schemas['MeProject']>;
 /** `GET /me/projects`: every tenant's projects; with `partial` true the tenants in `unavailableTenants` are missing. */
 export interface MeProjectList {
@@ -65,7 +65,7 @@ export interface MeProjectList {
   readonly partial: boolean;
   readonly unavailableTenants: readonly UnavailableTenant[];
 }
-/** An organization (`organizationCreate`'s answer): its tenant id, name and `provisioningState`. */
+/** An organization (`organizationCreate`'s and `organizationUpdate`'s answer): its tenant id, name, owner `slug` and `provisioningState`. */
 export type Organization = OpenEnums<Schemas['Organization']>;
 /** A `GET /me` `organizations` entry: an organization the human caller belongs to, with their role. */
 export type OrganizationMembership = OpenEnums<Schemas['OrganizationMembership']>;
@@ -77,6 +77,13 @@ export type OrganizationCreateResult =
    * again); its resource routes answer `409 org-creation-pending` until it is ready.
    */
   | { readonly state: 'pending-timeout'; readonly organization: Organization; readonly retryAfter: number | undefined; readonly reason: WaitStop };
+/**
+ * `ownerResolve`'s answer: an owner name (current or retired) resolved to an organization (`orgId`, its current `slug`)
+ * or a user (`handle`, `personalOrgId` or null). `canonical` is false for a retired name; use the current one.
+ */
+export type OwnerResolution = OpenEnums<Schemas['OwnerResolution']>;
+/** `tenantOwnerGet`'s answer: a tenant's current owner, `{kind: 'organization', slug}` or `{kind: 'user', handle}`. */
+export type TenantOwner = OpenEnums<Schemas['TenantOwner']>;
 /** Polls `GET /me` for a pending organization when no Retry-After is sent. */
 export const ORG_READY_POLL_MS = 2000;
 
@@ -515,8 +522,21 @@ export function tenantJourneys(client: TenantClient) {
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) =>
     command(options, operationId, input, extra.busyIsFinal ? { busyIsFinal: true } : {});
 
+  /**
+   * Human only: `tenantOwnerGet` (`GET /v1/orgs/{tenantId}/owner`), the tenant's current owner name: an organization's
+   * `slug`, or a personal tenant's owner's `handle`. Behind the tenant gate (`404 tenant-not-found` for anyone it does
+   * not admit). Read-only.
+   */
+  async function owner(options: JourneyOptions): Promise<TenantOwner> {
+    requireHuman(client, 'org().owner');
+    const response = await command(options, 'tenantOwnerGet', {});
+    const o: unknown = response.body;
+    if (!isObject(o) || !(o.kind === 'organization' ? isString(o.slug) : o.kind === 'user' && isString(o.handle))) throw offShape(response, 'the response is not a tenant owner');
+    return response.body;
+  }
+
   return {
-    client, tenantId: client.tenantId, command: keyed, tasks, repositories, claims, candidates, approvals, grants, landings, receipts, lanes,
+    client, tenantId: client.tenantId, command: keyed, owner, tasks, repositories, claims, candidates, approvals, grants, landings, receipts, lanes,
     webhooks, log, audit, events, auth: tenantAuthJourneys(client),
   };
 }
@@ -548,7 +568,7 @@ export function journeys(client: OctocoveClient) {
       try {
         const response = await send(client, scope, options, 'meProjectsList', {});
         const b: unknown = response.body;
-        if (!isObject(b) || !Array.isArray(b.items) || !isPartialRead(b) || !b.items.every((p) => isObject(p) && isString(p.projectId) && isString(p.tenantId))) {
+        if (!isObject(b) || !Array.isArray(b.items) || !isPartialRead(b) || !b.items.every((p) => isObject(p) && isString(p.projectId) && isString(p.tenantId) && isObject(p.owner) && isString(p.owner.slug))) {
           throw offShape(response, 'the response is not a project list');
         }
         return { items: response.body.items, partial: response.body.partial, unavailableTenants: response.body.unavailableTenants };
@@ -589,7 +609,7 @@ export function journeys(client: OctocoveClient) {
     },
   };
 
-  const isOrganization = (o: unknown): o is Organization => isObject(o) && isString(o.id) && isString(o.name) && isString(o.provisioningState);
+  const isOrganization = (o: unknown): o is Organization => isObject(o) && isString(o.id) && isString(o.name) && isString(o.slug) && isString(o.provisioningState);
   const orgs = {
     /** Human only: `GET /me` `organizations`, the organizations the caller belongs to (pending ones included). */
     async list(options: JourneyOptions): Promise<readonly OrganizationMembership[]> {
@@ -603,7 +623,9 @@ export function journeys(client: OctocoveClient) {
     },
     /**
      * Human only, recent sign-in: `organizationCreate` (`POST /v1/orgs`, a global route) creates an organization and
-     * makes the caller its admin. `201` is ready. `202` (and `409 org-creation-pending` on a replay) is accepted and
+     * makes the caller its admin. `slug` is its owner slug (omitted, the server derives one from `name`): `400
+     * slug-invalid` off the pattern, `400 slug-reserved` for a reserved word, `409 slug-taken` when another organization
+     * or a person holds it. `201` is ready. `202` (and `409 org-creation-pending` on a replay) is accepted and
      * provisioning: its id is reserved, and the journey then reads `GET /me` `organizations` after each Retry-After
      * until it is ready or the deadline ends (`pending-timeout`); it never creates again. A replay under the same
      * `idempotencyKey` and name answers the same organization. `403 org-create-disabled`, `429
@@ -616,7 +638,7 @@ export function journeys(client: OctocoveClient) {
       try {
         let organization: Organization, retryAfter: number | undefined;
         try {
-          const response = await send(client, scope, options, 'organizationCreate', { body: { name: input.name } }, { idempotencyKey: options.idempotencyKey });
+          const response = await send(client, scope, options, 'organizationCreate', { body: input.slug === undefined ? { name: input.name } : { name: input.name, slug: input.slug } }, { idempotencyKey: options.idempotencyKey });
           if (!isOrganization(response.body)) throw offShape(response, 'the response is not an organization');
           organization = response.body;
           retryAfter = response.retryAfter;
@@ -640,6 +662,44 @@ export function journeys(client: OctocoveClient) {
         return { state: 'pending-timeout', organization, retryAfter, reason: result.reason };
       } finally { scope.dispose(); }
     },
+    /**
+     * Human only, recent sign-in, org admin: `organizationUpdate` (`PATCH /v1/orgs/{orgId}`) renames the organization's
+     * owner slug. The old slug is retired: it stays reserved to the organization and still resolves to it
+     * (`owners.resolve`, `canonical: false`). `400 slug-invalid`, `400 slug-reserved`, `409 slug-taken`, `404
+     * tenant-not-found` (unknown, personal or not administered) and `403 reauth-required` are thrown as ApiErrors.
+     * Naming the current slug changes nothing. `stored-result` replay under the same `idempotencyKey`.
+     */
+    async update(orgId: string, input: Body<'organizationUpdate'>, options: CommandOptions): Promise<Organization> {
+      requireHuman(client, 'orgs.update');
+      const target = org(orgId).client;
+      const scope = journeyScope(options);
+      try {
+        const response = await send(target, scope, options, 'organizationUpdate', { body: { slug: input.slug } }, { idempotencyKey: options.idempotencyKey });
+        if (!isOrganization(response.body)) throw offShape(response, 'the response is not an organization');
+        return response.body;
+      } finally { scope.dispose(); }
+    },
+  };
+
+  const owners = {
+    /**
+     * Human only: `ownerResolve` (`GET /v1/owners/{slug}`, a global route) resolves an organization slug or a user
+     * handle, current or retired and matched case-insensitively, to its owner. A name the caller may not see, and an
+     * unknown or reserved one, is the same `404 owner-not-found`. Read-only.
+     */
+    async resolve(slug: string, options: JourneyOptions): Promise<OwnerResolution> {
+      requireHuman(client, 'owners.resolve');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'ownerResolve', { path: { slug } });
+        const o: unknown = response.body;
+        const shaped = isObject(o) && typeof o.canonical === 'boolean' && (o.kind === 'organization'
+          ? isString(o.orgId) && isString(o.slug)
+          : o.kind === 'user' && isString(o.handle) && (o.personalOrgId === null || isString(o.personalOrgId)));
+        if (!shaped) throw offShape(response, 'the response is not an owner resolution');
+        return response.body;
+      } finally { scope.dispose(); }
+    },
   };
 
   /** One keyed command on a global route, under the same replay rule (tenant routes: `org(tenantId).command`). */
@@ -656,6 +716,7 @@ export function journeys(client: OctocoveClient) {
     auth: authJourneys(client),
     projects,
     orgs,
+    owners,
     org,
     /** The journeys of a discovered project's tenant (`projects.list()` items, `GET /me` memberships). */
     forProject: (project: { readonly tenantId: string }) => org(project.tenantId),

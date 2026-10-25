@@ -13,7 +13,7 @@ import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type TenantJourneys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -68,10 +68,11 @@ Commands:
   version                                     (installed package version; no sign-in required)
   login [--wait SECONDS]                       (browser consent, protected session storage)
   logout                                      (revoke session family and clear local credential)
-  whoami                                      (authenticated principal and project memberships, each with its org)
-  org list                                    (the organizations you belong to, with their org IDs and state)
-  org create NAME [--wait SECONDS]            (create an organization; you become its admin; waits while it is provisioned)
-  project list                                (your projects in every org, each with the org ID its commands take)
+  whoami                                      (authenticated principal and project memberships, each with its org and owner)
+  org list                                    (the organizations you belong to, with their slugs, org IDs and state)
+  org create NAME [--slug SLUG] [--wait SECONDS]   (create an organization; you become its admin; waits while it is provisioned)
+  org rename ORG --slug SLUG                  (org admin, recent sign-in: change the organization's slug; the old one is retired)
+  project list                                (your projects in every org, each with its owner and the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
@@ -134,8 +135,10 @@ Orgs:
     a human passes --org ORG_ID or sets OCTOCOVE_ORG (\`octocove project list\` shows each project's org);
     an agent's delegation and claim bootstrap carry the org they were issued in (task authorize and lane reopen
     write it into the bootstrap file), so an agent passes no --org, and a different one is refused.
-  login, logout, whoami, org list, org create, project list and project create (without --org) need no org; repo clone uses the org
-  the project's membership names.
+  login, logout, whoami, org list, org create, org rename, project list and project create (without --org) need no org; repo clone
+  uses the org the project's membership names.
+  Owner slugs (an organization's slug or a user's handle, one namespace) name owners in web URLs (/<owner>/<project>) only;
+  commands take the org ID. org rename also takes the organization's current or a retired slug.
 
 Global options:
   --org ORG_ID            the org a tenant-scoped command acts in (also OCTOCOVE_ORG)
@@ -322,6 +325,14 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? `The org is still being created; nothing was recorded. Run the same command again${err.retryAfter ? ` after ${err.retryAfter} s` : " shortly"} with the same --idempotency-key if you passed one.`
       : err.code === "route-unavailable"
         ? "The org is not reachable right now (it may be recovering or moving); nothing was recorded. Run the same command again shortly."
+      : err.code === "slug-invalid"
+        ? "A slug is 1-39 lowercase letters, digits and single hyphens, starting and ending with a letter or digit (for example acme or acme-labs). Nothing was changed."
+      : err.code === "slug-reserved"
+        ? "That slug is a reserved word; choose another. Nothing was changed."
+      : err.code === "slug-taken"
+        ? "That slug is already taken; choose another. An organization slug is unique across every organization and user handle, current or retired, case-insensitively; a project slug across projects. Nothing was changed."
+      : err.code === "owner-not-found"
+        ? "No organization you can see has that slug. Check it against `octocove org list`, or pass the org ID (org_<uuid>)."
       : err.code === "already-claimed"
           ? "Run `octocove task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octocove task release TASK_ID --claim ID`)."
           : undefined;
@@ -952,6 +963,14 @@ const COMMANDS: Record<string, Handler> = {
     const { v } = opts(args, {}, 0);
     const { api, creds } = await client(d);
     const me = await api.root.auth.me(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("whoami did not return a principal"));
+    // A human's project owners (`GET /me/projects` `owner`), best effort: whoami still answers without them.
+    const owners = new Map<string, string>();
+    if (!v.json && creds.kind === "human" && me.principal.kind === "human" && me.memberships.length) {
+      try {
+        for (const p of (await api.root.projects.list(api.until(Date.now() + READ_SECONDS * 1000))).items) owners.set(p.projectId, p.owner.slug);
+      } catch { /* The memberships remain readable without their owners. */ }
+    }
+    const owner = (projectId: string) => owners.has(projectId) ? `  owner ${owners.get(projectId)}` : "";
     out(d, v.json, me, () => [
       kv([["Principal", me.principal.id], ["Kind", me.principal.kind], ["Agent", me.principal.kind === "delegation" ? creds.agentId ?? me.principal.displayName : undefined],
         ["Name", me.principal.displayName], ["Email", me.principal.email],
@@ -960,8 +979,8 @@ const COMMANDS: Record<string, Handler> = {
         ["Policy version", me.principal.policyVersion],
         ...(v.verbose || creds.kind === "agent" ? [["Credential", me.credential.kind], ["Expires", me.credential.expiresAt]] as [string, unknown][] : [])]),
       ...(me.memberships.length ? me.memberships.map((m) => v.verbose || creds.kind === "agent"
-        ? `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})\n  ${m.projectId}  ${m.verbs.join(",")}${m.tenantId ? `\n  org ${m.tenantId}` : ""}`
-        : `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})${m.tenantId ? `  org ${m.tenantId}` : ""}`) : ["(no project memberships)"]),
+        ? `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})${owner(m.projectId)}\n  ${m.projectId}  ${m.verbs.join(",")}${m.tenantId ? `\n  org ${m.tenantId}` : ""}`
+        : `${m.name ?? m.slug ?? m.projectId} (${projectRole(m.verbs)})${owner(m.projectId)}${m.tenantId ? `  org ${m.tenantId}` : ""}`) : ["(no project memberships)"]),
       ...(creds.kind === "agent" ? [`Org: ${creds.orgId}`] : []),
       ...(me.partial ? [`(some orgs could not be read right now: ${(me.unavailableTenants ?? []).map((t) => t.tenantId).join(", ")})`] : []),
     ].join("\n"));
@@ -1034,7 +1053,7 @@ const COMMANDS: Record<string, Handler> = {
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("org list requires a human credential");
     const items = await api.root.orgs.list(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("invalid organization list from the control plane"));
-    out(d, v.json, { items }, () => items.map((m) => `${m.organization.name}  org ${m.organization.id}  (${m.role}${m.organization.provisioningState === "ready" ? "" : `, ${m.organization.provisioningState}`})`).join("\n")
+    out(d, v.json, { items }, () => items.map((m) => `${m.organization.name}  (${m.organization.slug})  org ${m.organization.id}  (${m.role}${m.organization.provisioningState === "ready" ? "" : `, ${m.organization.provisioningState}`})`).join("\n")
       || "(no organizations; projects you create without --org go to your personal org)");
   },
 
@@ -1042,16 +1061,35 @@ const COMMANDS: Record<string, Handler> = {
   // waits for it (GET /me) up to --wait seconds and never creates a second one. A retry with the same
   // --idempotency-key answers the same organization.
   "org create": async (d, args) => {
-    const { v, pos } = opts(args, { wait: { type: "string" } }, 1);
+    const { v, pos } = opts(args, { slug: { type: "string" }, wait: { type: "string" } }, 1);
+    if (v.slug === "") throw new UsageError("--slug needs a value");
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("org create requires a human credential with a recent sign-in");
     const deadline = Date.now() + (intFlag(v, "wait") ?? COMMAND_SECONDS) * 1000;
-    const r = await api.root.orgs.create({ name: pos[0]! }, { ...api.until(deadline), ...(v["idempotency-key"] ? { idempotencyKey: v["idempotency-key"] } : {}) })
+    const r = await api.root.orgs.create({ name: pos[0]!, ...(v.slug === undefined ? {} : { slug: v.slug }) }, { ...api.until(deadline), ...(v["idempotency-key"] ? { idempotencyKey: v["idempotency-key"] } : {}) })
       .catch(offShapeAs("org create did not return an organization"));
     const o = r.organization;
-    out(d, v.json, { ...o, state: r.state }, () => kv([["Org", o.id], ["Name", o.name], ["State", o.provisioningState],
+    out(d, v.json, { ...o, state: r.state }, () => kv([["Org", o.id], ["Name", o.name], ["Slug", o.slug], ["State", o.provisioningState],
       ["Next", r.state === "ready" ? `pass --org ${o.id} (or export OCTOCOVE_ORG=${o.id}) to create projects in it` : "it is still being provisioned: run `octocove org list` later; do not create it again"]]));
     if (r.state !== "ready") throw new Emitted(new PendingError(`organization ${o.id} is still being provisioned`));
+  },
+
+  // PATCH /v1/orgs/{orgId} (org admin, recent sign-in): the organization's new slug. ORG is its id, or a current or
+  // retired slug resolved first (GET /v1/owners/{slug}). The old slug is retired and keeps resolving to it.
+  "org rename": async (d, args) => {
+    const { v, pos } = opts(args, { slug: { type: "string" } }, 1);
+    const slug = need(v, "slug");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("org rename requires a human credential with a recent sign-in");
+    const deadline = Date.now() + COMMAND_SECONDS * 1000;
+    let orgId = pos[0]!;
+    if (!isTenantId(orgId)) {
+      const owner = await api.root.owners.resolve(orgId, api.until(deadline)).catch(offShapeAs("invalid owner from the control plane"));
+      if (owner.kind !== "organization") throw new UsageError(`${orgId} is a person's handle, not an organization`);
+      orgId = owner.orgId;
+    }
+    const o = await api.root.orgs.update(orgId, { slug }, api.write(COMMAND_SECONDS, v["idempotency-key"])).catch(offShapeAs("org rename did not return an organization"));
+    out(d, v.json, o, () => kv([["Org", o.id], ["Name", o.name], ["Slug", o.slug], ["State", o.provisioningState]]));
   },
 
   // The caller's projects in every org they belong to, each with the org its commands take (--org).
@@ -1062,7 +1100,7 @@ const COMMANDS: Record<string, Handler> = {
     const r = await api.root.projects.list(api.until(Date.now() + READ_SECONDS * 1000)).catch(offShapeAs("invalid project list from the control plane"));
     if (r.partial) d.stderr(v.json ? JSON.stringify({ notice: "partial", unavailableTenants: r.unavailableTenants }) + "\n"
       : `octocove: some orgs could not be read right now; their projects are missing (${r.unavailableTenants.map((t) => t.tenantId).join(", ")}). Run the command again later.\n`);
-    out(d, v.json, r, () => r.items.map((p) => `${p.name ?? p.slug}  (${p.slug})  org ${p.tenantId}${p.tenantKind === "personal" ? " (personal)" : ""}${v.verbose ? `\n  ${p.projectId}` : ""}`).join("\n") || "(no projects)");
+    out(d, v.json, r, () => r.items.map((p) => `${p.name ?? p.slug}  (${p.slug})  owner ${p.owner.slug}  org ${p.tenantId}${p.tenantKind === "personal" ? " (personal)" : ""}${v.verbose ? `\n  ${p.projectId}` : ""}`).join("\n") || "(no projects)");
   },
 
   "project member add": async (d, args) => {

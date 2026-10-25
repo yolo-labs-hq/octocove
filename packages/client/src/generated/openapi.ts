@@ -80,7 +80,7 @@ export interface paths {
         head?: never;
         /**
          * Edit the caller's own profile
-         * @description Human session only; agent delegations get 403 `human-required` and a valid machine grant bearer 403 `human-required` from the handler (an unknown one 401). Origin and CSRF are checked for cookie callers, as on every cookie POST. Sets the named fields of the caller's profile; email stays the identity provider's and the principal id never changes. The profile is stored apart from the sign-in record, so signing in again never erases it. One D1 batch upserts the named fields and appends one `profile.updated` audit row (no project, so it is in neither `GET /orgs/{orgId}/audit` nor `GET /orgs/{orgId}/events`; refs the principal id and the names of the fields set, never their values) and the idempotency ledger row, behind an in-transaction recheck of the calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`. A handle edit is atomic with the profile write. A current or retired name owned by another person returns 409 `handle-taken`; reselecting an owned retired name is allowed. Malformed, empty, null and reserved handles return 400 `invalid-profile` with details.field handle.
+         * @description Human session only; agent delegations get 403 `human-required` and a valid machine grant bearer 403 `human-required` from the handler (an unknown one 401). Origin and CSRF are checked for cookie callers, as on every cookie POST. Sets the named fields of the caller's profile; email stays the identity provider's and the principal id never changes. The profile is stored apart from the sign-in record, so signing in again never erases it. One D1 batch upserts the named fields and appends one `profile.updated` audit row (no project, so it is in neither `GET /orgs/{orgId}/audit` nor `GET /orgs/{orgId}/events`, kept by the control store; refs the principal id and the names of the fields set, never their values) and the idempotency ledger row, behind an in-transaction recheck of the calling session (401 `credential-revoked` when it was revoked meanwhile). A body naming no field writes nothing and answers the current profile. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`. A handle edit is atomic with the profile write. Handles share one owner namespace with organization slugs, case-insensitively; a current or retired name owned by another person or by an organization returns 409 `handle-taken`; reselecting an owned retired name is allowed. Malformed, empty, null and reserved handles return 400 `invalid-profile` with details.field handle.
          */
         patch: operations["meProfileUpdate"];
         trace?: never;
@@ -94,7 +94,7 @@ export interface paths {
         };
         /**
          * Summarise each of the caller's projects for the dashboard
-         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`): they are authenticated with the grant routes' own lookup first (an unknown or spent one is 401) and then refused; a delegation is confined to one task and a grant to its own routes, and neither has a dashboard. One item per membership of the caller, in `GET /me` order (by project ID), carrying exactly the identity fields `GET /me` memberships carry (`projectId`, `slug`, `name`, `artifactsNamespace`; verbs are not repeated). `taskCounts` counts the project's tasks by `status`, one key per task status the lifecycle writes, zeros included: `draft`, `ready`, `claimed`, `submitted`, `candidate`, `approved`, `landing`, `landed`, `rejected`, `superseded`. There is no `closed` status: a closed task is `rejected` or `superseded`, and `submitted` (awaiting its candidate) and `landing` (approved, fenced, being landed) are states of their own. `needsReview` is the number of the project's tasks whose `GET /orgs/{orgId}/tasks` item has `needsReview` true (one server predicate, the review queue's filter): `candidate`, or `approved` with a live approval that no longer holds its candidate, base (the target ref's current head) or intent version, as between a head move and the invalidation of the approvals bound to the old head. `repository.verification` is the `verification` `GET /orgs/{orgId}/projects/{project}/repositories` reports for the project's first canonical repository (same expression), and `repository` is null when the project has no live canonical repository with a target ref. Both underlying reads require `tasks:list`; a membership without it reports `taskCounts`, `needsReview` and `repository` as null. A constant three statements in one batch per tenant, whatever the number of projects. The items come from every tenant the caller is a candidate of, each read in its own record (at most six at once, nothing joined across tenants), each tagged with `tenantId` and `tenantKind`, ordered by project ID. A tenant that cannot be read is named in `unavailableTenants` with `partial` true and its projects are absent, never reported as zero counts. Read-only and not audited.
+         * @description Human session only (cookie or CLI bearer). Agent delegations get 403 `human-required`, and so do machine grant bearers (`ocg_`): they are authenticated with the grant routes' own lookup first (an unknown or spent one is 401) and then refused; a delegation is confined to one task and a grant to its own routes, and neither has a dashboard. One item per membership of the caller, in `GET /me` order (by project ID), carrying exactly the identity fields `GET /me` memberships carry (`projectId`, `slug`, `name`, `artifactsNamespace`; verbs are not repeated). `taskCounts` counts the project's tasks by `status`, one key per task status the lifecycle writes, zeros included: `draft`, `ready`, `claimed`, `submitted`, `candidate`, `approved`, `landing`, `landed`, `rejected`, `superseded`. There is no `closed` status: a closed task is `rejected` or `superseded`, and `submitted` (awaiting its candidate) and `landing` (approved, fenced, being landed) are states of their own. `needsReview` is the number of the project's tasks whose `GET /orgs/{orgId}/tasks` item has `needsReview` true (one server predicate, the review queue's filter): `candidate`, or `approved` with a live approval that no longer holds its candidate, base (the target ref's current head) or intent version, as between a head move and the invalidation of the approvals bound to the old head. `repository.verification` is the `verification` `GET /orgs/{orgId}/projects/{project}/repositories` reports for the project's first canonical repository (same expression), and `repository` is null when the project has no live canonical repository with a target ref. Both underlying reads require `tasks:list`; a membership without it reports `taskCounts`, `needsReview` and `repository` as null. A constant three statements in one batch per tenant, whatever the number of projects. The items come from every tenant the caller is a candidate of, each read in its own record (at most six at once, nothing joined across tenants), each tagged with `tenantId` and `tenantKind`, ordered by project ID. A tenant that cannot be read is named in `unavailableTenants` with `partial` true and its projects are absent, never reported as zero counts. Each item's `owner` is the project's owner in web URLs (`/<owner>/<project>`) - `{kind: organization, slug}` with its organization's current slug, or `{kind: user, slug}` with a personal project's owner's current handle - so project membership alone is enough to build the link. Read-only and not audited.
          */
         get: operations["meProjectsList"];
         put?: never;
@@ -120,9 +120,69 @@ export interface paths {
         put?: never;
         /**
          * Create an organization; the caller becomes its admin
-         * @description Human session only (agent delegations get 403 `human-required`; a cookie session needs the allowed `Origin` and `X-CSRF-Token`). A global creation operation, never under a tenant selector. Takes `{name}` (1-120 characters, no control or format characters, no leading or trailing whitespace) and an `Idempotency-Key`. Acceptance reserves one stable `org_<UUIDv4>` id and the caller's admin membership. A retry with the same key and body answers the same organization before every gate below, never a second one, with its current state; the same key with another body is 409 `idempotency-conflict`. Admission, in order - self-serve creation must be open on the deployment and the caller must be on the creator allow-list while it is enforced (403 `org-create-disabled` otherwise); the caller's accepted organizations, pending ones included, must be under the per-user limit (default three; 429 `org-creation-rate-limited` with `details.limit` and `Retry-After`); a UTC day admits at most 20 organizations into provisioning, and a request past that is still accepted and stays `pending` until a later day. The request then provisions the organization's record; the answer is 201 with `provisioningState` `ready`, or 202 `pending` with `Retry-After` while it is not ready yet. `pending` becomes `ready` under the same id; refresh `GET /me` `organizations` for readiness rather than retrying creation. Resource routes of a pending organization answer 409 `org-creation-pending`. A revoked session or family admits nothing (401 `credential-revoked`); an off-shape body is 400 `invalid-request`.
+         * @description Human session only (agent delegations get 403 `human-required`; a cookie session needs the allowed `Origin` and `X-CSRF-Token`). A global creation operation, never under a tenant selector. Takes `{name, slug?}` (`name` 1-120 characters, no control or format characters, no leading or trailing whitespace) and an `Idempotency-Key`. Acceptance reserves one stable `org_<UUIDv4>` id, the caller's admin membership and the organization's owner slug - the requested `slug` (400 `slug-invalid` off the pattern, 400 `slug-reserved`, 409 `slug-taken` when another organization or a person holds it, case-insensitively), or, omitted, one derived from `name` with the handle allocator (`acme`, `acme-2`,...). A retry with the same key and body answers the same organization before every gate below, never a second one, with its current state; the same key with another body is 409 `idempotency-conflict`. Admission, in order - self-serve creation must be open on the deployment and the caller must be on the creator allow-list while it is enforced (403 `org-create-disabled` otherwise); the caller's accepted organizations, pending ones included, must be under the per-user limit (default three; 429 `org-creation-rate-limited` with `details.limit` and `Retry-After`); a UTC day admits at most 20 organizations into provisioning, and a request past that is still accepted and stays `pending` until a later day. The request then provisions the organization's record; the answer is 201 with `provisioningState` `ready`, or 202 `pending` with `Retry-After` while it is not ready yet. `pending` becomes `ready` under the same id; refresh `GET /me` `organizations` for readiness rather than retrying creation. Resource routes of a pending organization answer 409 `org-creation-pending`. A revoked session or family admits nothing (401 `credential-revoked`); an off-shape body is 400 `invalid-request`.
          */
         post: operations["organizationCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename an organization's owner slug
+         * @description Human session only (agent delegations get 403 `human-required`, and so does a valid machine grant bearer, from the handler; a cookie session needs the allowed `Origin` and `X-CSRF-Token`). A global route, never under a tenant selector. The caller must administer the organization `orgId`; an unknown, malformed, personal or not administered tenant is 404 `tenant-not-found` (the same problem conceals existence). Takes `{slug}`, in the one owner namespace that organization slugs and user handles share (`OwnerSlug`) - 400 `slug-invalid` off the pattern, 400 `slug-reserved` for a reserved word, 409 `slug-taken` for another organization's or a person's current or retired name, case-insensitively. The old slug is retired. It stays reserved to the organization, keeps resolving to it through `GET /owners/{slug}` with `canonical` false, and may be selected again. One batch rechecks the session and the admin role, retires the old slug, makes the new one current, appends an `organization.slug_changed` audit entry and the idempotency ledger row. A replay with the same Idempotency-Key returns the committed answer; the same key with another body is 409 `idempotency-conflict`. Naming the current slug writes nothing and answers the organization. A revoked session or family commits nothing (401 `credential-revoked`); an off-shape body is 400 `invalid-request`. Slugs name owners in web URLs only; tenant routes, tokens and events keep the organization's id.
+         */
+        patch: operations["organizationUpdate"];
+        trace?: never;
+    };
+    "/orgs/{orgId}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Name the selected tenant's current owner
+         * @description Human session only (agent delegations get 403 `human-required`). A tenant route behind the ordinary tenant gate - an org admin, a personal tenant's owner (who holds its one org admin row, so an empty personal tenant with no project is included) and a member of any of its projects are admitted; anyone else gets 404 `tenant-not-found`, the problem of an unknown tenant. Answers the owner's current name, `{kind: organization, slug}` or `{kind: user, handle}` (a personal tenant's owner), with which a client turns an `/org_...` permalink into its canonical `/<owner>/...` URL. Read-only and not audited.
+         */
+        get: operations["tenantOwnerGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/owners/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve an owner name (an organization slug or a user handle)
+         * @description Human session only (agent delegations get 403 `human-required`). A global route. Resolves a current or retired name in the one owner namespace, case-insensitively, to `{kind: organization, orgId, slug, canonical}` or `{kind: user, handle, personalOrgId, canonical}`. `slug` and `handle` are always the current name; `canonical` is false for a retired one, which a client replaces with the current name. `personalOrgId` is the person's hidden personal tenant, null when they have none. Visible to an organization's admins and to the members of any project in it; a handle to the person themself and to the members of any project in their personal tenant. Everyone else, and an unknown, malformed or reserved name, gets the same 404 `owner-not-found`, so a name's existence never leaks. Projects under an owner are then addressed by id or slug as `{project}` under `/orgs/{orgId}`. Read-only and not audited.
+         */
+        get: operations["ownerResolve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1991,6 +2051,7 @@ export interface components {
             id: components["schemas"]["TenantId"];
             /** @description Mutable display name; never a tenant selector. */
             name: string;
+            slug: components["schemas"]["OwnerSlug"];
             /**
              * @description Pending means accepted and queued or provisioning; it becomes ready under the same id.
              * @enum {string}
@@ -2000,6 +2061,38 @@ export interface components {
         OrganizationCreate: {
             /** @description Display name; not unique and never a tenant selector. */
             name: string;
+            /** @description The organization's owner slug. 400 slug-invalid off the pattern, 400 slug-reserved for a reserved word, 409 slug-taken when another owner holds it. Omitted, it is derived from `name` (lowercased, every run of other characters one hyphen, trimmed to 39; `team` when nothing is left) and the first free one of that base, `base-2`, `base-3`,... is taken. */
+            slug?: components["schemas"]["OwnerSlug"];
+        };
+        OrganizationUpdate: {
+            slug: components["schemas"]["OwnerSlug"];
+        };
+        /** @description An organization's current owner slug, the `<owner>` of the web's canonical `/<owner>/<project>` URLs. Organization slugs and user handles share one global, case-insensitive namespace (the `Handle` pattern and reserved words), so an organization slug is never a handle and an `org_` id is never a slug. A retired slug stays reserved to its organization and keeps resolving to it. Slugs never select a tenant in an API route, a token or an event. */
+        OwnerSlug: string;
+        /** @description GET /owners/{slug}. `canonical` is false when the requested name is retired; the body then carries the current one. */
+        OwnerResolution: {
+            /** @constant */
+            kind: "organization";
+            orgId: components["schemas"]["TenantId"];
+            slug: components["schemas"]["OwnerSlug"];
+            canonical: boolean;
+        } | {
+            /** @constant */
+            kind: "user";
+            handle: components["schemas"]["Handle"];
+            /** @description The person's hidden personal tenant; null when they have none. */
+            personalOrgId: components["schemas"]["TenantId"] | null;
+            canonical: boolean;
+        };
+        /** @description GET /orgs/{orgId}/owner. The tenant's current owner - an organization's slug, or a personal tenant's owner's handle. */
+        TenantOwner: {
+            /** @constant */
+            kind: "organization";
+            slug: components["schemas"]["OwnerSlug"];
+        } | {
+            /** @constant */
+            kind: "user";
+            handle: components["schemas"]["Handle"];
         };
         /** @description A human's organization membership (GET /v1/me organizations), distinct from project membership. Ordinary membership grants no project verbs. Org admin authority covers org metadata and creating/administering projects, without implicit task, approval, landing or machine verbs; those require explicit per-project permissions or grants. */
         OrganizationMembership: {
@@ -2042,9 +2135,13 @@ export interface components {
             /** @constant */
             code?: "org-creation-pending";
             details: {
-                organization: components["schemas"]["Organization"] & {
+                /** @description The pending tenant - an organization (with its slug) or the caller's own personal tenant (no slug; its owner is the caller's handle). */
+                organization: {
+                    id: components["schemas"]["TenantId"];
+                    name: string;
+                    slug?: components["schemas"]["OwnerSlug"];
                     /** @constant */
-                    provisioningState?: "pending";
+                    provisioningState: "pending";
                 };
             };
         };
@@ -2711,7 +2808,7 @@ export interface components {
             principalId: string;
             profile: components["schemas"]["Profile"];
         };
-        /** @description A lowercase global username. Reserved names me, new, settings, admin, api, octocove, people, support and help cannot be selected. Current and retired names remain reserved to their owner. */
+        /** @description A lowercase global username, in the one owner namespace it shares with organization slugs (OwnerSlug), case-insensitively. Reserved names me, new, settings, admin, api, octocove, people, support, help, auth, login, logout, notifications, orgs, org, healthz, static, assets, shell-assets, next, cli, review and setup cannot be selected. Current and retired names remain reserved to their owner. */
         Handle: string;
         /** @description Human only (present on `GET /me` for a human, absent for a delegation or machine grant). What the person set with `PATCH /me/profile`; the four nullable fields are null while unset. Every profile has a handle, allocated in the sign-in batch; reading a profile never writes. `name` falls back to the identity provider's display name, so it is null only when neither exists. Email is the provider's (`principal.email`) and is not part of the profile. */
         Profile: {
@@ -3123,6 +3220,12 @@ export interface components {
             /** @description The project's tenant; its project routes name it. */
             tenantId: components["schemas"]["TenantId"];
             tenantKind: components["schemas"]["TenantKind"];
+            /** @description The project's owner in web URLs (`/<owner>/<project>`) - its organization's current slug, or for a personal project (`tenantKind` personal) its owner's current handle. */
+            owner: {
+                /** @enum {string} */
+                kind: "organization" | "user";
+                slug: string;
+            };
         };
         /** @description A count per task status (`Task.status`); every key is present. */
         TaskCounts: {
@@ -4070,6 +4173,105 @@ export interface operations {
             403: components["responses"]["ReauthRequiredProblem"];
             409: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    organizationUpdate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrganizationUpdate"];
+            };
+        };
+        responses: {
+            /** @description The organization with its new slug (or the committed answer to a replay of the same key and body). */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    tenantOwnerGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's current owner. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantOwner"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    ownerResolve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description An organization slug or a user handle, current or retired; matched case-insensitively. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The owner the name resolves to. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OwnerResolution"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

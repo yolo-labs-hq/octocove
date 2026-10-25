@@ -39,7 +39,7 @@ const { body } = await tenantClient(client, orgId).call('taskGet', { path: { id:
 
 Every project lives in one org (tenant): an organization, or a user's own hidden personal tenant, with an opaque id
 `org_<uuid>`. Every resource operation is tenant-scoped: its route is `/v1/orgs/{orgId}/...` and its generated type
-takes `path.orgId`. Only `/auth/*`, `organizationCreate`, `meGet`, `meProfileUpdate`, `meProjectsList`, `meProjectCreate`,
+takes `path.orgId`. Only `/auth/*`, `organizationCreate`, `ownerResolve`, `meGet`, `meProfileUpdate`, `meProjectsList`, `meProjectCreate`,
 `meDelegationsList`, the `meSessions*` routes and `peopleGet` are global. There is no default tenant and no fallback: the client never infers
 one.
 
@@ -69,6 +69,17 @@ discovery for the project's org and id), `OrgCreationPendingError` (`409 org-cre
 not reachable right now; retry later). A project path segment (`{project}`) takes the project's id or its slug; the
 `projectId` query takes the id only.
 
+Owner slugs name owners in web URLs (`/<owner>/<project>`) only; routes, tokens and events keep the tenant id.
+Organization slugs and user handles share one case-insensitive namespace. `Organization.slug` is the organization's
+current slug, and each `projects.list()` item carries `owner` (`{kind: 'organization' | 'user', slug}`).
+`orgs.create({name, slug?})` takes one (omitted, the server derives it from the name), `orgs.update(orgId, {slug})`
+renames it (the old slug is retired, still reserved to the organization and still resolving to it),
+`owners.resolve(slug)` (`GET /v1/owners/{slug}`) resolves a current or retired name to `{kind: 'organization', orgId,
+slug, canonical}` or `{kind: 'user', handle, personalOrgId, canonical}` (`canonical` false for a retired name), and
+`org(orgId).owner()` (`GET /v1/orgs/{orgId}/owner`) names a tenant's current owner. The slug problems are plain
+`ApiError`s: `400 slug-invalid`, `400 slug-reserved`, `409 slug-taken`, and `404 owner-not-found` for a name that is
+unknown, reserved or not visible to you.
+
 ## Transports
 
 - `bearer({token, kind})`: sends the token as a bearer `Authorization` header with fetch `credentials: 'omit'`, so a
@@ -90,7 +101,7 @@ not reachable right now; retry later). A project path segment (`{project}`) take
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 103 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 106 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -130,9 +141,9 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the five unca
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet` | `network-only` | `null` | safe reads (`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet` | `network-only` | `null` | safe reads (`ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
-| `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
+| `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `meNotificationPreferencesPut` | `network-only` | `stored-result` | the per-principal admin-operation ledger, checked before membership, so a replay answers the committed body even after the caller left a muted project; another body under the same key is `409 idempotency-conflict` |
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
 | `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | lanes: ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes). On a GitHub canonical, `laneMaterialize`, `laneGenerationCreate` and `laneWrapUp` answer `429 rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After` while the provider's request budget is low, retried like any `429` under the same key (nothing was created); the lane manifest and blob reads can answer that `429` too, and `413` with `details.reason: rest-budget` when one operation would need too many provider requests (never retried); `laneChangesSubmit` answers a `LaneSavePoint` and refuses `409 lane-not-materialized` before `laneMaterialize`. `laneScopeGrant` (like `taskClaim` and `laneReopen`) answers `409 write-scope-claimed` with `details.requested` and, to a human with `tasks:read`, `details.holders` |
@@ -165,9 +176,10 @@ const candidate = await oc.candidates.waitFor(submissionId, { deadline });   // 
 const landing = await oc.landings.land(candidateId, { approvalId, deadline }); // final (receipt.outcome) | pending-timeout
 ```
 
-`journeys(client)` holds the global journeys: `auth.*` (below), `orgs.list` (`GET /me` `organizations`), `orgs.create({name})`
+`journeys(client)` holds the global journeys: `auth.*` (below), `orgs.list` (`GET /me` `organizations`), `orgs.create({name, slug?})`
 (`POST /v1/orgs`: `ready` on `201`; on `202`, or `409 org-creation-pending` from a replay, it reads `GET /me` after each
-Retry-After until the organization is ready, else `pending-timeout`, never creating it again), `projects.list` (`GET /me/projects`),
+Retry-After until the organization is ready, else `pending-timeout`, never creating it again), `orgs.update(orgId, {slug})` (`PATCH /v1/orgs/{orgId}`), `owners.resolve(slug)`
+(`GET /v1/owners/{slug}`), `projects.list` (`GET /me/projects`),
 `projects.create(input, { orgId? })` (`POST /orgs/{orgId}/projects`, or without `orgId` `POST /me/projects` in the
 caller's personal tenant; `409 org-creation-pending` is waited out under the same key and body until the deadline,
 then thrown as `OrgCreationPendingError`), `org(tenantId)`, `forProject(project)` and `command` for a global
@@ -175,7 +187,7 @@ operation. `org(tenantId)` (`tenantJourneys`) holds the rest, all under `/v1/org
 `repositories.*` (including `declareLanePolicy`), `claims.authorize/claim/status/waitForProvisioning/release`,
 `candidates.get/waitFor/withdraw/reject`, `approvals.approve/approveWithGrant/withdraw`,
 `grants.exchangeApproval`, `landings.land/waitForReceipt`, `receipts.get`, `lanes.retire`, `webhooks.*`, `log.task`,
-`audit.list`, `events.follow`, `auth.delegation.renew`, `auth.notifications.*` and
+`audit.list`, `events.follow`, `owner()`, `auth.delegation.renew`, `auth.notifications.*` and
 `command` (one keyed operation without a shaped journey, under the same replay rule).
 
 `command(operationId, input, options)` accepts every callable operation and runs it through the same
