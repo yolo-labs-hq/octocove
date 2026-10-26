@@ -307,7 +307,11 @@ export const errorCases: Case[] = [
     equal(issued.grant.scope.boundTo, approvalScope.boundTo);
     ok(Object.isFrozen(issued.grant) && Object.isFrozen(issued.grant.scope.boundTo), 'grants are immutable');
     equal(bearerFor(issued.grant).kind, 'approval-grant');
-
+    // A scope whose bound tuple names the landing destination is a scope too.
+    const destination = { ...approvalScope, boundTo: { ...approvalScope.boundTo, repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x' } };
+    const named = approvalGrantFromExchange({ id: 'g1', principalId: 'pr', expiresAt: '2026-10-09T00:05:00Z', scope: destination, policyVersion: 'pv1' });
+    ok(named.outcome === 'recovered-without-token');
+    if (named.outcome === 'recovered-without-token') equal(named.scope.boundTo, destination.boundTo);
   }),
   test('an exchange response without principalId is an incomplete ApiError, never a grant', () => {
     for (const [exchange, scope] of [[approvalGrantFromExchange, approvalScope]] as const) {

@@ -90,6 +90,12 @@ export const ORG_READY_POLL_MS = 2000;
 /** A repository's lane policy, and `repositoryLanePolicyDeclare`'s answer. */
 export type RepositoryLanePolicy = Schemas['RepositoryLanePolicy'];
 export type RepositoryLanePolicyDeclaration = OpenEnums<Schemas['RepositoryLanePolicyDeclaration']>;
+/** `repositoryBranchesList`'s answer: provider branches, the default branch, heads, and the registered destinations. */
+export type RepositoryBranchList = OpenEnums<Schemas['RepositoryBranchList']>;
+/** `repositoryTargetRefRegister`'s body: register an existing branch, or create one from a pinned source. */
+export type TargetRefRegister = Schemas['TargetRefRegister'];
+/** `repositoryTargetRefRegister`'s answer: the registered landing destination. */
+export type TargetRefRegistration = OpenEnums<Schemas['TargetRefRegistration']>;
 /** A project's canonical repository and target ref (`repositoryCreate`'s answer). */
 export type Repository = OpenEnums<Schemas['Repository']>;
 /** A `repositoriesList` item: a `Repository` with its verification state (`namespace-mismatch` or `unverified`
@@ -267,6 +273,30 @@ export function tenantJourneys(client: TenantClient) {
       const { candidatePublication, visibility } = policy;
       return body(options, 'repositoryLanePolicyDeclare', { path: { project: projectId, repository: repositoryId }, body: { candidatePublication, visibility } });
     },
+    /**
+     * Human only, `tasks:create`: the canonical repository's branches as the provider advertises them now (no clone),
+     * the default branch as a full ref (or null), each branch's head, and which ones are registered landing
+     * destinations. A registered destination the provider no longer has reads `headSha: null`.
+     */
+    branches(projectId: string, repositoryId: string, options: JourneyOptions): Promise<RepositoryBranchList> {
+      requireHuman(client, 'repositories.branches');
+      return body(options, 'repositoryBranchesList', { path: { project: projectId, repository: repositoryId } });
+    },
+    /**
+     * Human only, `project:admin` with a recent sign-in: make a branch of the repository a landing destination tasks
+     * may be created against. `{mode: 'existing', targetRef, expectedHeadSha?}` registers a branch the provider has;
+     * `{mode: 'create', targetRef, sourceRef, sourceSha}` creates it from `sourceRef` at the pinned `sourceSha` with a
+     * create-only write (a branch already at `sourceSha` is adopted; one elsewhere is `409 target-ref-exists` and never
+     * moved). Every 409 carries `details.retryable` (`target-ref-moved` and `source-ref-moved` are retryable after a
+     * re-read). `stored-result` replay: a lost answer is resent under the same key and body.
+     */
+    registerTargetRef(projectId: string, repositoryId: string, input: TargetRefRegister, options: CommandOptions): Promise<TargetRefRegistration> {
+      requireHuman(client, 'repositories.registerTargetRef');
+      const wire = input.mode === 'create'
+        ? { mode: 'create' as const, targetRef: input.targetRef, sourceRef: input.sourceRef, sourceSha: input.sourceSha }
+        : { mode: 'existing' as const, targetRef: input.targetRef, ...(input.expectedHeadSha !== undefined ? { expectedHeadSha: input.expectedHeadSha } : {}) };
+      return body(options, 'repositoryTargetRefRegister', { path: { project: projectId, repository: repositoryId }, body: wire });
+    },
     /** The project's canonical repositories, one item per target ref: what a task is created against. */
     list: async (projectId: string, options: JourneyOptions): Promise<readonly RepositoryListItem[]> =>
       (await body(options, 'repositoriesList', { path: { project: projectId } })).items,
@@ -376,8 +406,10 @@ export function tenantJourneys(client: TenantClient) {
     approve(candidateId: string, boundTo: BoundTo, options: CommandOptions & { readonly note?: string }) {
       requireHuman(client, 'approvals.approve');
       if (!isBoundTo(boundTo)) throw new TypeError('boundTo must be {candidateSha, baseSha, intentVersion}');
-      const { candidateSha, baseSha, intentVersion } = boundTo;
-      return body(options, 'candidateApprove', { path: { id: candidateId }, body: { boundTo: { candidateSha, baseSha, intentVersion }, ...(options.note ? { note: options.note } : {}) } });
+      const { candidateSha, baseSha, intentVersion, repositoryId, targetRef } = boundTo;
+      // The landing destination is optional: when the reviewed tuple names it, the server refuses any other one.
+      const destination = { ...(typeof repositoryId === 'string' ? { repositoryId } : {}), ...(typeof targetRef === 'string' ? { targetRef } : {}) };
+      return body(options, 'candidateApprove', { path: { id: candidateId }, body: { boundTo: { candidateSha, baseSha, intentVersion, ...destination }, ...(options.note ? { note: options.note } : {}) } });
     },
     /**
      * Spends a single-use approval grant on the candidate it names (the grant carries candidate and
@@ -447,11 +479,13 @@ export function tenantJourneys(client: TenantClient) {
      * is thrown as the ApiError it is (see `staleBaseRefusal`); a pending variant is resumed by calling
      * `land` again with the same `idempotencyKey` after the named re-read.
      */
-    async land(candidateId: string, options: WaitOptions & { readonly approvalId: string; readonly idempotencyKey?: string; readonly credential?: BearerTransport }): Promise<LandResult> {
+    async land(candidateId: string, options: WaitOptions & { readonly approvalId: string; readonly repositoryId?: string; readonly targetRef?: string; readonly idempotencyKey?: string; readonly credential?: BearerTransport }): Promise<LandResult> {
       const scope = journeyScope(options);
       let accepted: ApiResponse<SuccessBody<'candidateLand'>>;
+      // `repositoryId` and `targetRef`, when given, assert the reviewed destination: any other is 409 destination-mismatch.
+      const destination = { ...(options.repositoryId !== undefined ? { repositoryId: options.repositoryId } : {}), ...(options.targetRef !== undefined ? { targetRef: options.targetRef } : {}) };
       try {
-        accepted = await send(client, scope, options, 'candidateLand', { path: { id: candidateId }, body: { approvalId: options.approvalId } },
+        accepted = await send(client, scope, options, 'candidateLand', { path: { id: candidateId }, body: { approvalId: options.approvalId, ...destination } },
           { idempotencyKey: options.idempotencyKey, credential: options.credential });
       } catch (error) { scope.dispose(); throw error; }
       const a: unknown = accepted.body;

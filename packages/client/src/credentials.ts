@@ -100,10 +100,14 @@ const isString = (v: unknown): v is string => typeof v === 'string' && v.length 
 const isVersion = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1;
 const exactKeys = (v: Record<string, unknown>, keys: string[]) => Object.keys(v).length === keys.length && keys.every((k) => k in v);
 
+/** The bound tuple's three keys, plus the optional landing destination (`repositoryId`, `targetRef`) as strings. */
+const boundToKeys = (b: Record<string, unknown>) => Object.keys(b).every((k) => ['candidateSha', 'baseSha', 'intentVersion', 'repositoryId', 'targetRef'].includes(k))
+  && (b.repositoryId === undefined || isString(b.repositoryId)) && (b.targetRef === undefined || isString(b.targetRef));
+
 export function isApprovalGrantScope(v: unknown): v is ApprovalGrantScope {
   return isObject(v) && exactKeys(v, ['projectId', 'claimAttemptId', 'candidateId', 'boundTo', 'checkRunIds'])
     && isString(v.projectId) && isString(v.claimAttemptId) && isString(v.candidateId) && isBoundTo(v.boundTo)
-    && exactKeys(v.boundTo as Record<string, unknown>, ['candidateSha', 'baseSha', 'intentVersion'])
+    && boundToKeys(v.boundTo as Record<string, unknown>)
     && Array.isArray(v.checkRunIds) && v.checkRunIds.every(isString);
 }
 

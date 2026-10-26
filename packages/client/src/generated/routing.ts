@@ -2677,6 +2677,79 @@ export const routing = {
       "replay": null
     }
   },
+  "eventsStream": {
+    "operationId": "eventsStream",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/events/stream",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "after",
+          "required": false
+        },
+        {
+          "name": "projectId",
+          "required": true
+        },
+        {
+          "name": "taskId",
+          "required": false
+        }
+      ],
+      "header": [
+        {
+          "name": "Last-Event-ID",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "text/event-stream"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "EventIdentityProof",
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
   "landingsList": {
     "operationId": "landingsList",
     "kind": "path",
@@ -3806,6 +3879,133 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "liveTenant": {
+    "operationId": "liveTenant",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/live",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "projectId",
+          "required": false
+        },
+        {
+          "name": "taskId",
+          "required": false
+        }
+      ],
+      "header": [
+        {
+          "name": "Last-Event-ID",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "text/event-stream"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "machineReadGrantExchange": {
+    "operationId": "machineReadGrantExchange",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/auth/read-grants",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "ApprovalIdentityProof"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
   "meDelegationsList": {
     "operationId": "meDelegationsList",
     "kind": "path",
@@ -3904,6 +4104,48 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
+    }
+  },
+  "meLive": {
+    "operationId": "meLive",
+    "kind": "path",
+    "method": "GET",
+    "path": "/me/live",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "text/event-stream"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
     }
   },
   "meNotificationPreferencesGet": {
@@ -5658,6 +5900,69 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
+      "HumanSession",
+      "MachineReadGrant"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "repositoryBranchesList": {
+    "operationId": "repositoryBranchesList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/branches",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
       "HumanSession"
     ],
     "policy": {
@@ -5808,6 +6113,89 @@ export const routing = {
     },
     "successStatuses": [
       200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "repositoryTargetRefRegister": {
+    "operationId": "repositoryTargetRefRegister",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/target-refs",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      201
     ],
     "redirectStatuses": [],
     "security": [
@@ -6434,7 +6822,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "MachineReadGrant"
     ],
     "policy": {
       "callable": true,
@@ -7009,7 +7398,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "MachineReadGrant"
     ],
     "policy": {
       "callable": true,

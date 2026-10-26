@@ -257,6 +257,9 @@ Commands:
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
   repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
+  repo branches PROJECT REPOSITORY            (the provider's branches, default branch and heads; which ones tasks can target)
+  repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]   (project admin, recent sign-in: make an existing branch a landing destination)
+  repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA   (project admin, recent sign-in: create the branch from a source branch at a pinned SHA and make it a landing destination; never moves an existing branch)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -291,8 +294,8 @@ Commands:
   candidate reject ID --expected-status landed --intent-version N
   task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
   candidate show --submission ID
-  approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
-  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
+  approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--repository ID --target-ref REF] [--note TEXT]
+  land CANDIDATE_ID --approval APPROVAL_ID [--repository ID --target-ref REF] [--wait]  (Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
   receipt show ID [--wait]
   log ID [--after CURSOR] [--limit N]
   events --follow --project ID [--task ID] [--from CURSOR] [--checkpoint FILE]

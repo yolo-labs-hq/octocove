@@ -10,7 +10,7 @@ export interface paths {
         };
         /**
          * List visible tasks
-         * @description Humans need project read permission. Agent tasks:list returns only the bound task. Keyset pagination by task ID.
+         * @description Humans need project read permission. Agent tasks:list returns only the bound task. A machine read grant with tasks:list lists its own project. Keyset pagination by task ID.
          */
         get: operations["tasksList"];
         put?: never;
@@ -57,6 +57,33 @@ export interface paths {
          * @description Any authenticated human session (cookie or CLI bearer), agent delegation, or machine grant bearer (an unspent `ocg_` approval grant from the machine-authentication exchange, with live authority); anonymous callers get the 401 problem. No new credential is accepted - sessions and delegations use the gateway's authentication and grants the grant routes' own lookup - so a raw signed machine assertion (exchange-only) and a one-use claim bootstrap are refused with 401 like any unknown bearer. Memberships are every `auth_memberships` row for the resolved (issuer, sub), ordered by project ID - the human's own, a delegation's delegating human's, and for a machine grant its bound human (human approval principal) or the principal itself under issuer `urn:octocove:machine`. Verbs are returned exactly as stored, sorted; an empty list is a valid answer. Each membership also carries its project's `slug`, `name` and `artifactsNamespace` (null for a legacy project without one), read in the same query; they describe the project and grant nothing. `capabilities.createProjects` reports whether `POST /me/projects` would pass its `PROJECT_CREATORS` gate for this caller (the same check; false for delegations and machine grants). A human also gets `profile`, the fields `PATCH /me/profile` sets, `name` falling back to the identity provider's display name. For a human memberships are read in every tenant the caller is a candidate of, each in that tenant's own record by the caller's current membership there, and each carries `tenantId` and `tenantKind` (`organization`, or `personal` for the caller's hidden personal tenant). A human also gets `organizations`, the organizations they administer (never a personal tenant), and the explicit partial-results fields. A tenant that cannot be read is listed in `unavailableTenants` with `partial` true, and its projects are absent (never reported as no projects). Retry later for a complete answer. Memberships describe the identity; they never widen what a delegation or grant may do. Read-only and not audited, like `GET /orgs/{orgId}/tasks`. Never returns tokens, hashes, CSRF or verifier material, recovery ciphertext or cookie values.
          */
         get: operations["meGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow the caller's own global changes
+         * @description Human session only; agent delegations and machine grant bearers get 403 `human-required`. No tenant: `ready`
+         *     (resync `GET /me` and `GET /me/projects` now), then `me` `{scopes}` when what they answer for the caller changed:
+         *     `orgs` (an organization provisioned or renamed), `projects` (a project created, a membership added or removed),
+         *     `access` (membership verbs) and `profile`. A revocation of the caller's sign-in closes it (`revoked`).
+         *     Subscribes before its first snapshot, re-authorizes the caller on every hub ring and on every `heartbeat` frame
+         *     (each 25 s), and ends after 5 minutes with a `closed` frame (`lifetime`), or at once on a refusal (`revoked`, with
+         *     the problem code), a lost hub (`hub-lost`) or an unavailable record (`unavailable`); the EventSource then
+         *     reconnects. A refusal before the stream starts is the ordinary problem answer.
+         */
+        get: operations["meLive"];
         put?: never;
         post?: never;
         delete?: never;
@@ -218,7 +245,7 @@ export interface paths {
         };
         /**
          * List the project's canonical repositories and target refs
-         * @description Any member holding `tasks:list` (an agent delegation only for its own project). One item per registered target ref of each canonical repository, oldest first, at most 100; the `repositoryId` and `targetRef` a task is created against. `knownHeadSha` is null until a head has been observed. `verification` is `namespace-mismatch` or `unverified` exactly when claims, provisioning and credentials refuse the repository 409 `repository-namespace-mismatch` or `repository-unverified`. `importState` follows an import - an `importing` repository is first reconciled from Artifacts, the only write this read makes. `creations` lists the project's open repository creations (`RepositoryCreation`) - a `create` or `import` still settling (`pending`) or handed to the operator (`needs-operator`, with its `reason`) - read in one second bounded query; settled intents are omitted. Not audited.
+         * @description Any member holding `tasks:list` (an agent delegation or a machine read grant only for its own project). One item per registered target ref of each canonical repository, oldest first, at most 100; the `repositoryId` and `targetRef` a task is created against. `knownHeadSha` is null until a head has been observed. `verification` is `namespace-mismatch` or `unverified` exactly when claims, provisioning and credentials refuse the repository 409 `repository-namespace-mismatch` or `repository-unverified`. `importState` follows an import - an `importing` repository is first reconciled from Artifacts, the only write this read makes (never for a machine read grant, which reads the persisted state). `creations` lists the project's open repository creations (`RepositoryCreation`) - a `create` or `import` still settling (`pending`) or handed to the operator (`needs-operator`, with its `reason`) - read in one second bounded query; settled intents are omitted. Not audited.
          */
         get: operations["repositoriesList"];
         put?: never;
@@ -273,6 +300,46 @@ export interface paths {
          * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Every canonical repository has exactly one lane policy, declared with the default (`repository-readers`, `private`) in the batch that records the repository (registration, creation, import), so every verified canonical can host lanes; this route is the one way to change it. The body is the whole policy. A public repository admits claims only under `public-on-submit`, so `visibility` `public` with `repository-readers` is refused 409 `publication-undeclared` before any write. One D1 batch compares and sets the policy row from the values the request read, appends its audit row (`repository.registered` with `refs.milestone` `repository.lane_policy_declared`, the new and previous policy and `refs.declaredBy`, until the widened audit vocabulary lands) and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). Declaring the policy the repository already has answers 200 and writes only the ledger row. Claims already admitted keep running; the next claim reads the new policy. Refusals - 400 `invalid-request` (a body other than exactly `candidatePublication` and `visibility`); 404 `not-found` (no live canonical repository with that id in the project); 409 `publication-undeclared`. A replay with the same Idempotency-Key returns the committed 200; the same key with another body is 409 `idempotency-conflict`.
          */
         post: operations["repositoryLanePolicyDeclare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/repositories/{repository}/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a canonical repository's branches, its default branch and their current heads
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `tasks:create` in the project (403 `forbidden` otherwise). Landing destinations - one read of the provider's smart-HTTP ref advertisement (no clone; on GitHub also the repository metadata for its default branch) with a 60-second repo-scoped read credential revoked before the answer. Lists every `refs/heads/*` branch the provider advertises (every registered one, and up to 500 others - `truncated` past that), with its current `headSha`, plus every registered target ref of the repository (`registered: true`, the record's `knownHeadSha`); a registered target the provider no longer advertises (deleted or renamed) has `headSha` null. `defaultBranch` is the full ref the provider names as its default (GitHub's `default_branch`; on Artifacts the advertisement's `HEAD` symref), or null when it names none. Writes nothing, not audited. Refusals - 404 `not-found` (no live canonical repository with that id in the project); 409 `repository-unverified`, `repository-namespace-mismatch`, `repository-provider-unsupported` (not Artifacts or GitHub), `credential-unavailable` (GitHub, no usable credential for the binding), `repository-remote-not-found`; 503 provider failures (`native-git-unavailable`, `broker-provider-unavailable`, retryable; also `native-git-unavailable` for a ref advertisement larger than 8 MiB).
+         */
+        get: operations["repositoryBranchesList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/repositories/{repository}/target-refs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a branch of the canonical repository as a landing destination, or create it from a pinned source
+         * @description Human session only (agent delegations get 403 `human-required`); the caller needs `project:admin` in the project (403 `forbidden` otherwise). Landing destinations - one repository identity, many registered target refs; a task names one at creation (`POST /orgs/{orgId}/tasks` `targetRef`) and keeps it. `mode` `existing` registers a branch the provider has now (409 `target-ref-not-found` otherwise); `expectedHeadSha`, when given, must be its current head (409 `target-ref-moved`, retryable after a re-read, `details.headSha`). `mode` `create` creates `targetRef` from `sourceRef`, which must be at `sourceSha` now (409 `source-ref-not-found`; 409 `source-ref-moved`, retryable, `details.headSha`), with one create-only provider write (Artifacts - a receive-pack command whose old value is zero; GitHub - `POST git/refs`), then reads it back. A branch that already names `sourceSha` is adopted (`created` false); a branch at any other SHA is 409 `target-ref-exists` (`details.headSha`) and is never moved. The provider's head becomes the record's known head (`known_head_source` `ls-remote`). The credential is a 60-second repo-scoped write credential, revoked before the answer. One record batch inserts the target ref, its `target_ref.registered` audit row (`refs.mode`, `refs.created`, `refs.sourceRef`, `refs.sourceSha`, `refs.registeredBy`) and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` when one was lost meanwhile). A ref already registered answers 200 (`alreadyRegistered` true) and writes only the ledger row - for `create` only when the provider head is `sourceSha`, else 409 `target-ref-exists`. Branch protections, rules and permissions stay the provider's - 409 `provider-restricted` when the GitHub credential cannot push or the provider refuses the creation. Every 409 of this route carries `details.retryable`. Other refusals - 400 `invalid-request` (`details.field`; refs must be full `refs/heads/...` names under Git's ref rules, no URLs, tags or other namespaces; SHAs are 40 lowercase hex); 404 `not-found`; 409 `repository-unverified`, `repository-namespace-mismatch`, `repository-provider-unsupported`, `credential-unavailable`, `repository-remote-not-found`; 503 provider failures (retryable with the same key - the create-only write and the read-back make a retry safe). A replay with the same Idempotency-Key returns the committed answer before any refusal; the same key with another body is 409 `idempotency-conflict`.
+         */
+        post: operations["repositoryTargetRefRegister"];
         delete?: never;
         options?: never;
         head?: never;
@@ -472,7 +539,7 @@ export interface paths {
         };
         /**
          * Read intent and dependency results
-         * @description Returns acceptance criteria, current intentVersion, canonical target, current dependency accepted receipts and live attempt IDs. Agent tasks:read required.
+         * @description Returns acceptance criteria, current intentVersion, canonical target, current dependency accepted receipts and live attempt IDs. Agent tasks:read required. A machine read grant with tasks:read reads a task of its own project, without `laneRepository`.
          */
         get: operations["taskGet"];
         put?: never;
@@ -1038,7 +1105,7 @@ export interface paths {
         put?: never;
         /**
          * Approve the exact candidate tuple
-         * @description Human approver ONLY. Exact boundTo equals live computed candidate SHA, base SHA and current intentVersion or 409 approval-mismatch with details.currentBoundTo. Latest checks pass or policy none, no fence, task candidate or landed follow-up. Agent credentials return 403 human-required. 409 already-approved when the candidate already has a live approval (one per candidate). The candidate read's actions.approve reports the same checks.
+         * @description Human approver ONLY. Exact boundTo equals live computed candidate SHA, base SHA and current intentVersion or 409 approval-mismatch with details.currentBoundTo. Latest checks pass or policy none, no fence, task candidate or landed follow-up. Agent credentials return 403 human-required. 409 already-approved when the candidate already has a live approval (one per candidate). A boundTo that names repositoryId or targetRef must name the task's landing destination (409 destination-mismatch, details.boundTo); the approval binds that destination through the task, whose repository and target ref never change. The candidate read's actions.approve reports the same checks.
          */
         post: operations["candidateApprove"];
         delete?: never;
@@ -1058,7 +1125,7 @@ export interface paths {
         put?: never;
         /**
          * Fence and enqueue an approved landing
-         * @description Human lander or agent candidates:land AND project delegated-land policy. Revalidate exact approval, base, intent and checks. Reserve receipt identity atomically with fence/dispatch. Receipt ID equals fence ID; final receipt is created only at release. Same key returns original 202; other key while held returns 409 fenced. 409 provider-landing-unsupported, before any fence, when no landing executor supports the canonical provider (the Worker lands wrap-up candidates on Artifacts and GitHub canonicals from their contribution ref). 409 fenced, before any fence, while another task's landing holds the same target. The candidate read's actions.land reports the same checks.
+         * @description Human lander or agent candidates:land AND project delegated-land policy. Revalidate exact approval, base, intent and checks. Reserve receipt identity atomically with fence/dispatch. Receipt ID equals fence ID; final receipt is created only at release. Same key returns original 202; other key while held returns 409 fenced. 409 provider-landing-unsupported, before any fence, when no landing executor supports the canonical provider (the Worker lands wrap-up candidates on Artifacts and GitHub canonicals from their contribution ref). 409 fenced, before any fence, while another task's landing holds the same target. 409 destination-mismatch, before any fence, when the body names a repositoryId or targetRef other than the task's (a landing never retargets). The candidate read's actions.land reports the same checks.
          */
         post: operations["candidateLand"];
         delete?: never;
@@ -1139,6 +1206,34 @@ export interface paths {
          * @description Same event envelopes and evt_<decimal audit ID> identities as webhooks, excluding webhook.attempt_started and webhook.attempt_recorded plus webhook.deliveries_inspected telemetry. Requires events:read; agents are restricted to their bound task. Machine event proofs require explicit projectId and a live event permission. Signed cursors are bound to the tenant, the principal and the filter. Omitted after starts oldest visible. after also accepts a delivered Event ID or decimal position for exclusive webhook handoff.
          */
         get: operations["eventsReplay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow authorized collaboration events as Server-Sent Events
+         * @description The `GET /orgs/{orgId}/events` stream pushed, under the same authorization, scope and v2 envelopes, telemetry
+         *     excluded. Each event is an unnamed frame whose `data` is the envelope and whose `id` is the tenant relay position
+         *     `<streamId>.<relaySequence>`. `ready` (and `heartbeat`) carry the position reached; `Last-Event-ID` (or `lastEventId`)
+         *     resumes after it with everything missed, in order; a position from another stream (a restore) or ahead of it
+         *     answers `reset` and continues from the head. `after` hands off from a delivered `evt_<n>` of the same scope.
+         *     Subscribes before its first snapshot, re-authorizes the caller on every hub ring and on every `heartbeat` frame
+         *     (each 25 s), and ends after 5 minutes with a `closed` frame (`lifetime`), or at once on a refusal (`revoked`, with
+         *     the problem code), a lost hub (`hub-lost`) or an unavailable record (`unavailable`); the EventSource then
+         *     reconnects. A refusal before the stream starts is the ordinary problem answer.
+         */
+        get: operations["eventsStream"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1553,6 +1648,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{orgId}/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow the caller's live invalidation hints in one tenant
+         * @description Human session only (cookie or CLI bearer); agent delegations and machine grant bearers get 403 `human-required`.
+         *     No `events:read` is needed. Frames: `change` `{tenantId, projectId, taskId, kind, ids, position}` after each
+         *     committed audit row of a project whose membership holds `tasks:read` for the caller (narrowed by `projectId` or
+         *     `taskId`, which must be readable: 403 `forbidden`, 404 `not-found`); `receipt` `{tenantId, projectId, taskId,
+         *     fenceId, receiptId, position}` once, on the commit after which `GET /orgs/{orgId}/receipts/{fenceId}` is final;
+         *     `notifications` `{tenantId, unreadCount, latestId}`, the caller's own state as `GET /orgs/{orgId}/me/notifications`
+         *     counts it, on connect and when it changes (after a projection, a read mark or a preference change). A hint names
+         *     a resource class and ids only, never record data: the client rereads through the authorized routes. An
+         *     observation that explicitly records no change (remote reconciliation re-reads every ~45 s) sends no hint; a
+         *     first observation, a change or an error does. Positions
+         *     and resume as `GET /orgs/{orgId}/events/stream`; more than 1000 positions behind answers `reset`.
+         *     Subscribes before its first snapshot, re-authorizes the caller on every hub ring and on every `heartbeat` frame
+         *     (each 25 s), and ends after 5 minutes with a `closed` frame (`lifetime`), or at once on a refusal (`revoked`, with
+         *     the problem code), a lost hub (`hub-lost`) or an unavailable record (`unavailable`); the EventSource then
+         *     reconnects. A refusal before the stream starts is the ordinary problem answer.
+         */
+        get: operations["liveTenant"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs/{orgId}/me/notifications": {
         parameters: {
             query?: never;
@@ -1611,6 +1740,26 @@ export interface paths {
          */
         put: operations["meNotificationPreferencesPut"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/auth/read-grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange a registered workload's signed assertion for a short-lived, read-only project grant
+         * @description Amendment. The assertion's `aud` must be exactly `APPROVAL_API_ORIGIN/v1/orgs/{orgId}/auth/read-grants` as a single string, and it must verify under a live `workload` or `policy_bot` trust binding of the project (pinned issuer, subject, key, claims and, for GitHub Actions, the pinned JWKS and a numeric `run_id`), before any record lookup: an unauthenticated caller receives 401 whether or not the project exists. The grant carries only the `tasks:list` and `tasks:read` verbs of the principal's live machine permissions in the project (403 when there are none) and expires within 300 seconds, never after the assertion, binding or principal. Nothing is written and no Idempotency-Key is taken: a caller that lost the response exchanges a fresh assertion. Verification failures use stable `machine-authority-denied`.
+         */
+        post: operations["machineReadGrantExchange"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1686,7 +1835,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Provision project-scoped machine event authority */
+        /**
+         * Provision project-scoped machine event authority
+         * @description `events:read` and the webhook verbs are used by presenting a signed assertion directly (EventIdentityProof). `tasks:list` and `tasks:read` are project read verbs, used only through a machine read grant (`POST /orgs/{orgId}/auth/read-grants`) on the project repository list, the task list and a task read. No verb grants a write.
+         */
         post: operations["eventPermissionCreate"];
         delete?: never;
         options?: never;
@@ -2178,10 +2330,13 @@ export interface components {
         /** @description Opaque resource identifier. Includes UUIDs, prefixed hashes and provider-assigned IDs; clients must not parse it. */
         Id: string;
         Sha: string;
+        /** @description What a review and an approval bind. `repositoryId` and `targetRef` are the task's landing destination (fixed at task creation); responses always carry them, and a request that names them must name the task's own (409 `destination-mismatch` otherwise). A request may omit them. */
         BoundTo: {
             candidateSha: components["schemas"]["Sha"];
             baseSha: components["schemas"]["Sha"];
             intentVersion: number;
+            repositoryId?: components["schemas"]["Id"];
+            targetRef?: string;
         };
         Problem: {
             /** Format: uri */
@@ -2997,6 +3152,60 @@ export interface components {
             importState: ("importing" | "ready" | "failed") | null;
             /** @description The repository's declared lane policy. Every canonical has one, declared with the default (`repository-readers`, `private`) when it was recorded and changed only by `POST /orgs/{orgId}/projects/{project}/repositories/{repository}/lane-policy`. */
             lanePolicy: components["schemas"]["RepositoryLanePolicy"];
+        };
+        /** @description A canonical repository's branches as the provider advertises them now, and its registered target refs. */
+        RepositoryBranchList: {
+            repositoryId: components["schemas"]["Id"];
+            /** @enum {string} */
+            provider: "artifacts" | "github";
+            /** @description The provider's default branch as a full ref, or null when it names none. */
+            defaultBranch: string | null;
+            /** @description True when the provider advertised more unregistered branches than the 500 listed; registered targets are always listed. */
+            truncated: boolean;
+            items: {
+                /** @description Full branch ref. */
+                ref: string;
+                /** @description The provider's current head, null for a registered target it no longer advertises. */
+                headSha: components["schemas"]["Sha"] | null;
+                /** @description A registered target ref: tasks may be created against it. */
+                registered: boolean;
+                /** @description The record's known head of a registered target (null when unregistered or unobserved). */
+                knownHeadSha: components["schemas"]["Sha"] | null;
+            }[];
+        };
+        /** @description Register an existing branch (`existing`) or create one from a pinned source (`create`). */
+        TargetRefRegister: {
+            /** @enum {string} */
+            mode: "existing";
+            /** @description Full branch ref (Git ref rules). */
+            targetRef: string;
+            /** @description When given */
+            expectedHeadSha?: string;
+        } | {
+            /** @enum {string} */
+            mode: "create";
+            /** @description The new branch (full ref). */
+            targetRef: string;
+            /** @description The branch it is created from (full ref). */
+            sourceRef: string;
+            /** @description The pinned commit; sourceRef must be at it now. */
+            sourceSha: string;
+        };
+        /** @description A registered landing destination of a canonical repository. */
+        TargetRefRegistration: {
+            repositoryId: components["schemas"]["Id"];
+            /** @enum {string} */
+            provider: "artifacts" | "github";
+            targetRef: string;
+            knownHeadSha: components["schemas"]["Sha"] | null;
+            /** @enum {string} */
+            mode: "existing" | "create";
+            /** @description True only when this request's create-only write created the branch. */
+            created: boolean;
+            /** @description True when the ref was registered before this request. */
+            alreadyRegistered: boolean;
+            sourceRef: string | null;
+            sourceSha: components["schemas"]["Sha"] | null;
         };
         /** @description The repository's declared lane policy. candidatePublication is how a submitted candidate becomes visible; visibility is the declared repository visibility (a public repository admits claims only under public-on-submit). Every claim is materialized, so the policy names no lane kind. */
         RepositoryLanePolicy: {
@@ -3837,6 +4046,8 @@ export interface components {
         };
     };
     parameters: {
+        /** @description The last `id` the stream sent, `<streamId>.<relaySequence>` (`none.0` before the tenant's first audit row); the EventSource sends it on reconnect. A first connect may pass the same value as the `lastEventId` query parameter. Malformed is 400 `invalid-cursor`. */
+        LiveLastEventId: string;
         /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
         TenantSelector: components["schemas"]["TenantId"];
         /** @description A lane head (from a manifest's laneHead) to read at; it must be a commit of the open generation's recorded lineage (409 generation-superseded otherwise). Only for a materialized lane (409 lane-not-materialized before lane/materialize). */
@@ -4025,6 +4236,30 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    meLive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller-global hint stream. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };
@@ -4465,6 +4700,95 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RepositoryLanePolicyDeclaration"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    repositoryBranchesList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
+                repository: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The provider's branches now. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryBranchList"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    repositoryTargetRefRegister: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
+                repository: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TargetRefRegister"];
+            };
+        };
+        responses: {
+            /** @description The target ref was already registered; nothing changed. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetRefRegistration"];
+                };
+            };
+            /** @description The target ref was registered (and, for `create`, created or adopted). */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetRefRegistration"];
                 };
             };
             400: components["responses"]["Problem"];
@@ -6240,6 +6564,10 @@ export interface operations {
             content: {
                 "application/json": {
                     approvalId: components["schemas"]["Id"];
+                    /** @description Optional. The landing destination the caller reviewed; must be the task's (409 `destination-mismatch`). */
+                    repositoryId?: components["schemas"]["Id"];
+                    /** @description Optional. The full target ref the caller reviewed; must be the task's (409 `destination-mismatch`). */
+                    targetRef?: string;
                 };
             };
         };
@@ -6433,6 +6761,45 @@ export interface operations {
             409: components["responses"]["Problem"];
             410: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    eventsStream: {
+        parameters: {
+            query: {
+                /** @description Authorized project, by id (no slug). Agents can only name their bound project. An id that names no project of this organization is 404 `project-not-found`, as for `{project}`. */
+                projectId: components["parameters"]["ProjectId"];
+                /** @description Optional for humans; implicit bound task for agents, another task is forbidden. */
+                taskId?: components["schemas"]["Id"];
+                /** @description A delivered `evt_<n>` (or decimal audit position, 0 for the oldest) of the authorized scope; ignored when `Last-Event-ID` or `lastEventId` is present. Anything else is 400 `invalid-cursor`. */
+                after?: string;
+            };
+            header?: {
+                /** @description The last `id` the stream sent, `<streamId>.<relaySequence>` (`none.0` before the tenant's first audit row); the EventSource sends it on reconnect. A first connect may pass the same value as the `lastEventId` query parameter. Malformed is 400 `invalid-cursor`. */
+                "Last-Event-ID"?: components["parameters"]["LiveLastEventId"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The event stream. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };
@@ -7263,6 +7630,41 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    liveTenant: {
+        parameters: {
+            query?: {
+                projectId?: components["schemas"]["Id"];
+                taskId?: components["schemas"]["Id"];
+            };
+            header?: {
+                /** @description The last `id` the stream sent, `<streamId>.<relaySequence>` (`none.0` before the tenant's first audit row); the EventSource sends it on reconnect. A first connect may pass the same value as the `lastEventId` query parameter. Malformed is 400 `invalid-cursor`. */
+                "Last-Event-ID"?: components["parameters"]["LiveLastEventId"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The hint stream. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     meNotificationsList: {
         parameters: {
             query?: {
@@ -7409,6 +7811,50 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    machineReadGrantExchange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    projectId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The read grant. The token is returned once. */
+            201: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description Bearer `ocr_` token (MachineReadGrant). */
+                        token: string;
+                        principalId: string;
+                        projectId: string;
+                        verbs: ("tasks:list" | "tasks:read")[];
+                        /** Format: date-time */
+                        expiresAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
     approvalGrantExchange: {
         parameters: {
             query?: never;
@@ -7541,7 +7987,7 @@ export interface operations {
             content: {
                 "application/json": {
                     principalId: string;
-                    verbs: ("events:read" | "webhooks:create" | "webhooks:replay" | "webhooks:disable")[];
+                    verbs: ("events:read" | "webhooks:create" | "webhooks:replay" | "webhooks:disable" | "tasks:list" | "tasks:read")[];
                     /** Format: date-time */
                     expiresAt: string;
                 };
@@ -7557,7 +8003,7 @@ export interface operations {
                     "application/json": {
                         id: string;
                         principalId: string;
-                        verbs: ("events:read" | "webhooks:create" | "webhooks:replay" | "webhooks:disable")[];
+                        verbs: ("events:read" | "webhooks:create" | "webhooks:replay" | "webhooks:disable" | "tasks:list" | "tasks:read")[];
                         /** Format: date-time */
                         expiresAt: string;
                     };

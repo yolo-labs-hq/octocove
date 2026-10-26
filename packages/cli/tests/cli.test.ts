@@ -465,6 +465,30 @@ describe("repo add / verify / list", () => {
     expect(calls).toEqual([]);
   });
 
+  it("lists provider branches and registers or creates a landing destination under an Idempotency-Key", async () => {
+    const base = `/projects/${PROJECT}/repositories/${repository.id}`;
+    routes[`GET ${base}/branches`] = () => json(200, { repositoryId: repository.id, provider: "artifacts", defaultBranch: "refs/heads/main", truncated: false,
+      items: [{ ref: "refs/heads/feature/x", headSha: SHA_A, registered: false, knownHeadSha: null }, { ref: "refs/heads/main", headSha: SHA_B, registered: true, knownHeadSha: SHA_B }] });
+    expect(await cli(["repo", "branches", PROJECT, repository.id], { kind: "human" })).toBe(0);
+    expect(outText).toContain("Default branch: refs/heads/main");
+    expect(outText).toContain(`refs/heads/main  ${SHA_B}  registered`);
+    const registration = { repositoryId: repository.id, provider: "artifacts", targetRef: "refs/heads/feature/x", knownHeadSha: SHA_A, created: false, alreadyRegistered: false };
+    routes[`POST ${base}/target-refs`] = (request: Call) => json(201, { ...registration, mode: (request.body as any).mode, created: (request.body as any).mode === "create",
+      sourceRef: (request.body as any).sourceRef ?? null, sourceSha: (request.body as any).sourceSha ?? null });
+    calls = [];
+    expect(await cli(["repo", "target-add", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x", "--expected-head", SHA_A], { kind: "human" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ mode: "existing", targetRef: "refs/heads/feature/x", expectedHeadSha: SHA_A });
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(await cli(["repo", "target-create", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x", "--from-ref", "refs/heads/main", "--at", SHA_A], { kind: "human" })).toBe(0);
+    expect(calls[1]!.body).toEqual({ mode: "create", targetRef: "refs/heads/feature/x", sourceRef: "refs/heads/main", sourceSha: SHA_A });
+    expect(outText).toContain("created from refs/heads/main");
+    calls = [];
+    expect(await cli(["repo", "target-create", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "target-add", PROJECT, repository.id, "--target-ref", "refs/heads/feature/x"], { kind: "agent" })).toBe(EXIT.humanRequired);
+    expect(await cli(["repo", "branches", PROJECT, repository.id], { kind: "agent" })).toBe(EXIT.humanRequired);
+    expect(calls).toEqual([]);
+  });
+
   it("labels the repository path with its provider in repo verify, add and list", async () => {
     const github = { ...repository, provider: "github", namespace: "octo-org", repoId: "widgets", name: "widgets",
       cloneUrl: "https://github.com/octo-org/widgets.git", binding: "verified", verifiedAt: "2026-10-10T00:00:00.000Z", verifiedBy: "human-1" };
@@ -715,6 +739,14 @@ describe("approve", () => {
     expect(await cli([...args, "--note", "lgtm"], { kind: "human" })).toBe(0);
     expect(calls[0]!.body).toEqual({ boundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 3 }, note: "lgtm" });
     expect(outText).toContain("AP1");
+  });
+
+  it("asserts the reviewed destination with --repository and --target-ref", async () => {
+    routes["POST /candidates/CA1/approve"] = () => json(201, { id: "AP1", candidateId: "CA1", approvedBy: "u", status: "active", boundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 3 } });
+    expect(await cli([...args, "--repository", "R1", "--target-ref", "refs/heads/feature/x"], { kind: "human" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ boundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 3, repositoryId: "R1", targetRef: "refs/heads/feature/x" } });
+    expect(await cli([...args, "--target-ref", "feature/x"], { kind: "human" })).toBe(EXIT.usage);
+    expect(calls).toHaveLength(1);
   });
 
   it("requires every part of the triple", async () => {

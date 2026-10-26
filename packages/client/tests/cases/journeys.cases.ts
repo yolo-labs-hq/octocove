@@ -612,6 +612,43 @@ export const journeyCases: Case[] = [
     const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
     await rejects(async () => journeys(delegated).org(ORG).repositories.declareLanePolicy('project-1', 'repository-1', policy, { deadline: soon() }), TypeError);
   }),
+  // ---- landing destinations ----
+  test('repositories.branches reads the provider branches, human only', async () => {
+    const list = { repositoryId: 'repository-1', provider: 'github', defaultBranch: 'refs/heads/main', truncated: false,
+      items: [{ ref: 'refs/heads/feature/x', headSha: A, registered: false, knownHeadSha: null }, { ref: 'refs/heads/main', headSha: B, registered: true, knownHeadSha: B }] };
+    const { fetch, calls } = scriptedFetch(json(200, list));
+    equal(await journeys(client(fetch)).org(ORG).repositories.branches('project-1', 'repository-1', { deadline: soon() }), list);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/orgs/${ORG}/projects/project-1/repositories/repository-1/branches`]);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(async () => journeys(delegated).org(ORG).repositories.branches('project-1', 'repository-1', { deadline: soon() }), TypeError);
+  }),
+  test('repositories.registerTargetRef sends exactly the mode\'s fields under one key, human only', async () => {
+    const created = { repositoryId: 'repository-1', provider: 'artifacts', targetRef: 'refs/heads/feature/x', knownHeadSha: A, mode: 'create', created: true, alreadyRegistered: false, sourceRef: 'refs/heads/main', sourceSha: A };
+    const { fetch, calls } = scriptedFetch(lost(), json(201, created), json(200, { ...created, mode: 'existing', created: false, alreadyRegistered: true, sourceRef: null, sourceSha: null }));
+    const j = journeys(client(fetch)).org(ORG);
+    const input = { mode: 'create', targetRef: 'refs/heads/feature/x', sourceRef: 'refs/heads/main', sourceSha: A, force: true } as never;
+    equal(await j.repositories.registerTargetRef('project-1', 'repository-1', input, { deadline: soon() }), created);
+    equal(JSON.parse(calls[0]!.body!), { mode: 'create', targetRef: 'refs/heads/feature/x', sourceRef: 'refs/heads/main', sourceSha: A });
+    equal(keys(calls)[0], keys(calls)[1]);
+    await j.repositories.registerTargetRef('project-1', 'repository-1', { mode: 'existing', targetRef: 'refs/heads/feature/x' }, { deadline: soon() });
+    equal(JSON.parse(calls[2]!.body!), { mode: 'existing', targetRef: 'refs/heads/feature/x' });
+    equal(calls.map((c) => `${c.method} ${c.url}`).at(-1), `POST ${BASE}/v1/orgs/${ORG}/projects/project-1/repositories/repository-1/target-refs`);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(async () => journeys(delegated).org(ORG).repositories.registerTargetRef('project-1', 'repository-1', input, { deadline: soon() }), TypeError);
+  }),
+  test('approve and land carry the reviewed destination when it is given, and only then', async () => {
+    const approval = { id: 'appr-1', taskId: 't', candidateId: 'cand-1', approvedBy: 'iss|sub', approvedAt: '2026-10-25T00:00:00.000Z', status: 'active',
+      boundTo: { candidateSha: A, baseSha: B, intentVersion: 1, repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x' } };
+    const { fetch, calls } = scriptedFetch(json(201, approval), json(201, approval),
+      json(202, { fenceId: 'fence-1', receiptId: 'fence-1', status: 'pending', receiptUrl: `${BASE}/v1/orgs/${ORG}/receipts/fence-1` }), json(200, receipt('landed')));
+    const j = journeys(client(fetch)).org(ORG);
+    await j.approvals.approve('cand-1', { candidateSha: A, baseSha: B, intentVersion: 1, repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x' }, { deadline: soon() });
+    equal(JSON.parse(calls[0]!.body!).boundTo, { candidateSha: A, baseSha: B, intentVersion: 1, repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x' });
+    await j.approvals.approve('cand-1', { candidateSha: A, baseSha: B, intentVersion: 1 }, { deadline: soon() });
+    equal(JSON.parse(calls[1]!.body!).boundTo, { candidateSha: A, baseSha: B, intentVersion: 1 });
+    await j.landings.land('cand-1', { approvalId: 'appr-1', repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x', deadline: soon(), pollMs: 1 });
+    equal(JSON.parse(calls[2]!.body!), { approvalId: 'appr-1', repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x' });
+  }),
   // ---- code view ----
   test('repositories.tree and repositories.blob read the canonical repository with ref and path as query parameters', async () => {
     const tree = { repositoryId: 'repository-1', ref: 'refs/heads/main', commitSha: 'a'.repeat(40), path: 'src', entries: [{ name: 'a.ts', path: 'src/a.ts', type: 'file', size: 1 }], sizeTruncated: false, lastCommitTruncated: false, truncated: false };

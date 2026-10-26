@@ -81,6 +81,9 @@ Commands:
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
   repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
+  repo branches PROJECT REPOSITORY            (the provider's branches, default branch and heads; which ones tasks can target)
+  repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]   (project admin, recent sign-in: make an existing branch a landing destination)
+  repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA   (project admin, recent sign-in: create the branch from a source branch at a pinned SHA and make it a landing destination; never moves an existing branch)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -115,8 +118,8 @@ Commands:
   candidate reject ID --expected-status landed --intent-version N
   task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]
   candidate show --submission ID
-  approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--note TEXT]
-  land CANDIDATE_ID --approval APPROVAL_ID [--wait]  (Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
+  approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--repository ID --target-ref REF] [--note TEXT]
+  land CANDIDATE_ID --approval APPROVAL_ID [--repository ID --target-ref REF] [--wait]  (Example: octo land candidate-EXAMPLE --approval approval-EXAMPLE --wait)
   receipt show ID [--wait]
   log ID [--after CURSOR] [--limit N]
   events --follow --project ID [--task ID] [--from CURSOR] [--checkpoint FILE]
@@ -452,6 +455,17 @@ const kv = (rows: [string, unknown][]) =>
     .map(([k, v]) => `${(k + ":").padEnd(Math.max(18, k.length + 2))}${typeof v === "object" ? JSON.stringify(v) : v}`)
     .join("\n");
 
+/** `--repository` and `--target-ref`: the landing destination a reviewer asserts on approve and land. */
+function destinationFlags(v: Record<string, unknown>) {
+  const repository = v.repository, targetRef = v["target-ref"];
+  if (targetRef !== undefined && (typeof targetRef !== "string" || !targetRef.startsWith("refs/heads/"))) throw new UsageError("--target-ref must be a full branch ref (refs/heads/...)");
+  return { ...(typeof repository === "string" ? { repositoryId: repository } : {}), ...(typeof targetRef === "string" ? { targetRef } : {}) };
+}
+/** A registered landing destination, as `repo target-add` and `repo target-create` print it. */
+function targetRows(r: { repositoryId: string; targetRef: string; knownHeadSha: string | null; mode: string; created: boolean; alreadyRegistered: boolean; sourceRef: string | null; sourceSha: string | null }) {
+  return kv([["Repository", r.repositoryId], ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable"],
+    ["Registration", r.alreadyRegistered ? "already registered (nothing changed)" : r.mode === "create" ? (r.created ? `created from ${r.sourceRef} at ${r.sourceSha}` : `adopted (already at ${r.sourceSha})`) : "registered"]]);
+}
 /** The label a repository's provider path prints under; an unknown or missing provider is never shown as Artifacts. */
 const providerLabel = (provider: unknown) =>
   provider === "artifacts" ? "Artifacts" : provider === "github" ? "GitHub" : provider === "forgejo" ? "Forgejo" : `Provider ${String(provider ?? "unknown")}`;
@@ -1184,6 +1198,33 @@ const COMMANDS: Record<string, Handler> = {
       ["Declared", `${r.declaredAt} by ${r.declaredBy}`]]));
   },
 
+  // Landing destinations: the provider's branches, and a project admin's registration of one (existing or created).
+  "repo branches": async (d, args) => {
+    const { v, pos } = opts(args, {}, 2);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("repo branches requires a human credential");
+    const r = await api.j.repositories.branches(pos[0]!, pos[1]!, api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => [`Default branch: ${r.defaultBranch ?? "(none)"}`, ...r.items.map((b) =>
+      `${b.ref}  ${b.headSha ?? "(not at the provider)"}${b.registered ? "  registered" : ""}`), ...(r.truncated ? ["(more branches than listed)"] : [])].join("\n"));
+  },
+  "repo target-add": async (d, args) => {
+    const { v, pos } = opts(args, { "target-ref": { type: "string" }, "expected-head": { type: "string" } }, 2);
+    const targetRef = need(v, "target-ref");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("repo target-add requires a human credential (project:admin, with a recent sign-in)");
+    const r = await api.j.repositories.registerTargetRef(pos[0]!, pos[1]!, { mode: "existing", targetRef, ...(v["expected-head"] ? { expectedHeadSha: v["expected-head"] } : {}) },
+      api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    out(d, v.json, r, () => targetRows(r));
+  },
+  "repo target-create": async (d, args) => {
+    const { v, pos } = opts(args, { "target-ref": { type: "string" }, "from-ref": { type: "string" }, at: { type: "string" } }, 2);
+    const targetRef = need(v, "target-ref"), sourceRef = need(v, "from-ref"), sourceSha = need(v, "at");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("repo target-create requires a human credential (project:admin, with a recent sign-in)");
+    const r = await api.j.repositories.registerTargetRef(pos[0]!, pos[1]!, { mode: "create", targetRef, sourceRef, sourceSha }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    out(d, v.json, r, () => targetRows(r));
+  },
+
   "repo clone": async (d, args) => {
     try {
     const { v, pos } = opts(args, {}, 3, 1);
@@ -1319,20 +1360,23 @@ const COMMANDS: Record<string, Handler> = {
   },
 
   approve: async (d, args) => {
-    const { v, pos } = opts(args, { "candidate-sha": { type: "string" }, "base-sha": { type: "string" }, "intent-version": { type: "string" }, note: { type: "string" } }, 1);
+    const { v, pos } = opts(args, { "candidate-sha": { type: "string" }, "base-sha": { type: "string" }, "intent-version": { type: "string" }, repository: { type: "string" }, "target-ref": { type: "string" }, note: { type: "string" } }, 1);
     const { api, creds } = await client(d);
     // Fail before sending anything: only a human credential can approve.
     if (creds.kind !== "human") {
       throw new HumanRequiredError("approve requires a human credential; agent delegations and claim bootstraps can never approve");
     }
-    const boundTo = { candidateSha: need(v, "candidate-sha"), baseSha: need(v, "base-sha"), intentVersion: intFlag(v, "intent-version") ?? (() => { throw new UsageError("--intent-version is required"); })() };
+    // --repository and --target-ref assert the reviewed landing destination; the server refuses any other one.
+    const boundTo = { candidateSha: need(v, "candidate-sha"), baseSha: need(v, "base-sha"), intentVersion: intFlag(v, "intent-version") ?? (() => { throw new UsageError("--intent-version is required"); })(),
+      ...destinationFlags(v) };
     const r = await api.j.approvals.approve(pos[0]!, boundTo, { ...api.write(COMMAND_SECONDS, v["idempotency-key"]), ...(v.note ? { note: v.note } : {}) });
     out(d, v.json, r, () => kv([["Task", r.taskId], ["Approval", r.id], ["Candidate SHA", r.boundTo?.candidateSha], ["Base SHA", r.boundTo?.baseSha], ["Candidate", r.candidateId], ["Approved by", r.approvedBy], ["Status", r.status], ["Intent version", r.boundTo?.intentVersion]]));
   },
 
   land: async (d, args) => {
-    const { v, pos } = opts(args, { approval: { type: "string" }, wait: { type: "boolean" } }, 1);
+    const { v, pos } = opts(args, { approval: { type: "string" }, repository: { type: "string" }, "target-ref": { type: "string" }, wait: { type: "boolean" } }, 1);
     if (pos[0]!.startsWith("task-")) throw new CandidateIdRequiredError(pos[0]!);
+    const destination = destinationFlags(v);
     const { api } = await client(d);
     // --wait: one end-to-end deadline bounds the landing request, its body read and the receipt wait.
     const deadline = v.wait ? Date.now() + RECEIPT_WAIT_SECONDS * 1000 : undefined;
@@ -1340,7 +1384,7 @@ const COMMANDS: Record<string, Handler> = {
     // (`stored-result`, including a committed `409 stale-base`), never re-landed; the receipt read follows.
     const options = deadline !== undefined ? { ...api.until(deadline), ...(v["idempotency-key"] ? { idempotencyKey: v["idempotency-key"] } : {}) }
       : api.write(COMMAND_SECONDS, v["idempotency-key"]);
-    const accepted = await api.j.command("candidateLand", { path: { id: pos[0]! }, body: { approvalId: need(v, "approval") } }, options);
+    const accepted = await api.j.command("candidateLand", { path: { id: pos[0]! }, body: { approvalId: need(v, "approval"), ...destination } }, options);
     await printReceipt(d, api, accepted.body.receiptId, deadline, v.json, accepted.body, v.verbose);
   },
 
