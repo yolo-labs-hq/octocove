@@ -225,8 +225,7 @@ export function parseAuthorizationResponse(body: string | URLSearchParams, optio
   if (error !== undefined) {
     // The server's text is surfaced only after the credential rules (prefixed tokens, Basic and bearer values, secret assignments).
     const description = one('error_description');
-    const secrets = [options.expectedState];
-    throw new OAuthAuthorizationError(error ? redactText(error, secrets) : 'invalid_response', description ? redactText(description, secrets) : undefined, 'authorization-server');
+    throw new OAuthAuthorizationError(error ? redactText(error) : 'invalid_response', description ? redactText(description) : undefined, 'authorization-server');
   }
   const code = one('code');
   if (!code) throw new OAuthAuthorizationError('invalid_response', 'the response carries neither a code nor an error', 'client');
