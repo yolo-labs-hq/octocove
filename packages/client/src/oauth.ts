@@ -222,7 +222,12 @@ export function parseAuthorizationResponse(body: string | URLSearchParams, optio
     throw new OAuthAuthorizationError('issuer_mismatch', 'the response does not come from the expected issuer', 'client');
   }
   const error = one('error');
-  if (error !== undefined) throw new OAuthAuthorizationError(error || 'invalid_response', one('error_description') || undefined, 'authorization-server');
+  if (error !== undefined) {
+    // The server's text is surfaced only after the credential rules (prefixed tokens, Basic and bearer values, secret assignments).
+    const description = one('error_description');
+    const secrets = [options.expectedState];
+    throw new OAuthAuthorizationError(error ? redactText(error, secrets) : 'invalid_response', description ? redactText(description, secrets) : undefined, 'authorization-server');
+  }
   const code = one('code');
   if (!code) throw new OAuthAuthorizationError('invalid_response', 'the response carries neither a code nor an error', 'client');
   return Object.freeze({ code, iss });
@@ -244,17 +249,24 @@ export interface ClientAuthentication {
 }
 
 const AUTH_HEADER = 'authorization';
+/**
+ * Secrets an authentication holds beyond what its request carries (the plaintext and form-encoded client secret),
+ * kept off the public object and used only to scrub request errors.
+ */
+const HELD_SECRETS = new WeakMap<ClientAuthentication, readonly string[]>();
 const formEncode = (value: string) => new URLSearchParams({ v: value }).toString().slice(2);
 
 /** `client_secret_basic`: HTTP Basic with the form-urlencoded client id and secret (RFC 6749 §2.3.1). */
 export function clientSecretBasic(clientId: string, secret: string): ClientAuthentication {
   if (!clientId || !secret) throw new TypeError('clientSecretBasic needs a client id and a secret');
   const header = `Basic ${btoa(`${formEncode(clientId)}:${formEncode(secret)}`)}`;
-  return Object.freeze({
+  const auth: ClientAuthentication = Object.freeze({
     clientId,
     method: 'client_secret_basic' as const,
     credentials: async () => ({ headers: { [AUTH_HEADER]: header }, form: {} }),
   });
+  HELD_SECRETS.set(auth, [secret, formEncode(secret), encodeURIComponent(secret)]);
+  return auth;
 }
 
 export type AssertionAlgorithm = 'RS256' | 'PS256' | 'ES256' | 'EdDSA';
@@ -400,7 +412,14 @@ async function post(options: EndpointOptions, path: string, fields: Record<strin
   const url = endpoint(options.apiOrigin, path);
   const auth = await options.auth.credentials();
   const form = new URLSearchParams({ ...fields, ...auth.form });
-  const known = [...secrets, ...Object.values(auth.form), ...Object.values(auth.headers), ...Object.values(auth.headers).map((h) => h.replace(/^\S+\s+/, ''))];
+  const known = [
+    ...secrets,
+    ...(HELD_SECRETS.get(options.auth) ?? []),
+    // The assertion (private_key_jwt) or the Basic header and its payload (client_secret_basic).
+    ...Object.values(auth.form).filter((value) => value !== CLIENT_ASSERTION_TYPE),
+    ...Object.values(auth.headers),
+    ...Object.values(auth.headers).map((h) => h.replace(/^\S+\s+/, '')),
+  ];
   const fetchImpl: FetchLike = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   let response: Response;
   try {
@@ -533,33 +552,45 @@ export function storedGrant(tokens: OAuthTokens): StoredGrant {
  * Keeps one grant's tokens current through the caller's store. Refreshes are single-flight within this session
  * object; when several processes or isolates share a grant, the store must serialize them too (one refresher per
  * grant, for example a lock or a single owner), since a refresh token presented twice closes the grant. An
- * `invalid_grant` on refresh clears the store and is rethrown: the human authorizes again.
+ * `invalid_grant` on refresh clears the store and is rethrown: the human authorizes again. When `save` rejects
+ * after a successful refresh, its error is rethrown and the session keeps the new pair in memory: every later call
+ * retries `save` with it and never presents the consumed refresh token again (a process that ends before `save`
+ * succeeds loses the grant; authorize again).
  */
 export function createGrantSession(options: GrantSessionOptions): GrantSession {
   const now = options.now ?? Date.now;
   const early = (options.refreshBeforeSeconds ?? 60) * 1000;
   let inflight: Promise<StoredGrant | undefined> | undefined;
+  // A rotated pair the store has not accepted yet. The stored refresh token is already consumed, so while this is
+  // set the session never refreshes: it only retries persisting the successor.
+  let unsaved: StoredGrant | undefined;
 
   const fresh = (grant: StoredGrant) => grant.expiresAt - early > now();
+  const persist = async (grant: StoredGrant): Promise<StoredGrant> => {
+    try { await options.save(grant); } catch (error) { unsaved = grant; throw error; }
+    unsaved = undefined;
+    return grant;
+  };
   const rotate = async (onlyWhenExpiring: boolean): Promise<StoredGrant | undefined> => {
+    if (unsaved) return persist(unsaved);
     const current = await options.load();
     // Another refresh may have stored a successor since this caller read the grant.
     if (!current || (onlyWhenExpiring && fresh(current))) return current;
+    let tokens: OAuthTokens;
     try {
-      const tokens = await refreshGrant({ apiOrigin: options.apiOrigin, auth: options.auth, refreshToken: current.refreshToken, fetch: options.fetch, now });
-      const next = storedGrant(tokens);
-      await options.save(next);
-      return next;
+      tokens = await refreshGrant({ apiOrigin: options.apiOrigin, auth: options.auth, refreshToken: current.refreshToken, fetch: options.fetch, now });
     } catch (error) {
       if (error instanceof OAuthTokenError && error.error === 'invalid_grant') await options.clear();
       throw error;
     }
+    return persist(storedGrant(tokens));
   };
   const start = (onlyWhenExpiring: boolean) => (inflight ??= rotate(onlyWhenExpiring).finally(() => { inflight = undefined; }));
 
   return Object.freeze({
     async accessToken() {
       if (inflight) return (await inflight)?.accessToken;
+      if (unsaved) return (await start(true))?.accessToken;
       const current = await options.load();
       if (!current) return undefined;
       if (fresh(current)) return current.accessToken;
@@ -568,9 +599,10 @@ export function createGrantSession(options: GrantSessionOptions): GrantSession {
     refresh: () => start(false),
     async revoke() {
       if (inflight) await inflight.catch(() => undefined);
-      const current = await options.load();
+      const current = unsaved ?? await options.load();
       if (!current) return;
       await revokeGrant({ apiOrigin: options.apiOrigin, auth: options.auth, token: current.refreshToken, tokenTypeHint: 'refresh_token', fetch: options.fetch });
+      unsaved = undefined;
       await options.clear();
     },
   });

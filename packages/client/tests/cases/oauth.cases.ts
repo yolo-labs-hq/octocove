@@ -286,6 +286,54 @@ export const oauthCases: Case[] = [
     equal((stored as StoredGrant | undefined)?.refreshToken, REFRESH);
   }),
 
+  test('a refresh whose save fails keeps the successor and retries the save, never the consumed refresh token', async () => {
+    let stored: StoredGrant | undefined = { accessToken: ACCESS, refreshToken: REFRESH, expiresAt: 0, scopes: [] };
+    const current = (): StoredGrant | undefined => stored;
+    let saves = 0;
+    const { fetch, calls } = scriptedFetch(json(200, tokenBody(ACCESS_2, REFRESH_2)), new Response(null, { status: 200 }));
+    const session = createGrantSession({
+      apiOrigin: API, auth: clientSecretBasic(CLIENT_ID, SECRET), fetch, load: () => stored,
+      save: (grant) => { saves++; if (saves <= 2) throw new Error('store unavailable'); stored = grant; },
+      clear: () => { stored = undefined; },
+    });
+    await rejects(() => session.accessToken(), Error);
+    await rejects(() => session.refresh(), Error, 'a forced refresh retries the save only');
+    equal([calls.length, saves, current()?.refreshToken], [1, 2, REFRESH]);
+    equal(await session.accessToken(), ACCESS_2);
+    equal([calls.length, saves, current()?.refreshToken], [1, 3, REFRESH_2]);
+    await session.revoke();
+    equal([form(calls[1]!).get('token'), current()], [REFRESH_2, undefined]);
+  }),
+  test('an authorization error is redacted before it reaches the exception', () => {
+    try {
+      parseAuthorizationResponse(new URLSearchParams({ error: `denied ${REFRESH}`, error_description: `bad ${ACCESS} for ${CODE}`, state: 's', iss: API }), { expectedState: 's' });
+      throw new Error('accepted');
+    } catch (error) {
+      ok(error instanceof OAuthAuthorizationError, String(error));
+      const surfaced = JSON.stringify([error.error, error.description, error.message]);
+      for (const value of [ACCESS, REFRESH, CODE]) ok(!surfaced.includes(value), surfaced);
+      equal(error.error, 'denied ocf_[redacted]');
+    }
+  }),
+  test('the plaintext and form-encoded client secret and the assertion are scrubbed from request errors', async () => {
+    const encoded = new URLSearchParams({ v: SECRET }).toString().slice(2);
+    const { fetch } = scriptedFetch(
+      json(401, { error: 'invalid_client', error_description: `wrong secret ${SECRET} (sent as ${encoded})` }),
+      new Error(`connection reset after ${SECRET}`),
+    );
+    const auth = clientSecretBasic(CLIENT_ID, SECRET);
+    const refused = await rejects(() => refreshGrant({ apiOrigin: API, auth, refreshToken: REFRESH, fetch }), OAuthTokenError);
+    for (const value of [SECRET, encoded]) ok(!refused.message.includes(value) && !refused.description!.includes(value), refused.message);
+    const failed = await rejects(() => refreshGrant({ apiOrigin: API, auth, refreshToken: REFRESH, fetch }), TransportError);
+    ok(!failed.message.includes(SECRET), failed.message);
+    ok(!('secrets' in auth) && Object.keys(auth).every((key) => !String((auth as unknown as Record<string, unknown>)[key]).includes(SECRET)), 'the secret is not on the object');
+
+    const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']) as CryptoKeyPair;
+    const jwt = scriptedFetch((request) => json(400, { error: 'invalid_client', error_description: `rejected ${form(request).get('client_assertion')}` }));
+    const echoed = await rejects(() => refreshGrant({ apiOrigin: API, auth: privateKeyJwt({ clientId: CLIENT_ID, key: pair.privateKey, alg: 'ES256', audience: API }), refreshToken: REFRESH, fetch: jwt.fetch }), OAuthTokenError);
+    ok(!echoed.description!.includes(form(jwt.calls[0]!).get('client_assertion')!), echoed.description);
+  }),
+
   // ---- the API with a client token ----
   test('an oca_ token rides the bearer transport; scope, step-up and revoked-connection problems are typed', async () => {
     const { fetch, calls } = scriptedFetch(
