@@ -1,5 +1,13 @@
 # Changelog
 
+## Client 0.10.1
+
+Release `@yolo-labs/octocove-client` 0.10.1 alone (no CLI release): documentation and tests matching the final server behaviour. No API change.
+
+- `privateKeyJwt` `audience`: the issuer (the API origin) is recommended; the token and revocation endpoint URLs are accepted too, at both endpoints, matched exactly.
+- `OAuthTokens.scopes` is the grant's effective, cumulative scope set for a first-party client; store it as authoritative.
+- `revokeGrant` and `session.revoke()` disconnect the client for the human (every grant of the client, with its agent bootstraps and delegations, and the consent). A 503 `temporarily_unavailable` with `Retry-After` while the revocation completes throws `OAuthTokenError` with `retryAfter`; the session keeps its store so a retry completes it.
+
 ## Client 0.10.0
 
 Release `@yolo-labs/octocove-client` 0.10.0 alone, with no CLI release (the next CLI build inlines these sources): OAuth authorization-code helpers for a registered first-party confidential client (a backend-for-frontend) that acts for a human with Octocove's own opaque tokens.
