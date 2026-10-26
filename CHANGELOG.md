@@ -1,15 +1,15 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
-Landing destinations: a task lands on the target ref it was created against, `main` or another branch of the same repository; merging that branch into `main` stays a separate change.
+Release `@yolo-labs/octocove` 0.8.0 and `@yolo-labs/octocove-client` 0.9.0: landing destinations. A task lands on the target ref it was created against, `main` or another branch of the same repository; merging that branch into `main` stays a separate change.
 
-- Client (next minor): regenerated from the current API contract.
+- Client 0.9.0: regenerated from the current API contract.
   - New `repositoryBranchesList` (`GET /v1/orgs/{orgId}/projects/{project}/repositories/{repository}/branches`, `network-only` / `null`) and the journey `repositories.branches(projectId, repositoryId)`: the provider's branches, its default branch (a full ref, or null), their current heads and which ones are registered destinations; types `RepositoryBranchList`.
   - New `repositoryTargetRefRegister` (`POST .../repositories/{repository}/target-refs`, `network-only` / `stored-result`) and the journey `repositories.registerTargetRef(projectId, repositoryId, input)`: `{mode: 'existing', targetRef, expectedHeadSha?}` or `{mode: 'create', targetRef, sourceRef, sourceSha}` (create-only; a branch already at `sourceSha` is adopted, one elsewhere is `409 target-ref-exists` and never moved); types `TargetRefRegister`, `TargetRefRegistration`. Its 409s carry `details.retryable`.
   - `BoundTo` may carry `repositoryId` and `targetRef`; `approvals.approve` sends them when the tuple names them (the candidate's `reviewBoundTo` does), and `landings.land` takes optional `repositoryId` and `targetRef`. The server refuses any other destination `409 destination-mismatch`.
   - `eventsStream`, `liveTenant`, `meLive` and `machineReadGrantExchange` are classified `callable: false` (`excluded`): this release does not wrap them. The retry policy and the README table cover 112 operation ids.
-- CLI (next minor): new `repo branches PROJECT REPOSITORY`, `repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]` and `repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA`; `approve` and `land` take `--repository ID --target-ref REF` to assert the reviewed destination.
+- CLI 0.8.0: new `repo branches PROJECT REPOSITORY`, `repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]` and `repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA`; `approve` and `land` take `--repository ID --target-ref REF` to assert the reviewed destination.
 
 ## 0.7.0
 
