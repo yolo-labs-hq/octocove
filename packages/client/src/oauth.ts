@@ -584,7 +584,12 @@ export function createGrantSession(options: GrantSessionOptions): GrantSession {
     }
     return persist(storedGrant(tokens));
   };
-  const start = (onlyWhenExpiring: boolean) => (inflight ??= rotate(onlyWhenExpiring).finally(() => { inflight = undefined; }));
+  const start = (onlyWhenExpiring: boolean): Promise<StoredGrant | undefined> => {
+    if (inflight) return inflight;
+    const gate: Promise<StoredGrant | undefined> = rotate(onlyWhenExpiring).finally(() => { if (inflight === gate) inflight = undefined; });
+    inflight = gate;
+    return gate;
+  };
 
   return Object.freeze({
     async accessToken() {
@@ -597,12 +602,20 @@ export function createGrantSession(options: GrantSessionOptions): GrantSession {
     },
     refresh: () => start(false),
     async revoke() {
-      if (inflight) await inflight.catch(() => undefined);
-      const current = unsaved ?? await options.load();
-      if (!current) return;
-      await revokeGrant({ apiOrigin: options.apiOrigin, auth: options.auth, token: current.refreshToken, tokenTypeHint: 'refresh_token', fetch: options.fetch });
-      unsaved = undefined;
-      await options.clear();
+      // Revocation takes the same gate as a refresh: it waits for one in flight, and while it runs every caller
+      // waits on it, so no refresh can start and store tokens after the grant is revoked and cleared.
+      for (let pending = inflight; pending; pending = inflight) await pending.catch(() => undefined);
+      const run = (async (): Promise<undefined> => {
+        const current = unsaved ?? await options.load();
+        if (!current) return undefined;
+        await revokeGrant({ apiOrigin: options.apiOrigin, auth: options.auth, token: current.refreshToken, tokenTypeHint: 'refresh_token', fetch: options.fetch });
+        unsaved = undefined;
+        await options.clear();
+        return undefined;
+      })();
+      const gate: Promise<StoredGrant | undefined> = run.finally(() => { if (inflight === gate) inflight = undefined; });
+      inflight = gate;
+      await gate;
     },
   });
 }

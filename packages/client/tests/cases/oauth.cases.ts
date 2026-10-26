@@ -304,6 +304,23 @@ export const oauthCases: Case[] = [
     await session.revoke();
     equal([form(calls[1]!).get('token'), current()], [REFRESH_2, undefined]);
   }),
+  test('a refresh asked for during revocation waits for it and never stores tokens again', async () => {
+    let stored: StoredGrant | undefined = { accessToken: ACCESS, refreshToken: REFRESH, expiresAt: 0, scopes: [] };
+    const current = (): StoredGrant | undefined => stored;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { fetch, calls } = scriptedFetch(async () => { await gate; return new Response(null, { status: 200 }); }, json(200, tokenBody(ACCESS_2, REFRESH_2)));
+    const session = createGrantSession({ apiOrigin: API, auth: clientSecretBasic(CLIENT_ID, SECRET), fetch, load: () => stored, save: (g) => { stored = g; }, clear: () => { stored = undefined; } });
+    const revoking = session.revoke();
+    await Promise.resolve();
+    const refreshing = session.refresh();
+    release();
+    await revoking;
+    equal(await refreshing, undefined);
+    equal([calls.length, current()], [1, undefined]);
+    equal(await session.refresh(), undefined, 'nothing to refresh after revocation');
+    equal(calls.length, 1);
+  }),
   test('an authorization error is redacted before it reaches the exception', () => {
     try {
       parseAuthorizationResponse(new URLSearchParams({ error: `denied ${REFRESH}`, error_description: `bad ${ACCESS} for ${CODE}`, state: 's', iss: API }), { expectedState: 's' });
