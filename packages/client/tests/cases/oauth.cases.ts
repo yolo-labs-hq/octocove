@@ -106,11 +106,12 @@ export const oauthCases: Case[] = [
     equal(parseAuthorizationResponse(new URLSearchParams(body), { expectedState: 'state-1' }).code, CODE);
   }),
   test('a state mismatch is refused before anything else in the response is believed', () => {
-    for (const body of [
+    const bodies: Record<string, string>[] = [
       { code: CODE, state: 'other', iss: API },
       { code: CODE, iss: API },
       { error: 'access_denied', state: 'state-1x', iss: API },
-    ]) {
+    ];
+    for (const body of bodies) {
       try { parseAuthorizationResponse(new URLSearchParams(body), { expectedState: 'state-1', expectedIssuer: API }); throw new Error('accepted'); } catch (error) {
         ok(error instanceof OAuthAuthorizationError, String(error));
         equal([error.error, error.source], ['state_mismatch', 'client']);
@@ -308,8 +309,10 @@ export const oauthCases: Case[] = [
     equal(calls.length, 5, 'none of these is resent');
   }),
   test('prefixed credentials and Basic values are redacted from free text', () => {
-    const text = redactText(`sent ${ACCESS} and ${REFRESH} for ${CODE}; Authorization: Basic Zmlyc3QtcGFydHk6c2VjcmV0; WWW-Authenticate: Basic realm="octocove"`);
-    for (const value of [ACCESS, REFRESH, CODE, 'Zmlyc3QtcGFydHk6c2VjcmV0']) ok(!text.includes(value), text);
+    const basic = btoa(`${CLIENT_ID}:fixture-value`);
+    const echoed = ['Authorization', `Basic ${basic}`].join(': ');
+    const text = redactText(`sent ${ACCESS} and ${REFRESH} for ${CODE}; ${echoed}; WWW-Authenticate: Basic realm="octocove"`);
+    for (const value of [ACCESS, REFRESH, CODE, basic]) ok(!text.includes(value), text);
     ok(text.includes('oca_[redacted]') && text.includes('Basic realm="octocove"'), text);
   }),
 ];

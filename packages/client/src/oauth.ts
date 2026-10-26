@@ -243,6 +243,7 @@ export interface ClientAuthentication {
   credentials(): Promise<ClientCredentials>;
 }
 
+const AUTH_HEADER = 'authorization';
 const formEncode = (value: string) => new URLSearchParams({ v: value }).toString().slice(2);
 
 /** `client_secret_basic`: HTTP Basic with the form-urlencoded client id and secret (RFC 6749 §2.3.1). */
@@ -252,7 +253,7 @@ export function clientSecretBasic(clientId: string, secret: string): ClientAuthe
   return Object.freeze({
     clientId,
     method: 'client_secret_basic' as const,
-    credentials: async () => ({ headers: { authorization: header }, form: {} }),
+    credentials: async () => ({ headers: { [AUTH_HEADER]: header }, form: {} }),
   });
 }
 
@@ -268,7 +269,7 @@ const ALGORITHMS: Record<AssertionAlgorithm, { import: RsaHashedImportParams | E
 export interface PrivateKeyJwtOptions {
   readonly clientId: string;
   /** A private signing key whose public half is in the client's registered JWKS: a CryptoKey or a private JWK. */
-  readonly key: CryptoKey | JsonWebKey;
+  readonly key: CryptoKey | (JsonWebKey & { readonly kid?: string });
   readonly alg: AssertionAlgorithm;
   /** The key's `kid` in the registered JWKS; defaults to the JWK's own `kid`. */
   readonly kid?: string;
@@ -293,7 +294,7 @@ export function privateKeyJwt(options: PrivateKeyJwtOptions): ClientAuthenticati
   if (!Number.isInteger(lifetime) || lifetime < 1 || lifetime > MAX_ASSERTION_SECONDS) {
     throw new TypeError(`lifetimeSeconds is 1 to ${MAX_ASSERTION_SECONDS}`);
   }
-  const jwk = isCryptoKey(options.key) ? undefined : options.key;
+  const jwk: (JsonWebKey & { readonly kid?: string }) | undefined = isCryptoKey(options.key) ? undefined : options.key;
   if (jwk && !jwk.d) throw new TypeError('privateKeyJwt needs a private JWK');
   const kid = options.kid ?? jwk?.kid;
   let key: Promise<CryptoKey> | undefined;
