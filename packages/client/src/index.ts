@@ -61,6 +61,7 @@ export type {
   OAuthScope,
   OAuthTokens,
   Pkce,
+  PrivateJwk,
   PrivateKeyJwtOptions,
   RefreshGrantOptions,
   RevokeGrantOptions,

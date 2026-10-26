@@ -259,17 +259,41 @@ export function clientSecretBasic(clientId: string, secret: string): ClientAuthe
 
 export type AssertionAlgorithm = 'RS256' | 'PS256' | 'ES256' | 'EdDSA';
 
-const ALGORITHMS: Record<AssertionAlgorithm, { import: RsaHashedImportParams | EcKeyImportParams | Algorithm; sign: Algorithm | RsaPssParams | EcdsaParams }> = {
+/** Web Crypto algorithm parameters, typed structurally so the module needs no DOM library types. */
+interface CryptoParams { readonly name: string; readonly [member: string]: unknown }
+
+const ALGORITHMS: Record<AssertionAlgorithm, { readonly import: CryptoParams; readonly sign: CryptoParams }> = {
   RS256: { import: { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, sign: { name: 'RSASSA-PKCS1-v1_5' } },
-  PS256: { import: { name: 'RSA-PSS', hash: 'SHA-256' }, sign: { name: 'RSA-PSS', saltLength: 32 } as RsaPssParams },
-  ES256: { import: { name: 'ECDSA', namedCurve: 'P-256' }, sign: { name: 'ECDSA', hash: 'SHA-256' } as EcdsaParams },
+  PS256: { import: { name: 'RSA-PSS', hash: 'SHA-256' }, sign: { name: 'RSA-PSS', saltLength: 32 } },
+  ES256: { import: { name: 'ECDSA', namedCurve: 'P-256' }, sign: { name: 'ECDSA', hash: 'SHA-256' } },
   EdDSA: { import: { name: 'Ed25519' }, sign: { name: 'Ed25519' } },
 };
+
+/** A private JSON Web Key (RFC 7517); `d` is required, `kid` names it in the registered JWKS. */
+export interface PrivateJwk {
+  readonly kty?: string;
+  readonly crv?: string;
+  readonly alg?: string;
+  readonly kid?: string;
+  readonly use?: string;
+  readonly key_ops?: readonly string[];
+  readonly ext?: boolean;
+  readonly x?: string;
+  readonly y?: string;
+  readonly n?: string;
+  readonly e?: string;
+  readonly d?: string;
+  readonly p?: string;
+  readonly q?: string;
+  readonly dp?: string;
+  readonly dq?: string;
+  readonly qi?: string;
+}
 
 export interface PrivateKeyJwtOptions {
   readonly clientId: string;
   /** A private signing key whose public half is in the client's registered JWKS: a CryptoKey or a private JWK. */
-  readonly key: CryptoKey | (JsonWebKey & { readonly kid?: string });
+  readonly key: CryptoKey | PrivateJwk;
   readonly alg: AssertionAlgorithm;
   /** The key's `kid` in the registered JWKS; defaults to the JWK's own `kid`. */
   readonly kid?: string;
@@ -294,13 +318,13 @@ export function privateKeyJwt(options: PrivateKeyJwtOptions): ClientAuthenticati
   if (!Number.isInteger(lifetime) || lifetime < 1 || lifetime > MAX_ASSERTION_SECONDS) {
     throw new TypeError(`lifetimeSeconds is 1 to ${MAX_ASSERTION_SECONDS}`);
   }
-  const jwk: (JsonWebKey & { readonly kid?: string }) | undefined = isCryptoKey(options.key) ? undefined : options.key;
+  const jwk: PrivateJwk | undefined = isCryptoKey(options.key) ? undefined : options.key;
   if (jwk && !jwk.d) throw new TypeError('privateKeyJwt needs a private JWK');
   const kid = options.kid ?? jwk?.kid;
   let key: Promise<CryptoKey> | undefined;
   const signingKey = () => key ??= isCryptoKey(options.key)
     ? Promise.resolve(options.key)
-    : crypto.subtle.importKey('jwk', { ...jwk!, key_ops: ['sign'] }, algorithm.import, false, ['sign']);
+    : crypto.subtle.importKey('jwk', { ...jwk!, key_ops: ['sign'] } as never, algorithm.import as never, false, ['sign']);
   const now = options.now ?? Date.now;
   return Object.freeze({
     clientId: options.clientId,
@@ -310,7 +334,7 @@ export function privateKeyJwt(options: PrivateKeyJwtOptions): ClientAuthenticati
       const header = { alg: options.alg, typ: 'JWT', ...(kid ? { kid } : {}) };
       const payload = { iss: options.clientId, sub: options.clientId, aud: options.audience, iat, exp: iat + lifetime, jti: randomValue(24) };
       const input = `${base64urlJson(header)}.${base64urlJson(payload)}`;
-      const signature = new Uint8Array(await crypto.subtle.sign(algorithm.sign, await signingKey(), encoder.encode(input)));
+      const signature = new Uint8Array(await crypto.subtle.sign(algorithm.sign as never, await signingKey(), encoder.encode(input)));
       return { headers: {}, form: { client_assertion_type: CLIENT_ASSERTION_TYPE, client_assertion: `${input}.${base64url(signature)}` } };
     },
   });
