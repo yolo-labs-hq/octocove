@@ -7143,7 +7143,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
