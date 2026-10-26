@@ -21,7 +21,7 @@ npm i @yolo-labs/octocove-client
 
 | Entry | Contents |
 | --- | --- |
-| root | `createClient`, `tenantClient`, transports, `ApiError`/`TransportError` and the tenant errors, credential and proof types, `journeys`, `follow`, `eventKey`, `verifyWebhook`, `routing`, `BUILD` |
+| root | `createClient`, `tenantClient`, transports, `ApiError`/`TransportError` and the tenant errors, credential and proof types, `journeys`, `follow`, `eventKey`, `verifyWebhook`, the OAuth confidential-client helpers, `routing`, `BUILD` |
 | `/openapi` | Generated `paths`, `components`, `operations` types only |
 | `/node` | The root plus the protected credential store (`credentialStore()`, Linux and macOS) |
 
@@ -84,7 +84,8 @@ unknown, reserved or not visible to you.
 
 - `bearer({token, kind})`: sends the token as a bearer `Authorization` header with fetch `credentials: 'omit'`, so a
   browser on the API origin never adds its session cookie too. `kind` names the credential (human-only
-  journeys refuse anything but `'session'` before sending); pass a per-call `credential` (for example
+  journeys refuse anything but `'session'` and `'client'` before sending; `'client'` is an OAuth client's `oca_`
+  access token, see [OAuth for confidential clients](#oauth-for-confidential-clients)); pass a per-call `credential` (for example
   `bearerFor(bootstrap)`) to claim with a bootstrap from a client whose transport is a different bearer.
 - `browserCookie({origin?, csrfToken?})`: same-origin pages only (the API origin must equal the page
   origin). Cookie POSTs carry `Origin` and the session-bound `X-CSRF-Token`, read per request from
@@ -101,7 +102,7 @@ unknown, reserved or not visible to you.
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 112 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 119 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -135,16 +136,17 @@ the now-revoked predecessor credential is accepted for that one operation).
 - `null`: reads; nothing to replay.
 
 File shape, one entry per `operationId`: `{"callable": true, "autoRetry": …, "replay": …}`;
-and `{"callable": false, "reason": "navigation" | "excluded"}` for the five uncallable ids.
+and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallable ids.
 
 ### Retry classes by operation
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet` | `network-only` | `null` | safe reads (`ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata` | `network-only` | `null` | safe reads (`meConnectionsList` and `oauthMetadata` write nothing; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `meNotificationPreferencesPut` | `network-only` | `stored-result` | the per-principal admin-operation ledger, checked before membership, so a replay answers the committed body even after the caller left a muted project; another body under the same key is `409 idempotency-conflict` |
+| `meConnectionRevoke` | `network-only` | `state` | no ledger: a disconnect forgets the consent and closes every grant of the caller's for the client; a repeat under any key settles a pending closure and answers `204` from state (`409 operation-in-progress` with `Retry-After` while a closure is still being delivered) |
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
 | `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | lanes: ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes). On a GitHub canonical, `laneMaterialize`, `laneGenerationCreate` and `laneWrapUp` answer `429 rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After` while the provider's request budget is low, retried like any `429` under the same key (nothing was created); the lane manifest and blob reads can answer that `429` too, and `413` with `details.reason: rest-budget` when one operation would need too many provider requests (never retried); `laneChangesSubmit` answers a `LaneSavePoint` and refuses `409 lane-not-materialized` before `laneMaterialize`. `laneScopeGrant` (like `taskClaim` and `laneReopen`) answers `409 write-scope-claimed` with `details.requested` and, to a human with `tasks:read`, `details.holders` |
 | `laneExecutionBegin` | `network-only` | `bounded-recovery` | lanes: a handover ends the open execution and returns the delegation bound to the new one (`delegation`), so the answer carries a credential: a lost answer replays under the same key with the superseded token for 120 s, returning the same credential, then `409 idempotency-result-expired` (issuance is never rerun); the same key with the new credential answers the recorded execution without `delegation`. `409 operation-in-progress` (retryable) while a change, save point, wrap-up, head transition or a concurrent handover settles; every token of the superseded execution answers `409 execution-superseded` |
@@ -162,8 +164,8 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the five unca
 | `approvalTrustActivationChallenge` | `never` | `none` | mints a fresh single-use challenge each call |
 | `approvalTrustActivate` | `never` | `state` | an already-activated binding answers with its activation record, provided the binding still qualifies |
 | `approvalGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
-| `authCallback`, `authCliStart` | `callable: false` | `navigation` | browser navigation, never fetched by the library |
-| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus`, `orgRecordRestoreAbort`, `eventsStream`, `liveTenant`, `meLive`, `machineReadGrantExchange` | `callable: false` | `excluded` | the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators; the live-update streams and the machine read-grant exchange are not wrapped by this release |
+| `authCallback`, `authCliStart`, `oauthAuthorize`, `oauthConsent` | `callable: false` | `navigation` | browser navigation, never fetched by the library (build the authorization URL with `oauth.authorizationUrl`) |
+| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus`, `orgRecordRestoreAbort`, `eventsStream`, `liveTenant`, `meLive`, `machineReadGrantExchange`, `oauthToken`, `oauthRevoke` | `callable: false` | `excluded` | the OAuth token and revocation endpoints are form-encoded with RFC 6749 errors and are called by the OAuth helpers (`exchangeCode`, `refreshGrant`, `revokeGrant`), never by the JSON client; the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators; the live-update streams and the machine read-grant exchange are not wrapped by this release |
 
 ## Journeys
 
@@ -356,11 +358,16 @@ macOS host.
   `reauthUrl` login path that re-authenticates the same sign-in) and `problemDetails(error)`, all behind runtime guards.
   The tenant and project problems are `ApiError` subclasses: `TenantNotFoundError`, `ProjectNotFoundError`,
   `OrgCreationPendingError` (`organization`, `retryAfter`) and `RouteUnavailableError` ([Orgs](#orgs-tenants)).
+  So are the OAuth client problems, none of them retryable as is: `InsufficientScopeError` (`403 insufficient-scope`,
+  `requiredScope`), `StepUpRequiredError` (`403 step-up-required`, `maxAge`, `authenticatedAt`) and
+  `ConnectionRevokedError` (`401 connection-revoked`). `problemDetails(error)` also reads `requiredScope`, `maxAge`
+  and `ceiling` (the verbs an agent authorization through a client may carry, on `403 forbidden`).
 - `TransportError`: `deadline-exceeded`, `network-error`, `insecure-api-url`, `aborted`. A server
   refusal (`409 idempotency-result-expired`, `401 bootstrap-consumed`, …) is always an `ApiError`.
 
-Values under keys matching `/token|secret|verifier|deviceCode|assertion|cookie/i`, and the bearer
-itself, are redacted from everything an error carries, including a `TransportError`'s `cause` (a
+Values under keys matching `/token|secret|verifier|deviceCode|assertion|cookie/i`, the bearer
+itself, `Basic …` credentials and Octocove's prefixed opaque credentials (`ocs_`, `ocb_`, `occ_`, `oca_`, `ocf_`)
+are redacted from everything an error carries, including a `TransportError`'s `cause` (a
 sanitized copy of the fetch, body-read or abort failure, in which every string at any depth also goes
 through the free-text rules: `Bearer …` values, secret assignments and secret-named JSON keys).
 Every read made while copying a cause is guarded: a field whose getter throws is recorded as
@@ -369,6 +376,72 @@ Every read made while copying a cause is guarded: a field whose getter throws is
 chain depth: an `Error` reached through `cause` or an object property counts a level, while arrays
 and plain objects between them do not, so it is not a limit on containment in general; independently,
 any structure nested deeper than the structural depth bound is masked.
+
+## OAuth for confidential clients
+
+A registered first-party confidential client (a backend-for-frontend) can act for a human with Octocove's own opaque
+tokens, through the OAuth 2.1 authorization-code flow with S256 PKCE. The helpers use Web Crypto only (Node and
+Workers) and never touch the browser's Octocove cookies.
+
+```ts
+import {
+  authorizationUrl, bearer, createClient, createGrantSession, createPkce, createState, exchangeCode,
+  parseAuthorizationResponse, privateKeyJwt, storedGrant,
+} from '@yolo-labs/octocove-client';
+
+const API = 'https://api.example.com'; // the issuer
+const redirectUri = 'https://bff.example.com/oauth/callback'; // registered exactly
+const auth = privateKeyJwt({ clientId: 'my-bff', key: privateJwk, alg: 'ES256', audience: API });
+
+// 1. Start: keep the verifier and state server-side, bound to this browser.
+const pkce = await createPkce();
+const state = createState();
+const url = authorizationUrl({
+  webOrigin: 'https://app.example.com', clientId: 'my-bff', redirectUri,
+  scopes: ['octocove:read', 'octocove:tasks'], state, codeChallenge: pkce.challenge,
+});
+
+// 2. The answer arrives as a form POST (application/x-www-form-urlencoded) to the redirect URI.
+const { code } = parseAuthorizationResponse(await request.text(), { expectedState: state, expectedIssuer: API });
+const tokens = await exchangeCode({ apiOrigin: API, auth, code, redirectUri, codeVerifier: pkce.verifier });
+await store.save(storedGrant(tokens));
+
+// 3. Call the API as the human; the session refreshes (rotating) when the access token is about to expire.
+const session = createGrantSession({ apiOrigin: API, auth, load: store.load, save: store.save, clear: store.clear });
+const client = createClient({ baseUrl: API, transport: bearer({ token: (await session.accessToken())!, kind: 'client' }) });
+```
+
+- `createPkce()` returns `{verifier, challenge, method: 'S256'}`; `pkceChallenge(verifier)` computes a challenge;
+  `createState()` a 256-bit random state.
+- `authorizationUrl({webOrigin | authorizationEndpoint, clientId, redirectUri, scopes, state, codeChallenge, prompt?,
+  maxAge?})` always sends `response_mode=form_post` and `code_challenge_method=S256`; unknown scopes, a malformed
+  challenge or state and a non-HTTPS endpoint are refused before anything is built. `prompt: 'none'` never interacts;
+  `maxAge: 0` steps up after a `StepUpRequiredError`.
+- `parseAuthorizationResponse(body, {expectedState, expectedIssuer?})` compares the state in constant time first,
+  then `iss`, and only then reports an `error`; it throws an `OAuthAuthorizationError` (`error`, `description`,
+  `source: 'authorization-server' | 'client'`; the client's own refusals are `state_mismatch`, `issuer_mismatch` and
+  `invalid_response`).
+- Client authentication: `privateKeyJwt({clientId, key, alg, kid?, audience, lifetimeSeconds?})` (a CryptoKey or a
+  private JWK; `RS256`, `PS256`, `ES256` or `EdDSA`; `audience` is the issuer or its token endpoint) signs a fresh
+  assertion per request with a unique `jti` and an `exp` at most five minutes ahead (60 seconds by default);
+  `clientSecretBasic(clientId, secret)` sends HTTP Basic. `client_secret_post` is not supported by the server.
+- `exchangeCode({apiOrigin, auth, code, redirectUri, codeVerifier})`, `refreshGrant({apiOrigin, auth, refreshToken})`
+  and `revokeGrant({apiOrigin, auth, token, tokenTypeHint?})` POST form bodies to `/v1/oauth/token` and
+  `/v1/oauth/revoke` and are never resent. They return `OAuthTokens` (`accessToken`, `refreshToken`, `expiresIn`,
+  `expiresAt`, `scopes`) or throw an `OAuthTokenError` (`error`, `description`, `status`, `retryAfter`;
+  `invalid_grant`, `invalid_client`, ...) or a `TransportError`.
+- Refresh tokens rotate: each refresh returns a new one, and presenting a rotated one again closes the whole grant
+  (its tokens, and every agent bootstrap and delegation authorized through it). Refresh a grant at most once at a
+  time. `createGrantSession({apiOrigin, auth, load, save, clear, refreshBeforeSeconds?})` single-flights refreshes
+  within one session object, saves the rotated pair before returning it, and clears the store on `invalid_grant`;
+  when several processes share a grant, serialize refreshes in the store as well. A refresh whose answer was lost
+  (`TransportError`) cannot be recovered: keep the stored grant, and expect `invalid_grant` on the next attempt if
+  the server had rotated it.
+- Revoke the grant (`revokeGrant` or `session.revoke()`) when the human disconnects or signs out of the client. The
+  human's own list of connected apps is `meConnectionsList` (`Connection`, `ConnectionList`) and
+  `meConnectionRevoke`, with a human session only.
+- `oca_`, `ocf_` and `occ_` values (like `ocs_` and `ocb_`) and HTTP Basic credentials are redacted from every error
+  text the client produces.
 
 ## Credentials
 

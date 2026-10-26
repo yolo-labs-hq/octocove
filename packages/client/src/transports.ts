@@ -10,7 +10,12 @@ const AUTH_HEADER = 'authorization';
 /** Which credential the bearer is; human-only journeys refuse anything but a session before sending. */
 export type BearerKind = 'session' | 'bootstrap' | 'delegation' | 'approval-grant' | 'event-assertion'
   /** A signed identity assertion presented to a grant exchange (`ApprovalIdentityProof`). */
-  | 'identity-assertion';
+  | 'identity-assertion'
+  /**
+   * An OAuth client's access token (`oca_`), acting for the human who authorized it. Human journeys send it like a
+   * session; the server limits it to the grant's scopes and the human's current membership.
+   */
+  | 'client';
 
 export interface BearerTransport {
   readonly type: 'bearer';

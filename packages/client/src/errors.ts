@@ -1,6 +1,7 @@
 import type { components } from './generated/openapi.js';
 
 type BoundTo = components['schemas']['BoundTo'];
+type OAuthScope = components['schemas']['OAuthScope'];
 
 /** Client-side failures only; a server refusal is always an ApiError. */
 export type TransportErrorCode = 'deadline-exceeded' | 'network-error' | 'insecure-api-url' | 'aborted';
@@ -117,8 +118,52 @@ export class RouteUnavailableError extends ApiError {
   override readonly name = 'RouteUnavailableError';
 }
 
-/** The typed error class for a server problem: the tenant and project problems, else a plain ApiError. */
+/**
+ * `403 insufficient-scope`: an OAuth client's access token lacks the scope the operation needs. Not retryable: the
+ * client starts a new authorization that asks for `requiredScope` as well (consent is asked only for the new scope).
+ */
+export class InsufficientScopeError extends ApiError {
+  override readonly name = 'InsufficientScopeError';
+  /** `details.requiredScope`: the scope to ask for; null when no scope covers the action, undefined when absent. */
+  readonly requiredScope: OAuthScope | (string & {}) | null | undefined;
+  constructor(init: ApiErrorInit) {
+    super(init);
+    const scope = isObject(init.details) ? init.details.requiredScope : undefined;
+    this.requiredScope = scope === null || (typeof scope === 'string' && scope.length > 0) ? scope : undefined;
+  }
+}
+
+/**
+ * `403 step-up-required`: the operation needs a grant authorized within the recent sign-in window. Not retryable as
+ * is: the client sends the human through a new authorization with `maxAge` (always 0) and retries with the new grant.
+ */
+export class StepUpRequiredError extends ApiError {
+  override readonly name = 'StepUpRequiredError';
+  /** `details.maxAge`, the `max_age` to send to the authorization endpoint (0); undefined when absent. */
+  readonly maxAge: number | undefined;
+  /** `details.authenticatedAt`: when the grant's sign-in last authenticated; null when unknown. */
+  readonly authenticatedAt: string | null | undefined;
+  constructor(init: ApiErrorInit) {
+    super(init);
+    const d: Record<string, unknown> = isObject(init.details) ? init.details : {};
+    this.maxAge = Number.isInteger(d.maxAge) && (d.maxAge as number) >= 0 ? (d.maxAge as number) : undefined;
+    this.authenticatedAt = d.authenticatedAt === null || isDateTime(d.authenticatedAt) ? d.authenticatedAt : undefined;
+  }
+}
+
+/**
+ * `401 connection-revoked`: the OAuth grant behind the access token was closed (the human disconnected the client,
+ * a refresh token was reused, or the grant expired). Never retryable: drop the stored grant and authorize again.
+ */
+export class ConnectionRevokedError extends ApiError {
+  override readonly name = 'ConnectionRevokedError';
+}
+
+/** The typed error class for a server problem: the tenant, project and OAuth client problems, else a plain ApiError. */
 export function apiErrorFor(init: ApiErrorInit): ApiError {
+  if (init.status === 403 && init.code === 'insufficient-scope') return new InsufficientScopeError(init);
+  if (init.status === 403 && init.code === 'step-up-required') return new StepUpRequiredError(init);
+  if (init.status === 401 && init.code === 'connection-revoked') return new ConnectionRevokedError(init);
   if (init.status === 404 && init.code === 'tenant-not-found') return new TenantNotFoundError(init);
   if (init.status === 404 && init.code === 'project-not-found') return new ProjectNotFoundError(init);
   if (init.status === 409 && init.code === 'org-creation-pending') return new OrgCreationPendingError(init);
@@ -218,6 +263,12 @@ export interface ProblemDetailsView {
   readonly authenticatedAt?: string | null;
   /** `reauth-required`: the API path of the browser login start that re-authenticates the same sign-in. */
   readonly reauthUrl?: string;
+  /** `insufficient-scope`: the OAuth scope the operation needs; null when no scope covers it. */
+  readonly requiredScope?: OAuthScope | (string & {}) | null;
+  /** `step-up-required`: the `max_age` to send to the authorization endpoint (always 0). */
+  readonly maxAge?: number;
+  /** `forbidden` on an agent authorization through an OAuth client: the verbs such an authorization may carry. */
+  readonly ceiling?: readonly string[];
 }
 
 /** Typed view of ProblemDetails for every code but `stale-base`; fields failing their guard are omitted. */
@@ -237,6 +288,9 @@ export function problemDetails(error: ApiError): ProblemDetailsView | undefined 
   if (isObject(d.registrationRequest)) view.registrationRequest = d.registrationRequest;
   if (d.authenticatedAt === null || isDateTime(d.authenticatedAt)) view.authenticatedAt = d.authenticatedAt;
   if (isReauthUrl(d.reauthUrl)) view.reauthUrl = d.reauthUrl;
+  if (d.requiredScope === null || (typeof d.requiredScope === 'string' && d.requiredScope)) view.requiredScope = d.requiredScope;
+  if (Number.isInteger(d.maxAge) && (d.maxAge as number) >= 0) view.maxAge = d.maxAge;
+  if (isStrings(d.ceiling)) view.ceiling = d.ceiling;
   return view as ProblemDetailsView;
 }
 

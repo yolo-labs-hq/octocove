@@ -1,5 +1,15 @@
 # Changelog
 
+## Client 0.10.0
+
+Release `@yolo-labs/octocove-client` 0.10.0 alone, with no CLI release (the next CLI build inlines these sources): OAuth authorization-code helpers for a registered first-party confidential client (a backend-for-frontend) that acts for a human with Octocove's own opaque tokens.
+
+- Regenerated from the current API contract. New operations: `oauthAuthorize` and `oauthConsent` (browser navigation, `callable: false`), `oauthToken` and `oauthRevoke` (form-encoded with RFC 6749 errors, `callable: false` / `excluded`: the OAuth helpers call them), `oauthMetadata` (`GET /.well-known/oauth-authorization-server`, `network-only` / `null`), `meConnectionsList` (`GET /v1/me/connections`, `network-only` / `null`) and `meConnectionRevoke` (`POST /v1/me/connections/{clientId}/revoke`, `network-only` / `state`). `MeCredential` has the kind `client` with `clientId` and `scopes`; ProblemDetails declares `requiredScope`, `maxAge` and `ceiling`; new schemas `OAuthScope`, `OAuthTokenRequest`, `OAuthTokenResponse`, `OAuthError`, `Connection` and `ConnectionList`. The retry policy and the README table cover 119 operation ids.
+- New OAuth helpers (Web Crypto only, Node and Workers): `createPkce()`, `pkceChallenge(verifier)`, `createState()`; `authorizationUrl({...})`, always `response_mode=form_post` and S256; `parseAuthorizationResponse(body, {expectedState, expectedIssuer?})`, which checks the state in constant time, then the issuer, and throws `OAuthAuthorizationError`; client authentication `privateKeyJwt({clientId, key, alg, kid?, audience})` (a fresh assertion with a unique `jti` per request) and `clientSecretBasic(clientId, secret)`; `exchangeCode`, `refreshGrant` and `revokeGrant`, never resent, returning `OAuthTokens` or throwing `OAuthTokenError`; and `createGrantSession({...store hooks})`, which single-flights rotating refreshes and clears the store on `invalid_grant`. Types `OAuthScope`, `OAuthTokens`, `StoredGrant`, `ClientAuthentication`, `Connection`, `ConnectionList` and the option types; constants `OAUTH_SCOPES`, `CLIENT_ASSERTION_TYPE`, `MAX_ASSERTION_SECONDS`.
+- `bearer({token, kind: 'client'})` names an OAuth client's `oca_` access token. Human journeys accept it like a session; the server limits it to the grant's scopes and the human's membership.
+- Typed OAuth client problems, as `ApiError` subclasses: `InsufficientScopeError` (`403 insufficient-scope`, `requiredScope`), `StepUpRequiredError` (`403 step-up-required`, `maxAge`, `authenticatedAt`) and `ConnectionRevokedError` (`401 connection-revoked`). `problemDetails` reads `requiredScope`, `maxAge` and `ceiling`.
+- Redaction also scrubs `Basic …` credentials and Octocove's prefixed opaque credentials (`ocs_`, `ocb_`, `occ_`, `oca_`, `ocf_`) from error text.
+
 ## 0.8.0
 
 Release `@yolo-labs/octocove` 0.8.0 and `@yolo-labs/octocove-client` 0.9.0: landing destinations. A task lands on the target ref it was created against, `main` or another branch of the same repository; merging that branch into `main` stays a separate change.
