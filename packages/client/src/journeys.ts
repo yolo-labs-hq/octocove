@@ -178,11 +178,11 @@ export const CANDIDATE_POLL_MS = { first: 1000, max: 5000 } as const;
 export const RECEIPT_POLL_MS = 2000;
 export const PROVISIONING_POLL_MS = 2000;
 
-/** Fails before sending when the client's credential is known not to be a human session. */
+/** Fails before sending when the client's credential is known to act for no human (an OAuth client token acts for one). */
 function requireHuman(client: JourneyClient, what: string): void {
   const t = client.transport;
   const kind = t.type === 'bearer' ? t.kind : t.type === 'forwardedSession' && t.authorizationHeader ? (t.bearerKind ?? 'session') : t.type === 'unauthenticated' ? 'none' : 'session';
-  if (kind !== 'session') throw new TypeError(`${what} requires a human session (this client presents ${kind})`);
+  if (kind !== 'session' && kind !== 'client') throw new TypeError(`${what} requires a human session (this client presents ${kind})`);
 }
 
 function delegationOf(response: { status: number; requestId?: string; operationId: string }, value: unknown): AgentDelegation {

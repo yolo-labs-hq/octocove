@@ -23,9 +23,16 @@ const MAX_DEPTH = 32;
 const PENDING = '\uE000';
 const settle = (text: string) => text.replaceAll(PENDING, REDACTED);
 
-/** Known secrets (longest first, so a secret containing another is replaced whole) and bearer values. */
+/**
+ * Known secrets (longest first, so a secret containing another is replaced whole), bearer and Basic credential
+ * values, and Octocove's prefixed opaque credentials (`ocs_` sessions, `ocb_` bootstraps, `occ_` authorization
+ * codes, `oca_` access tokens, `ocf_` refresh tokens), wherever they appear.
+ */
 function scrubValue(text: string, secrets: readonly string[]): string {
-  return secrets.reduce((out, secret) => out.split(secret).join(PENDING), text).replace(BEARER, `$1${PENDING}`);
+  return secrets.reduce((out, secret) => out.split(secret).join(PENDING), text)
+    .replace(BEARER, `$1${PENDING}`)
+    .replace(BASIC, `$1${PENDING}`)
+    .replace(PREFIXED_CREDENTIAL, `$1${PENDING}`);
 }
 
 const usable = (secrets: readonly string[]) =>
@@ -71,6 +78,10 @@ const SECRET_NAME = `(?<![\\w-])[\\w-]*?(?:(?<![A-Za-z0-9])(?:${LOWER_WORD})s?(?
 // other value opened with `{` or `[` cannot be bounded and is masked to the end of the string value.
 const VALUE_ASSIGNED_SECRET = new RegExp(`(${SECRET_NAME}\\s*[=:]\\s*)(?!\\{[\\w.-]*\\}(?![^\\s&;,]))(?:[{\\[][\\s\\S]*$|"(?:[^"\\\\]|\\\\[\\s\\S])*"?|[^\\s&;,"]+)`, 'g');
 const BEARER = /\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi;
+// HTTP Basic credentials (base64 of `id:secret`); a short word such as `realm` in a challenge is not one.
+const BASIC = /\b(Basic\s+)[A-Za-z0-9+/]{8,}={0,2}(?![\w"=+/])/gi;
+// Octocove's opaque credentials carry a type prefix; the value after it is the secret.
+const PREFIXED_CREDENTIAL = /(?<![A-Za-z0-9])(oc[sbcaf]_)[A-Za-z0-9_-]{8,}/g;
 // The end of a JSON-style key: a closing quote followed by a colon.
 const KEY_END = /"\s*:/g;
 

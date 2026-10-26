@@ -830,7 +830,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -1384,7 +1385,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -1535,7 +1537,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -1620,7 +1623,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -1704,7 +1708,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -1873,7 +1878,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -1938,7 +1944,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2009,7 +2016,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2080,7 +2088,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2154,7 +2163,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2225,7 +2235,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2430,7 +2441,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2669,7 +2681,8 @@ export const routing = {
       "AgentDelegation",
       "EventIdentityProof",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2743,7 +2756,8 @@ export const routing = {
       "AgentDelegation",
       "EventIdentityProof",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": false,
@@ -2813,7 +2827,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -2902,7 +2917,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -3263,7 +3279,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -3341,7 +3358,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -3496,7 +3514,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -3659,7 +3678,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -3795,7 +3815,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -3939,7 +3960,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": false,
@@ -4004,6 +4026,113 @@ export const routing = {
     "policy": {
       "callable": false,
       "reason": "excluded"
+    }
+  },
+  "meConnectionRevoke": {
+    "operationId": "meConnectionRevoke",
+    "kind": "path",
+    "method": "POST",
+    "path": "/me/connections/{clientId}/revoke",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "clientId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": null,
+    "responses": {
+      "204": [],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      204
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "state"
+    }
+  },
+  "meConnectionsList": {
+    "operationId": "meConnectionsList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/me/connections",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
     }
   },
   "meDelegationsList": {
@@ -4098,7 +4227,8 @@ export const routing = {
       "AgentDelegation",
       "ApprovalGrant",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -4141,7 +4271,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": false,
@@ -4579,7 +4710,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -4903,6 +5035,253 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
+    }
+  },
+  "oauthAuthorize": {
+    "operationId": "oauthAuthorize",
+    "kind": "path",
+    "method": "GET",
+    "path": "/oauth/authorize",
+    "basePath": "",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "client_id",
+          "required": true
+        },
+        {
+          "name": "code_challenge",
+          "required": true
+        },
+        {
+          "name": "code_challenge_method",
+          "required": true
+        },
+        {
+          "name": "max_age",
+          "required": false
+        },
+        {
+          "name": "prompt",
+          "required": false
+        },
+        {
+          "name": "redirect_uri",
+          "required": true
+        },
+        {
+          "name": "response_mode",
+          "required": true
+        },
+        {
+          "name": "response_type",
+          "required": true
+        },
+        {
+          "name": "scope",
+          "required": true
+        },
+        {
+          "name": "state",
+          "required": true
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "text/html"
+      ],
+      "302": [],
+      "400": [
+        "text/html"
+      ],
+      "503": [
+        "text/html"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [
+      302
+    ],
+    "security": [],
+    "policy": {
+      "callable": false,
+      "reason": "navigation"
+    }
+  },
+  "oauthConsent": {
+    "operationId": "oauthConsent",
+    "kind": "path",
+    "method": "POST",
+    "path": "/oauth/consent",
+    "basePath": "",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/x-www-form-urlencoded"
+      ]
+    },
+    "responses": {
+      "200": [
+        "text/html"
+      ],
+      "400": [
+        "text/html"
+      ],
+      "403": [
+        "text/html"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [],
+    "policy": {
+      "callable": false,
+      "reason": "navigation"
+    }
+  },
+  "oauthMetadata": {
+    "operationId": "oauthMetadata",
+    "kind": "path",
+    "method": "GET",
+    "path": "/.well-known/oauth-authorization-server",
+    "basePath": "",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "404": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "oauthRevoke": {
+    "operationId": "oauthRevoke",
+    "kind": "path",
+    "method": "POST",
+    "path": "/oauth/revoke",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/x-www-form-urlencoded"
+      ]
+    },
+    "responses": {
+      "200": [],
+      "400": [
+        "application/json"
+      ],
+      "401": [
+        "application/json"
+      ],
+      "503": [
+        "application/json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "OAuthClientAssertion",
+      "OAuthClientBasic"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
+  "oauthToken": {
+    "operationId": "oauthToken",
+    "kind": "path",
+    "method": "POST",
+    "path": "/oauth/token",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/x-www-form-urlencoded"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/json"
+      ],
+      "401": [
+        "application/json"
+      ],
+      "503": [
+        "application/json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "OAuthClientAssertion",
+      "OAuthClientBasic"
+    ],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
     }
   },
   "orgRecordExportChunk": {
@@ -5841,7 +6220,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -5901,7 +6281,8 @@ export const routing = {
       "AgentDelegation",
       "HumanCliSession",
       "HumanSession",
-      "MachineReadGrant"
+      "MachineReadGrant",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -5963,7 +6344,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6200,7 +6582,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6505,7 +6888,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6589,7 +6973,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6673,7 +7058,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6757,7 +7143,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6823,7 +7210,8 @@ export const routing = {
       "AgentDelegation",
       "HumanCliSession",
       "HumanSession",
-      "MachineReadGrant"
+      "MachineReadGrant",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6900,7 +7288,8 @@ export const routing = {
     "security": [
       "AgentDelegation",
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -6984,7 +7373,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -7068,7 +7458,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -7236,7 +7627,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -7320,7 +7712,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -7399,7 +7792,8 @@ export const routing = {
       "AgentDelegation",
       "HumanCliSession",
       "HumanSession",
-      "MachineReadGrant"
+      "MachineReadGrant",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,
@@ -7453,7 +7847,8 @@ export const routing = {
     "redirectStatuses": [],
     "security": [
       "HumanCliSession",
-      "HumanSession"
+      "HumanSession",
+      "OAuthClientToken"
     ],
     "policy": {
       "callable": true,

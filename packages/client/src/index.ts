@@ -1,6 +1,6 @@
 export { createClient, newIdempotencyKey, buildUrl, retryClassFor, tenantClient, isTenantId, isTenantScoped, MAX_RESENDS, TENANT_ID } from './client.js';
 export type { ApiResponse, CallableOperationId, OpenEnums, CallInput, CallOptions, ClientOptions, FetchLike, OctocoveClient, SuccessBody, TenantCallInput, TenantClient, TenantScopedOperationId } from './client.js';
-export { ApiError, TransportError, TenantNotFoundError, ProjectNotFoundError, OrgCreationPendingError, RouteUnavailableError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
+export { ApiError, TransportError, TenantNotFoundError, ProjectNotFoundError, OrgCreationPendingError, RouteUnavailableError, InsufficientScopeError, StepUpRequiredError, ConnectionRevokedError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
 export type { ApiErrorInit, PendingOrganization, ProblemDetailsView, ReauthRequiredView, StaleFenceView, TransportErrorCode } from './errors.js';
 export { bearer, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
 export type { BearerKind, BearerTransport, BrowserCookieTransport, ForwardedSessionTransport, Transport, UnauthenticatedTransport } from './transports.js';
@@ -27,6 +27,46 @@ export type {
   HumanSession,
 } from './credentials.js';
 export { redact, redactText, SECRET_KEY } from './redact.js';
+export {
+  authorizationUrl,
+  clientSecretBasic,
+  createGrantSession,
+  createPkce,
+  createState,
+  exchangeCode,
+  parseAuthorizationResponse,
+  pkceChallenge,
+  privateKeyJwt,
+  refreshGrant,
+  revokeGrant,
+  storedGrant,
+  OAuthAuthorizationError,
+  OAuthTokenError,
+  CLIENT_ASSERTION_TYPE,
+  MAX_ASSERTION_SECONDS,
+  OAUTH_SCOPES,
+} from './oauth.js';
+export type {
+  AssertionAlgorithm,
+  AuthorizationCode,
+  AuthorizationResponseOptions,
+  AuthorizationUrlOptions,
+  ClientAuthentication,
+  ClientCredentials,
+  Connection,
+  ConnectionList,
+  ExchangeCodeOptions,
+  GrantSession,
+  GrantSessionOptions,
+  OAuthScope,
+  OAuthTokens,
+  Pkce,
+  PrivateJwk,
+  PrivateKeyJwtOptions,
+  RefreshGrantOptions,
+  RevokeGrantOptions,
+  StoredGrant,
+} from './oauth.js';
 export { journeys, tenantJourneys, staleBaseRefusal, CANDIDATE_POLL_MS, ORG_PENDING_POLL_MS, ORG_READY_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS } from './journeys.js';
 export type {
   Approval,

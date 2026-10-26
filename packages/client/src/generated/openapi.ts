@@ -1588,6 +1588,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/oauth/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start an OAuth authorization for a registered client
+         * @description OAuth 2.1 authorization code with S256 PKCE for a client registered in the deployment's `OAUTH_CLIENTS` (no dynamic registration; with none registered every request is refused). The browser arrives by top-level navigation. An unknown `client_id` or a `redirect_uri` that is not exactly one of the client's registered URIs is answered with an Octocove error page (400), never a redirect. Otherwise Octocove sets its host-only login binding cookie and redirects (302) to its own identity provider, silently first (`prompt=none`): with a provider session there is no sign-in screen. When the provider cannot complete silently (`login_required`, `interaction_required`,...) the request restarts interactively, unless the client sent `prompt=none`. After the callback, a first-party client whose remembered consent covers the requested scopes gets its code at once; otherwise Octocove shows its consent page once ("Connect <client> to Octocove"; asked again only when the scopes grow). The answer always returns to the client by `response_mode=form_post`: a self-posting HTML form to `redirect_uri` carrying `code`, `state` and `iss` (RFC 9207), or `error` (`invalid_request`, `invalid_scope`, `unsupported_response_type`, `login_required`, `consent_required`, `interaction_required`, `access_denied`, `step_up_unavailable`, `temporarily_unavailable`, `server_error`), `error_description` and `state`. A code or an error never appears in a URL. `max_age` (and `prompt=login`, sent upstream as `max_age=0`) asks the provider to re-authenticate and requires its ID token's `auth_time` to be within it; a provider that does not state a fresh `auth_time` fails the authorization closed with `step_up_unavailable`. The grant records that `auth_time` for the admin tier's recent sign-in check. Pages are `no-store`, unframeable and send no referrer.
+         */
+        get: operations["oauthAuthorize"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record the human's consent decision for a client
+         * @description The consent page's form POST: same-origin (`Origin` must equal the page's origin), with the login binding cookie of the browser that started the authorization and the page's one-use token. `allow` records the consent (a first-party client's consent accumulates and is remembered per human, client and scopes) and answers with the self-posting form carrying the code; `deny` answers it with `error=access_denied`. A replayed, expired or foreign decision is an Octocove page (400); a cross-origin one 403. No Idempotency-Key: the token is one use.
+         */
+        post: operations["oauthConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Exchange an authorization code, or rotate a refresh token
+         * @description RFC 6749 §4.1.3 and §6. Client authentication is required: `private_key_jwt` (RFC 7523, recommended: `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer` and a `client_assertion` JWT with `iss` and `sub` the client id, `aud` the issuer or this endpoint, `exp` at most five minutes ahead and a `jti` never used before, signed by a key of the registered JWKS) or `client_secret_basic`. `client_secret_post` and public clients are refused. `authorization_code` needs `code`, the same `redirect_uri` and the `code_verifier`; a code is 60 seconds and one use, and a code presented twice revokes the grant its first exchange created. `refresh_token` rotates: the presented refresh token and the access token issued beside it stop working and a new pair is issued; presenting a rotated refresh token again is reuse and closes the whole grant (its tokens, and every bootstrap and delegation authorized through it). Clients must refresh a grant at most once at a time. A refresh keeps the grant's scope (`scope`, when sent, must equal it). Access tokens (`oca_`) live 15 minutes; a grant lives 30 days from its last refresh and at most 90 days. Errors are RFC 6749 §5.2 JSON: `invalid_request`, `invalid_client` (401, `WWW-Authenticate: Basic` for Basic), `invalid_grant`, `invalid_scope`, `unsupported_grant_type`, `temporarily_unavailable` (503). No Idempotency-Key.
+         */
+        post: operations["oauthToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke a grant by one of its tokens
+         * @description RFC 7009. Client authentication as at the token endpoint. Revoking a refresh or access token of this client closes its whole grant: its tokens, and every bootstrap and delegation authorized through it, in every organization. An unknown, foreign or already revoked token answers the same 200. Call it when the human disconnects or signs out of the client. No Idempotency-Key.
+         */
+        post: operations["oauthRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/.well-known/oauth-authorization-server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Authorization server metadata
+         * @description RFC 8414: the issuer (`OCTOCOVE_ISSUER`), the endpoints, the supported response mode (`form_post`), grants, PKCE method, client authentication methods and scopes. 404 `not-found` while no client is registered.
+         */
+        get: operations["oauthMetadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's connected apps
+         * @description Human session only (cookie or CLI bearer); an OAuth client's own token is refused 403 `forbidden`, delegations 403 `human-required`. One item per client the caller consented to or holds a live grant of, newest first: the client, the consented scopes, when the consent was given and the latest grant authorized, and how many grants are live. Never a token. Read-only.
+         */
+        get: operations["meConnectionsList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/connections/{clientId}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disconnect a client
+         * @description Human session only; Origin and CSRF are checked for cookie callers like every cookie POST. Forgets the caller's consent for the client (the next authorization asks again) and closes every grant of the caller's for it: their access and refresh tokens, and every bootstrap and delegation authorized through them, in every organization. 204 once that is complete everywhere; 409 `operation-in-progress` with `Retry-After` while a barrier is still being delivered (the grants are already refused on every route; any repeat settles it). 404 `not-found` for a client the caller has no consent or grant of. Signing out of Octocove, or revoking a browser or CLI sign-in, leaves client grants as they are: each grant is its own family.
+         */
+        post: operations["meConnectionRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/sessions": {
         parameters: {
             query?: never;
@@ -3006,12 +3146,68 @@ export interface components {
             /** @description True when `POST /orgs/{orgId}/projects` or `POST /me/projects` would admit this caller past its bootstrap gate - a human whose `issuer|sub` is listed in the deployment's `PROJECT_CREATORS` allow-list. False when the list is unset, empty or does not list the caller, and always false for a delegation or machine grant (the route is human-only). It does not foresee the per-creator cap, the throttle or a taken slug. */
             createProjects: boolean;
         };
-        /** @description The kind of credential presented and when it stops authenticating; never the credential itself. `session` is the browser cookie, `bearer` a CLI session bearer (human) or a machine grant (machine), `delegation` an agent delegation. `bootstrap` is reserved and not returned today (a claim bootstrap authenticates only its claim route). */
+        /**
+         * @description An OAuth client scope; see the `OAuthClientToken` security scheme.
+         * @enum {string}
+         */
+        OAuthScope: "octocove:read" | "octocove:tasks" | "octocove:review" | "octocove:land" | "octocove:agents" | "octocove:targets";
+        OAuthTokenRequest: {
+            /** @enum {string} */
+            grant_type: "authorization_code" | "refresh_token";
+            /** @description `authorization_code`: the code from the form post. */
+            code?: string;
+            /** @description `authorization_code`: the same redirect URI. */
+            redirect_uri?: string;
+            /** @description `authorization_code`: the PKCE verifier, 43 to 128 characters. */
+            code_verifier?: string;
+            /** @description `refresh_token`: the current refresh token. */
+            refresh_token?: string;
+            /** @description `refresh_token`: optional, and then equal to the grant's scope. */
+            scope?: string;
+            /** @enum {string} */
+            client_assertion_type?: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+            client_assertion?: string;
+        };
+        OAuthTokenResponse: {
+            /** @description Opaque `oca_` access token for this API. */
+            access_token: string;
+            /** @enum {string} */
+            token_type: "Bearer";
+            /** @description Seconds; at most 900. */
+            expires_in: number;
+            /** @description Opaque rotating refresh token; use it once. */
+            refresh_token: string;
+            /** @description The grant's space-separated scopes. */
+            scope: string;
+        };
+        OAuthError: {
+            error: string;
+            error_description?: string;
+        };
+        Connection: {
+            clientId: string;
+            displayName: string;
+            firstParty: boolean;
+            scopes: components["schemas"]["OAuthScope"][];
+            /** @description When the remembered consent was last given; null without one. */
+            connectedAt: string | null;
+            /** @description The newest live grant's creation; null without one. */
+            lastAuthorizedAt: string | null;
+            activeGrants: number;
+        };
+        ConnectionList: {
+            items: components["schemas"]["Connection"][];
+        };
+        /** @description The kind of credential presented and when it stops authenticating; never the credential itself. `session` is the browser cookie, `bearer` a CLI session bearer (human) or a machine grant (machine), `delegation` an agent delegation, `client` an OAuth client's access token acting for the human. `bootstrap` is reserved and not returned today (a claim bootstrap authenticates only its claim route). */
         MeCredential: {
             /** @enum {string} */
-            kind: "session" | "bearer" | "delegation" | "bootstrap";
+            kind: "session" | "bearer" | "delegation" | "bootstrap" | "client";
             /** Format: date-time */
             expiresAt: string;
+            /** @description `client` only: the registered OAuth client the human acts through. */
+            clientId?: string;
+            /** @description `client` only: the grant's scopes. Each request intersects them with the human's membership verbs. */
+            scopes?: components["schemas"]["OAuthScope"][];
         };
         ProjectCreate: {
             /** @description Unique across the deployment. Never shaped like a UUID (8-4-4-4-12 hex digits, any case; 422 `invalid-slug`), so a slug cannot shadow a project id. */
@@ -3519,6 +3715,12 @@ export interface components {
             oldBaseSha?: components["schemas"]["Sha"];
             /** @description `refresh-conflict` - the canonical commit the refresh or wrap-up compared against (read its side with GET /orgs/{orgId}/tasks/{id}/lane/blob?base=). */
             newBaseSha?: components["schemas"]["Sha"];
+            /** @description `insufficient-scope` - the OAuth scope the route or verb needs; the client asks for it with a new authorization (consent is asked only for the new scope). Null when no scope covers the verb. */
+            requiredScope?: components["schemas"]["OAuthScope"] | null;
+            /** @description `step-up-required` - the `max_age` the client sends to `/oauth/authorize` to step up (always 0). */
+            maxAge?: number;
+            /** @description `forbidden` on an agent authorization through an OAuth client - the verbs such an authorization may carry. */
+            ceiling?: string[];
             /** @description `reauth-required` - a path on this API, `/v1/auth/login?reauth=1&return_path=...`. POST it `{mode: "browser"}` with the pre-login binding cookie, the session cookie and an allowed Origin, as for a browser login; the issuer is asked for a fresh authentication and the same sign-in is refreshed. */
             reauthUrl?: string;
         } & {
@@ -4023,6 +4225,16 @@ export interface components {
         };
     };
     responses: {
+        /** @description RFC 6749 §5.2 error of the OAuth token and revocation endpoints, not a Problem: `error` (`invalid_request`, `invalid_client`, `invalid_grant`, `invalid_scope`, `unsupported_grant_type`, `temporarily_unavailable`, `server_error`) and an optional `error_description`. `invalid_client` is 401, with `WWW-Authenticate: Basic` when Basic authentication was attempted. */
+        OAuthErrorResponse: {
+            headers: {
+                "Cache-Control": components["headers"]["NoStore"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["OAuthError"];
+            };
+        };
         /** @description Structured error, as `Problem`. Only when the optional deployment policy `AUTH_REQUIRE_RECENT_SIGN_IN` is enabled (default off), a human session on an operation marked `x-recent-sign-in` gets 403 `reauth-required` when its authentication time is unknown or older than the recent-sign-in window (default one hour). `details.authenticatedAt` is that time, or null when unknown; `details.reauthUrl` is the browser login start that re-authenticates the same sign-in. Agent delegations and machine callers are never refused this way. */
         ReauthRequiredProblem: {
             headers: {
@@ -7534,6 +7746,258 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    oauthAuthorize: {
+        parameters: {
+            query: {
+                response_type: "code";
+                /** @description Must be `form_post`. */
+                response_mode: "form_post";
+                client_id: string;
+                /** @description Exactly one of the client's registered redirect URIs. */
+                redirect_uri: string;
+                /** @description Space-separated `OAuthScope` values the client is registered for. */
+                scope: string;
+                /** @description Opaque client value, at most 512 printable characters, returned verbatim. */
+                state: string;
+                /** @description BASE64URL(SHA-256(code_verifier)), 43 characters. */
+                code_challenge: string;
+                code_challenge_method: "S256";
+                /** @description `none` (never interact: `login_required` or `consent_required` instead), `login` (re-authenticate, as `max_age=0`) or `consent` (show the consent page). */
+                prompt?: "none" | "login" | "consent";
+                /** @description Seconds; `0` steps up (a fresh provider authentication, verified by `auth_time`). */
+                max_age?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The consent page, or the self-posting form back to the client (`form_post`). */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description To Octocove's identity provider; sets the login binding cookie. */
+            302: {
+                headers: {
+                    /** @description The identity provider's authorization endpoint (Octocove's own client, state, nonce and PKCE). */
+                    Location?: string;
+                    /** @description The host-only Secure HttpOnly SameSite=Lax login binding cookie, ten minutes. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown client or unregistered redirect URI (an Octocove page; nothing is sent to the client). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Identity recovery mode or missing issuer configuration (an Octocove page). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    oauthConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    /** @description The consent page's one-use token. */
+                    consent: string;
+                    /** @enum {string} */
+                    decision: "allow" | "deny";
+                };
+            };
+        };
+        responses: {
+            /** @description The self-posting form back to the client. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Expired, replayed or foreign decision (an Octocove page). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Cross-origin decision (an Octocove page). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+        };
+    };
+    oauthToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["OAuthTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The token response. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthTokenResponse"];
+                };
+            };
+            400: components["responses"]["OAuthErrorResponse"];
+            401: components["responses"]["OAuthErrorResponse"];
+            503: components["responses"]["OAuthErrorResponse"];
+        };
+    };
+    oauthRevoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/x-www-form-urlencoded": {
+                    token: string;
+                    /** @enum {string} */
+                    token_type_hint?: "refresh_token" | "access_token";
+                    client_assertion_type?: string;
+                    client_assertion?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Revoked, or nothing to revoke; empty body. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["OAuthErrorResponse"];
+            401: components["responses"]["OAuthErrorResponse"];
+            503: components["responses"]["OAuthErrorResponse"];
+        };
+    };
+    oauthMetadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The metadata document. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            404: components["responses"]["Problem"];
+        };
+    };
+    meConnectionsList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's connected apps. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionList"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    meConnectionRevoke: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                clientId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected; empty body. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

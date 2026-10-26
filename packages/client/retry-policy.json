@@ -543,5 +543,36 @@
   "machineReadGrantExchange": {
     "callable": false,
     "reason": "excluded"
+  },
+  "oauthAuthorize": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "oauthConsent": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "oauthToken": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "oauthRevoke": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "oauthMetadata": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meConnectionsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meConnectionRevoke": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
   }
 }
