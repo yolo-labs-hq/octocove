@@ -304,6 +304,18 @@ export const oauthCases: Case[] = [
     await session.revoke();
     equal([form(calls[1]!).get('token'), current()], [REFRESH_2, undefined]);
   }),
+  test('a revocation still being delivered (503) throws with retryAfter, keeps the store, and a retry completes it', async () => {
+    let stored: StoredGrant | undefined = { accessToken: ACCESS, refreshToken: REFRESH, expiresAt: Date.now() + 600_000, scopes: [] };
+    const current = (): StoredGrant | undefined => stored;
+    const pending = new Response(JSON.stringify({ error: 'temporarily_unavailable' }), { status: 503, headers: { 'Content-Type': 'application/json', 'Retry-After': '5' } });
+    const { fetch, calls } = scriptedFetch(pending, new Response(null, { status: 200 }));
+    const session = createGrantSession({ apiOrigin: API, auth: clientSecretBasic(CLIENT_ID, SECRET), fetch, load: () => stored, save: (g) => { stored = g; }, clear: () => { stored = undefined; } });
+    const failed = await rejects(() => session.revoke(), OAuthTokenError);
+    equal([failed.error, failed.status, failed.retryAfter], ['temporarily_unavailable', 503, 5]);
+    equal(current()?.refreshToken, REFRESH, 'the store is kept');
+    await session.revoke();
+    equal([calls.length, form(calls[1]!).get('token'), current()], [2, REFRESH, undefined]);
+  }),
   test('a refresh asked for during revocation waits for it and never stores tokens again', async () => {
     let stored: StoredGrant | undefined = { accessToken: ACCESS, refreshToken: REFRESH, expiresAt: 0, scopes: [] };
     const current = (): StoredGrant | undefined => stored;

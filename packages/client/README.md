@@ -422,7 +422,7 @@ const client = createClient({ baseUrl: API, transport: bearer({ token: (await se
   `source: 'authorization-server' | 'client'`; the client's own refusals are `state_mismatch`, `issuer_mismatch` and
   `invalid_response`).
 - Client authentication: `privateKeyJwt({clientId, key, alg, kid?, audience, lifetimeSeconds?})` (a CryptoKey or a
-  private JWK; `RS256`, `PS256`, `ES256` or `EdDSA`; `audience` is the issuer or its token endpoint) signs a fresh
+  private JWK; `RS256`, `PS256`, `ES256` or `EdDSA`; `audience` is matched exactly: the issuer, i.e. the API origin (recommended), or the token or revocation endpoint URL, any of which the server accepts at both endpoints) signs a fresh
   assertion per request with a unique `jti` and an `exp` at most five minutes ahead (60 seconds by default);
   `clientSecretBasic(clientId, secret)` sends HTTP Basic. `client_secret_post` is not supported by the server.
 - `exchangeCode({apiOrigin, auth, code, redirectUri, codeVerifier})`, `refreshGrant({apiOrigin, auth, refreshToken})`
@@ -437,7 +437,14 @@ const client = createClient({ baseUrl: API, transport: bearer({ token: (await se
   when several processes share a grant, serialize refreshes in the store as well. A refresh whose answer was lost
   (`TransportError`) cannot be recovered: keep the stored grant, and expect `invalid_grant` on the next attempt if
   the server had rotated it.
-- Revoke the grant (`revokeGrant` or `session.revoke()`) when the human disconnects or signs out of the client. The
+- The token response's `scope` (`OAuthTokens.scopes`) is the grant's effective set: for a first-party client it is
+  cumulative (the scopes asked for plus every scope the human already consented to for the client), so asking only for
+  a missing scope yields a grant with all of them. Store it as authoritative; a refresh never changes it.
+- Revoke (`revokeGrant` or `session.revoke()`) when the human disconnects or signs out of the client: the server
+  disconnects the client for that human, closing every grant of the client (incremental authorizations leave
+  several) with their agent bootstraps and delegations, and forgets the consent. While it is still delivering the
+  revocation it answers 503 `temporarily_unavailable` with `Retry-After`: `revokeGrant` throws `OAuthTokenError`
+  with `retryAfter`, `session.revoke()` keeps the store, and calling it again after the delay completes it. The
   human's own list of connected apps is `meConnectionsList` (`Connection`, `ConnectionList`) and
   `meConnectionRevoke`, with a human session only.
 - `oca_`, `ocf_` and `occ_` values (like `ocs_` and `ocb_`) and HTTP Basic credentials are redacted from every error

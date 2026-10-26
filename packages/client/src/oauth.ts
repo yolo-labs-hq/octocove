@@ -308,7 +308,11 @@ export interface PrivateKeyJwtOptions {
   readonly alg: AssertionAlgorithm;
   /** The key's `kid` in the registered JWKS; defaults to the JWK's own `kid`. */
   readonly kid?: string;
-  /** The assertion's `aud`: the issuer (the API origin, e.g. `https://api.example.com`) or its token endpoint. */
+  /**
+   * The assertion's `aud`, matched exactly: the issuer, the API origin such as `https://api.example.com`
+   * (recommended), or the server's token or revocation endpoint URL. The server accepts any of the three at both
+   * endpoints, so one authentication object serves exchange, refresh and revocation.
+   */
   readonly audience: string;
   /** Assertion lifetime in seconds (default 60, at most 300). */
   readonly lifetimeSeconds?: number;
@@ -368,7 +372,8 @@ export interface OAuthTokens {
   readonly expiresIn: number;
   /** Epoch milliseconds when the access token expires, by the local clock at receipt. */
   readonly expiresAt: number;
-  /** The grant's scopes. */
+  /** The grant's effective scopes, from the response `scope`: for a first-party client this is cumulative (what this
+   * authorization asked for plus everything the human already consented to for the client). Store it as authoritative. */
   readonly scopes: readonly (OAuthScope | (string & {}))[];
 }
 
@@ -487,7 +492,8 @@ export async function exchangeCode(options: ExchangeCodeOptions): Promise<OAuthT
 }
 
 /**
- * Rotates the grant: returns a new access and refresh token, and the presented refresh token stops working. Never
+ * Rotates the grant: returns a new access and refresh token, and the presented refresh token stops working. The
+ * response `scope` (`OAuthTokens.scopes`) is the grant's cumulative effective set and never changes on refresh. Never
  * resent and never run twice at once for one grant (presenting a rotated token again closes the whole grant). After a
  * `TransportError` the outcome is unknown: keep the stored refresh token, and expect `invalid_grant` if it was used.
  */
@@ -498,7 +504,13 @@ export async function refreshGrant(options: RefreshGrantOptions): Promise<OAuthT
   return tokenRequest(options, fields, [options.refreshToken], options.now ?? Date.now);
 }
 
-/** Revokes the grant behind a refresh or access token (RFC 7009); an unknown or already revoked token succeeds too. */
+/**
+ * Disconnects the client for the human behind a refresh or access token (RFC 7009): the server closes EVERY grant of
+ * this client for that human (incremental authorizations leave several), with their tokens and every agent bootstrap
+ * and delegation authorized through them, and forgets the consent. An unknown or already revoked token succeeds too.
+ * While the server is still delivering the revocation it answers 503: this throws `OAuthTokenError`
+ * (`temporarily_unavailable`, `retryAfter` seconds); repeat with the same token after that delay.
+ */
 export async function revokeGrant(options: RevokeGrantOptions): Promise<void> {
   if (!options.token) throw new TypeError('revokeGrant needs a token');
   const fields: Record<string, string> = { token: options.token };
@@ -538,7 +550,8 @@ export interface GrantSession {
   accessToken(): Promise<string | undefined>;
   /** Rotates now (for example after a `401` on the access token); concurrent callers share one refresh. */
   refresh(): Promise<StoredGrant | undefined>;
-  /** Revokes the grant at the server and clears it locally. */
+  /** Disconnects the client at the server (`revokeGrant`), then clears the store. On a failure (a 503 while the
+   * revocation completes, or a transport error) the store is kept, so calling it again retries with the same token. */
   revoke(): Promise<void>;
 }
 
