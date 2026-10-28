@@ -434,8 +434,21 @@ export const journeyCases: Case[] = [
     const changed = scriptedFetch(problem(409, 'binding-source-changed', { details: { field: 'source' } }));
     const error = await rejects(() => journeys(client(changed.fetch)).workspaces.bind(input, { deadline: soon() }), ApiError);
     equal([error.status, error.code, changed.calls.length], [409, 'binding-source-changed', 1]);
-    const offShape = scriptedFetch(json(200, { state: 'ready', externalWorkspaceId: 'ws-1' }));
-    await rejects(() => journeys(client(offShape.fetch)).workspaces.bind(input, { deadline: soon() }), ApiError);
+    for (const body of [{ state: 'ready', externalWorkspaceId: 'ws-1' }, { state: 'action-required', externalWorkspaceId: 'ws-1' },
+      { state: 'pending', externalWorkspaceId: 'ws-1', retryAfter: 1 }]) {
+      const offShape = scriptedFetch(json(200, body));
+      await rejects(() => journeys(client(offShape.fetch)).workspaces.bind(input, { deadline: soon() }), ApiError, JSON.stringify(body));
+    }
+  }),
+  test('workspaces.bind returns the last pending view when the deadline ends a later resend, and rethrows a caller abort', async () => {
+    const input = { externalWorkspaceId: 'ws-1', source: { kind: 'github' as const, owner: 'acme', name: 'web' } };
+    const pending = { state: 'pending', externalWorkspaceId: 'ws-1', reason: 'discovery-incomplete', retryAfter: 1 };
+    const slow = scriptedFetch(withRetryAfter(json(202, pending), '0.01'), hang);
+    equal(await journeys(client(slow.fetch)).workspaces.bind(input, { deadline: Date.now() + 300 }), pending);
+    equal(slow.calls.length, 2);
+    const controller = new AbortController();
+    const aborted = scriptedFetch(withRetryAfter(json(202, pending), '0.01'), () => { controller.abort(); return hang(); });
+    await rejects(() => journeys(client(aborted.fetch)).workspaces.bind(input, { deadline: soon(), signal: controller.signal }), TransportError);
   }),
   test('workspaces.get reads one binding, and both need a human (an OAuth client acts for one)', async () => {
     const view = { state: 'action-required', externalWorkspaceId: 'ws-1', bindingId: 'wsb_1', projectId: 'p', source: { kind: 'octocove' }, action: { reason: 'access-lost' } };

@@ -35,6 +35,7 @@ import {
   type SendOptions,
   type WaitOptions,
   type WaitStop,
+  waitStop,
 } from './journey-core.js';
 import { bearer, type BearerTransport } from './transports.js';
 import { authJourneys, isPartialRead, tenantAuthJourneys, type UnavailableTenant } from './auth.js';
@@ -746,7 +747,9 @@ export function journeys(client: OctocoveClient) {
   };
 
   const isBinding = (b: unknown): b is WorkspaceBinding => isObject(b) && isString(b.state) && isString(b.externalWorkspaceId)
-    && (b.state !== 'ready' || (isString(b.bindingId) && isString(b.tenantId) && isString(b.projectId) && isString(b.repositoryId) && isString(b.targetRef)));
+    && (b.state !== 'ready' || (isString(b.bindingId) && isString(b.tenantId) && isString(b.projectId) && isString(b.repositoryId) && isString(b.targetRef)))
+    && (b.state !== 'action-required' || (isObject(b.action) && isString(b.action.reason)))
+    && (b.state !== 'pending' || isString(b.reason));
   const workspaces = {
     /**
      * OAuth client token, `octocove:workspaces` (admin tier): `workspaceBindingCreate` (`POST /v1/workspace-bindings`, a
@@ -770,15 +773,21 @@ export function journeys(client: OctocoveClient) {
       requireHuman(client, 'workspaces.bind');
       const scope = journeyScope(options);
       const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
+      let last: WorkspaceBinding | undefined;
       try {
         for (;;) {
           const response = await send(client, scope, options, 'workspaceBindingCreate', { body: input }, { idempotencyKey });
           if (!isBinding(response.body)) throw offShape(response, 'the response is not a workspace binding');
           if (response.body.state !== 'pending') return response.body;
+          last = response.body;
           const wait = pollDelay(response.retryAfter ?? response.body.retryAfter, options.pollMs, WORKSPACE_BINDING_POLL_MS);
-          if (wait >= scope.remaining()) return response.body;
+          if (wait >= scope.remaining()) return last;
           await scope.sleep(wait);
         }
+      } catch (error) {
+        // The deadline ended a later wait or resend: the last pending view is the answer (a caller's abort is not).
+        if (last && waitStop(error, scope) === 'deadline-exceeded') return last;
+        throw error;
       } finally { scope.dispose(); }
     },
     /**
