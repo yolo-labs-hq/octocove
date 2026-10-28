@@ -839,8 +839,9 @@ export function journeys(client: OctocoveClient) {
      * connecting GitHub for `target`, a binding's `action.installUrl` or `{owner, name, providerRepoId?}`, and answers
      * `{url, expiresAt}`: send the human's browser to `url` (one use, ten minutes). Only the repository parameters of
      * an `installUrl` are read; the request always goes to this client's `baseUrl`. `returnTo` (where the browser comes
-     * back, with `github=connected` or `github=pending`) must be on the site of one of the OAuth client's registered
-     * redirect URIs. `503 github-app-unavailable` when the service has no GitHub App.
+     * back, with `github=connected` or `github=pending`) must be exactly on one of the OAuth client's registered
+     * origins (its redirect URIs' origins, and any return origins registered for it). `503 github-app-unavailable` when
+     * the service has no GitHub App.
      */
     async connectGitHub(target: GitHubConnectTarget, options: JourneyOptions & { readonly returnTo?: string }): Promise<GitHubConnectStart> {
       requireHuman(client, 'workspaces.connectGitHub');

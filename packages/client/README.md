@@ -495,8 +495,10 @@ if (binding.state === 'ready') {
 
 When a GitHub repository is not connected yet, `bind` answers `action-required` `github-connection-required`:
 `action.installationState` is `none` (nothing the caller connected covers it), `pending-approval` (an owner of the
-organization must approve the GitHub App the caller asked for) or `repo-not-selected` (the caller's installation on
-that account does not include the repository), and `action.installUrl` starts the connection:
+organization must approve the GitHub App the caller asked for), `repo-not-selected` (the caller's installation on
+that account does not include the repository), `permission-required` (the caller's GitHub account can read the
+repository but not push to it) or `reconnect-required` (the caller's GitHub access was last confirmed more than seven
+days ago), and `action.installUrl` starts the connection (again):
 
 ```ts
 if (binding.state === 'action-required' && binding.action.reason === 'github-connection-required' && binding.action.installUrl) {
@@ -508,8 +510,8 @@ if (binding.state === 'action-required' && binding.action.reason === 'github-con
 
 `connectGitHub(target, {returnTo?})` takes `action.installUrl` or `{owner, name, providerRepoId?}`. Only the URL's
 repository parameters are used: the request always goes to the client's own `baseUrl`, so the credential is never sent
-anywhere else. `returnTo` must be on the site of one of the client's registered redirect URIs (by default, the first
-one's origin). The browser must belong to the same person (Octocove checks its session there, or signs it in through
+anywhere else. `returnTo` must be exactly on one of the client's registered origins: its redirect URIs' origins, and
+any return origins registered for it (by default, the first redirect URI's origin). The browser must belong to the same person (Octocove checks its session there, or signs it in through
 its identity provider, silently when the provider has a session), and GitHub's own sign-in proves that their GitHub
 account can reach the installation. No GitHub token passes through the client. A landing that the target branch's
 protection or rulesets refuse ends with `errorDetail` `target-branch-protected`; nothing is bypassed.

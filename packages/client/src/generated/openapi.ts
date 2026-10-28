@@ -1777,7 +1777,7 @@ export interface paths {
         };
         /**
          * Start connecting a GitHub App installation
-         * @description A human session, or an OAuth client token (`octocove:workspaces`) - the `installUrl` of a `github-connection-required` binding answer. Issues a one-use ticket (ten minutes) bound to the human, the client (or the web), the return address and the repository named, and answers the browser URL that claims it (`GET /github/install?ticket=...` on the web host). The client sends the human's browser there; the browser must be that human (its Octocove session, or Octocove's identity-provider leg, silent when the provider has a session), then goes to GitHub's installation page, and returns to `returnTo` with `github=connected` or `github=pending`. A client's `returnTo` must be on the site of one of its registered redirect URIs (default: the first one's origin); a session's is a local path (default `/settings/connections`). 503 `github-app-unavailable` when the deployment has no GitHub App; 429 `rate-limited` past 30 starts in ten minutes. Writes only the ticket.
+         * @description A human session, or an OAuth client token (`octocove:workspaces`) - the `installUrl` of a `github-connection-required` binding answer. Issues a one-use ticket (ten minutes) bound to the human, the client (or the web), the return address and the repository named, and answers the browser URL that claims it (`GET /github/install?ticket=...` on the web host). The client sends the human's browser there; the browser must be that human (its Octocove session, or Octocove's identity-provider leg, silent when the provider has a session), then goes to GitHub's installation page, and returns to `returnTo` with `github=connected` or `github=pending`. A client's `returnTo` must be on one of its registered origins - its redirect URIs' origins and the registry's `returnOrigins` for it (default: the first redirect URI's origin); a session's is a local path (default `/settings/connections`). 503 `github-app-unavailable` when the deployment has no GitHub App; 429 `rate-limited` past 30 starts in ten minutes. Writes only the ticket.
          */
         get: operations["githubConnect"];
         put?: never;
@@ -3400,10 +3400,10 @@ export interface components {
                  */
                 installUrl?: string;
                 /**
-                 * @description (`github-connection-required`): `none` - no GitHub App installation the human connected covers the repository; `pending-approval` - an owner of the account must approve the app the human requested; `repo-not-selected` - the human's installation on that account does not include the repository (or predates it: connecting again refreshes it).
+                 * @description (`github-connection-required`): `none` - no GitHub App installation the human connected covers the repository; `pending-approval` - an owner of the account must approve the app the human requested; `repo-not-selected` - the human's installation on that account does not include the repository (or predates it: connecting again refreshes it); `permission-required` - the human's GitHub account can read the repository but not push to it; `reconnect-required` - the human's GitHub access was last confirmed more than seven days ago: connecting again confirms it.
                  * @enum {string}
                  */
-                installationState?: "none" | "pending-approval" | "repo-not-selected";
+                installationState?: "none" | "pending-approval" | "repo-not-selected" | "permission-required" | "reconnect-required";
                 /** @description More registrations exist than are listed (`ambiguous-registration`). */
                 truncated?: boolean;
                 /** @description The readable registrations to choose from (`ambiguous-registration`), at most 20. */
