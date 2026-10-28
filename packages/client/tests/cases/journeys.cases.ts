@@ -471,10 +471,10 @@ export const journeyCases: Case[] = [
     const j = journeys(client(fetch));
     // A foreign origin in the URL is never contacted: the client's own baseUrl is, with the repository parameters only.
     equal(await j.workspaces.connectGitHub('https://elsewhere.example.invalid/v1/github/connect?owner=acme&name=web&providerRepoId=42&extra=1',
-      { deadline: soon(), returnTo: 'https://studio.example.invalid/ws/1' }), start);
+      { deadline: soon(), returnTo: 'https://console.example.invalid/ws/1' }), start);
     const first = new URL(calls[0]!.url);
     equal([calls[0]!.method, first.origin + first.pathname], ['GET', `${BASE}/v1/github/connect`]);
-    equal(Object.fromEntries(first.searchParams), { owner: 'acme', name: 'web', providerRepoId: '42', returnTo: 'https://studio.example.invalid/ws/1' });
+    equal(Object.fromEntries(first.searchParams), { owner: 'acme', name: 'web', providerRepoId: '42', returnTo: 'https://console.example.invalid/ws/1' });
     equal(await j.workspaces.connectGitHub({ owner: 'acme', name: 'web' }, { deadline: soon() }), start);
     equal(Object.fromEntries(new URL(calls[1]!.url).searchParams), { owner: 'acme', name: 'web' });
     for (const bad of ['not a url', 'https://x.example.invalid/v1/other?owner=a', 'https://x.example.invalid/v1/github/connect?owner=a%2Fb'])

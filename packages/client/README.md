@@ -502,7 +502,7 @@ days ago), and `action.installUrl` starts the connection (again):
 
 ```ts
 if (binding.state === 'action-required' && binding.action.reason === 'github-connection-required' && binding.action.installUrl) {
-  const { url } = await j.workspaces.connectGitHub(binding.action.installUrl, { deadline, returnTo: 'https://studio.example/ws/123' });
+  const { url } = await j.workspaces.connectGitHub(binding.action.installUrl, { deadline, returnTo: 'https://console.example/ws/123' });
   // Send the human's browser to `url` (one use, ten minutes). It comes back to `returnTo` with `github=connected`
   // (or `github=pending`); then bind again with the same input and a new key.
 }
