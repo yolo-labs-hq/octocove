@@ -1597,7 +1597,7 @@ export interface paths {
         };
         /**
          * Start an OAuth authorization for a registered client
-         * @description OAuth 2.1 authorization code with S256 PKCE for a client registered in the deployment's `OAUTH_CLIENTS` (no dynamic registration; with none registered every request is refused). The browser arrives by top-level navigation. An unknown `client_id` or a `redirect_uri` that is not exactly one of the client's registered URIs is answered with an Octocove error page (400), never a redirect. Otherwise Octocove sets its host-only login binding cookie and redirects (302) to its own identity provider, silently first (`prompt=none`): with a provider session there is no sign-in screen. When the provider cannot complete silently (`login_required`, `interaction_required`,...) the request restarts interactively, unless the client sent `prompt=none`. After the callback, a first-party client whose remembered consent covers the requested scopes gets its code at once; otherwise Octocove shows its consent page once ("Connect <client> to Octocove"; asked again only when the scopes grow). The answer always returns to the client by `response_mode=form_post`: a self-posting HTML form to `redirect_uri` carrying `code`, `state` and `iss` (RFC 9207), or `error` (`invalid_request`, `invalid_scope`, `unsupported_response_type`, `login_required`, `consent_required`, `interaction_required`, `access_denied`, `step_up_unavailable`, `temporarily_unavailable`, `server_error`), `error_description` and `state`. A code or an error never appears in a URL. `max_age` (and `prompt=login`, sent upstream as `max_age=0`) asks the provider to re-authenticate and requires its ID token's `auth_time` to be within it; a provider that does not state a fresh `auth_time` fails the authorization closed with `step_up_unavailable`. The grant records that `auth_time` for the admin tier's recent sign-in check. Pages are `no-store`, unframeable and send no referrer.
+         * @description OAuth 2.1 authorization code with S256 PKCE for a client registered in the deployment's `OAUTH_CLIENTS` (no dynamic registration; with none registered every request is refused). The browser arrives by top-level navigation. An unknown `client_id` or a `redirect_uri` that is not exactly one of the client's registered URIs is answered with an Octocove error page (400), never a redirect. Otherwise Octocove sets its host-only login binding cookie and redirects (302) to its own identity provider, silently first (`prompt=none`): with a provider session there is no sign-in screen. When the provider cannot complete silently (`login_required`, `interaction_required`,...) the request restarts interactively, unless the client sent `prompt=none`. After the callback, a first-party client gets its code at once, never a consent page (not on the first connection, not for new scopes, not under `prompt=none`): its consent is recorded implicitly with the code, accumulating, and is what `GET /me/connections` lists. Only `prompt=consent` shows a first-party client the page, or a disconnect by the human in Settings → Connected apps: after it the client's `prompt=none` answers `consent_required` and an interactive authorization shows the consent page once, until the human allows it there (Cancel keeps the disconnect). The client's own `POST /oauth/revoke` never has that effect. A third-party client is shown the consent page every time (`consent_required` under `prompt=none`). The answer always returns to the client by `response_mode=form_post`: a self-posting HTML form to `redirect_uri` carrying `code`, `state` and `iss` (RFC 9207), or `error` (`invalid_request`, `invalid_scope`, `unsupported_response_type`, `login_required`, `consent_required`, `interaction_required`, `access_denied`, `step_up_unavailable`, `temporarily_unavailable`, `server_error`), `error_description` and `state`. A code or an error never appears in a URL. `max_age` (and `prompt=login`, sent upstream as `max_age=0`) asks the provider to re-authenticate and requires its ID token's `auth_time` to be within it; a provider that does not state a fresh `auth_time` fails the authorization closed with `step_up_unavailable`. The grant records that `auth_time` for the admin tier's recent sign-in check, which applies while `AUTH_REQUIRE_RECENT_SIGN_IN` is on. Pages are `no-store`, unframeable and send no referrer.
          */
         get: operations["oauthAuthorize"];
         put?: never;
@@ -1619,7 +1619,7 @@ export interface paths {
         put?: never;
         /**
          * Record the human's consent decision for a client
-         * @description The consent page's form POST: same-origin (`Origin` must equal the page's origin), with the login binding cookie of the browser that started the authorization and the page's one-use token. `allow` records the consent (a first-party client's consent accumulates and is remembered per human, client and scopes) and answers with the self-posting form carrying the code; `deny` answers it with `error=access_denied`. A replayed, expired or foreign decision is an Octocove page (400); a cross-origin one 403. No Idempotency-Key: the token is one use.
+         * @description The consent page's form POST: same-origin (`Origin` must equal the page's origin), with the login binding cookie of the browser that started the authorization and the page's one-use token. `allow` records the consent (a first-party client's consent accumulates per human and client, as its implicit one does) and answers with the self-posting form carrying the code; `deny` answers it with `error=access_denied`. A replayed, expired or foreign decision is an Octocove page (400); a cross-origin one 403. No Idempotency-Key: the token is one use.
          */
         post: operations["oauthConsent"];
         delete?: never;
@@ -1659,7 +1659,7 @@ export interface paths {
         put?: never;
         /**
          * Revoke a grant by one of its tokens
-         * @description RFC 7009, as a disconnect. Client authentication as at the token endpoint (an assertion's `aud` is the issuer, the token endpoint URL or this endpoint's URL). A refresh or access token of this client closes EVERY grant of the client for the token's human (incremental authorizations leave several), each with its tokens and every bootstrap and delegation authorized through it, in every organization, forgets the consent and voids authorizations in flight, exactly as `POST /me/connections/{clientId}/revoke` does. 200 once that is complete everywhere; 503 `temporarily_unavailable` with `Retry-After` while a barrier is still being delivered (every grant is already refused; a repeat with the same token settles it). An unknown or another client's token answers 200 and closes nothing. Call it when the human disconnects or signs out of the client. No Idempotency-Key.
+         * @description RFC 7009, as a disconnect. Client authentication as at the token endpoint (an assertion's `aud` is the issuer, the token endpoint URL or this endpoint's URL). A refresh or access token of this client closes EVERY grant of the client for the token's human (incremental authorizations leave several), each with its tokens and every bootstrap and delegation authorized through it, in every organization, forgets the consent and voids authorizations in flight, exactly as `POST /me/connections/{clientId}/revoke` does. 200 once that is complete everywhere; 503 `temporarily_unavailable` with `Retry-After` while a barrier is still being delivered (every grant is already refused; a repeat with the same token settles it). An unknown or another client's token answers 200 and closes nothing. Call it when the human disconnects or signs out of the client. Unlike a Connected apps disconnect it never sticks: a first-party client's next `prompt=none` authorization is silent again, unless the human had already disconnected it in Connected apps (that disconnect neither ends nor is ended by this one). No Idempotency-Key.
          */
         post: operations["oauthRevoke"];
         delete?: never;
@@ -1719,9 +1719,49 @@ export interface paths {
         put?: never;
         /**
          * Disconnect a client
-         * @description Human session only; Origin and CSRF are checked for cookie callers like every cookie POST. Forgets the caller's consent for the client (the next authorization asks again) and closes every grant of the caller's for it: their access and refresh tokens, and every bootstrap and delegation authorized through them, in every organization. 204 once that is complete everywhere; 409 `operation-in-progress` with `Retry-After` while a barrier is still being delivered (the grants are already refused on every route; any repeat settles it). 404 `not-found` for a client the caller has no consent or grant of. Signing out of Octocove, or revoking a browser or CLI sign-in, leaves client grants as they are: each grant is its own family.
+         * @description Human session only; Origin and CSRF are checked for cookie callers like every cookie POST. Forgets the caller's consent for the client (the next authorization asks a third-party client again) and, for a first-party client, records in the same batch that the human disconnected it: its `prompt=none` authorizations answer `consent_required` and an interactive one shows the consent page once, until the human allows it there. It also closes every grant of the caller's for it: their access and refresh tokens, and every bootstrap and delegation authorized through them, in every organization. 204 once that is complete everywhere; 409 `operation-in-progress` with `Retry-After` while a barrier is still being delivered (the grants are already refused on every route; any repeat settles it). 404 `not-found` for a client the caller has no consent or grant of. Signing out of Octocove, or revoking a browser or CLI sign-in, leaves client grants as they are: each grant is its own family.
          */
         post: operations["meConnectionRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspace-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve, and for a new native workspace create, the one binding of a client's workspace
+         * @description An OAuth client token only (`octocove:workspaces`; a browser or CLI session gets 403 `forbidden`). A global operation: the binding may name any of the human's tenants, or one not created yet. One binding per (client, human, `externalWorkspaceId`), resolved once and reused by every later lane. The answer is the binding's current view (`WorkspaceBinding`) - 200 for `ready` or `action-required`, 202 with `Retry-After` for `pending`. `source` `github` searches every tenant the human is a discovery candidate of, in projects whose membership holds `tasks:list`, for live GitHub canonical registrations of that owner and name (case-insensitive) - one match binds it; several answer `action-required` `ambiguous-registration` with the candidates (ids and display names) and bind nothing; any unreadable candidate tenant answers `pending` `discovery-incomplete`, whatever was found elsewhere; none answers `action-required` `github-connection-required` (registration stays operator work; no token or credential reference is accepted). `providerRepoId` (GitHub's numeric id) is recorded and, when both sides know it, decides whether a later request names the same repository (a rename keeps the binding; another id under the same name is a source change); owner and name decide otherwise. `source` `octocove` binds exactly that tuple after checking the human's current `tasks:list` membership and the live canonical repository in that tenant - 404 `not-found` for anything unreadable (unknown tenant, another tenant's project, no access), 409 `repository-provider-unsupported` for a repository on another provider than Artifacts or GitHub, `pending` `tenant-unavailable` while the tenant cannot be read; never reinterpreted as GitHub. `source` `new-native` reserves the binding (`creating`), then creates the project through `POST /orgs/{orgId}/projects` (`org`) or `POST /me/projects` (no `org`) and its seeded Artifacts repository (`mode` `create`, named by the slug, on `targetRef`, which is required) through the existing creation paths, with keys derived from the binding's `operationId` - the creator allow-list, quotas, throttle, reservations, namespace and org-admin rules apply with their problems (403 `project-create-disabled`, 403 `project-quota-exceeded`, 404 `tenant-not-found`, 409 `slug-taken`, 422 `invalid-slug`). A step that cannot finish now (a personal tenant provisioning, a busy or unavailable provider) answers `pending` `creation-in-progress` with the `operationId`; the same request (or any request for the same workspace and source) resumes it, and nothing is created twice. A refused project step fails the binding and the key replays the refusal; a refused repository step answers `action-required` `repository-creation-failed` (`action.code`) and stays open, so the same request retries it; a repository the operator must settle answers `action-required` `repository-needs-operator`. Without `targetRef` a settled binding answers `action-required` `target-ref-required` with every registered destination and the provider's `defaultBranch` when it can be read; an unregistered `targetRef` is `target-ref-unregistered`; a registered one is bound once. A request whose body names another source (or another target ref) than the workspace's live binding is 409 `binding-source-changed` (`details.field` `source` or `targetRef`): a binding is immutable, and a changed workspace uses a new `externalWorkspaceId`. The same Idempotency-Key with another body is 409 `idempotency-conflict`; a replay answers the bound binding's current view (a request that reserved nothing is worked out again). Admin tier - while `AUTH_REQUIRE_RECENT_SIGN_IN` is on, 403 `step-up-required`.
+         */
+        post: operations["workspaceBindingCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspace-bindings/{bindingId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a workspace binding's current view
+         * @description An OAuth client token only (`octocove:workspaces`). The binding of the calling human and client only (anyone else, or an unknown id - 404 `not-found`). Always 200, with `Retry-After` while `pending`. Re-verifies the human's current access (`action-required` `access-lost`, with ids only, once it is gone) and reads the destinations now. Writes nothing, calls no provider (no `defaultBranch`) and never drives a pending creation: only the POST resumes one.
+         */
+        get: operations["workspaceBindingGet"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3146,11 +3186,106 @@ export interface components {
             /** @description True when `POST /orgs/{orgId}/projects` or `POST /me/projects` would admit this caller past its bootstrap gate - a human whose `issuer|sub` is listed in the deployment's `PROJECT_CREATORS` allow-list. False when the list is unset, empty or does not list the caller, and always false for a delegation or machine grant (the route is human-only). It does not foresee the per-creator cap, the throttle or a taken slug. */
             createProjects: boolean;
         };
+        /** @description One external workspace and the source it binds. No field carries a credential. */
+        WorkspaceBindingCreate: {
+            /** @description The client's own opaque workspace id; the namespace is the client's and the human's. */
+            externalWorkspaceId: string;
+            source: {
+                /** @constant */
+                kind: "github";
+                owner: string;
+                name: string;
+                /** @description GitHub's numeric repository id, as a decimal string (an integer is accepted too). */
+                providerRepoId?: string | number;
+            } | {
+                /** @constant */
+                kind: "octocove";
+                tenantId: components["schemas"]["TenantId"];
+                projectId: string;
+                repositoryId: string;
+            } | {
+                /** @constant */
+                kind: "new-native";
+                org?: components["schemas"]["TenantId"];
+                project: components["schemas"]["ProjectCreate"];
+            };
+            /** @description The landing destination to bind. Required for `new-native` (the branch the new repository starts on); otherwise optional, and never assumed. */
+            targetRef?: string;
+        };
+        /** @description A workspace binding's current view. Ids and display names only - never a credential, a credential reference or a URL. `bindingId` is absent only when nothing was bound (a pending discovery, an ambiguous or missing registration). */
+        WorkspaceBinding: {
+            /** @enum {string} */
+            state: "ready" | "pending" | "action-required";
+            bindingId?: string;
+            externalWorkspaceId: string;
+            tenantId?: components["schemas"]["TenantId"];
+            projectId?: string;
+            repositoryId?: string;
+            /** @enum {string} */
+            provider?: "artifacts" | "github";
+            /** @description The bound source - its kind, and from the record the registration's GitHub owner and name, the recorded GitHub id and the display names (omitted with `access-lost`). */
+            source?: {
+                /** @enum {string} */
+                kind: "github" | "octocove" | "new-native";
+                owner?: string;
+                name?: string;
+                providerRepoId?: string;
+                projectSlug?: string;
+                projectName?: string;
+                repositoryName?: string;
+            };
+            /** @description The bound landing destination (`ready` only). */
+            targetRef?: string;
+            /** @description The repository's registered destinations by ref, at most 100 (`targetRefsTruncated` when there are more), always including the bound or requested one when it is registered. */
+            targetRefs?: {
+                ref: string;
+                /** @description The record's last known head of the destination and where it came from; never a live provider read. */
+                knownHead?: {
+                    sha: string;
+                    /** @enum {string|null} */
+                    source: "seed" | "receipt" | "ls-remote" | "event" | null;
+                    observedAt?: string;
+                };
+            }[];
+            /** @description More destinations are registered than `targetRefs` lists. */
+            targetRefsTruncated?: boolean;
+            /** @description The provider's default branch (a full ref), when a destination must be chosen and the provider could be read (POST only). */
+            defaultBranch?: string;
+            /** @description The binding's creation, while it is in progress or after it ended. */
+            operationId?: string;
+            /** @description Seconds before retrying (`pending`; also the `Retry-After` header). */
+            retryAfter?: number;
+            /**
+             * @description Why the binding is `pending`.
+             * @enum {string}
+             */
+            reason?: "discovery-incomplete" | "creation-in-progress" | "tenant-unavailable";
+            /** @description What the client does next (`action-required`). */
+            action?: {
+                /** @enum {string} */
+                reason: "target-ref-required" | "target-ref-unregistered" | "ambiguous-registration" | "github-connection-required" | "access-lost" | "repository-unavailable" | "repository-needs-operator" | "repository-creation-failed" | "creation-refused";
+                /** @description The unregistered target ref (`target-ref-unregistered`). */
+                targetRef?: string;
+                /** @description The refusal a creation ended with (`creation-refused`, `repository-creation-failed`). */
+                code?: string;
+                /** @description More registrations exist than are listed (`ambiguous-registration`). */
+                truncated?: boolean;
+                /** @description The readable registrations to choose from (`ambiguous-registration`), at most 20. */
+                candidates?: {
+                    tenantId: components["schemas"]["TenantId"];
+                    projectId: string;
+                    repositoryId: string;
+                    projectSlug: string;
+                    projectName: string;
+                    repositoryName: string;
+                }[];
+            };
+        };
         /**
          * @description An OAuth client scope; see the `OAuthClientToken` security scheme.
          * @enum {string}
          */
-        OAuthScope: "octocove:read" | "octocove:tasks" | "octocove:review" | "octocove:land" | "octocove:agents" | "octocove:targets";
+        OAuthScope: "octocove:read" | "octocove:tasks" | "octocove:review" | "octocove:land" | "octocove:agents" | "octocove:targets" | "octocove:workspaces";
         OAuthTokenRequest: {
             /** @enum {string} */
             grant_type: "authorization_code" | "refresh_token";
@@ -3189,7 +3324,7 @@ export interface components {
             displayName: string;
             firstParty: boolean;
             scopes: components["schemas"]["OAuthScope"][];
-            /** @description When the remembered consent was last given; null without one. */
+            /** @description When the remembered consent was last recorded (allowed on the page, or recorded implicitly when a first-party client's scopes grew); null without one. */
             connectedAt: string | null;
             /** @description The newest live grant's creation; null without one. */
             lastAuthorizedAt: string | null;
@@ -3715,7 +3850,7 @@ export interface components {
             oldBaseSha?: components["schemas"]["Sha"];
             /** @description `refresh-conflict` - the canonical commit the refresh or wrap-up compared against (read its side with GET /orgs/{orgId}/tasks/{id}/lane/blob?base=). */
             newBaseSha?: components["schemas"]["Sha"];
-            /** @description `insufficient-scope` - the OAuth scope the route or verb needs; the client asks for it with a new authorization (consent is asked only for the new scope). Null when no scope covers the verb. */
+            /** @description `insufficient-scope` - the OAuth scope the route or verb needs; the client asks for it with a new authorization (a first-party client is shown no page; a third-party one is asked again). Null when no scope covers the verb. */
             requiredScope?: components["schemas"]["OAuthScope"] | null;
             /** @description `step-up-required` - the `max_age` the client sends to `/oauth/authorize` to step up (always 0). */
             maxAge?: number;
@@ -7765,7 +7900,7 @@ export interface operations {
                 /** @description BASE64URL(SHA-256(code_verifier)), 43 characters. */
                 code_challenge: string;
                 code_challenge_method: "S256";
-                /** @description `none` (never interact: `login_required` or `consent_required` instead), `login` (re-authenticate, as `max_age=0`) or `consent` (show the consent page). */
+                /** @description `none` (never interact: `login_required`, or `consent_required` for a third-party client or for a first-party client the human disconnected in Connected apps, instead), `login` (re-authenticate, as `max_age=0`) or `consent` (show the consent page, a first-party client included). */
                 prompt?: "none" | "login" | "consent";
                 /** @description Seconds; `0` steps up (a fresh provider authentication, verified by `auth_time`). */
                 max_age?: number;
@@ -7776,7 +7911,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The consent page, or the self-posting form back to the client (`form_post`). */
+            /** @description The consent page (a third-party client, or `prompt=consent`), or the self-posting form back to the client (`form_post`). */
             200: {
                 headers: {
                     "Cache-Control": components["headers"]["NoStore"];
@@ -7998,6 +8133,81 @@ export interface operations {
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    workspaceBindingCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceBindingCreate"];
+            };
+        };
+        responses: {
+            /** @description The binding is `ready`, or `action-required` (`action.reason` says what the client does next). */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBinding"];
+                };
+            };
+            /** @description `pending` - retry the same request after `Retry-After` seconds. */
+            202: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBinding"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    workspaceBindingGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bindingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The binding's current view. */
+            200: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBinding"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

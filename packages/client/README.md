@@ -102,7 +102,7 @@ unknown, reserved or not visible to you.
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 119 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 121 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -142,9 +142,10 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata` | `network-only` | `null` | safe reads (`meConnectionsList` and `oauthMetadata` write nothing; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet` | `network-only` | `null` | safe reads (`meConnectionsList`, `oauthMetadata` and `workspaceBindingGet` write nothing; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
+| `workspaceBindingCreate` | `network-only` | `stored-result` | the binding request ledger, keyed by client, human and key: the same key with another body is `409 idempotency-conflict`; a replay of a request that bound (or began creating) a binding answers that binding, with its destinations and access read now; a `pending` or `action-required` answer that bound nothing is worked out again; a refused creation replays its refusal; nothing is created twice |
 | `meNotificationPreferencesPut` | `network-only` | `stored-result` | the per-principal admin-operation ledger, checked before membership, so a replay answers the committed body even after the caller left a muted project; another body under the same key is `409 idempotency-conflict` |
 | `meConnectionRevoke` | `network-only` | `state` | no ledger: a disconnect forgets the consent and closes every grant of the caller's for the client; a repeat under any key settles a pending closure and answers `204` from state (`409 operation-in-progress` with `Retry-After` while a closure is still being delivered) |
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
@@ -184,7 +185,8 @@ Retry-After until the organization is ready, else `pending-timeout`, never creat
 (`GET /v1/owners/{slug}`), `projects.list` (`GET /me/projects`),
 `projects.create(input, { orgId? })` (`POST /orgs/{orgId}/projects`, or without `orgId` `POST /me/projects` in the
 caller's personal tenant; `409 org-creation-pending` is waited out under the same key and body until the deadline,
-then thrown as `OrgCreationPendingError`), `org(tenantId)`, `forProject(project)` and `command` for a global
+then thrown as `OrgCreationPendingError`), `workspaces.bind(input)` and `workspaces.get(bindingId)` (an OAuth client's
+workspace bindings, [below](#workspace-bindings)), `org(tenantId)`, `forProject(project)` and `command` for a global
 operation. `org(tenantId)` (`tenantJourneys`) holds the rest, all under `/v1/orgs/{tenantId}`: `tasks.*`,
 `repositories.*` (including `declareLanePolicy`, `branches` and `registerTargetRef`), `claims.authorize/claim/status/waitForProvisioning/release`,
 `candidates.get/waitFor/withdraw/reject`, `approvals.approve/approveWithGrant/withdraw`,
@@ -449,6 +451,41 @@ const client = createClient({ baseUrl: API, transport: bearer({ token: (await se
   `meConnectionRevoke`, with a human session only.
 - `oca_`, `ocf_` and `occ_` values (like `ocs_` and `ocb_`) and HTTP Basic credentials are redacted from every error
   text the client produces.
+
+### Workspace bindings
+
+An OAuth client with the `octocove:workspaces` scope resolves each of its own workspaces to one Octocove project,
+repository and landing destination, once, and reuses it for every later task:
+
+```ts
+const j = journeys(client); // bearer({ token, kind: 'client' })
+const binding = await j.workspaces.bind({
+  externalWorkspaceId: 'ws_123',                                  // the client's own id for its workspace
+  source: { kind: 'github', owner: 'acme', name: 'web', providerRepoId: '123456' },
+  targetRef: 'refs/heads/main',                                   // optional, never assumed
+}, { deadline: Date.now() + 60_000, idempotencyKey });
+if (binding.state === 'ready') {
+  const { tenantId, projectId, repositoryId, targetRef } = binding; // create tasks against this
+}
+```
+
+- `source` is `{kind: 'github', owner, name, providerRepoId?}` (the caller's readable registrations of that GitHub
+  repository, in every organization), `{kind: 'octocove', tenantId, projectId, repositoryId}` (exactly that
+  repository, when the caller can read it; `404 not-found` otherwise), or `{kind: 'new-native', org?, project: {slug,
+  name}}` with a required `targetRef` (a new project, in `org` or the caller's personal tenant, and its repository,
+  created under the usual creation rules and problems). No GitHub token or credential is ever sent.
+- The answer is the binding's view, `WorkspaceBinding`: `ready`; `action-required` with `action.reason`
+  (`target-ref-required` or `target-ref-unregistered`: pick one of `targetRefs`, or `defaultBranch` when it is
+  registered, and bind again with `targetRef`; `ambiguous-registration`: pick one of `action.candidates` and bind again
+  with `{kind: 'octocove', ...}`; `github-connection-required`; `access-lost`; `repository-unavailable`;
+  `repository-needs-operator`; `repository-creation-failed`; `creation-refused`); or `pending` (`reason`
+  `discovery-incomplete`, `creation-in-progress` or `tenant-unavailable`), which `bind` waits out under the same key and
+  body after each Retry-After until the deadline, then returns. Binding again with the same input resumes it; nothing
+  is created twice.
+- A binding never changes: a workspace already bound to another source or target ref is `409 binding-source-changed`
+  (`details.field`); use a new `externalWorkspaceId` for a workspace whose repository changed. The same key with another
+  body is `409 idempotency-conflict`. A lost answer is replayed under the same key.
+- `workspaces.get(bindingId)` reads a binding's current view (the caller's access checked again) and writes nothing.
 
 ## Credentials
 

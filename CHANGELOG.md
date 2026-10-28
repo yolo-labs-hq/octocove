@@ -1,5 +1,13 @@
 # Changelog
 
+## Client 0.11.0
+
+Release `@yolo-labs/octocove-client` 0.11.0 alone (no CLI release): workspace bindings for OAuth clients.
+
+- Regenerated from the current API contract. New operations: `workspaceBindingCreate` (`POST /v1/workspace-bindings`, `network-only` / `stored-result`) and `workspaceBindingGet` (`GET /v1/workspace-bindings/{bindingId}`, `network-only` / `null`); new schemas `WorkspaceBindingCreate` and `WorkspaceBinding`; the scope `octocove:workspaces`. The retry policy and the README table cover 121 operation ids.
+- New journeys `workspaces.bind(input, {deadline, idempotencyKey?, pollMs?})` and `workspaces.get(bindingId, {deadline})`: resolve an OAuth client's workspace to one project, repository and target ref once (a GitHub repository among the caller's readable registrations, an explicit Octocove repository, or a new native project and its repository), waiting out `pending` answers under the same key and body until the deadline. Types `WorkspaceBinding` and `WorkspaceBindingInput`; constant `WORKSPACE_BINDING_POLL_MS`.
+- `OAUTH_SCOPES` and `authorizationUrl` accept `octocove:workspaces`.
+
 ## Client 0.10.1
 
 Release `@yolo-labs/octocove-client` 0.10.1 alone (no CLI release): documentation and tests matching the final server behaviour. No API change.
