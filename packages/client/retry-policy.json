@@ -574,5 +574,15 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "state"
+  },
+  "workspaceBindingCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "workspaceBindingGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
   }
 }

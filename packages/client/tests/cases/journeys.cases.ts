@@ -402,6 +402,50 @@ export const journeyCases: Case[] = [
     const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
     await rejects(() => journeys(delegated).projects.create({ slug: 'first', name: 'First' }, { deadline: soon() }), TypeError);
   }),
+  // ---- workspaces ----
+  test('workspaces.bind posts the workspace under one key, waits out pending under the same key and body, and returns ready', async () => {
+    const input = { externalWorkspaceId: 'ws-1', source: { kind: 'new-native' as const, project: { slug: 'first', name: 'First' } }, targetRef: 'refs/heads/main' };
+    const pending = { state: 'pending', externalWorkspaceId: 'ws-1', bindingId: 'wsb_1', operationId: 'wsbop_1', reason: 'creation-in-progress', retryAfter: 2 };
+    const ready = { state: 'ready', externalWorkspaceId: 'ws-1', bindingId: 'wsb_1', tenantId: ORG, projectId: 'p', repositoryId: 'r', provider: 'artifacts',
+      source: { kind: 'new-native', projectSlug: 'first', projectName: 'First', repositoryName: 'first' }, targetRef: 'refs/heads/main', targetRefs: [{ ref: 'refs/heads/main' }] };
+    const delays: number[] = [];
+    const { fetch, calls } = scriptedFetch(withRetryAfter(json(202, pending), '2'), lost(200), json(200, ready));
+    const oauth = createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN, kind: 'client' }), fetch, ...fast });
+    equal(await journeys(oauth).workspaces.bind(input, { deadline: soon(), sleep: async (ms) => { delays.push(ms); } }), ready);
+    // The Retry-After wait, then the lost answer's replay backoff: never a second binding, the same key throughout.
+    equal(delays, [2000, 250]);
+    equal(calls.map((c) => `${c.method} ${c.url}`), Array(3).fill(`POST ${BASE}/v1/workspace-bindings`));
+    ok(!!keys(calls)[0]);
+    equal(new Set(keys(calls)).size, 1);
+    equal(new Set(calls.map((c) => c.body)).size, 1);
+    equal(JSON.parse(calls[0]!.body!), input);
+  }),
+  test('workspaces.bind returns the pending view at the deadline, and action-required as it is; a source change is an ApiError', async () => {
+    const input = { externalWorkspaceId: 'ws-1', source: { kind: 'github' as const, owner: 'acme', name: 'web' } };
+    const pending = { state: 'pending', externalWorkspaceId: 'ws-1', reason: 'discovery-incomplete', retryAfter: 5 };
+    const stuck = scriptedFetch(withRetryAfter(json(202, pending), '5'));
+    equal(await journeys(client(stuck.fetch)).workspaces.bind(input, { deadline: Date.now() + 500 }), pending);
+    equal(stuck.calls.length, 1);
+    const ambiguous = { state: 'action-required', externalWorkspaceId: 'ws-1', action: { reason: 'ambiguous-registration', truncated: false,
+      candidates: [{ tenantId: ORG, projectId: 'p1', repositoryId: 'r1', projectSlug: 'a', projectName: 'A', repositoryName: 'web' }] } };
+    const asked = scriptedFetch(json(200, ambiguous));
+    equal(await journeys(client(asked.fetch)).workspaces.bind(input, { deadline: soon(), idempotencyKey: 'workspace-key-0123456789' }), ambiguous);
+    equal(keys(asked.calls), ['workspace-key-0123456789']);
+    const changed = scriptedFetch(problem(409, 'binding-source-changed', { details: { field: 'source' } }));
+    const error = await rejects(() => journeys(client(changed.fetch)).workspaces.bind(input, { deadline: soon() }), ApiError);
+    equal([error.status, error.code, changed.calls.length], [409, 'binding-source-changed', 1]);
+    const offShape = scriptedFetch(json(200, { state: 'ready', externalWorkspaceId: 'ws-1' }));
+    await rejects(() => journeys(client(offShape.fetch)).workspaces.bind(input, { deadline: soon() }), ApiError);
+  }),
+  test('workspaces.get reads one binding, and both need a human (an OAuth client acts for one)', async () => {
+    const view = { state: 'action-required', externalWorkspaceId: 'ws-1', bindingId: 'wsb_1', projectId: 'p', source: { kind: 'octocove' }, action: { reason: 'access-lost' } };
+    const { fetch, calls } = scriptedFetch(json(200, view));
+    equal(await journeys(client(fetch)).workspaces.get('wsb_1', { deadline: soon() }), view);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/workspace-bindings/wsb_1`]);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).workspaces.get('wsb_1', { deadline: soon() }), TypeError);
+    await rejects(() => journeys(delegated).workspaces.bind({ externalWorkspaceId: 'ws', source: { kind: 'github', owner: 'a', name: 'b' } }, { deadline: soon() }), TypeError);
+  }),
   test('projects.list reads /me/projects with each project\'s tenant and reports a partial read', async () => {
     const other = 'org_00000000-0000-4000-8000-000000000002';
     const item = { projectId: 'project-1', slug: 'first', name: 'First', artifactsNamespace: 'oc-project-1', taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: 'personal', owner: { kind: 'user', slug: 'jane' } };

@@ -65,6 +65,15 @@ export interface MeProjectList {
   readonly partial: boolean;
   readonly unavailableTenants: readonly UnavailableTenant[];
 }
+/** A workspace binding's current view (`workspaceBindingCreate`'s and `workspaceBindingGet`'s answer): `ready` with the
+ * bound `tenantId`, `projectId`, `repositoryId` and `targetRef`; `action-required` with `action.reason`; or `pending`
+ * with `reason` and `retryAfter`. Ids and display names only. */
+export type WorkspaceBinding = OpenEnums<Schemas['WorkspaceBinding']>;
+/** `workspaceBindingCreate`'s body: the client's workspace id, its source and, optionally, the target ref. */
+export type WorkspaceBindingInput = Schemas['WorkspaceBindingCreate'];
+/** Waits between `pending` workspace binding answers when the server sends no Retry-After. */
+export const WORKSPACE_BINDING_POLL_MS = 5000;
+
 /** An organization (`organizationCreate`'s and `organizationUpdate`'s answer): its tenant id, name, owner `slug` and `provisioningState`. */
 export type Organization = OpenEnums<Schemas['Organization']>;
 /** A `GET /me` `organizations` entry: an organization the human caller belongs to, with their role. */
@@ -736,6 +745,59 @@ export function journeys(client: OctocoveClient) {
     },
   };
 
+  const isBinding = (b: unknown): b is WorkspaceBinding => isObject(b) && isString(b.state) && isString(b.externalWorkspaceId)
+    && (b.state !== 'ready' || (isString(b.bindingId) && isString(b.tenantId) && isString(b.projectId) && isString(b.repositoryId) && isString(b.targetRef)));
+  const workspaces = {
+    /**
+     * OAuth client token, `octocove:workspaces` (admin tier): `workspaceBindingCreate` (`POST /v1/workspace-bindings`, a
+     * global route) resolves the client's workspace `externalWorkspaceId` to one Octocove project, repository and
+     * target ref, once, and answers the binding's current view. `source` is `{kind: 'github', owner, name,
+     * providerRepoId?}` (the caller's readable registrations of that repository in every organization), `{kind:
+     * 'octocove', tenantId, projectId, repositoryId}` (exactly that, if readable; `404 not-found` otherwise), or
+     * `{kind: 'new-native', org?, project: {slug, name}}` with a required `targetRef` (the project and its repository
+     * are created, under the usual creation rules). While the answer is `pending` (`discovery-incomplete`,
+     * `creation-in-progress`, `tenant-unavailable`) the same body and key are sent again after each Retry-After, until
+     * the deadline; then the `pending` view is returned, and a later call with the same input resumes it (nothing is
+     * created twice). `ready` and `action-required` are returned as they are: on `action-required`, `action.reason`
+     * says what to do next (`target-ref-required` and `target-ref-unregistered`: choose one of `targetRefs` and call
+     * again with `targetRef`; `ambiguous-registration`: choose one of `action.candidates` and call again with
+     * `{kind: 'octocove', ...}`; `github-connection-required`, `access-lost`, `repository-unavailable`,
+     * `repository-needs-operator`, `repository-creation-failed`, `creation-refused`). A workspace already bound to
+     * another source or target ref is `409 binding-source-changed`; the same key with another body
+     * `409 idempotency-conflict`.
+     */
+    async bind(input: WorkspaceBindingInput, options: CommandOptions & { readonly pollMs?: number }): Promise<WorkspaceBinding> {
+      requireHuman(client, 'workspaces.bind');
+      const scope = journeyScope(options);
+      const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
+      try {
+        for (;;) {
+          const response = await send(client, scope, options, 'workspaceBindingCreate', { body: input }, { idempotencyKey });
+          if (!isBinding(response.body)) throw offShape(response, 'the response is not a workspace binding');
+          if (response.body.state !== 'pending') return response.body;
+          const wait = pollDelay(response.retryAfter ?? response.body.retryAfter, options.pollMs, WORKSPACE_BINDING_POLL_MS);
+          if (wait >= scope.remaining()) return response.body;
+          await scope.sleep(wait);
+        }
+      } finally { scope.dispose(); }
+    },
+    /**
+     * OAuth client token, `octocove:workspaces`: `workspaceBindingGet` (`GET /v1/workspace-bindings/{bindingId}`), the
+     * binding's current view, with the caller's access checked again (`action-required` `access-lost` once it is
+     * gone). Writes nothing and never resumes a pending creation (only `bind` does). Another caller's binding, or an
+     * unknown id, is `404 not-found`.
+     */
+    async get(bindingId: string, options: JourneyOptions): Promise<WorkspaceBinding> {
+      requireHuman(client, 'workspaces.get');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'workspaceBindingGet', { path: { bindingId } });
+        if (!isBinding(response.body)) throw offShape(response, 'the response is not a workspace binding');
+        return response.body;
+      } finally { scope.dispose(); }
+    },
+  };
+
   /** One keyed command on a global route, under the same replay rule (tenant routes: `org(tenantId).command`). */
   const command = async <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) => {
@@ -751,6 +813,7 @@ export function journeys(client: OctocoveClient) {
     projects,
     orgs,
     owners,
+    workspaces,
     org,
     /** The journeys of a discovered project's tenant (`projects.list()` items, `GET /me` memberships). */
     forProject: (project: { readonly tenantId: string }) => org(project.tenantId),

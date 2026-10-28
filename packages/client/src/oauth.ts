@@ -20,7 +20,7 @@ export type ConnectionList = components['schemas']['ConnectionList'];
 
 /** Every scope the authorization server knows, in its documented order. */
 export const OAUTH_SCOPES: readonly OAuthScope[] = Object.freeze([
-  'octocove:read', 'octocove:tasks', 'octocove:review', 'octocove:land', 'octocove:agents', 'octocove:targets',
+  'octocove:read', 'octocove:tasks', 'octocove:review', 'octocove:land', 'octocove:agents', 'octocove:targets', 'octocove:workspaces',
 ] as const);
 
 export const CLIENT_ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';

@@ -67,7 +67,7 @@ export type {
   RevokeGrantOptions,
   StoredGrant,
 } from './oauth.js';
-export { journeys, tenantJourneys, staleBaseRefusal, CANDIDATE_POLL_MS, ORG_PENDING_POLL_MS, ORG_READY_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS } from './journeys.js';
+export { journeys, tenantJourneys, staleBaseRefusal, CANDIDATE_POLL_MS, ORG_PENDING_POLL_MS, ORG_READY_POLL_MS, PROVISIONING_POLL_MS, RECEIPT_POLL_MS, WORKSPACE_BINDING_POLL_MS } from './journeys.js';
 export type {
   Approval,
   BoundTo,
@@ -106,6 +106,8 @@ export type {
   StaleBaseRefusal,
   Submission,
   Task,
+  WorkspaceBinding,
+  WorkspaceBindingInput,
 } from './journeys.js';
 export { MAX_JOURNEY_REPLAYS } from './journey-core.js';
 export type { CommandOptions, JourneyOptions, WaitOptions, WaitStop } from './journey-core.js';
