@@ -102,7 +102,7 @@ unknown, reserved or not visible to you.
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 121 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 127 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -142,11 +142,12 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet` | `network-only` | `null` | safe reads (`meConnectionsList`, `oauthMetadata` and `workspaceBindingGet` write nothing; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `githubConnect` | `network-only` | `null` | safe reads (`meConnectionsList`, `oauthMetadata`, `workspaceBindingGet` and `meGithubInstallationsList` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `workspaceBindingCreate` | `network-only` | `stored-result` | the binding request ledger, keyed by client, human and key: the same key with another body is `409 idempotency-conflict`; a replay of a request that bound (or began creating) a binding answers that binding, with its destinations and access read now; a `pending` or `action-required` answer that bound nothing is worked out again; a refused creation replays its refusal; nothing is created twice |
 | `meNotificationPreferencesPut` | `network-only` | `stored-result` | the per-principal admin-operation ledger, checked before membership, so a replay answers the committed body even after the caller left a muted project; another body under the same key is `409 idempotency-conflict` |
+| `meGithubInstallationUnlink` | `network-only` | `state` | no ledger: removes the caller's link to the installation; a repeat answers `404 not-found` from state (already unlinked) |
 | `meConnectionRevoke` | `network-only` | `state` | no ledger: a disconnect forgets the consent and closes every grant of the caller's for the client; a repeat under any key settles a pending closure and answers `204` from state (`409 operation-in-progress` with `Retry-After` while a closure is still being delivered) |
 | `meNotificationsMarkRead` | `network-only` | `state` | no ledger: a mark only sets an unset `readAt` on the caller's own visible rows, so any repeat, with the same key or another, answers `204` and changes nothing more |
 | `laneGenerationCreate`, `laneScopeRequest`, `laneScopeGrant`, `laneBlobUpload`, `laneChangesSubmit`, `laneMaterialize`, `laneWrapUp` | `network-only` | `stored-result` | lanes: ledgered on the task after the lane gates (open execution, generation state, scope version), so a replay answers the recorded execution, generation, request, grant, blob id, change, save point or wrap-up (the journals are keyed before any provider write, so a replay never writes twice, even after the lane head or the canonical moved); another body under the same key is `409 idempotency-conflict`. `laneMaterialize` is also idempotent per claim under any key: a later call answers `200` with the current generation and lane head and never resets saved work. A `503 lane-repository-unavailable` is retried with the same key (the journal resumes). On a GitHub canonical, `laneMaterialize`, `laneGenerationCreate` and `laneWrapUp` answer `429 rate-limited` (`details.reason: provider-rest-budget`) with `Retry-After` while the provider's request budget is low, retried like any `429` under the same key (nothing was created); the lane manifest and blob reads can answer that `429` too, and `413` with `details.reason: rest-budget` when one operation would need too many provider requests (never retried); `laneChangesSubmit` answers a `LaneSavePoint` and refuses `409 lane-not-materialized` before `laneMaterialize`. `laneScopeGrant` (like `taskClaim` and `laneReopen`) answers `409 write-scope-claimed` with `details.requested` and, to a human with `tasks:read`, `details.holders` |
@@ -165,8 +166,8 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 | `approvalTrustActivationChallenge` | `never` | `none` | mints a fresh single-use challenge each call |
 | `approvalTrustActivate` | `never` | `state` | an already-activated binding answers with its activation record, provided the binding still qualifies |
 | `approvalGrantExchange` | `never` | `metadata-without-token` | replay requires the same digest, key and principal **and** a grant that is still valid and unconsumed, otherwise the audited denial; the library returns `GrantIssued` only when `token` is present, otherwise `GrantRecoveredWithoutToken`; recovery is a new exchange with a fresh assertion, a documented caller step |
-| `authCallback`, `authCliStart`, `oauthAuthorize`, `oauthConsent` | `callable: false` | `navigation` | browser navigation, never fetched by the library (build the authorization URL with `oauth.authorizationUrl`) |
-| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus`, `orgRecordRestoreAbort`, `eventsStream`, `liveTenant`, `meLive`, `machineReadGrantExchange`, `oauthToken`, `oauthRevoke` | `callable: false` | `excluded` | the OAuth token and revocation endpoints are form-encoded with RFC 6749 errors and are called by the OAuth helpers (`exchangeCode`, `refreshGrant`, `revokeGrant`), never by the JSON client; the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators; the live-update streams and the machine read-grant exchange are not wrapped by this release |
+| `authCallback`, `authCliStart`, `oauthAuthorize`, `oauthConsent`, `githubInstall`, `githubCallback` | `callable: false` | `navigation` | browser navigation, never fetched by the library (build the authorization URL with `oauth.authorizationUrl`; send the browser to the `url` `workspaces.connectGitHub` answers) |
+| `projectRepositoryGitRefsGet`, `projectRepositoryGitUploadPack`, `collaborationEventDelivery`, `orgRecordInspect`, `orgRecordExportSchema`, `orgRecordExportChunk`, `orgRecordRestore`, `orgRecordRestoreStatus`, `orgRecordRestoreAbort`, `eventsStream`, `liveTenant`, `meLive`, `machineReadGrantExchange`, `oauthToken`, `oauthRevoke`, `githubWebhook` | `callable: false` | `excluded` | the OAuth token and revocation endpoints are form-encoded with RFC 6749 errors and are called by the OAuth helpers (`exchangeCode`, `refreshGrant`, `revokeGrant`), never by the JSON client; the human read-only Git transport is outside the JSON client; the webhook id is typed for receivers (`verifyWebhook`); the operator record routes are for the service's operators; the live-update streams and the machine read-grant exchange are not wrapped by this release; the GitHub webhook is GitHub's to call |
 
 ## Journeys
 
@@ -469,15 +470,18 @@ if (binding.state === 'ready') {
 }
 ```
 
-- `source` is `{kind: 'github', owner, name, providerRepoId?}` (the caller's readable registrations of that GitHub
-  repository, in every organization), `{kind: 'octocove', tenantId, projectId, repositoryId}` (exactly that
+- `source` is `{kind: 'github', owner, name, providerRepoId?, org?, project?}` (the caller's readable registrations of
+  that GitHub repository, in every organization; without one, a GitHub App installation the caller connected that
+  covers the repository creates the project, in `org` or the caller's personal tenant and named by `project` or the
+  repository, and registers the repository; see "Connecting GitHub" below), `{kind: 'octocove', tenantId, projectId, repositoryId}` (exactly that
   repository, when the caller can read it; `404 not-found` otherwise), or `{kind: 'new-native', org?, project: {slug,
   name}}` with a required `targetRef` (a new project, in `org` or the caller's personal tenant, and its repository,
   created under the usual creation rules and problems). No GitHub token or credential is ever sent.
 - The answer is the binding's view, `WorkspaceBinding`: `ready`; `action-required` with `action.reason`
   (`target-ref-required` or `target-ref-unregistered`: pick one of `targetRefs`, or `defaultBranch` when it is
   registered, and bind again with `targetRef`; `ambiguous-registration`: pick one of `action.candidates` and bind again
-  with `{kind: 'octocove', ...}`; `github-connection-required`; `access-lost`; `repository-unavailable`;
+  with `{kind: 'octocove', ...}`; `github-connection-required` with `action.installUrl` and `action.installationState`;
+  `access-lost`; `repository-unavailable` (with `action.installUrl` when the GitHub App lost access);
   `repository-needs-operator`; `repository-creation-failed`; `creation-refused`); or `pending` (`reason`
   `discovery-incomplete`, `creation-in-progress` or `tenant-unavailable`), which `bind` waits out under the same key and
   body after each Retry-After until the deadline, then returns. Binding again with the same input resumes it; nothing
@@ -486,6 +490,29 @@ if (binding.state === 'ready') {
   (`details.field`); use a new `externalWorkspaceId` for a workspace whose repository changed. The same key with another
   body is `409 idempotency-conflict`. A lost answer is replayed under the same key.
 - `workspaces.get(bindingId)` reads a binding's current view (the caller's access checked again) and writes nothing.
+
+#### Connecting GitHub
+
+When a GitHub repository is not connected yet, `bind` answers `action-required` `github-connection-required`:
+`action.installationState` is `none` (nothing the caller connected covers it), `pending-approval` (an owner of the
+organization must approve the GitHub App the caller asked for) or `repo-not-selected` (the caller's installation on
+that account does not include the repository), and `action.installUrl` starts the connection:
+
+```ts
+if (binding.state === 'action-required' && binding.action.reason === 'github-connection-required' && binding.action.installUrl) {
+  const { url } = await j.workspaces.connectGitHub(binding.action.installUrl, { deadline, returnTo: 'https://studio.example/ws/123' });
+  // Send the human's browser to `url` (one use, ten minutes). It comes back to `returnTo` with `github=connected`
+  // (or `github=pending`); then bind again with the same input and a new key.
+}
+```
+
+`connectGitHub(target, {returnTo?})` takes `action.installUrl` or `{owner, name, providerRepoId?}`. Only the URL's
+repository parameters are used: the request always goes to the client's own `baseUrl`, so the credential is never sent
+anywhere else. `returnTo` must be on the site of one of the client's registered redirect URIs (by default, the first
+one's origin). The browser must belong to the same person (Octocove checks its session there, or signs it in through
+its identity provider, silently when the provider has a session), and GitHub's own sign-in proves that their GitHub
+account can reach the installation. No GitHub token passes through the client. A landing that the target branch's
+protection or rulesets refuse ends with `errorDetail` `target-branch-protected`; nothing is bypassed.
 
 ## Credentials
 

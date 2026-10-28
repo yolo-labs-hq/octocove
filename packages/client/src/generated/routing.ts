@@ -2764,6 +2764,243 @@ export const routing = {
       "reason": "excluded"
     }
   },
+  "githubCallback": {
+    "operationId": "githubCallback",
+    "kind": "path",
+    "method": "GET",
+    "path": "/github/callback",
+    "basePath": "",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "code",
+          "required": false
+        },
+        {
+          "name": "installation_id",
+          "required": false
+        },
+        {
+          "name": "setup_action",
+          "required": false
+        },
+        {
+          "name": "state",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "text/html"
+      ],
+      "303": [],
+      "400": [
+        "text/html"
+      ],
+      "403": [
+        "text/html"
+      ],
+      "503": [
+        "text/html"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [
+      303
+    ],
+    "security": [],
+    "policy": {
+      "callable": false,
+      "reason": "navigation"
+    }
+  },
+  "githubConnect": {
+    "operationId": "githubConnect",
+    "kind": "path",
+    "method": "GET",
+    "path": "/github/connect",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "name",
+          "required": false
+        },
+        {
+          "name": "owner",
+          "required": false
+        },
+        {
+          "name": "providerRepoId",
+          "required": false
+        },
+        {
+          "name": "returnTo",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "githubInstall": {
+    "operationId": "githubInstall",
+    "kind": "path",
+    "method": "GET",
+    "path": "/github/install",
+    "basePath": "",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "ticket",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "303": [],
+      "400": [
+        "text/html"
+      ],
+      "401": [
+        "text/html"
+      ],
+      "403": [
+        "text/html"
+      ],
+      "503": [
+        "text/html"
+      ]
+    },
+    "successStatuses": [],
+    "redirectStatuses": [
+      303
+    ],
+    "security": [],
+    "policy": {
+      "callable": false,
+      "reason": "navigation"
+    }
+  },
+  "githubWebhook": {
+    "operationId": "githubWebhook",
+    "kind": "path",
+    "method": "POST",
+    "path": "/github/webhooks",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [
+        {
+          "name": "X-GitHub-Delivery",
+          "required": true
+        },
+        {
+          "name": "X-GitHub-Event",
+          "required": true
+        },
+        {
+          "name": "X-Hub-Signature-256",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "202": [
+        "application/json"
+      ],
+      "204": [],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      202,
+      204
+    ],
+    "redirectStatuses": [],
+    "security": [],
+    "policy": {
+      "callable": false,
+      "reason": "excluded"
+    }
+  },
   "landingsList": {
     "operationId": "landingsList",
     "kind": "path",
@@ -4229,6 +4466,98 @@ export const routing = {
       "HumanCliSession",
       "HumanSession",
       "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "meGithubInstallationUnlink": {
+    "operationId": "meGithubInstallationUnlink",
+    "kind": "path",
+    "method": "POST",
+    "path": "/me/github/installations/{installationId}/unlink",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "installationId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "204": [],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      204
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "state"
+    }
+  },
+  "meGithubInstallationsList": {
+    "operationId": "meGithubInstallationsList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/me/github/installations",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
     ],
     "policy": {
       "callable": true,

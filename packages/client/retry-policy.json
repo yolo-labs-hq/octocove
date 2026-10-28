@@ -584,5 +584,32 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
+  },
+  "githubConnect": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "githubInstall": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "githubCallback": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "githubWebhook": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "meGithubInstallationsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meGithubInstallationUnlink": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
   }
 }

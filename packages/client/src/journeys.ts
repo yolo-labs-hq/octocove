@@ -75,6 +75,10 @@ export interface MeProjectList {
 export type WorkspaceBinding = OpenEnums<Schemas['WorkspaceBinding']>;
 /** `workspaceBindingCreate`'s body: the client's workspace id, its source and, optionally, the target ref. */
 export type WorkspaceBindingInput = Schemas['WorkspaceBindingCreate'];
+/** `githubConnect`'s answer: the browser URL that connects GitHub for the caller, and when its one-use ticket expires. */
+export type GitHubConnectStart = Schemas['GitHubConnectStart'];
+/** The repository a GitHub connection is for: a binding's `action.installUrl`, or the repository's parts. */
+export type GitHubConnectTarget = string | { readonly owner: string; readonly name: string; readonly providerRepoId?: string };
 /** Waits between `pending` workspace binding answers when the server sends no Retry-After. */
 export const WORKSPACE_BINDING_POLL_MS = 5000;
 
@@ -749,6 +753,23 @@ export function journeys(client: OctocoveClient) {
     },
   };
 
+  /** `githubConnect`'s query from a binding's `installUrl` (its repository parameters only, never its origin) or the
+   * repository's parts. Anything else is a `TypeError` before anything is sent. */
+  const githubConnectQuery = (target: GitHubConnectTarget, returnTo?: string) => {
+    let parts: { owner?: string | null; name?: string | null; providerRepoId?: string | null };
+    if (typeof target === 'string') {
+      let url: URL;
+      try { url = new URL(target); } catch { throw new TypeError('connectGitHub: installUrl is not a URL'); }
+      if (!/\/github\/connect$/.test(url.pathname)) throw new TypeError('connectGitHub: installUrl is not a GitHub connection start');
+      parts = { owner: url.searchParams.get('owner'), name: url.searchParams.get('name'), providerRepoId: url.searchParams.get('providerRepoId') };
+    } else parts = target;
+    const segment = /^[A-Za-z0-9_.-]{1,100}$/;
+    if ((parts.owner != null && !segment.test(parts.owner)) || (parts.name != null && !segment.test(parts.name)) || (parts.name != null && parts.owner == null) ||
+        (parts.providerRepoId != null && !/^[1-9][0-9]{0,19}$/.test(parts.providerRepoId)))
+      throw new TypeError('connectGitHub: not a GitHub repository');
+    return { ...(parts.owner != null ? { owner: parts.owner } : {}), ...(parts.name != null ? { name: parts.name } : {}),
+      ...(parts.providerRepoId != null ? { providerRepoId: parts.providerRepoId } : {}), ...(returnTo !== undefined ? { returnTo } : {}) };
+  };
   const isBinding = (b: unknown): b is WorkspaceBinding => isObject(b) && isString(b.state) && isString(b.externalWorkspaceId)
     && (b.state !== 'ready' || (isString(b.bindingId) && isString(b.tenantId) && isString(b.projectId) && isString(b.repositoryId) && isString(b.targetRef)))
     && (b.state !== 'action-required' || (isObject(b.action) && isString(b.action.reason)))
@@ -758,7 +779,9 @@ export function journeys(client: OctocoveClient) {
      * OAuth client token, `octocove:workspaces` (admin tier): `workspaceBindingCreate` (`POST /v1/workspace-bindings`, a
      * global route) resolves the client's workspace `externalWorkspaceId` to one Octocove project, repository and
      * target ref, once, and answers the binding's current view. `source` is `{kind: 'github', owner, name,
-     * providerRepoId?}` (the caller's readable registrations of that repository in every organization), `{kind:
+     * providerRepoId?, org?, project?}` (the caller's readable registrations of that repository in every organization;
+     * without one, a GitHub App installation the caller connected that covers it creates the project, in `org` or the
+     * personal tenant, and registers the repository), `{kind:
      * 'octocove', tenantId, projectId, repositoryId}` (exactly that, if readable; `404 not-found` otherwise), or
      * `{kind: 'new-native', org?, project: {slug, name}}` with a required `targetRef` (the project and its repository
      * are created, under the usual creation rules). While the answer is `pending` (`discovery-incomplete`,
@@ -767,7 +790,8 @@ export function journeys(client: OctocoveClient) {
      * created twice). `ready` and `action-required` are returned as they are: on `action-required`, `action.reason`
      * says what to do next (`target-ref-required` and `target-ref-unregistered`: choose one of `targetRefs` and call
      * again with `targetRef`; `ambiguous-registration`: choose one of `action.candidates` and call again with
-     * `{kind: 'octocove', ...}`; `github-connection-required`, `access-lost`, `repository-unavailable`,
+     * `{kind: 'octocove', ...}`; `github-connection-required` with `action.installUrl` and `action.installationState`
+     * (`connectGitHub` starts the connection), `access-lost`, `repository-unavailable`,
      * `repository-needs-operator`, `repository-creation-failed`, `creation-refused`). A workspace already bound to
      * another source or target ref is `409 binding-source-changed`; the same key with another body
      * `409 idempotency-conflict`.
@@ -808,6 +832,25 @@ export function journeys(client: OctocoveClient) {
         const response = await send(client, scope, options, 'workspaceBindingGet', { path: { bindingId } });
         if (!isBinding(response.body)) throw offShape(response, 'the response is not a workspace binding');
         return response.body;
+      } finally { scope.dispose(); }
+    },
+    /**
+     * OAuth client token (`octocove:workspaces`) or a human session: `githubConnect` (`GET /v1/github/connect`) starts
+     * connecting GitHub for `target`, a binding's `action.installUrl` or `{owner, name, providerRepoId?}`, and answers
+     * `{url, expiresAt}`: send the human's browser to `url` (one use, ten minutes). Only the repository parameters of
+     * an `installUrl` are read; the request always goes to this client's `baseUrl`. `returnTo` (where the browser comes
+     * back, with `github=connected` or `github=pending`) must be on the site of one of the OAuth client's registered
+     * redirect URIs. `503 github-app-unavailable` when the service has no GitHub App.
+     */
+    async connectGitHub(target: GitHubConnectTarget, options: JourneyOptions & { readonly returnTo?: string }): Promise<GitHubConnectStart> {
+      requireHuman(client, 'workspaces.connectGitHub');
+      const query = githubConnectQuery(target, options.returnTo);
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'githubConnect', { query } as never);
+        const b: unknown = response.body;
+        if (!isObject(b) || !isString(b.url) || !isString(b.expiresAt)) throw offShape(response, 'the response is not a GitHub connection start');
+        return response.body as GitHubConnectStart;
       } finally { scope.dispose(); }
     },
   };

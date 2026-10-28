@@ -1,5 +1,13 @@
 # Changelog
 
+## Client 0.12.0
+
+Release `@yolo-labs/octocove-client` 0.12.0 alone (no CLI release): connecting a private GitHub repository through the Octocove GitHub App.
+
+- Regenerated from the current API contract. New operations: `githubConnect` (`GET /v1/github/connect`, `network-only` / `null`), `meGithubInstallationsList` (`GET /v1/me/github/installations`, `network-only` / `null`) and `meGithubInstallationUnlink` (`POST /v1/me/github/installations/{installationId}/unlink`, `network-only` / `state`); the browser legs `githubInstall` and `githubCallback` (`navigation`) and the GitHub webhook `githubWebhook` (`excluded`) are typed but not callable. New schemas `GitHubConnectStart`, `GitHubWebhookAccepted` and `GitHubInstallationList`. `WorkspaceBindingCreate`'s GitHub source accepts `org` and `project`; `WorkspaceBinding`'s `action` carries `installUrl` and `installationState`. The retry policy and the README table cover 127 operation ids.
+- New journey `workspaces.connectGitHub(target, {deadline, returnTo?})`: from a binding's `action.installUrl` (only its repository parameters; the request always goes to the client's own `baseUrl`) or `{owner, name, providerRepoId?}`, the browser URL that connects GitHub. Types `GitHubConnectStart` and `GitHubConnectTarget`.
+- Documented: the `installationState` values, `repository-unavailable` with `installUrl`, and the landing `errorDetail` `target-branch-protected`.
+
 ## Client 0.11.0
 
 Release `@yolo-labs/octocove-client` 0.11.0 alone (no CLI release): workspace bindings for OAuth clients.

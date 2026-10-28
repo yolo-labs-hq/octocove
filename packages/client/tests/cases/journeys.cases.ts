@@ -465,6 +465,27 @@ export const journeyCases: Case[] = [
     await rejects(() => journeys(delegated).workspaces.get('wsb_1', { deadline: soon() }), TypeError);
     await rejects(() => journeys(delegated).workspaces.bind({ externalWorkspaceId: 'ws', source: { kind: 'github', owner: 'a', name: 'b' } }, { deadline: soon() }), TypeError);
   }),
+  test('workspaces.connectGitHub reads only the repository from an installUrl, calls its own base URL, and returns the browser URL', async () => {
+    const start = { url: 'https://app.example.invalid/github/install?ticket=t', expiresAt: '2026-10-28T12:10:00.000Z' };
+    const { fetch, calls } = scriptedFetch(json(200, start), json(200, start));
+    const j = journeys(client(fetch));
+    // A foreign origin in the URL is never contacted: the client's own baseUrl is, with the repository parameters only.
+    equal(await j.workspaces.connectGitHub('https://elsewhere.example.invalid/v1/github/connect?owner=acme&name=web&providerRepoId=42&extra=1',
+      { deadline: soon(), returnTo: 'https://studio.example.invalid/ws/1' }), start);
+    const first = new URL(calls[0]!.url);
+    equal([calls[0]!.method, first.origin + first.pathname], ['GET', `${BASE}/v1/github/connect`]);
+    equal(Object.fromEntries(first.searchParams), { owner: 'acme', name: 'web', providerRepoId: '42', returnTo: 'https://studio.example.invalid/ws/1' });
+    equal(await j.workspaces.connectGitHub({ owner: 'acme', name: 'web' }, { deadline: soon() }), start);
+    equal(Object.fromEntries(new URL(calls[1]!.url).searchParams), { owner: 'acme', name: 'web' });
+    for (const bad of ['not a url', 'https://x.example.invalid/v1/other?owner=a', 'https://x.example.invalid/v1/github/connect?owner=a%2Fb'])
+      await rejects(() => j.workspaces.connectGitHub(bad, { deadline: soon() }), TypeError, bad);
+    equal(calls.length, 2);
+    const offShape = scriptedFetch(json(200, { url: 1 }));
+    await rejects(() => journeys(client(offShape.fetch)).workspaces.connectGitHub({ owner: 'a', name: 'b' }, { deadline: soon() }), ApiError);
+    const dormant = scriptedFetch(problem(503, 'github-app-unavailable'));
+    const error = await rejects(() => journeys(client(dormant.fetch)).workspaces.connectGitHub({ owner: 'a', name: 'b' }, { deadline: soon() }), ApiError);
+    equal([error.status, error.code], [503, 'github-app-unavailable']);
+  }),
   test('projects.list reads /me/projects with each project\'s tenant and reports a partial read', async () => {
     const other = 'org_00000000-0000-4000-8000-000000000002';
     const item = { projectId: 'project-1', slug: 'first', name: 'First', artifactsNamespace: 'oc-project-1', taskCounts: null, needsReview: null, repository: null, tenantId: ORG, tenantKind: 'personal', owner: { kind: 'user', slug: 'jane' } };
