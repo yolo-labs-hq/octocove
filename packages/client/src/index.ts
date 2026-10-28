@@ -106,6 +106,8 @@ export type {
   StaleBaseRefusal,
   Submission,
   Task,
+  GitHubConnectStart,
+  GitHubConnectTarget,
   WorkspaceBinding,
   WorkspaceBindingInput,
 } from './journeys.js';
