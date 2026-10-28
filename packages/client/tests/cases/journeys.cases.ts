@@ -449,6 +449,12 @@ export const journeyCases: Case[] = [
     const controller = new AbortController();
     const aborted = scriptedFetch(withRetryAfter(json(202, pending), '0.01'), () => { controller.abort(); return hang(); });
     await rejects(() => journeys(client(aborted.fetch)).workspaces.bind(input, { deadline: soon(), signal: controller.signal }), TransportError);
+    // Aborted during the wait itself, with the bearer in the reason: the error never carries it.
+    const waiting = new AbortController();
+    const asleep = scriptedFetch(withRetryAfter(json(202, pending), '1'));
+    const error = await rejects(() => journeys(client(asleep.fetch)).workspaces.bind(input, { deadline: soon(), signal: waiting.signal,
+      sleep: async (_ms, signal) => { waiting.abort(`Bearer ${TOKEN}`); await new Promise((_, reject) => signal.aborted ? reject(signal.reason) : signal.addEventListener('abort', () => reject(signal.reason))); } }), TransportError);
+    ok(!dumpError(error).includes(TOKEN), 'the abort reason is sanitized');
   }),
   test('workspaces.get reads one binding, and both need a human (an OAuth client acts for one)', async () => {
     const view = { state: 'action-required', externalWorkspaceId: 'ws-1', bindingId: 'wsb_1', projectId: 'p', source: { kind: 'octocove' }, action: { reason: 'access-lost' } };

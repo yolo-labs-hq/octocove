@@ -35,6 +35,9 @@ import {
   type SendOptions,
   type WaitOptions,
   type WaitStop,
+  journeySecrets,
+  pinnedCredential,
+  scopeError,
   waitStop,
 } from './journey-core.js';
 import { bearer, type BearerTransport } from './transports.js';
@@ -773,6 +776,7 @@ export function journeys(client: OctocoveClient) {
       requireHuman(client, 'workspaces.bind');
       const scope = journeyScope(options);
       const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
+      const secrets = journeySecrets(client, 'POST', pinnedCredential(client), input);
       let last: WorkspaceBinding | undefined;
       try {
         for (;;) {
@@ -787,7 +791,8 @@ export function journeys(client: OctocoveClient) {
       } catch (error) {
         // The deadline ended a later wait or resend: the last pending view is the answer (a caller's abort is not).
         if (last && waitStop(error, scope) === 'deadline-exceeded') return last;
-        throw error;
+        // An abort of the journey's own wait carries the caller's reason: sanitized like the transport's causes.
+        throw scopeError(error, scope, secrets);
       } finally { scope.dispose(); }
     },
     /**
