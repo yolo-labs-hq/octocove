@@ -3218,6 +3218,9 @@ export const routing = {
       "403": [
         "application/problem+json"
       ],
+      "404": [
+        "application/problem+json"
+      ],
       "409": [
         "application/problem+json"
       ],
