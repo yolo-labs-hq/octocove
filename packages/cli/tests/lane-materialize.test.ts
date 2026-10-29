@@ -41,7 +41,8 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
   });
 }
 
-const scope = { read: ["src/", "README.md"], write: ["src/"] };
+const SCOPE = { read: ["src/", "README.md"], write: ["src/"] };
+let scope: { read: string[]; write: string[] } = SCOPE;
 const base1 = SHA("base-1"), base2 = SHA("base-2");
 const HEAD = (generation: number) => SHA(`lane-head-${generation}`), SAVED = SHA("saved");
 const gen1 = { "src/a.txt": "alpha\n", "src/b.txt": "bravo\n", "src/run.sh": "#!/bin/sh\necho hi\n", "src/link": "a.txt", "README.md": "readme v1\n" };
@@ -54,7 +55,7 @@ const manifest = (generation: number, baseSha: string, files: Record<string, str
 let generation: number;
 
 beforeEach(() => {
-  calls = []; routes = {}; generation = 1;
+  calls = []; routes = {}; generation = 1; scope = SCOPE;
   work = mkdtempSync(join(tmpdir(), "octocove-lane-"));
   dir = join(work, "T1");
   const files = () => generation === 1 ? gen1 : gen2;
@@ -174,6 +175,36 @@ describe("octo lane (materialized)", () => {
     expect(JSON.parse(outText)).toMatchObject({ refreshed: false, generation: 2 });
     expect(await cli(["lane", "resolve", "src/zzz", "--keep", "local"])).toBe(EXIT.failure);
     expect(errText).toContain("lane-conflict-unknown");
+  });
+
+  it("the whole-repository scope: every path is writable, nested or new; a whole read with a narrow write still refuses the rest", async () => {
+    scope = { read: ["."], write: ["."] };
+    expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+    expect(sidecar().scope).toEqual({ read: ["."], write: ["."] });
+    writeFileSync(join(dir, "README.md"), "readme local\n");
+    writeFileSync(join(dir, "NEW.md"), "new\n");
+    mkdirSync(join(dir, "brand/new"), { recursive: true });
+    writeFileSync(join(dir, "brand/new/x.txt"), "x\n");
+    rmSync(join(dir, "src/b.txt"));
+    expect(await cli(["lane", "submit"])).toBe(EXIT.ok);
+    const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : 1);
+    expect([...changes()[0]!.body.operations].sort(byPath)).toEqual([
+      { op: "put", path: "NEW.md", blobId: sha256("new\n"), mode: "100644" },
+      { op: "put", path: "README.md", blobId: sha256("readme local\n"), mode: "100644" },
+      { op: "put", path: "brand/new/x.txt", blobId: sha256("x\n"), mode: "100644" },
+      { op: "delete", path: "src/b.txt" },
+    ]);
+    // The sidecar is never lane content.
+    expect(JSON.stringify(changes()[0]!.body.operations)).not.toContain(".octocove");
+    rmSync(work, { recursive: true, force: true });
+    work = mkdtempSync(join(tmpdir(), "octocove-lane-")); dir = join(work, "T1");
+    scope = { read: ["."], write: ["src/"] };
+    expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+    writeFileSync(join(dir, "README.md"), "readme local\n");
+    calls = [];
+    expect(await cli(["lane", "submit"])).toBe(EXIT.failure);
+    expect(errText).toContain("scope-refused");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
 
   it("refuses to submit an edit outside the write scope, with nothing uploaded", async () => {
