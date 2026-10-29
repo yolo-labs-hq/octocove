@@ -841,7 +841,7 @@ export interface paths {
         put?: never;
         /**
          * Create a new materialization generation (preview)
-         * @description Scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded. A scope-expanded generation answers 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles. On a lane with a lane repository, a generation is a journaled head transition (the claim's own agent only). base-refreshed happens only on this explicit request and rebases the lane head - a new complete snapshot at the new base, then one rebase commit (parent the old head) replaying the lane's net change. A lane-changed path that also changed upstream (the same path, or one an ancestor of the other, including type changes) refuses the refresh with 409 refresh-conflict listing every conflict (details.conflicts); retry under a new key with one resolution per listed path. Resolutions are accepted only for listed paths, take content needs an uploaded blobId, a resolution writes only inside the write scope (403 scope-refused), and the rebase commit records every resolution; 400 invalid-request (details.field resolutions, details.reason not-a-conflict or duplicate-path) for a resolution naming another path or a path twice, 404 blob-unknown for content naming no uploaded blob. scope-expanded adds the newly readable paths to the snapshot and the head as one commit (a newly readable path colliding with the lane's own change answers 409 refresh-conflict; scope expansion takes no resolutions, 400). expectedHead, when sent, must be the current lane head (409 lane-head-moved, details.laneHead). 409 operation-in-progress (retryable) while another transition settles; 413 materialization-too-large when the new snapshot's listing is incomplete (details.reason listing-truncated, head-listing-truncated or bytes); 503 lane-repository-unavailable (retryable with the same key; the journal resumes, as does the task alarm). The same key replays a recorded answer; another body under it is 409 idempotency-conflict. 409 lane-head-moved also when the lane ref moved under the transition, 409 authority-lost when the claim, delegation or execution ended before the lane ref moved; once it moved, the transition is undone instead (409 operation-in-progress until the task alarm has put the ref back, then a replay answers 409 change-failed, details.reason authority-lost), 409 change-failed (details.reason) when a replayed transition failed terminally. The answer carries laneHead, previousHead and, for base-refreshed, the resolutions applied. Before lane/materialize, resolutions and expectedHead answer 409 lane-not-materialized and the generation behaves as today. On a GitHub canonical the provider reads are budgeted - at most 2,500 GitHub REST requests per operation (413 materialization-too-large, details.reason rest-budget, details.requests and details.limit; narrow the read scope), and none once the credential's remaining hourly budget, as GitHub reports it, would fall below a reserve of 250 kept for wrap-up and landing (429 rate-limited, details.reason provider-rest-budget, with Retry-After until GitHub's window resets). A snapshot admits its blob reads before the first one is made, so nothing is created when it is refused; immutable objects already read (trees, commits, blobs, by id) are not read again. A GitHub refresh reads from GitHub only the blobs the lane repository does not already hold.
+         * @description Scope-expanded keeps the base commit and takes the newest granted scope version (409 scope-unchanged when none is newer); base-refreshed keeps the scope version and takes the target ref's pinned head (409 base-unchanged when it did not move). The open generation is superseded in the same transaction; reads naming it answer 409 generation-superseded. A scope-expanded generation answers 409 scope-overlap (details.retryable) while another lane's unsettled (or just failed) change lies inside the write scope; retry once it settles. On a lane with a lane repository, a generation is a journaled head transition (the claim's own agent only). base-refreshed happens only on this explicit request and rebases the lane head - a new complete snapshot at the new base, then one rebase commit (parent the old head) replaying the lane's net change. A lane-changed path that also changed upstream (the same path, or one an ancestor of the other, including type changes) refuses the refresh with 409 refresh-conflict listing every conflict (details.conflicts); retry under a new key with one resolution per listed path. Resolutions are accepted only for listed paths, take content needs an uploaded blobId, a resolution writes only inside the write scope (403 scope-refused), and the rebase commit records every resolution; 400 invalid-request (details.field resolutions, details.reason not-a-conflict or duplicate-path) for a resolution naming another path or a path twice, 404 blob-unknown for content naming no uploaded blob. scope-expanded adds the newly readable paths to the snapshot and the head as one commit (a newly readable path colliding with the lane's own change answers 409 refresh-conflict; scope expansion takes no resolutions, 400). expectedHead, when sent, must be the current lane head (409 lane-head-moved, details.laneHead). 409 operation-in-progress (retryable) while another transition settles; 413 materialization-too-large when the new snapshot's listing is incomplete (details.reason listing-truncated, head-listing-truncated or bytes); 503 lane-repository-unavailable (retryable with the same key; the journal resumes, as does the task alarm). The same key replays a recorded answer; another body under it is 409 idempotency-conflict. 409 lane-head-moved also when the lane ref moved under the transition, 409 authority-lost when the claim, delegation or execution ended before the lane ref moved; once it moved, the transition is undone instead (409 operation-in-progress until the task alarm has put the ref back, then a replay answers 409 change-failed, details.reason authority-lost), 409 change-failed (details.reason) when a replayed transition failed terminally. The answer carries laneHead, previousHead and, for base-refreshed, the resolutions applied. Before lane/materialize, resolutions and expectedHead answer 409 lane-not-materialized and the generation behaves as today. On a GitHub canonical the provider reads are budgeted - at most 2,500 GitHub REST requests per operation (413 materialization-too-large, details.reason rest-budget, details.requests and details.limit; narrow the read scope), and none once the credential's remaining hourly budget, as GitHub reports it, would fall below a reserve of 250 kept for wrap-up and landing (429 rate-limited, details.reason provider-rest-budget, with Retry-After until GitHub's window resets). A snapshot admits its blob reads before the first one is made, so nothing is created when it is refused; immutable objects already read (trees, commits, blobs, by id) are not read again. A GitHub refresh reads from GitHub only the blobs the lane repository does not already hold. amendment - when the new scope's read is the root scope ("."), the new snapshot is the new base tree, streamed from the canonical's Git transport (only the objects the previous base tree lacks, when the lane held it whole), with the limits and refusals of laneMaterialize (listing-truncated, blob-bytes, bytes, pack-bytes; 409 lane-path-refused); the lane's own change is read from the record and the head diff, not listed.
          */
         post: operations["laneGenerationCreate"];
         delete?: never;
@@ -859,7 +859,7 @@ export interface paths {
         };
         /**
          * Read a generation's manifest (preview)
-         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that. Once the lane is materialized the manifest lists the lane head (the snapshot plus every save point) instead of the base and carries laneHead; baseSha stays the generation's pinned base. Gitlinks are not lane content, so the base's gitlinks inside the read scope are listed with the head's entries, unless the head has an entry at, below or above that path. Before materialization laneHead is null and the entries are the base's, as today. head pins the read to one lane commit of the open generation's recorded lineage - its snapshot, the head a new execution inherited, or a recorded save point (409 generation-superseded for any other commit; 409 lane-not-materialized before materialization; 400 when malformed); without it the current head is served. 503 lane-repository-unavailable (retryable) while the lane repository cannot be read. Once the lane is retired (or retiring) its head is never read and never replaced by the base (409 lane-retired, details.laneRepositoryId and details.retiredAt); the landed result stays readable on the canonical.
+         * @description The entries of the generation's base commit inside the read scope, with changedSincePrevious for a base-refreshed generation. The claim's agent reads only its own open generation (409 generation-superseded otherwise); a project member with tasks:read names the claim with ?claim (default the task's active materialized claim) and reads that claim's latest execution, so a generation number alone is not an immutable address; use laneGenerationManifestGet for that. Once the lane is materialized the manifest lists the lane head (the snapshot plus every save point) instead of the base and carries laneHead; baseSha stays the generation's pinned base. Gitlinks are not lane content, so the base's gitlinks inside the read scope are listed with the head's entries, unless the head has an entry at, below or above that path. Before materialization laneHead is null and the entries are the base's, as today. head pins the read to one lane commit of the open generation's recorded lineage - its snapshot, the head a new execution inherited, or a recorded save point (409 generation-superseded for any other commit; 409 lane-not-materialized before materialization; 400 when malformed); without it the current head is served. 503 lane-repository-unavailable (retryable) while the lane repository cannot be read. Once the lane is retired (or retiring) its head is never read and never replaced by the base (409 lane-retired, details.laneRepositoryId and details.retiredAt); the landed result stays readable on the canonical. amendment - a root read scope (".") lists up to 100,000 files, complete (truncated false) once materialized; entries of a materialized root lane carry no size. Read the files of a root lane with lanePackGet rather than one laneBlobGet per file.
          */
         get: operations["laneManifestGet"];
         put?: never;
@@ -899,9 +899,29 @@ export interface paths {
         };
         /**
          * Read one blob inside the generation's read scope (preview)
-         * @description A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large. Content is base64; submodule entries carry no content. Once the lane is materialized the blob is read at the lane head, or at head when given - pass the manifest's laneHead so a multi-file download is consistent even if the head moves meanwhile (409 generation-superseded for a commit outside the open generation's recorded lineage; 409 lane-not-materialized for head before materialization). A path absent at that head is 404; a gitlink of the base the head does not replace is answered from the base. The answer carries laneHead, null before materialization; 503 lane-repository-unavailable (retryable) while the lane repository cannot be read; 409 lane-retired once the lane is retired. base instead reads the upstream side of a conflict - the file at the canonical commit a 409 refresh-conflict named in details.newBaseSha (or the generation's pinned base, details.oldBaseSha) - so a client can build a content resolution; still limited to the read scope.
+         * @description A path outside the read scope answers 403 scope-refused; a malformed path 400; a path absent at the base 404; a blob above the lane limit 413 blob-too-large (1 MiB; on a whole-repository lane, read scope ".", once materialized, 32 MiB less 64 KiB, the root per-file limit, streamed - size then follows content in the answer). Content is base64; submodule entries carry no content. Once the lane is materialized the blob is read at the lane head, or at head when given - pass the manifest's laneHead so a multi-file download is consistent even if the head moves meanwhile (409 generation-superseded for a commit outside the open generation's recorded lineage; 409 lane-not-materialized for head before materialization). A path absent at that head is 404; a gitlink of the base the head does not replace is answered from the base. The answer carries laneHead, null before materialization; 503 lane-repository-unavailable (retryable) while the lane repository cannot be read; 409 lane-retired once the lane is retired. base instead reads the upstream side of a conflict - the file at the canonical commit a 409 refresh-conflict named in details.newBaseSha (or the generation's pinned base, details.oldBaseSha) - so a client can build a content resolution; still limited to the read scope. On a whole-repository lane that base's files are read from the lane repository, at the root per-file limit.
          */
         get: operations["laneBlobGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/tasks/{id}/lane/pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read every file of a whole-repository lane head as one Git pack (preview)
+         * @description Amendment (whole-repository materialization). For a materialized lane whose read scope is the root scope ("."), the objects of the lane head's tree - every directory, file and symlink, no commit and no gitlink - as one Git packfile (version 2 or 3, possibly with OFS_DELTA and REF_DELTA objects whose bases are in the same pack), streamed from the lane repository. Each object is identified by its Git object id, so a client checks every file against the manifest's sha. generation, head and claim are as for laneBlobGet; the response's X-Octocove-Lane-Head header names the lane commit served. have names a lane commit the client already holds (for example the lane head it materialized before a refresh) - objects that commit reaches, its history included, are left out, so a client reads any file it still lacks with laneBlobGet; an unknown commit narrows nothing. 409 lane-not-materialized before lane/materialize; 409 lane-pack-unavailable (details.reason scope) for any read scope other than "."; 409 generation-superseded, lane-retired as for laneBlobGet; 503 lane-repository-unavailable (retryable) while the lane repository cannot be read. A stream that ends early fails the pack's own checksum; read it again. A pack larger than 512 MiB cannot be refused before it streams - its stream ends early once, and every later read of that head answers 413 lane-pack-too-large (details.reason pack-bytes, details.limit) at once - read the files with laneBlobGet instead. Never carries a provider URL or credential.
+         */
+        get: operations["lanePackGet"];
         put?: never;
         post?: never;
         delete?: never;
@@ -994,6 +1014,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{orgId}/tasks/{id}/lane/save-points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the lane's save points (work in progress)
+         * @description Amendment (save point visibility). The task's recorded save points, newest first (recordedAt, then savePointId, descending), for a project member with tasks:read; agent delegations are refused (403). Save points are visibility only - work in progress, not submitted for review: every answer carries stage work-in-progress, and only a wrap-up's candidate is reviewed (wrap-up is unchanged). claim narrows the list to one materialized claim (a reopened task has several). limit is 1 to 100 (default 30; 400 invalid-request otherwise); nextCursor, when not null, reads the next page with the same filter (400 invalid-cursor for another reader, task or filter). Each item is read from the record alone (no provider call): its execution and generation, the lane heads, the agent's message as sent (null when it sent none; render it as text), when it was recorded, who saved it, and the counts of the journal's operations, which are always inside the generation's write scope. A journaled, written or failed save point is never listed. Not audited.
+         */
+        get: operations["laneSavePointsList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/tasks/{id}/lane/save-points/{savePointId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one save point and the files it changed (work in progress)
+         * @description Amendment (save point visibility). One recorded save point of the task (404 not-found otherwise), as the list item, plus the files its commit changed against previousHead, compared on the lane repository's trees with the canonical compare's tree walk and bounds (at most 300 files in path order, omittedFiles the rest; 413 comparison-too-large past the traversal bounds). Only paths inside the save point's generation read scope are listed or counted. A deleted and an added path with the same object id pair up as one renamed file (at the new path, with previousPath); nothing is read for it. Line counts are in the diff. Visibility only, not review (stage work-in-progress). Humans with tasks:read; agent delegations are refused (403). 409 lane-retired once the lane is retired or retiring (its repository is gone; the list still shows the record); 503 lane-repository-unavailable (retryable) while the lane repository cannot be read.
+         */
+        get: operations["laneSavePointGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/tasks/{id}/lane/save-points/{savePointId}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare one save point with its previous head (work in progress)
+         * @description Amendment (save point visibility). The text diff of one recorded save point against previousHead (baseSha previousHead, headSha laneHead), computed by the canonical compare's diff (codeCompareGet) on the lane repository, with the same bounds and omission flags: at most 300 files in path order (omittedFiles the rest), text hunks bounded to 512 KiB per file and 8 MiB in all, binary, too-large and unavailable files flagged, 413 comparison-too-large past the traversal bounds. A rename is a deleted and an added file here. Only paths inside the save point's generation read scope are listed or counted. Visibility only, not review (stage work-in-progress). Humans with tasks:read; agent delegations are refused (403). 404 not-found, 409 lane-retired and 503 lane-repository-unavailable as laneSavePointGet.
+         */
+        get: operations["laneSavePointDiff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs/{orgId}/tasks/{id}/lane/materialize": {
         parameters: {
             query?: never;
@@ -1005,7 +1085,7 @@ export interface paths {
         put?: never;
         /**
          * Create the lane repository for the open generation
-         * @description The claim's agent explicitly materializes its lane: the first call creates the scoped lane repository for the open generation (create, reconcile by name, write the snapshot of the generation's base restricted to the read scope, set the lane head). Idempotent per claim: every later call, including one after a refresh, a scope expansion or a new execution, answers the current generation, base and lane head and never re-seeds the repository or resets the head (200). The body is empty; the claim and execution come from the delegation. A snapshot is written only from a complete listing of the read scope; a listing truncated by the entry or tree-read limits answers 413 materialization-too-large and nothing is created, so narrow the read scope. 409 execution-inactive without an open execution; 409 claim-inactive; 409 operation-in-progress (retryable) while a head transition is settling; 503 lane-repository-unavailable (retryable with the same key) while the lane repository cannot be reached. Never returns a lane repository URL or a credential. A lane that never calls this route never gets a repository; its reads serve the pinned base. The snapshot holds every file and symlink of the read scope (gitlinks are not lane content); a read scope whose files exceed 16 MiB of content also answers 413 materialization-too-large (details.reason bytes; listing-truncated otherwise). 409 repository-provider-unsupported on a canonical other than Artifacts or GitHub; 409 change-failed (details.reason) once an earlier materialization of this claim failed terminally. 409 lane-retired once the lane was retired: a retired lane is never materialized again. On a GitHub canonical the provider reads are budgeted - at most 2,500 GitHub REST requests per operation (413 materialization-too-large, details.reason rest-budget, details.requests and details.limit; narrow the read scope), and none once the credential's remaining hourly budget, as GitHub reports it, would fall below a reserve of 250 kept for wrap-up and landing (429 rate-limited, details.reason provider-rest-budget, with Retry-After until GitHub's window resets). A snapshot admits its blob reads before the first one is made, so nothing is created when it is refused; immutable objects already read (trees, commits, blobs, by id) are not read again. A new generation on a lane with a lane repository is a journaled head transition (refresh or scope expansion); a new execution inherits the lane head.
+         * @description The claim's agent explicitly materializes its lane: the first call creates the scoped lane repository for the open generation (create, reconcile by name, write the snapshot of the generation's base restricted to the read scope, set the lane head). Idempotent per claim: every later call, including one after a refresh, a scope expansion or a new execution, answers the current generation, base and lane head and never re-seeds the repository or resets the head (200). The body is empty; the claim and execution come from the delegation. A snapshot is written only from a complete listing of the read scope; a listing truncated by the entry or tree-read limits answers 413 materialization-too-large and nothing is created, so narrow the read scope. 409 execution-inactive without an open execution; 409 claim-inactive; 409 operation-in-progress (retryable) while a head transition is settling; 503 lane-repository-unavailable (retryable with the same key) while the lane repository cannot be reached. Never returns a lane repository URL or a credential. A lane that never calls this route never gets a repository; its reads serve the pinned base. The snapshot holds every file and symlink of the read scope (gitlinks are not lane content); a read scope whose files exceed 16 MiB of content also answers 413 materialization-too-large (details.reason bytes; listing-truncated otherwise). 409 repository-provider-unsupported on a canonical other than Artifacts or GitHub; 409 change-failed (details.reason) once an earlier materialization of this claim failed terminally. amendment (whole-repository materialization) - a root read scope (".") is materialized without reading any blob: the base tree's objects are streamed from the canonical's own Git transport into the lane repository, server-side. Its limits are larger and its refusals typed, before anything is created - 413 materialization-too-large with details.reason listing-truncated (more than 100,000 files or 20,000 directory reads; details.entryLimit, details.treeReadLimit), blob-bytes (one file over the 32 MiB provider object limit less 64 KiB; details.path, details.limit), bytes (more than 2 GiB of file content) or pack-bytes (more than 512 MiB of compressed objects transferred in all, or one directory's file that cannot travel alone; this one fails the materialization terminally). A base whose objects do not fit one provider push is transferred directory by directory, so a large repository takes longer but is not refused for that; 409 lane-path-refused (details.path, details.reason git-metadata, reserved or shape) when the base holds a path no lane may hold (a segment that opens.git on some filesystem - any letter case, NTFS trailing dots or spaces, an alternate data stream, the short name git~1, HFS+ ignorable code points -, a first segment.octocove in any letter case, the client's sidecar directory, or a name the tree writers refuse). The 16 MiB content limit and the GitHub REST budget of blob reads do not apply to a root read scope. 409 lane-retired once the lane was retired: a retired lane is never materialized again. On a GitHub canonical the provider reads are budgeted - at most 2,500 GitHub REST requests per operation (413 materialization-too-large, details.reason rest-budget, details.requests and details.limit; narrow the read scope), and none once the credential's remaining hourly budget, as GitHub reports it, would fall below a reserve of 250 kept for wrap-up and landing (429 rate-limited, details.reason provider-rest-budget, with Retry-After until GitHub's window resets). A snapshot admits its blob reads before the first one is made, so nothing is created when it is refused; immutable objects already read (trees, commits, blobs, by id) are not read again. A new generation on a lane with a lane repository is a journaled head transition (refresh or scope expansion); a new execution inherits the lane head.
          */
         post: operations["laneMaterialize"];
         delete?: never;
@@ -4200,7 +4280,7 @@ export interface components {
             /** Format: date-time */
             expiresAt: string;
         };
-        /** @description Preview. Path prefixes relative to the repository root; every write prefix lies within a read prefix. */
+        /** @description Preview. Path prefixes relative to the repository root; every write prefix lies within a read prefix. A prefix names itself and everything beneath it (a directory prefix ends with /). The root scope "." is the whole repository - every path, nested or added later - and is valid only as the sole entry of its array (read ["."], write ["."]); combined with another prefix, or spelled "./", "/" or "", it is refused 400 invalid-request (parameter scope). A root write needs a root read; a root read with a narrow or empty write grants only that write. A root write overlaps every other write scope on the same repository and target ref (409 write-scope-claimed, both ways). "." is never a file path - lane reads and changes refuse it like any "." segment. */
         LaneScope: {
             read: string[];
             write: string[];
@@ -4340,11 +4420,13 @@ export interface components {
             /** @description The lane commit the blob was read at; null before lane/materialize. */
             laneHead?: components["schemas"]["Sha"] | null;
         };
+        /** @description Read and write are the complete new scope, with the prefix rules of LaneScope. */
         LaneScopeRequest: {
             read: string[];
             write: string[];
             reason?: string;
         };
+        /** @description Read and write are the complete new scope, with the prefix rules of LaneScope. */
         LaneScopeGrant: {
             claimAttemptId: components["schemas"]["Id"];
             read: string[];
@@ -4534,6 +4616,100 @@ export interface components {
             previousHead: components["schemas"]["Sha"];
             /** @description The active wrap-up candidate this save point superseded; null when there was none. A candidate already stale is terminal and is not superseded; its actions read candidate-superseded. */
             supersededCandidateId: components["schemas"]["Id"] | null;
+        };
+        /**
+         * @description Amendment. Save points are visibility only - work in progress, not submitted for review. Only a wrap-up's candidate is reviewed and approved.
+         * @enum {string}
+         */
+        LaneSavePointStage: "work-in-progress";
+        /** @description The save point's journaled operations (each inside its generation's write scope). An operation may leave a file as it was; the detail lists what the commit changed. */
+        LaneSavePointOperations: {
+            total: number;
+            /** @description Put operations. */
+            written: number;
+            /** @description Delete operations. */
+            deleted: number;
+        };
+        /** @description Amendment. One recorded save point, from the record. */
+        LaneSavePointSummary: {
+            savePointId: components["schemas"]["Id"];
+            claimAttemptId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            executionNumber: number;
+            generation: number;
+            laneRepositoryId: components["schemas"]["Id"];
+            /** @description The save point's commit on the lane branch. */
+            laneHead: components["schemas"]["Sha"];
+            /** @description The lane head it was made on (its commit's parent). */
+            previousHead: components["schemas"]["Sha"];
+            /** @description The agent's message as sent (untrusted text; render as text); null when it sent none. */
+            message: string | null;
+            /** Format: date-time */
+            recordedAt: string;
+            /** @description The claim's agent, and the human who delegated it (delegatedBy, issuer|sub). Disclosed as claimedBy is - the agent only under a delegation authorized in this project, delegatedBy only while that human is a member of this project; null otherwise. */
+            savedBy: {
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "human";
+                delegatedBy?: string;
+            } | null;
+            operations: components["schemas"]["LaneSavePointOperations"];
+            stage: components["schemas"]["LaneSavePointStage"];
+        };
+        LaneSavePointList: {
+            taskId: components["schemas"]["Id"];
+            stage: components["schemas"]["LaneSavePointStage"];
+            items: components["schemas"]["LaneSavePointSummary"][];
+            nextCursor: string | null;
+        };
+        /** @description One path the save point's commit changed, inside the read scope. mode is null for a deleted file, previousMode for an added one. */
+        LaneSavePointFile: {
+            path: string;
+            /** @enum {string} */
+            status: "added" | "modified" | "deleted" | "renamed";
+            mode: string | null;
+            previousMode: string | null;
+            /** @description Renamed files only. */
+            previousPath?: string;
+        };
+        /** @description Amendment. A save point (the LaneSavePointSummary fields) and the files its commit changed against previousHead. */
+        LaneSavePointDetail: {
+            savePointId: components["schemas"]["Id"];
+            claimAttemptId: components["schemas"]["Id"];
+            executionId: components["schemas"]["Id"];
+            executionNumber: number;
+            generation: number;
+            laneRepositoryId: components["schemas"]["Id"];
+            /** @description The save point's commit on the lane branch. */
+            laneHead: components["schemas"]["Sha"];
+            /** @description The lane head it was made on (its commit's parent). */
+            previousHead: components["schemas"]["Sha"];
+            /** @description The agent's message as sent (untrusted text; render as text); null when it sent none. */
+            message: string | null;
+            /** Format: date-time */
+            recordedAt: string;
+            /** @description The claim's agent, and the human who delegated it (delegatedBy, issuer|sub). Disclosed as claimedBy is - the agent only under a delegation authorized in this project, delegatedBy only while that human is a member of this project; null otherwise. */
+            savedBy: {
+                id: string;
+                /** @enum {string} */
+                kind: "agent" | "human";
+                delegatedBy?: string;
+            } | null;
+            operations: components["schemas"]["LaneSavePointOperations"];
+            stage: components["schemas"]["LaneSavePointStage"];
+            files: components["schemas"]["LaneSavePointFile"][];
+            /** @description Changed files inside the read scope past the 300 listed. */
+            omittedFiles: number;
+        };
+        LaneSavePointDiff: {
+            savePointId: components["schemas"]["Id"];
+            /** @description previousHead. */
+            baseSha: components["schemas"]["Sha"];
+            /** @description The save point's lane commit. */
+            headSha: components["schemas"]["Sha"];
+            stage: components["schemas"]["LaneSavePointStage"];
+            files: components["schemas"]["CodeDiffFile"][];
+            omittedFiles: number;
         };
         /** @description One path changed both in the lane and upstream (old base to new base: added, modified, deleted or changed type), where the paths are equal or one is an ancestor of the other; path is the shallower of the two. A path both sides brought to the identical result (both deleted, or the same blob id and mode) is not a conflict and is never listed. Blob ids are Git object ids, null where the path is absent (or a directory) on that side. */
         LaneConflict: {
@@ -6700,6 +6876,47 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    lanePackGet: {
+        parameters: {
+            query: {
+                generation: number;
+                claim?: components["schemas"]["Id"];
+                /** @description A lane head (from a manifest's laneHead) to read at; it must be a commit of the open generation's recorded lineage (409 generation-superseded otherwise). Only for a materialized lane (409 lane-not-materialized before lane/materialize). */
+                head?: components["parameters"]["LaneHeadQuery"];
+                /** @description A lane commit the client already holds; what it reaches is left out. */
+                have?: components["schemas"]["Sha"];
+            };
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The lane head's objects, as one Git packfile. */
+            200: {
+                headers: {
+                    /** @description The lane commit served. */
+                    "X-Octocove-Lane-Head"?: components["schemas"]["Sha"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/x-git-packfile": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     laneScopeRequestsList: {
         parameters: {
             query?: {
@@ -6895,6 +7112,101 @@ export interface operations {
             403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneSavePointsList: {
+        parameters: {
+            query?: {
+                claim?: components["schemas"]["Id"];
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the task's save points. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneSavePointList"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneSavePointGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+                savePointId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The save point and its changed files. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneSavePointDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneSavePointDiff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+                savePointId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The save point's diff. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LaneSavePointDiff"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

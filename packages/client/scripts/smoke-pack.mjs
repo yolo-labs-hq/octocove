@@ -56,7 +56,7 @@ try {
   if (JSON.stringify(manifest.octocove) !== JSON.stringify({ openapiVersion: core.BUILD.openapiVersion, generator: core.BUILD.generator, routingGenerator: core.BUILD.routingGenerator })) {
     throw new Error('packed manifest and runtime build record disagree');
   }
-  if (Object.keys(core.routing).length !== 128) throw new Error('packed routing table does not cover 128 operations');
+  if (Object.keys(core.routing).length !== 132) throw new Error('packed routing table does not cover 132 operations');
   process.stdout.write(`${filename}: ${files.length} files, ${packed.size} bytes, sha512 ${packed.integrity}\n`);
   process.stdout.write(`built from OpenAPI ${core.BUILD.openapiVersion} (${core.BUILD.openapiSha256.slice(0, 12)}), ${core.BUILD.generator}\n`);
 } finally {

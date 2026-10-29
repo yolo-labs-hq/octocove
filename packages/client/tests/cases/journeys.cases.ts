@@ -783,6 +783,21 @@ export const journeyCases: Case[] = [
     await j.landings.land('cand-1', { approvalId: 'appr-1', repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x', deadline: soon(), pollMs: 1 });
     equal(JSON.parse(calls[2]!.body!), { approvalId: 'appr-1', repositoryId: 'repository-1', targetRef: 'refs/heads/feature/x' });
   }),
+  // ---- lane save points ----
+  test('lanes.savePoints, savePoint and savePointDiff read a task\'s save points with the filter as query parameters; agents are refused', async () => {
+    const page = { taskId: 't', stage: 'work-in-progress' as const, items: [], nextCursor: null };
+    const detail = { savePointId: 'point-a' };
+    const diff = { savePointId: 'point-a', baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40), stage: 'work-in-progress' as const, files: [], omittedFiles: 0 };
+    const { fetch, calls } = scriptedFetch(json(200, page), json(200, detail), json(200, diff));
+    const j = journeys(client(fetch)).org(ORG);
+    equal(await j.lanes.savePoints('t', { claim: 'c-1', limit: 10, cursor: 'next' }, { deadline: soon() }), page);
+    equal(await j.lanes.savePoint('t', 'point-a', { deadline: soon() }), detail as never);
+    equal(await j.lanes.savePointDiff('t', 'point-a', { deadline: soon() }), diff);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/orgs/${ORG}/tasks/t/lane/save-points?claim=c-1&cursor=next&limit=10`,
+      `GET ${BASE}/v1/orgs/${ORG}/tasks/t/lane/save-points/point-a`, `GET ${BASE}/v1/orgs/${ORG}/tasks/t/lane/save-points/point-a/diff`]);
+    const agent = createClient({ baseUrl: BASE, transport: bearer({ token: 'delegation-fixture-0123', kind: 'delegation' }), fetch });
+    await rejects(async () => journeys(agent).org(ORG).lanes.savePoints('t', {}, { deadline: soon() }), TypeError);
+  }),
   // ---- code view ----
   test('repositories.tree and repositories.blob read the canonical repository with ref and path as query parameters', async () => {
     const tree = { repositoryId: 'repository-1', ref: 'refs/heads/main', commitSha: 'a'.repeat(40), path: 'src', entries: [{ name: 'a.ts', path: 'src/a.ts', type: 'file', size: 1 }], sizeTruncated: false, lastCommitTruncated: false, truncated: false };

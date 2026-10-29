@@ -141,6 +141,12 @@ export type RepositoryCreation = OpenEnums<Schemas['RepositoryCreation']>;
 export type RepositoryVerification = OpenEnums<Schemas['RepositoryVerification']>;
 /** `codeTreeGet`'s answer: one directory of the canonical repository (`commitSha` null for an empty repository). */
 export type CodeTree = OpenEnums<Schemas['CodeTree']>;
+/** `laneSavePointsList`'s answer: one page of a task's recorded save points, newest first. */
+export type LaneSavePointList = OpenEnums<Schemas['LaneSavePointList']>;
+/** `laneSavePointGet`'s answer: one save point and the files it changed against its previous head. */
+export type LaneSavePointDetail = OpenEnums<Schemas['LaneSavePointDetail']>;
+/** `laneSavePointDiff`'s answer: one save point's text diff against its previous head. */
+export type LaneSavePointDiff = OpenEnums<Schemas['LaneSavePointDiff']>;
 /** `codeBlobGet`'s answer: one file as data (`content` null when `binary`). */
 export type CodeBlob = Schemas['CodeBlob'];
 
@@ -547,6 +553,25 @@ export function tenantJourneys(client: TenantClient) {
     retire(taskId: string, options: CommandOptions): Promise<LaneRetirement> {
       requireHuman(client, 'lanes.retire');
       return body(options, 'laneRetire', { path: { id: taskId }, body: {} });
+    },
+    /**
+     * Human only, `tasks:read`: the task's recorded save points, newest first (work in progress, never review). `claim`
+     * narrows to one materialized claim; `limit` 1 to 100 (default 30); pass `nextCursor` back as `cursor` for the next
+     * page with the same filter. Read from the record alone; not audited.
+     */
+    savePoints(taskId: string, query: Query<'laneSavePointsList'>, options: JourneyOptions): Promise<LaneSavePointList> {
+      requireHuman(client, 'lanes.savePoints');
+      return body(options, 'laneSavePointsList', { path: { id: taskId }, query } as never);
+    },
+    /** Human only, `tasks:read`: one save point and the files its commit changed (at most 300, `omittedFiles` the rest). */
+    savePoint(taskId: string, savePointId: string, options: JourneyOptions): Promise<LaneSavePointDetail> {
+      requireHuman(client, 'lanes.savePoint');
+      return body(options, 'laneSavePointGet', { path: { id: taskId, savePointId } });
+    },
+    /** Human only, `tasks:read`: one save point's text diff against its previous head, with the compare's bounds. */
+    savePointDiff(taskId: string, savePointId: string, options: JourneyOptions): Promise<LaneSavePointDiff> {
+      requireHuman(client, 'lanes.savePointDiff');
+      return body(options, 'laneSavePointDiff', { path: { id: taskId, savePointId } });
     },
   };
 

@@ -13,14 +13,15 @@
  * Unsaved edits are never discarded; `patch` writes them out as a Git-format patch.
  */
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { closeSync, existsSync, openSync, writeSync } from 'node:fs';
 import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ConfigError } from './config.js';
-import { ApiError, newIdempotencyKey, type Api } from './http.js';
+import { ApiError, TransportError, newIdempotencyKey, type Api } from './http.js';
 import { gitPatch, type PatchEntry, type PatchMode } from './lane-patch.js';
+import { PackError, readPack } from './lane-pack.js';
 
 export const SIDECAR = '.octocove/lane.json';
 /** Upstream copies of conflicted files live here: never in the write scope, never submitted, never colliding with a repository path. */
@@ -61,7 +62,51 @@ const gitBlobId = (content: Buffer, like: string) =>
 /** Repository-relative paths only: no absolute, dot-segment, backslash or NUL paths, and never the sidecar directory. */
 export function validLanePath(path: string) {
   return typeof path === 'string' && path.length > 0 && path.length <= 4096 && !path.startsWith('/') && !path.endsWith('/') &&
-    !/\0|\\/.test(path) && path.split('/').every((s) => s !== '' && s !== '.' && s !== '..') && path.split('/')[0] !== '.octocove';
+    !/\0|\\/.test(path) && path.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && !gitMetadataName(s)) &&
+    path.split('/')[0]!.replace(HFS_IGNORABLE, '').toLowerCase() !== '.octocove';
+}
+/** Code points HFS+ ignores in names, so `.g\u200cit` opens `.git` there. */
+const HFS_IGNORABLE = /[\u200c-\u200f\u202a-\u202e\u206a-\u206f\ufeff]/g;
+/** Whether a name opens a Git metadata directory on some filesystem: `.git` in any case, with NTFS trailing dots or
+ * spaces or an alternate data stream, NTFS's short name `git~1`, or HFS+ ignorable code points. */
+export function gitMetadataName(segment: string) {
+  const name = segment.replace(HFS_IGNORABLE, '').toLowerCase().replace(/:.*$/, '').replace(/[. ]+$/, '');
+  return name === '.git' || name === 'git~1';
+}
+/** Paths (or their directories) that differ only in letter case, as `[a, b]` pairs. */
+export function caseCollisions(paths: Iterable<string>): [string, string][] {
+  const seen = new Map<string, string>(), pairs: [string, string][] = [];
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      // Case-insensitive filesystems also fold Unicode normalization forms (macOS: NFD), so NFC first.
+      const name = parts.slice(0, i).join('/'), folded = name.normalize('NFC').toLowerCase(), other = seen.get(folded);
+      if (other === undefined) seen.set(folded, name);
+      else if (other !== name && !pairs.some(([a, b]) => a === other && b === name)) pairs.push([other, name]);
+    }
+  }
+  return pairs;
+}
+/**
+ * Refuses to write paths that differ only in letter case into a directory on a case-insensitive filesystem (one
+ * would overwrite the other). Repositories may hold them; on a case-sensitive filesystem nothing is refused.
+ */
+async function refuseCaseCollisions(dir: string, paths: Iterable<string>) {
+  const pairs = caseCollisions(paths);
+  if (!pairs.length) return;
+  // The probe goes where the files would; whatever it had to create is removed again when the lane is refused.
+  const hadDir = existsSync(dir), hadSidecar = existsSync(join(dir, '.octocove'));
+  await mkdir(join(dir, '.octocove'), { recursive: true });
+  const probe = join(dir, '.octocove', `case-${randomUUID()}`);
+  await writeFile(probe, '', { flag: 'wx' });
+  let insensitive: boolean;
+  try { insensitive = !!(await lstatOrNull(probe.replace(/case-([^/]*)$/, (_, id: string) => `CASE-${id.toUpperCase()}`))); }
+  finally { await rm(probe, { force: true }); }
+  if (!insensitive) return;
+  if (!hadSidecar) await rm(join(dir, '.octocove'), { recursive: true, force: true });
+  if (!hadDir) await rm(dir, { recursive: true, force: true });
+  const shown = pairs.slice(0, 5).map(([a, b]) => `${JSON.stringify(a)} and ${JSON.stringify(b)}`).join(', ');
+  throw new ConfigError(`the lane holds paths that differ only in letter case (${shown}${pairs.length > 5 ? `, and ${pairs.length - 5} more` : ''}), and ${dir} is on a case-insensitive filesystem where one would overwrite the other; materialize it on a case-sensitive filesystem`);
 }
 /** The whole-repository scope: the only entry of a read or write list that names it; never a path. */
 export const ROOT_SCOPE = '.';
@@ -261,12 +306,86 @@ async function paced<T>(api: Api, deadline: number, read: () => Promise<T>): Pro
     }
   }
 }
+/** Reads of one file before an answer that ended early is reported. */
+const BLOB_READS_EACH = 3;
+/** An answer whose body ended early: a large file's answer streams, so a cut connection is a 200 with broken JSON. */
+const endedEarly = (error: unknown) => (error instanceof ApiError && error.incomplete && error.status < 300) ||
+  (error instanceof TransportError && error.code === 'network-error');
 async function readBlob(api: Api, taskId: string, generation: number, path: string, deadline: number, at: At = {}) {
   const query = { generation, path, ...(at.head ? { head: at.head } : {}), ...(at.base ? { base: at.base } : {}), ...(at.claim ? { claim: at.claim } : {}) };
-  const blob = (await paced(api, deadline, () => api.call('laneBlobGet', { path: { id: taskId }, query, deadline }))).body;
+  let blob: unknown;
+  for (let attempt = 1; ; attempt++) {
+    try { blob = (await paced(api, deadline, () => api.call('laneBlobGet', { path: { id: taskId }, query, deadline }))).body; break; }
+    catch (error) {
+      if (!endedEarly(error) || attempt >= BLOB_READS_EACH || Date.now() >= deadline) {
+        if (endedEarly(error)) throw new ConfigError(`the answer for ${JSON.stringify(path)} ended early ${attempt} times; nothing was written. Run the same command again`);
+        throw error;
+      }
+    }
+  }
   if (!isRecord(blob) || blob.encoding !== 'base64' || typeof blob.content !== 'string') throw new ConfigError(`invalid blob response for ${path}`);
   return Buffer.from(blob.content, 'base64');
 }
+/** File reads in flight when files are read one by one. */
+const BLOB_READS = 8;
+/** The whole-repository read scope, alone in its list. */
+const wholeRepository = (read: string[]) => read.length === 1 && read[0] === ROOT_SCOPE;
+/** Changed files past which a whole-repository refresh reads one pack instead of each file. */
+const PACK_AFTER = 16;
+/**
+ * The files of a whole-repository lane head in one request: the Git pack the control plane streams (lanePackGet),
+ * unpacked here. Every blob the manifest names is checked by its Git id and kept as a pristine copy; the answer maps
+ * each id found to the copy's digest. `have` (a lane commit already held) leaves out what it reaches. Null when the
+ * server offers no pack for this lane (an older server, or a narrower read scope): read file by file instead.
+ */
+async function packedBlobs(api: Api, dir: string, taskId: string, generation: number, wanted: Set<string>, deadline: number, at: { head?: string | null; have?: string | null }) {
+  // A stream can end early; the pack's checksum says so, and the read is safe to repeat.
+  for (let attempt = 1; ; attempt++) {
+    try { return await packedOnce(api, dir, taskId, generation, wanted, deadline, at); }
+    catch (error) {
+      // A pack that ended early arrives damaged, or its body cannot be read at all: read it again.
+      if (!(error instanceof PackError) && !(error instanceof TransportError && error.code === 'network-error')) throw error;
+      if (attempt >= PACK_READS) throw new ConfigError(`the lane pack could not be read (${error.message}) after ${attempt} attempts; nothing was written. Run the same command again`);
+    }
+  }
+}
+/** Reads of one lane pack before a damaged or incomplete one is reported. */
+const PACK_READS = 3;
+async function packedOnce(api: Api, dir: string, taskId: string, generation: number, wanted: Set<string>, deadline: number, at: { head?: string | null; have?: string | null }) {
+  let body: unknown;
+  try {
+    body = (await paced(api, deadline, () => api.call('lanePackGet', { path: { id: taskId }, query: { generation, ...(at.head ? { head: at.head } : {}), ...(at.have ? { have: at.have } : {}) }, deadline }))).body;
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || (error.status === 409 && error.code === 'lane-pack-unavailable'))) return null;
+    // Larger than one download may be: read the files one by one instead.
+    if (error instanceof ApiError && error.status === 413 && error.code === 'lane-pack-too-large') return null;
+    throw error;
+  }
+  if (!(body instanceof ArrayBuffer)) throw new ConfigError('invalid pack response from the control plane');
+  const root = await objectsDir(dir), found = new Map<string, string>();
+  readPack(Buffer.from(body), (id, type, data) => {
+    if (type !== 'blob' || !wanted.has(id) || found.has(id)) return;
+    const digest = sha256(data);
+    let fd: number;
+    try { fd = openSync(join(root, digest), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; found.set(id, digest); return; }
+    try { for (let at = 0; at < data.length;) at += writeSync(fd, data, at); } finally { closeSync(fd); }
+    found.set(id, digest);
+  });
+  return found;
+}
+/** Runs `work` over `items` with at most `limit` in flight; the first failure is thrown once every started one ends. */
+async function pool<T>(items: T[], limit: number, work: (item: T) => Promise<void>) {
+  let next = 0, failure: { error: unknown } | null = null;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (!failure && next < items.length) {
+      const item = items[next++]!;
+      try { await work(item); } catch (error) { failure ??= { error }; }
+    }
+  }));
+  if (failure) throw (failure as { error: unknown }).error;
+}
+
 type Manifest = { entries: { path: string; mode: Mode; type: 'file' | 'symlink' | 'submodule'; sha: string }[]; scope: { read: string[]; write: string[] }; baseSha: string; scopeVersion: number; executionId: string; claimId: string; laneHead?: string | null };
 async function readManifest(api: Api, taskId: string, generation: number, deadline: number, head?: string | null): Promise<Manifest> {
   const m = (await paced(api, deadline, () => api.call('laneManifestGet', { path: { id: taskId, generation }, ...(head ? { query: { head } } : {}), deadline }))).body;
@@ -363,13 +482,28 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   if (!isRecord(repo) || !isSha(repo.laneHead) || !Number.isInteger(repo.generation)) throw new ConfigError('invalid materialize response from the control plane');
   const generation = repo.generation as number, head = repo.laneHead as string;
   const m = await readManifest(api, taskId, generation, options.deadline, head);
+  await refuseCaseCollisions(dir, m.entries.map((e) => e.path));
   const files = dict<LaneFile>();
+  // Every file's content first (kept as pristine copies, one per distinct blob): a whole-repository lane in one pack,
+  // anything else (or anything a pack lacked) file by file, a few at a time.
+  const blobs = m.entries.filter((e) => e.type !== 'submodule');
+  const held = wholeRepository(m.scope.read) && blobs.length
+    ? await packedBlobs(api, dir, taskId, generation, new Set(blobs.map((e) => e.sha)), options.deadline, { head }) : null;
+  const digests = new Map<string, string>(held ?? []);
+  const missing = [...new Map(blobs.filter((e) => !digests.has(e.sha)).map((e) => [e.sha, e])).values()];
+  if (held && missing.length) options.notify?.(`${missing.length} file(s) were not in the lane pack; reading them one by one`);
+  if (!held && wholeRepository(m.scope.read) && missing.length > PACK_AFTER) options.notify?.(`no lane pack for this lane; reading ${missing.length} file(s) one by one`);
+  await pool(missing, BLOB_READS, async (e) => {
+    const content = await readBlob(api, taskId, generation, e.path, options.deadline, { head });
+    await keepPristine(dir, content);
+    digests.set(e.sha, sha256(content));
+  });
   for (const e of m.entries) {
     if (e.type === 'submodule') { files[e.path] = { mode: '160000', sha: e.sha, digest: null }; continue; }
-    const content = await readBlob(api, taskId, generation, e.path, options.deadline, { head });
+    const content = await readPristine(dir, digests.get(e.sha) ?? null);
+    if (!content) throw new ConfigError(`could not keep the content of ${JSON.stringify(e.path)}; materialize the lane again into a new directory`);
     await writeEntry(dir, e.path, e.mode, content);
-    await keepPristine(dir, content);
-    files[e.path] = { mode: e.mode, sha: e.sha, digest: sha256(content) };
+    files[e.path] = { mode: e.mode, sha: e.sha, digest: digests.get(e.sha)! };
   }
   const sc: Sidecar = { version: 1, taskId, claimAttemptId: lane.claimAttemptId, executionId: m.executionId ?? repo.executionId, generation,
     baseSha: m.baseSha, scopeVersion: m.scopeVersion, scope: { read: [...m.scope.read], write: [...m.scope.write] }, files, conflicts: dict(),
@@ -414,13 +548,23 @@ async function applyManifest(api: Api, dir: string, sc: Sidecar, generation: num
     if (c?.incoming) await rm(await incomingTarget(dir, c.incoming), { recursive: true, force: true });
   };
   // Download every changed entry before touching the directory, so a network failure leaves it exactly as it was.
+  await refuseCaseCollisions(dir, m.entries.map((e) => e.path));
   const contents = new Map<string, Buffer>();
-  for (const e of m.entries) {
-    if (e.type === 'submodule') continue;
+  const changed = m.entries.filter((e) => {
+    if (e.type === 'submodule') return false;
     const old = has(sc.files, e.path) ? sc.files[e.path] : undefined;
-    if (old && old.sha === e.sha && old.mode === e.mode) continue;
-    contents.set(e.path, await readBlob(api, sc.taskId, generation, e.path, options.deadline, at));
-  }
+    return !(old && old.sha === e.sha && old.mode === e.mode);
+  });
+  // A whole-repository lane with many changed files reads them as one pack, leaving out what the head this directory
+  // was last at already reaches.
+  const held = wholeRepository(m.scope.read) && changed.length > PACK_AFTER && at.head
+    ? await packedBlobs(api, dir, sc.taskId, generation, new Set(changed.map((e) => e.sha)), options.deadline, { head: at.head, have: sc.laneHead }) : null;
+  // Content this directory already holds unedited, by blob id (a file moved or copied upstream).
+  const pristine = new Map(Object.values(sc.files).filter((f) => f.digest).map((f) => [f.sha, f.digest!]));
+  await pool(changed, BLOB_READS, async (e) => {
+    const content = await readPristine(dir, held?.get(e.sha) ?? pristine.get(e.sha) ?? null) ?? await readBlob(api, sc.taskId, generation, e.path, options.deadline, at);
+    contents.set(e.path, content);
+  });
   for (const content of contents.values()) await keepPristine(dir, content);
   // Copies left by an earlier refresh that failed part-way are ours and unrecorded: remove them first.
   await pruneIncoming(dir, keptIncoming(sc));

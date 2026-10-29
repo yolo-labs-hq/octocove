@@ -322,7 +322,8 @@ Step by step: the [lane walkthrough](https://github.com/yolo-labs-hq/octocove/bl
   --bootstrap-file FILE`. Human sessions are refused (except `lane reopen` and `lane retire`, which are human-only,
   and `lane patch`, which is local).
 - **Data handling.** `lane materialize` and `lane refresh` download the files the claim may read from the Octocove
-  API. `lane submit` and `--resolve FILE` upload the contents of changed files (or the named file), and nothing else.
+  API (a whole-repository lane as one Git pack, unpacked by the CLI itself, with no Git installation needed; every
+  file is checked against its id in the manifest). `lane submit` and `--resolve FILE` upload the contents of changed files (or the named file), and nothing else.
   The lane repository stays inside Octocove: the CLI never sees its URL or a credential for it.
 - **Local behavior.** A lane is an ordinary directory, with no Git clone and no Git credential helper. Refresh keeps
   your local modifications and surfaces conflicts for you to resolve. Unsaved edits are never discarded. A lane

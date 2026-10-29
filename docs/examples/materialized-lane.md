@@ -44,9 +44,11 @@ octo task claim "$TASK" --read README.md,docs/ --write docs/ \
 For the whole repository, give `.` alone: `--read . --write .` reads and changes every path, nested or added later,
 and `--read . --write docs/` reads everything but changes only `docs/`. `.` cannot be combined with another prefix, and
 `./` is not accepted. A whole-repository write overlaps every other write scope on the same repository and target, so
-it is admitted only while no other task holds one there, and while it is held no other write is admitted there. The
-listing limits still apply: a repository too large to materialize completely is refused (`materialization-too-large`),
-never cut.
+it is admitted only while no other task holds one there, and while it is held no other write is admitted there. A
+whole repository materializes up to 100,000 files and 2 GiB of content (one file up to just under 32 MiB); a larger
+one is refused with `materialization-too-large` and a `reason` (`listing-truncated`, `blob-bytes` with the `path`,
+`bytes` or `pack-bytes`), never cut. A path no lane may hold (a `.git` directory, in any letter case) is refused with
+`lane-path-refused` and its `path`.
 
 The claim bootstrap is the only credential the claim accepts; the claim replaces it with the agent's delegation,
 stored privately in `OCTOCOVE_CONFIG_DIR`. The claim is ready at once. Nothing is cloned.
@@ -65,7 +67,8 @@ ls ./lane                  # only the files the claim may read, plus .octocove/
 
 `lane materialize` asks Octocove for the lane's repository (`POST /tasks/{id}/lane/materialize`). The first call
 creates it from the pinned base; any later call, from this machine or another, answers the current lane head and
-never resets saved work. The CLI then reads the files at that lane head. `.octocove/lane.json` records the lane
+never resets saved work. The CLI then reads the files at that lane head: for a whole-repository lane (`--read .`)
+all of them in one download, checked file by file against the manifest; otherwise one by one. `.octocove/lane.json` records the lane
 head, the generation, the pinned base, the scope and one digest per file. Octocove keeps the lane repository to
 itself: the agent never sees its URL or a credential for it.
 
@@ -73,8 +76,8 @@ itself: the agent never sees its URL or a credential for it.
   --handover` there. It hands the claim's open execution over to that environment and stores the new execution's
   delegation as its agent credential (privately; it is never printed). The first environment's credential then gets
   `execution-superseded` everywhere; keep its unsaved edits with `octo lane patch`.
-- **GitHub request budget:** on a GitHub repository, a read scope that needs too many GitHub requests is refused with
-  `materialization-too-large` (narrow the scope), and while GitHub's hourly request budget is low the answer is `429
+- **GitHub request budget:** on a GitHub repository, a narrower read scope that needs too many GitHub requests is
+  refused with `materialization-too-large` (narrow the scope; a whole-repository lane does not read files one by one), and while GitHub's hourly request budget is low the answer is `429
   rate-limited` with a `Retry-After`. Nothing is created either way; the CLI waits within its deadline, otherwise it
   says when to run the command again.
 

@@ -3684,6 +3684,92 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "lanePackGet": {
+    "operationId": "lanePackGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/pack",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "claim",
+          "required": false
+        },
+        {
+          "name": "generation",
+          "required": true
+        },
+        {
+          "name": "have",
+          "required": false
+        },
+        {
+          "name": "head",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/x-git-packfile"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "laneReopen": {
     "operationId": "laneReopen",
     "kind": "path",
@@ -3846,6 +3932,210 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": "state"
+    }
+  },
+  "laneSavePointDiff": {
+    "operationId": "laneSavePointDiff",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/save-points/{savePointId}/diff",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "savePointId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "laneSavePointGet": {
+    "operationId": "laneSavePointGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/save-points/{savePointId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "savePointId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "laneSavePointsList": {
+    "operationId": "laneSavePointsList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/save-points",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "claim",
+          "required": false
+        },
+        {
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
     }
   },
   "laneScopeGrant": {
