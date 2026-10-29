@@ -1,5 +1,23 @@
 # Changelog
 
+## CLI 0.9.0 and client 0.14.0
+
+Release `@yolo-labs/octocove` 0.9.0 and `@yolo-labs/octocove-client` 0.14.0: whole-repository lanes download in one
+request.
+
+- Client: regenerated from the current API contract. New operation `lanePackGet` (`GET
+  /v1/orgs/{orgId}/tasks/{id}/lane/pack`, `network-only` / `null`): for a materialized lane whose read scope is `.`,
+  the objects of the lane head's tree as one Git packfile (`application/x-git-packfile`, returned as an
+  `ArrayBuffer`); `have` names a lane commit already held, whose objects are left out. Documented: the
+  whole-repository materialization limits and refusals (`materialization-too-large` with `reason`
+  `listing-truncated`, `blob-bytes`, `bytes` or `pack-bytes`; `lane-path-refused`). The retry policy and the README
+  table cover 129 operation ids.
+- CLI: `octo lane materialize` reads a whole-repository lane as one pack and unpacks it itself (no Git installation),
+  checking every file against its Git id in the manifest; a file the pack lacks is read on its own, an incomplete
+  pack is read again (three attempts), and a server without the pack route is read file by file. `octo lane refresh`
+  reads many upstream changes of a whole-repository lane as one pack that leaves out what the previous lane head
+  holds. Files read one by one are read a few at a time, and each distinct content once.
+
 ## CLI 0.8.1
 
 Release `@yolo-labs/octocove` 0.8.1 alone (no client release): the whole-repository lane scope.

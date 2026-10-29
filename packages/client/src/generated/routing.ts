@@ -3684,6 +3684,89 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "lanePackGet": {
+    "operationId": "lanePackGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/pack",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "claim",
+          "required": false
+        },
+        {
+          "name": "generation",
+          "required": true
+        },
+        {
+          "name": "have",
+          "required": false
+        },
+        {
+          "name": "head",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/x-git-packfile"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "laneReopen": {
     "operationId": "laneReopen",
     "kind": "path",

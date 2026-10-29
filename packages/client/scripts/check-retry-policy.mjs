@@ -11,7 +11,7 @@ const here = (path) => fileURLToPath(new URL(path, import.meta.url));
 export const AUTO_RETRY = ['never', 'network-only'];
 export const REPLAY = ['stored-result', 'guarded-result', 'bounded-recovery', 'metadata-without-token', 'state', 'none', null];
 export const REASONS = ['navigation', 'excluded'];
-export const EXPECTED_IDS = 128;
+export const EXPECTED_IDS = 129;
 
 const same = (keys, expected) => keys.length === expected.length && expected.every((key) => keys.includes(key));
 

@@ -483,6 +483,11 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "lanePackGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "laneScopeRequest": {
     "callable": true,
     "autoRetry": "network-only",

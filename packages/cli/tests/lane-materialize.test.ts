@@ -85,6 +85,27 @@ const read = (path: string) => readFileSync(join(dir, path), "utf8");
 const sidecar = () => JSON.parse(readFileSync(join(dir, SIDECAR), "utf8"));
 const changes = () => calls.filter((c) => c.method === "POST" && c.url.pathname.endsWith("/lane/changes"));
 
+
+/** Real Git objects for `files`: their blob ids, the tree, and a pack of everything the tree reaches (deltas included). */
+function gitPack(files: Record<string, string>, opts: { omit?: string[] } = {}) {
+  const repo = mkdtempSync(join(tmpdir(), "octocove-pack-"));
+  try {
+    const git = (args: string[], input?: string | Buffer) => execFileSync("git", ["-C", repo, ...args], { input, maxBuffer: 64 << 20, stdio: ["pipe", "pipe", "ignore"] });
+    git(["init", "-q"]);
+    const ids: Record<string, string> = {};
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(join(repo, path, ".."), { recursive: true });
+      writeFileSync(join(repo, path), content);
+      ids[path] = git(["hash-object", "-w", path]).toString().trim();
+    }
+    git(["add", "-A"]);
+    const tree = git(["write-tree"]).toString().trim();
+    const objects = git(["rev-list", "--objects", tree]).toString().split("\n").map((l) => l.split(" ")[0]!).filter((id) => id && !(opts.omit ?? []).map((p) => ids[p]).includes(id));
+    return { ids, tree, pack: git(["pack-objects", "--stdout", "--window=10", "--depth=10"], objects.join("\n") + "\n") };
+  } finally { rmSync(repo, { recursive: true, force: true }); }
+}
+const packed = (pack: Buffer) => new Response(new Uint8Array(pack), { status: 200, headers: { "content-type": "application/x-git-packfile" } });
+
 describe("octo lane (materialized)", () => {
   it("materializes the open generation into a plain directory with a sidecar and no .git", async () => {
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
@@ -247,6 +268,82 @@ describe("octo lane (materialized)", () => {
     mkdirSync(dir);
     expect(await cli(["lane", "status"], { cwd: dir })).toBe(EXIT.config);
     expect(errText).toContain("is not a lane directory");
+  });
+
+
+  describe("whole-repository lanes", () => {
+    const many = (tag: string) => Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`pkg/m${i % 4}/f${i}.ts`, `export const f${i} = ${JSON.stringify(tag)};\n${"x".repeat(200 + i)}\n`]));
+    const rootManifest = (generation: number, files: Record<string, string>, ids: Record<string, string>) => ({ ...manifest(generation, generation === 1 ? base1 : base2, files),
+      scope: { read: ["."], write: ["."] }, entries: Object.keys(files).sort().map((path) => ({ path, mode: "100644", type: "file", sha: ids[path] })) });
+
+    it("materializes every file from one lane pack, checked by Git id; nothing is read file by file", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { ...many("v1"), "README.md": "readme\n", "docs/copy.md": "readme\n" };
+      const { ids, pack } = gitPack(files);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      routes["GET /tasks/T1/lane/pack"] = (c) => { expect(c.url.searchParams.get("head")).toBe(HEAD(1)); return packed(pack); };
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      for (const [path, content] of Object.entries(files)) expect(read(path)).toBe(content);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/pack"))).toHaveLength(1);
+      expect(Object.keys(sidecar().files)).toHaveLength(42);
+      expect(sidecar().files["docs/copy.md"]).toMatchObject({ sha: ids["docs/copy.md"], digest: sha256("readme\n") });
+      expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
+      expect(JSON.parse(outText)).toMatchObject({ modified: [], added: [], deleted: [] });
+    });
+
+    it("reads a file the pack lacks one by one; an older server without the pack route is read file by file", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { ...many("v1"), "README.md": "readme\n" };
+      const { ids, pack } = gitPack(files, { omit: ["README.md"] });
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      routes["GET /tasks/T1/lane/pack"] = () => packed(pack);
+      routes["GET /tasks/T1/lane/blob"] = (c) => { const path = c.url.searchParams.get("path")!; const content = (files as Record<string, string>)[path]!;
+        return json(200, { path, mode: "100644", type: "file", sha: ids[path], size: content.length, encoding: "base64", content: b64(content) }); };
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect(read("README.md")).toBe("readme\n");
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob")).map((c) => c.url.searchParams.get("path"))).toEqual(["README.md"]);
+      expect(errText).toContain("not in the lane pack");
+      rmSync(work, { recursive: true, force: true });
+      work = mkdtempSync(join(tmpdir(), "octocove-lane-")); dir = join(work, "T1"); calls = [];
+      delete routes["GET /tasks/T1/lane/pack"];
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      for (const [path, content] of Object.entries(files)) expect(read(path)).toBe(content);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(41);
+    });
+
+    it("refuses a damaged pack and writes nothing", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = many("v1");
+      const { ids, pack } = gitPack(files);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      routes["GET /tasks/T1/lane/pack"] = () => packed(pack.subarray(0, pack.length - 7));
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(errText).toContain("incomplete or damaged");
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/pack"))).toHaveLength(3);
+      expect(existsSync(join(dir, SIDECAR))).toBe(false);
+      expect(existsSync(join(dir, "pkg"))).toBe(false);
+    });
+
+    it("a refresh with many upstream changes reads them as one pack, leaving out what the old head reaches", async () => {
+      scope = { read: ["."], write: ["."] };
+      const v1: Record<string, string> = { ...many("v1"), "README.md": "readme\n" }, v2: Record<string, string> = { ...many("v2"), "README.md": "readme\n" };
+      const one = gitPack(v1), two = gitPack(v2);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, v1, one.ids));
+      routes["GET /tasks/T1/lane/materializations/2"] = () => json(200, rootManifest(2, v2, two.ids));
+      routes["GET /tasks/T1/lane/pack"] = (c) => (c.url.searchParams.get("generation") === "2" ? packed(two.pack) : packed(one.pack));
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      writeFileSync(join(dir, "pkg/m1/f1.ts"), "local edit\n");
+      calls = [];
+      expect(await cli(["lane", "refresh", "--json"])).toBe(EXIT.ok);
+      const pulls = calls.filter((c) => c.url.pathname.endsWith("/lane/pack"));
+      expect(pulls).toHaveLength(1);
+      expect(Object.fromEntries(pulls[0]!.url.searchParams)).toMatchObject({ generation: "2", head: HEAD(2), have: HEAD(1) });
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
+      expect(read("pkg/m0/f0.ts")).toBe(v2["pkg/m0/f0.ts"]);
+      expect(read("pkg/m1/f1.ts")).toBe("local edit\n");
+      expect(read(`${INCOMING}/pkg/m1/f1.ts`)).toBe(v2["pkg/m1/f1.ts"]);
+    });
   });
 
   describe("review fixes", () => {
