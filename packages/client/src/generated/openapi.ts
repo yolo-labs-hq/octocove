@@ -127,9 +127,29 @@ export interface paths {
         put?: never;
         /**
          * Create a project in the caller's own hidden personal tenant
-         * @description Human session only (agent delegations get 403 `human-required`). A global creation operation, like `POST /orgs`, for a caller who needs no organization. It selects, and on first use accepts and provisions, the caller's own personal tenant, an ordinary `org_<UUIDv4>` tenant that is never listed in `organizations`, has no org admin surface and is exempt from the organization creation limits. Its owner holds its one org admin row, written with the tenant, which admits them at the tenant gate; its resources are addressed as `/orgs/{tenantId}/...` with the id from the owner's own `GET /me`, and anyone else gets 404 `tenant-not-found`. It never selects, infers or falls back to any other tenant, and the created project's routes name that tenant (`tenantId`). While the personal tenant is provisioning the answer is 409 `org-creation-pending` with `details.organization` and `Retry-After`, the shape of any pending organization, and the reservation is kept; retrying the same request (same Idempotency-Key and body) completes the creation under the same project id and answers 201. While provisioning is disabled on the deployment and the caller has no active personal tenant, 403 `project-create-disabled`. Everything else is as on `POST /orgs/{orgId}/projects` - the reservation, the one record batch, retries, quotas (the personal tenant's projects count toward `ORG_PROJECT_MAX` and the creator cap), the throttle and the problems.
+         * @description Human session only (agent delegations get 403 `human-required`). A global creation operation, like `POST /orgs`, for a caller who needs no organization. It selects, and on first use accepts and provisions, the caller's own personal tenant, an ordinary `org_<UUIDv4>` tenant that is never listed in `organizations`, has no org admin surface and is exempt from the organization creation limits. Its owner holds its one org admin row, written with the tenant, which admits them at the tenant gate; its resources are addressed as `/orgs/{tenantId}/...` with the id from the owner's own `GET /me`, and anyone else gets 404 `tenant-not-found`. It never selects, infers or falls back to any other tenant, and the created project's routes name that tenant (`tenantId`). While the personal tenant is provisioning the answer is 409 `org-creation-pending` with `details.organization` and `Retry-After`, the shape of any pending organization, and the reservation is kept; retrying the same request (same Idempotency-Key and body) completes the creation under the same project id and answers 201. While provisioning is disabled on the deployment and the caller has no active personal tenant, 403 `project-create-disabled`. Everything else is as on `POST /orgs/{orgId}/projects` - the reservation, the one record batch, retries, quotas (the personal tenant's projects count toward `ORG_PROJECT_MAX` and the creator cap), the throttle and the problems. With `repository` the same request also sets up the project's repository in one server-owned operation, under one Idempotency-Key, and answers a `ProjectInitialization` - 201 `ready` (the project and the repository) or `action-required` (the project exists; the repository step was refused or needs the operator), 202 `pending` with `Retry-After` while a step settles. The operation and its key claim are written before any side effect; the project and repository steps run the creation paths of this route and of `repositoryCreate` under keys derived from the operation id, so the same key and body replay the operation's current answer and never create a second project; the same key with another body, another entry point, or a key a plain create, an organization rename or a profile edit already used is 409 `idempotency-conflict`. A refused project step answers its problem here and on every replay of the key; `org-creation-pending` (409) and `rate-limited` (429) are answered as for the plain create and the same request completes later. Its view is `projectInitializationGet`. Without `repository` the request and its answer are the plain create's, unchanged.
          */
         post: operations["meProjectCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/project-initializations/{operationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a project initialization's current view
+         * @description Human session only. The calling human's own initialization (anyone else, or an unknown id - 404 `not-found`); global, since a personal initialization may precede its tenant. Always 200, with `Retry-After` while `pending`. Derived from the operation and its steps' ledgers at answer time, so progress made by the creation reconcilers (a published project, a recorded repository, a settled import) is visible here; a refused project step is `failed` with its problem. Writes nothing, calls no provider and never starts a step: only the POST (the same key and body) does.
+         */
+        get: operations["projectInitializationGet"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -227,7 +247,7 @@ export interface paths {
         put?: never;
         /**
          * Create a project in an organization, and the creator's membership
-         * @description Human session only (agent delegations get 403 `human-required`). The caller must administer the organization `orgId`; an unknown, malformed, not administered or personal tenant is 404 `tenant-not-found` (the same problem conceals existence), and an organization that is still provisioning is 409 `org-creation-pending` with `details.organization` and `Retry-After`. Provisional bootstrap rule - the caller's `issuer|sub` must also be listed in `PROJECT_CREATORS` (or `PROJECT_CREATION=open`); otherwise every request gets 403 `project-create-disabled`. Reservation. One control-store batch reserves the project id, the global slug, the Artifacts namespace (`oc-<id>`, unique, immutable, never reused), a quota slot and the request digest, rechecking the session, its family and the org admin role. Then one batch in the organization's record, behind the admission proof, inserts the project, the caller's membership with every verb the control plane checks (including `project:admin`; delegated land off), the `project.created` audit row and the retry result; then the route is published. A retry of the same request reuses the same reservation and project id after a crash at any step; a reservation is released only once the record proves no commit can follow. A replay with the same Idempotency-Key and body returns the committed 201; the same key with another body or another tenant is 409 `idempotency-conflict`, and 409 `operation-in-progress` with `Retry-After` while the first attempt's outcome is unsettled. A slug already reserved anywhere is 409 `slug-taken`; an off-shape body is 400 `invalid-request`; a UUID-shaped slug is 422 `invalid-slug`. A revoked session or family commits nothing (401 `credential-revoked`). Quotas count reservations, pending ones included - the caller's projects across every tenant (`PROJECT_CREATE_MAX_PER_CREATOR`, default 20) and the organization's projects (`ORG_PROJECT_MAX`, default 100) each answer 403 `project-quota-exceeded` (`details.limit`, and `details.scope` `organization` for the latter). Admitted attempts are throttled per principal (a burst of 10, then one per minute) with 429 `rate-limited` and `Retry-After`. A replay is answered before every gate after the allow-list.
+         * @description Human session only (agent delegations get 403 `human-required`). The caller must administer the organization `orgId`; an unknown, malformed, not administered or personal tenant is 404 `tenant-not-found` (the same problem conceals existence), and an organization that is still provisioning is 409 `org-creation-pending` with `details.organization` and `Retry-After`. Provisional bootstrap rule - the caller's `issuer|sub` must also be listed in `PROJECT_CREATORS` (or `PROJECT_CREATION=open`); otherwise every request gets 403 `project-create-disabled`. Reservation. One control-store batch reserves the project id, the global slug, the Artifacts namespace (`oc-<id>`, unique, immutable, never reused), a quota slot and the request digest, rechecking the session, its family and the org admin role. Then one batch in the organization's record, behind the admission proof, inserts the project, the caller's membership with every verb the control plane checks (including `project:admin`; delegated land off), the `project.created` audit row and the retry result; then the route is published. A retry of the same request reuses the same reservation and project id after a crash at any step; a reservation is released only once the record proves no commit can follow. A replay with the same Idempotency-Key and body returns the committed 201; the same key with another body or another tenant is 409 `idempotency-conflict`, and 409 `operation-in-progress` with `Retry-After` while the first attempt's outcome is unsettled. A slug already reserved anywhere is 409 `slug-taken`; an off-shape body is 400 `invalid-request`; a UUID-shaped slug is 422 `invalid-slug`. A revoked session or family commits nothing (401 `credential-revoked`). Quotas count reservations, pending ones included - the caller's projects across every tenant (`PROJECT_CREATE_MAX_PER_CREATOR`, default 20) and the organization's projects (`ORG_PROJECT_MAX`, default 100) each answer 403 `project-quota-exceeded` (`details.limit`, and `details.scope` `organization` for the latter). Admitted attempts are throttled per principal (a burst of 10, then one per minute) with 429 `rate-limited` and `Retry-After`. A replay is answered before every gate after the allow-list. With `repository` the same request also sets up the project's repository in one server-owned operation, under one Idempotency-Key, and answers a `ProjectInitialization` - 201 `ready` (the project and the repository) or `action-required` (the project exists; the repository step was refused or needs the operator), 202 `pending` with `Retry-After` while a step settles. The operation and its key claim are written before any side effect; the project and repository steps run the creation paths of this route and of `repositoryCreate` under keys derived from the operation id, so the same key and body replay the operation's current answer and never create a second project; the same key with another body, another entry point, or a key a plain create, an organization rename or a profile edit already used is 409 `idempotency-conflict`. A refused project step answers its problem here and on every replay of the key; `org-creation-pending` (409) and `rate-limited` (429) are answered as for the plain create and the same request completes later. Its view is `projectInitializationGet`. Without `repository` the request and its answer are the plain create's, unchanged.
          */
         post: operations["projectCreate"];
         delete?: never;
@@ -3531,6 +3551,64 @@ export interface components {
             slug: string;
             /** @description Display name of 1-120 characters, where a character is one Unicode code point (not a UTF-16 unit; `maxLength` here counts code points too, as JSON Schema does), so 61 U+1F680 is 61 characters. Refused with 400 `invalid-request` when it contains a control character (C0, DEL, C1), a format character (bidi overrides and isolates, zero-width characters, U+FEFF, tag characters), a lone surrogate or a line/paragraph separator, or when it has leading or trailing whitespace (refused, never trimmed); the one exception is U+200D (zero width joiner) inside an emoji ZWJ sequence, i.e. between two pictographic emoji (the first optionally followed by a skin-tone modifier or U+FE0F), and such a sequence counts every code point it holds, joiners included. */
             name: string;
+            repository?: components["schemas"]["ProjectRepositoryInit"];
+        };
+        /** @description The repository a project initialization sets up with the project. Present, the create is an initialization and answers a `ProjectInitialization`; omitted, it is the plain create and answers the `Project`. `seed` creates an Artifacts repository named after the slug in the project's namespace, with a README commit on `targetRef` (default `refs/heads/main`); `import` imports a public HTTPS remote under the repository import rules (target ref `refs/heads/<branch>`, else `refs/heads/main`; an off-shape URL is 400 `repository-import-url-invalid` before anything is written); `none` defers repository setup. */
+        ProjectRepositoryInit: {
+            /** @constant */
+            mode: "seed";
+            targetRef?: string;
+        } | {
+            /** @constant */
+            mode: "import";
+            /** Format: uri */
+            url: string;
+            branch?: string;
+        } | {
+            /** @constant */
+            mode: "none";
+        };
+        /** @description A project initialization's current view, derived from the operation and its steps' ledgers at answer time. `ready` - the project and its repository (`repository` null for mode `none`); `pending` - a step is still settling (`reason`, `retryAfter`; `project` once it is created; `repository.state` `creating` or `importing`); `action-required` - the project exists and the repository needs the human or the operator (`action.reason` `repository-creation-failed` with `code`, `repository-needs-operator`, `repository-import-failed`, `repository-ineligible` with `code` (the canonical is not yet claimable, e.g. unverified), `project-admin-required` (the creator lost `project:admin` before the repository step ran), `repository-unavailable`, `access-lost`); `failed` (the read only; the POST answers the problem itself) - the project step was refused and nothing was created. Ids and names only, never a credential. */
+        ProjectInitialization: {
+            /** @enum {string} */
+            state: "ready" | "pending" | "action-required" | "failed";
+            operationId: string;
+            project?: components["schemas"]["Project"];
+            /** @description The creator's membership in the project as the record holds it now. */
+            membership?: {
+                verbs: string[];
+            };
+            /** @description The project's canonical repository once recorded (null for mode `none`), or its progress while pending. */
+            repository?: null | {
+                /** @enum {string} */
+                state: "creating" | "importing";
+                id?: string;
+            } | {
+                id: string;
+                name: string;
+                /** @enum {string} */
+                provider: "artifacts" | "github" | "forgejo";
+                targetRef?: string;
+                knownHeadSha?: string;
+            };
+            /**
+             * @description Why the operation is pending.
+             * @enum {string}
+             */
+            reason?: "creation-in-progress" | "tenant-unavailable";
+            /** @description Seconds before the same POST (same key and body) or the read is worth sending again (pending). */
+            retryAfter?: number;
+            action?: {
+                /** @enum {string} */
+                reason: "repository-creation-failed" | "repository-needs-operator" | "repository-import-failed" | "repository-ineligible" | "project-admin-required" | "repository-unavailable" | "access-lost";
+                /** @description The refusal of the repository step, the import's failure reason, or why the repository is ineligible. */
+                code?: string;
+            };
+            /** @description The refusal of the project step (`failed`). */
+            problem?: {
+                code: string;
+                status: number;
+            };
         };
         Project: {
             id: components["schemas"]["Id"];
@@ -4871,7 +4949,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The created project (or the committed answer to a replay of the same key and body). */
+            /** @description The created project (or the committed answer to a replay of the same key and body); with `repository`, the initialization's `ready` or `action-required` view. */
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -4879,7 +4957,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["Project"] | components["schemas"]["ProjectInitialization"];
+                };
+            };
+            /** @description With `repository`, the initialization is pending; send the same request again after `Retry-After`, or read it (`projectInitializationGet`). */
+            202: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInitialization"];
                 };
             };
             400: components["responses"]["Problem"];
@@ -4888,6 +4978,35 @@ export interface operations {
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    projectInitializationGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The initialization's current view. */
+            200: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInitialization"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };
@@ -5060,7 +5179,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The created project (or the committed answer to a replay of the same key and body). */
+            /** @description The created project (or the committed answer to a replay of the same key and body); with `repository`, the initialization's `ready` or `action-required` view. */
             201: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestId"];
@@ -5068,7 +5187,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Project"];
+                    "application/json": components["schemas"]["Project"] | components["schemas"]["ProjectInitialization"];
+                };
+            };
+            /** @description With `repository`, the initialization is pending; send the same request again after `Retry-After`, or read it (`projectInitializationGet`). */
+            202: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInitialization"];
                 };
             };
             400: components["responses"]["Problem"];

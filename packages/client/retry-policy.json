@@ -611,5 +611,10 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": "state"
+  },
+  "projectInitializationGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
   }
 }

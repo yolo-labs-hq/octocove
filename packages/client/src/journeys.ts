@@ -61,6 +61,21 @@ export type BoundTo = Schemas['BoundTo'];
 export type LaneRetirement = OpenEnums<Schemas['LaneRetirement']> | OpenEnums<Schemas['LaneRetired']>;
 /** `projectCreate`'s and `meProjectCreate`'s answer: the created project, with the tenant its routes name. */
 export type Project = Schemas['Project'];
+/** A project initialization's current view (`projectCreate`'s and `meProjectCreate`'s answer when the body names a
+ * `repository`, and `projectInitializationGet`'s): `ready` with the `project`, the creator's `membership` and the
+ * `repository` (null for mode `none`); `pending` with `reason` and `retryAfter` (and the `project` once it exists);
+ * `action-required` with `action.reason` (the project exists); `failed` (the read only) with the project step's
+ * `problem`. */
+export type ProjectInitialization = OpenEnums<Schemas['ProjectInitialization']>;
+/** The repository a project initialization sets up: `{mode: 'seed', targetRef?}`, `{mode: 'import', url, branch?}` or
+ * `{mode: 'none'}`. */
+export type ProjectRepositoryInit = Schemas['ProjectRepositoryInit'];
+/** `projectCreate`'s body. With `repository` the create is an initialization. */
+export type ProjectCreateInput = Schemas['ProjectCreate'];
+/** Waits between `pending` project initialization answers when the server sends no Retry-After. */
+export const PROJECT_INITIALIZATION_POLL_MS = 5000;
+/** `projects.create`'s options: the command options, the organization (omitted: the personal tenant) and the poll. */
+export type ProjectCreateOptions = CommandOptions & { readonly orgId?: string; readonly pollMs?: number };
 /** A `GET /me/projects` item: one of the caller's projects, with its `tenantId` (the org its routes name), `tenantKind` and `owner` (`{kind, slug}`, the `<owner>` of its web URL). */
 export type MeProject = OpenEnums<Schemas['MeProject']>;
 /** `GET /me/projects`: every tenant's projects; with `partial` true the tenants in `unavailableTenants` are missing. */
@@ -607,6 +622,56 @@ export function journeys(client: OctocoveClient) {
     return bound;
   };
 
+  function createProject(input: ProjectCreateInput & { readonly repository: ProjectRepositoryInit }, options: ProjectCreateOptions): Promise<ProjectInitialization>;
+  function createProject(input: ProjectCreateInput & { readonly repository?: undefined }, options: ProjectCreateOptions): Promise<Project>;
+  function createProject(input: ProjectCreateInput, options: ProjectCreateOptions): Promise<Project | ProjectInitialization>;
+  async function createProject(input: ProjectCreateInput, options: ProjectCreateOptions): Promise<Project | ProjectInitialization> {
+    requireHuman(client, 'projects.create');
+    const scope = journeyScope(options);
+    const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
+    const target: JourneyClient = options.orgId === undefined ? client : org(options.orgId).client;
+    const initializing = input.repository !== undefined;
+    const secrets = journeySecrets(client, 'POST', pinnedCredential(client), input);
+    let last: ProjectInitialization | undefined;
+    try {
+      for (;;) {
+        let wait: number;
+        try {
+          const response = options.orgId === undefined
+            ? await send(target, scope, options, 'meProjectCreate', { body: input }, { idempotencyKey })
+            : await send(target, scope, options, 'projectCreate', { body: input }, { idempotencyKey });
+          const p: unknown = response.body;
+          if (!initializing) {
+            if (!isObject(p) || !isString(p.id) || !isString(p.tenantId)) throw offShape(response, 'the response is not a project');
+            return response.body as Project;
+          }
+          if (!isInitialization(p)) throw offShape(response, 'the response is not a project initialization');
+          if (p.state !== 'pending') return p;
+          last = p;
+          wait = pollDelay(response.retryAfter ?? p.retryAfter, options.pollMs, PROJECT_INITIALIZATION_POLL_MS);
+          if (wait >= scope.remaining()) return last;
+        } catch (error) {
+          if (!(error instanceof OrgCreationPendingError)) throw error;
+          wait = pollDelay(error.retryAfter, options.pollMs, ORG_PENDING_POLL_MS);
+          if (wait >= scope.remaining()) throw error;
+        }
+        await scope.sleep(wait);
+      }
+    } catch (error) {
+      // The deadline ended a later wait or resend: the last pending view is the answer (a caller's abort is not).
+      if (last && waitStop(error, scope) === 'deadline-exceeded') return last;
+      throw initializing ? scopeError(error, scope, secrets) : error;
+    } finally { scope.dispose(); }
+  }
+
+  const isProject = (p: unknown) => isObject(p) && isString(p.id) && isString(p.tenantId);
+  const isRepository = (r: unknown) => isObject(r) && isString(r.id) && isString(r.name) && isString(r.provider);
+  const isInitialization = (b: unknown): b is ProjectInitialization => isObject(b) && isString(b.state) && isString(b.operationId)
+    && (b.project === undefined || isProject(b.project))
+    && (b.state !== 'ready' || (isProject(b.project) && (b.repository === null || isRepository(b.repository))))
+    && (b.state !== 'action-required' || (isProject(b.project) && isObject(b.action) && isString(b.action.reason)))
+    && (b.state !== 'pending' || isString(b.reason))
+    && (b.state !== 'failed' || (isObject(b.problem) && isString(b.problem.code) && typeof b.problem.status === 'number'));
   const projects = {
     /**
      * Human only: `GET /me/projects`, the caller's projects in every tenant, each with the `tenantId` its routes name.
@@ -634,28 +699,29 @@ export function journeys(client: OctocoveClient) {
      * tenant is still provisioning (`409 org-creation-pending`) the same key and body are sent again after its
      * Retry-After, until the deadline; then the `OrgCreationPendingError` is thrown and a later call with the same
      * `idempotencyKey` completes the same project. `stored-result` replay otherwise.
+     *
+     * With `repository` (`{mode: 'seed', targetRef?}`, `{mode: 'import', url, branch?}` or `{mode: 'none'}`) the create
+     * also sets up the project's repository, in one operation under the one key, and answers a
+     * `ProjectInitialization`: `ready` (the project and its repository), `action-required` (the project exists;
+     * `action.reason` says what the repository needs) or, while a step settles, `pending`: the same body and key are
+     * sent again after each Retry-After until the deadline, then the `pending` view is returned and a later call with
+     * the same input and key resumes it. A replay never creates a second project; the same key with another body is
+     * `409 idempotency-conflict`. Without `repository` the answer is the `Project`, as before.
      */
-    async create(input: Body<'projectCreate'>, options: CommandOptions & { readonly orgId?: string; readonly pollMs?: number }): Promise<Project> {
-      requireHuman(client, 'projects.create');
+    create: createProject,
+    /**
+     * Human only: `projectInitializationGet` (`GET /v1/me/project-initializations/{operationId}`), the caller's own
+     * initialization's current view, read from the server's records (a `failed` view carries the project step's
+     * `problem`). Writes nothing and never resumes a step: only `create` with the same input and key does. Another
+     * caller's operation, or an unknown id, is `404 not-found`.
+     */
+    async initialization(operationId: string, options: JourneyOptions): Promise<ProjectInitialization> {
+      requireHuman(client, 'projects.initialization');
       const scope = journeyScope(options);
-      const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
-      const target: JourneyClient = options.orgId === undefined ? client : org(options.orgId).client;
       try {
-        for (;;) {
-          try {
-            const response = options.orgId === undefined
-              ? await send(target, scope, options, 'meProjectCreate', { body: input }, { idempotencyKey })
-              : await send(target, scope, options, 'projectCreate', { body: input }, { idempotencyKey });
-            const p: unknown = response.body;
-            if (!isObject(p) || !isString(p.id) || !isString(p.tenantId)) throw offShape(response, 'the response is not a project');
-            return response.body;
-          } catch (error) {
-            if (!(error instanceof OrgCreationPendingError)) throw error;
-            const wait = pollDelay(error.retryAfter, options.pollMs, ORG_PENDING_POLL_MS);
-            if (wait >= scope.remaining()) throw error;
-            await scope.sleep(wait);
-          }
-        }
+        const response = await send(client, scope, options, 'projectInitializationGet', { path: { operationId } });
+        if (!isInitialization(response.body)) throw offShape(response, 'the response is not a project initialization');
+        return response.body;
       } finally { scope.dispose(); }
     },
   };
