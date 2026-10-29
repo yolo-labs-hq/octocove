@@ -79,7 +79,8 @@ export function caseCollisions(paths: Iterable<string>): [string, string][] {
   for (const path of paths) {
     const parts = path.split('/');
     for (let i = 1; i <= parts.length; i++) {
-      const name = parts.slice(0, i).join('/'), folded = name.toLowerCase(), other = seen.get(folded);
+      // Case-insensitive filesystems also fold Unicode normalization forms (macOS: NFD), so NFC first.
+      const name = parts.slice(0, i).join('/'), folded = name.normalize('NFC').toLowerCase(), other = seen.get(folded);
       if (other === undefined) seen.set(folded, name);
       else if (other !== name && !pairs.some(([a, b]) => a === other && b === name)) pairs.push([other, name]);
     }
@@ -93,6 +94,8 @@ export function caseCollisions(paths: Iterable<string>): [string, string][] {
 async function refuseCaseCollisions(dir: string, paths: Iterable<string>) {
   const pairs = caseCollisions(paths);
   if (!pairs.length) return;
+  // The probe goes where the files would; whatever it had to create is removed again when the lane is refused.
+  const hadDir = existsSync(dir), hadSidecar = existsSync(join(dir, '.octocove'));
   await mkdir(join(dir, '.octocove'), { recursive: true });
   const probe = join(dir, '.octocove', `case-${randomUUID()}`);
   await writeFile(probe, '', { flag: 'wx' });
@@ -100,6 +103,8 @@ async function refuseCaseCollisions(dir: string, paths: Iterable<string>) {
   try { insensitive = !!(await lstatOrNull(probe.replace(/case-([^/]*)$/, (_, id: string) => `CASE-${id.toUpperCase()}`))); }
   finally { await rm(probe, { force: true }); }
   if (!insensitive) return;
+  if (!hadSidecar) await rm(join(dir, '.octocove'), { recursive: true, force: true });
+  if (!hadDir) await rm(dir, { recursive: true, force: true });
   const shown = pairs.slice(0, 5).map(([a, b]) => `${JSON.stringify(a)} and ${JSON.stringify(b)}`).join(', ');
   throw new ConfigError(`the lane holds paths that differ only in letter case (${shown}${pairs.length > 5 ? `, and ${pairs.length - 5} more` : ''}), and ${dir} is on a case-insensitive filesystem where one would overwrite the other; materialize it on a case-sensitive filesystem`);
 }

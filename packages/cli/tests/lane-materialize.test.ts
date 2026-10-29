@@ -314,7 +314,8 @@ describe("octo lane (materialized)", () => {
 
     it("a pack the server finds too large (413 lane-pack-too-large), or whose body cannot be read, is replaced by file-by-file reads or read again", async () => {
       scope = { read: ["."], write: ["."] };
-      const files = many("v1");
+      // One file over 1 MiB: the file-by-file fallback reads it too.
+      const files = { ...many("v1"), "pkg/package-lock.json": "x".repeat(2 * 1024 * 1024 + 3) };
       const { ids, pack } = gitPack(files);
       routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
       routes["GET /tasks/T1/lane/pack"] = () => json(413, { code: "lane-pack-too-large", status: 413, details: { reason: "pack-bytes", limit: 1 } });
@@ -322,8 +323,9 @@ describe("octo lane (materialized)", () => {
         return json(200, { path, mode: "100644", type: "file", sha: ids[path], size: content.length, encoding: "base64", content: b64(content) }); };
       expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
       expect(calls.filter((c) => c.url.pathname.endsWith("/lane/pack"))).toHaveLength(1);
-      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(40);
-      expect(errText).toContain("reading 40 file(s) one by one");
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(41);
+      expect(errText).toContain("reading 41 file(s) one by one");
+      expect(read("pkg/package-lock.json")).toHaveLength(2 * 1024 * 1024 + 3);
       rmSync(work, { recursive: true, force: true });
       work = mkdtempSync(join(tmpdir(), "octocove-lane-")); dir = join(work, "T1"); calls = [];
       let served = 0;
@@ -345,6 +347,7 @@ describe("octo lane (materialized)", () => {
         expect(existsSync(join(dir, "ok.txt"))).toBe(false);
       }
       expect(caseCollisions(["README.md", "readme.md", "Src/a", "src/b", "x/y"])).toEqual([["README.md", "readme.md"], ["Src", "src"]]);
+      expect(caseCollisions(["caf\u00e9.txt", "cafe\u0301.txt", "CAFE\u0301.TXT"])).toEqual([["caf\u00e9.txt", "cafe\u0301.txt"], ["caf\u00e9.txt", "CAFE\u0301.TXT"]]);
       const files = { "README.md": "a\n", "readme.md": "b\n" };
       const { ids, pack } = gitPack({ "x/README.md": "a\n", "y/readme.md": "b\n" });
       routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, { "README.md": ids["x/README.md"]!, "readme.md": ids["y/readme.md"]! }));

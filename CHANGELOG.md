@@ -28,6 +28,9 @@ request.
 - CLI: a lane path that opens `.git` on some filesystem (any letter case, NTFS trailing dots or spaces or a stream
   name, `git~1`, HFS+ ignorable code points) or a top-level `.octocove` in any case is refused. Paths that differ only
   in letter case are refused, and named, when the lane directory is on a case-insensitive filesystem.
+  Case is compared after Unicode NFC normalization, and nothing is left behind in the directory after such a refusal.
+- Client: documented that `laneBlobGet` reads a file of a materialized whole-repository lane up to 32 MiB less 64
+  KiB (streamed, `size` after `content`), at the head and as the upstream side of a conflict.
 
 ## CLI 0.8.1
 
