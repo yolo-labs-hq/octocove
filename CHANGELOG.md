@@ -1,5 +1,21 @@
 # Changelog
 
+## CLI 0.10.1
+
+Release `@yolo-labs/octocove` 0.10.1: `octo lane materialize` reads a whole-repository lane's pack again. The client
+is unchanged (0.15.0).
+
+- CLI: the stored human and agent credential wrappers no longer decode every response as text to scrub the session's
+  credentials from it. A JSON or `text/*` body is still scrubbed; any other body (`application/x-git-packfile`,
+  `application/octet-stream`, any binary media type) passes through as the same byte stream, and a body without a
+  content type is scrubbed only when it is valid UTF-8. A lane pack read with a stored agent delegation was decoded
+  as UTF-8 and failed its checksum on every attempt. Request bodies (`laneBlobPut` uploads) were and are sent as they
+  are.
+- CLI: a `lane materialize` that fails removes what it created in the directory (its `.octocove` sidecar directory,
+  each file it wrote and each directory it created for one, once empty, and the directory itself when it created it,
+  once empty), so the same command can be run again into the same directory. Anything it did not create is left in
+  place.
+
 ## CLI 0.10.0 and client 0.15.0
 
 Release `@yolo-labs/octocove` 0.10.0 and `@yolo-labs/octocove-client` 0.15.0: saving files over 1 MiB.

@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, writeSync } from 'node:fs';
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, rename, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ConfigError } from './config.js';
@@ -474,8 +474,35 @@ export async function handover(api: Api, taskId: string, options: MaterializeOpt
  * a reopened lane's rebase resumes), then writes the files at the lane head into `dir` (absent or empty) with the sidecar.
  */
 export async function materialize(api: Api, taskId: string, dir: string, options: MaterializeOptions) {
+  let absent = false;
   try { if ((await readdir(dir)).length) throw new ConfigError(`${dir} is not empty`); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; absent = true; }
+  // The sidecar directory is claimed before anything is asked for: created here, exclusively, so a second
+  // materialize into the same directory running at the same time is refused rather than sharing (or removing) it.
+  await mkdir(dir, { recursive: true });
+  try { await mkdir(join(dir, '.octocove')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new ConfigError(`${dir} is not empty`); throw error; }
+  // A failed materialize removes what it created, so the same command can be run again into the same directory: the
+  // sidecar directory it claimed, each file it wrote and each directory it created for one (only once empty), and the
+  // directory itself when it created it (only once empty). A path that existed before the command wrote it, or
+  // anything another process put there, is left in place.
+  const created: { path: string; directory: boolean }[] = [];
+  const writing = async (path: string) => {
+    const parts = path.split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      const at = join(dir, ...parts.slice(0, i));
+      if (!(await lstatOrNull(at))) created.push({ path: at, directory: i < parts.length });
+    }
+  };
+  try { return await materializeInto(api, taskId, dir, options, writing); }
+  catch (error) {
+    for (const { path, directory } of created.reverse()) await (directory ? rmdir(path) : rm(path, { force: true })).catch(() => undefined);
+    await rm(join(dir, '.octocove'), { recursive: true, force: true }).catch(() => undefined);
+    if (absent) await rmdir(dir).catch(() => undefined);
+    throw error;
+  }
+}
+async function materializeInto(api: Api, taskId: string, dir: string, options: MaterializeOptions, writing: (path: string) => Promise<void>) {
   const task = (await api.call('taskGet', { path: { id: taskId }, deadline: options.deadline })).body;
   const lane = isRecord(task) ? task.lane : undefined;
   if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string')
@@ -507,6 +534,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
     if (e.type === 'submodule') { files[e.path] = { mode: '160000', sha: e.sha, digest: null }; continue; }
     const content = await readPristine(dir, digests.get(e.sha) ?? null);
     if (!content) throw new ConfigError(`could not keep the content of ${JSON.stringify(e.path)}; materialize the lane again into a new directory`);
+    await writing(e.path);
     await writeEntry(dir, e.path, e.mode, content);
     files[e.path] = { mode: e.mode, sha: e.sha, digest: digests.get(e.sha)! };
   }
