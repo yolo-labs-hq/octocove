@@ -63,9 +63,11 @@ export function validLanePath(path: string) {
   return typeof path === 'string' && path.length > 0 && path.length <= 4096 && !path.startsWith('/') && !path.endsWith('/') &&
     !/\0|\\/.test(path) && path.split('/').every((s) => s !== '' && s !== '.' && s !== '..') && path.split('/')[0] !== '.octocove';
 }
-/** The server's scope rule: a prefix names itself and everything beneath it. */
+/** The whole-repository scope: the only entry of a read or write list that names it; never a path. */
+export const ROOT_SCOPE = '.';
+/** The server's scope rule: a prefix names itself and everything beneath it, and the root scope names every path. */
 export const inScope = (path: string, prefixes: string[]) =>
-  prefixes.some((p) => path === p || path.startsWith(p.endsWith('/') ? p : `${p}/`));
+  prefixes.some((p) => p === ROOT_SCOPE || path === p || path.startsWith(p.endsWith('/') ? p : `${p}/`));
 /** Only a missing path (or a missing parent) means absent; any other filesystem error is reported, never guessed. */
 const absent = (error: unknown) => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException)?.code ?? '');
 async function lstatOrNull(target: string) {
@@ -208,7 +210,7 @@ async function walkWriteScope(dir: string, sc: Sidecar) {
   };
   for (const prefix of sc.scope.write) {
     const clean = prefix.replace(/\/+$/, '');
-    if (!clean) { await visit(''); continue; }
+    if (!clean || prefix === ROOT_SCOPE) { await visit(''); continue; }
     if (!validLanePath(clean)) continue;
     const s = await lstatOrNull(await safeJoin(dir, clean));
     if (!s) continue;

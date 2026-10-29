@@ -1,5 +1,14 @@
 # Changelog
 
+## CLI 0.8.1
+
+Release `@yolo-labs/octocove` 0.8.1 alone (no client release): the whole-repository lane scope.
+
+- `octo task claim --read . --write .` claims the whole repository: `.` alone in a read or write scope names every path, nested or added later. `--read . --write PREFIXES` reads everything and changes only the write prefixes. `.` cannot be combined with another prefix, and `./` is not accepted.
+- `octo lane submit` treats `.` in the write scope as every path of the lane directory (still never the `.octocove` sidecar), so added, changed and deleted files anywhere are submitted; an edit outside a narrower write scope is still refused locally (`scope-refused`) with nothing uploaded.
+- The `--read` and `--write` help describes `.`.
+- The client library is unchanged: 0.11.0, 0.12.0 and 0.13.0 pass lane scopes through as given.
+
 ## Client 0.13.0
 
 Release `@yolo-labs/octocove-client` 0.13.0 alone (no CLI release): create a project and its repository in one operation.

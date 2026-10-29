@@ -41,6 +41,13 @@ octo task claim "$TASK" --read README.md,docs/ --write docs/ \
   --intent-version 1 --bootstrap-file ./agent/bootstrap.json
 ```
 
+For the whole repository, give `.` alone: `--read . --write .` reads and changes every path, nested or added later,
+and `--read . --write docs/` reads everything but changes only `docs/`. `.` cannot be combined with another prefix, and
+`./` is not accepted. A whole-repository write overlaps every other write scope on the same repository and target, so
+it is admitted only while no other task holds one there, and while it is held no other write is admitted there. The
+listing limits still apply: a repository too large to materialize completely is refused (`materialization-too-large`),
+never cut.
+
 The claim bootstrap is the only credential the claim accepts; the claim replaces it with the agent's delegation,
 stored privately in `OCTOCOVE_CONFIG_DIR`. The claim is ready at once. Nothing is cloned.
 
