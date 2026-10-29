@@ -15,6 +15,7 @@ import {
   TransportError,
   type ClaimBootstrap,
   type ClientOptions,
+  type ProjectCreateInput,
 } from '../../src/index.js';
 import { dumpError, equal, hang, json, ok, problem, rejects, scriptedFetch, sleep, test, type Case, type Recorded } from '../harness.js';
 
@@ -401,6 +402,55 @@ export const journeyCases: Case[] = [
     }
     const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
     await rejects(() => journeys(delegated).projects.create({ slug: 'first', name: 'First' }, { deadline: soon() }), TypeError);
+  }),
+  // ---- project initialization ----
+  test('projects.create with a repository initializes under one key, waits out pending under the same key and body, and returns ready', async () => {
+    const input = { slug: 'first', name: 'First', repository: { mode: 'seed' as const } };
+    const project = { id: 'project-1', slug: 'first', name: 'First', createdAt: '2026-10-29T00:00:00.000Z', artifactsNamespace: 'oc-project-1', tenantId: ORG };
+    const pending = { state: 'pending', operationId: 'pinit_1', project, membership: { verbs: ['project:admin'] }, repository: { state: 'creating' },
+      reason: 'creation-in-progress', retryAfter: 2 };
+    const ready = { state: 'ready', operationId: 'pinit_1', project, membership: { verbs: ['project:admin'] },
+      repository: { id: 'repo-1', name: 'first', provider: 'artifacts', targetRef: 'refs/heads/main', knownHeadSha: 'a'.repeat(40) } };
+    const delays: number[] = [];
+    const { fetch, calls } = scriptedFetch(withRetryAfter(json(202, pending), '2'), lost(201), json(201, ready));
+    equal(await journeys(client(fetch)).projects.create(input, { orgId: ORG, deadline: soon(), sleep: async (ms) => { delays.push(ms); } }), ready);
+    // The Retry-After wait, then the lost answer's replay backoff: never a second project, the same key throughout.
+    equal(delays, [2000, 250]);
+    equal(calls.map((c) => `${c.method} ${c.url}`), Array(3).fill(`POST ${BASE}/v1/orgs/${ORG}/projects`));
+    equal(new Set(keys(calls)).size, 1);
+    equal(new Set(calls.map((c) => c.body)).size, 1);
+    equal(JSON.parse(calls[0]!.body!), input);
+  }),
+  test('projects.create with a repository returns action-required as it is and the pending view at the deadline; off-shape answers are ApiErrors', async () => {
+    const input = { slug: 'first', name: 'First', repository: { mode: 'import' as const, url: 'https://example.com/a.git' } };
+    const project = { id: 'project-1', slug: 'first', name: 'First', createdAt: '2026-10-29T00:00:00.000Z', artifactsNamespace: 'oc-project-1', tenantId: ORG };
+    const refused = { state: 'action-required', operationId: 'pinit_1', project, action: { reason: 'repository-creation-failed', code: 'repository-import-refused' } };
+    const asked = scriptedFetch(json(201, refused));
+    equal(await journeys(client(asked.fetch)).projects.create(input, { deadline: soon() }), refused);
+    equal(asked.calls.map((c) => c.url), [`${BASE}/v1/me/projects`]);
+    const pending = { state: 'pending', operationId: 'pinit_1', reason: 'creation-in-progress', retryAfter: 5 };
+    const stuck = scriptedFetch(withRetryAfter(json(202, pending), '5'));
+    equal(await journeys(client(stuck.fetch)).projects.create(input, { deadline: Date.now() + 500 }), pending);
+    equal(stuck.calls.length, 1);
+    // A caller that decides at run time whether to set up a repository gets the union.
+    const dynamic: ProjectCreateInput = { slug: 'first', name: 'First' };
+    const plain = scriptedFetch(json(201, project));
+    equal(await journeys(client(plain.fetch)).projects.create(dynamic, { deadline: soon() }), project);
+    for (const body of [project, { state: 'ready', operationId: 'pinit_1' }, { state: 'ready', operationId: 'pinit_1', project }, { state: 'action-required', operationId: 'pinit_1', project },
+      { state: 'action-required', operationId: 'pinit_1', action: { reason: 'repository-creation-failed' } }, { state: 'failed', operationId: 'pinit_1' },
+      { state: 'failed', operationId: 'pinit_1', problem: { code: 'slug-taken' } }, { state: 'ready', operationId: 'pinit_1', project, repository: {} },
+      { state: 'ready', operationId: 'pinit_1', project, repository: 42 }, { state: 'pending', retryAfter: 1 }]) {
+      const offShape = scriptedFetch(json(201, body));
+      await rejects(() => journeys(client(offShape.fetch)).projects.create(input, { deadline: soon() }), ApiError, JSON.stringify(body));
+    }
+  }),
+  test('projects.initialization reads the caller\'s own operation, and needs a human', async () => {
+    const view = { state: 'failed', operationId: 'pinit_1', problem: { code: 'slug-taken', status: 409 } };
+    const { fetch, calls } = scriptedFetch(json(200, view));
+    equal(await journeys(client(fetch)).projects.initialization('pinit_1', { deadline: soon() }), view);
+    equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/me/project-initializations/pinit_1`]);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).projects.initialization('pinit_1', { deadline: soon() }), TypeError);
   }),
   // ---- workspaces ----
   test('workspaces.bind posts the workspace under one key, waits out pending under the same key and body, and returns ready', async () => {

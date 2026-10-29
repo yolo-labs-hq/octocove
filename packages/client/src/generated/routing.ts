@@ -4968,6 +4968,9 @@ export const routing = {
       "201": [
         "application/json"
       ],
+      "202": [
+        "application/json"
+      ],
       "400": [
         "application/problem+json"
       ],
@@ -4991,7 +4994,8 @@ export const routing = {
       ]
     },
     "successStatuses": [
-      201
+      201,
+      202
     ],
     "redirectStatuses": [],
     "security": [
@@ -6277,6 +6281,9 @@ export const routing = {
       "201": [
         "application/json"
       ],
+      "202": [
+        "application/json"
+      ],
       "400": [
         "application/problem+json"
       ],
@@ -6303,7 +6310,8 @@ export const routing = {
       ]
     },
     "successStatuses": [
-      201
+      201,
+      202
     ],
     "redirectStatuses": [],
     "security": [
@@ -6314,6 +6322,57 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": "stored-result"
+    }
+  },
+  "projectInitializationGet": {
+    "operationId": "projectInitializationGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/me/project-initializations/{operationId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "operationId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
     }
   },
   "projectRepositoryGitRefsGet": {

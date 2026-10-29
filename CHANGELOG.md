@@ -1,5 +1,12 @@
 # Changelog
 
+## Client 0.13.0
+
+Release `@yolo-labs/octocove-client` 0.13.0 alone (no CLI release): create a project and its repository in one operation.
+
+- Regenerated from the current API contract. `ProjectCreate` accepts an optional `repository` (`ProjectRepositoryInit`: `seed`, `import` or `none`); `projectCreate` and `meProjectCreate` answer a `ProjectInitialization` for it (`201` ready or action-required, `202` pending). New operation `projectInitializationGet` (`GET /v1/me/project-initializations/{operationId}`, `network-only` / `null`). The retry policy and the README table cover 128 operation ids.
+- `projects.create(input, {orgId?})` with `repository` returns the `ProjectInitialization`, waiting out `pending` answers under the same key and body until the deadline; without it, the `Project` as before. New journey `projects.initialization(operationId, {deadline})`. Types `ProjectInitialization`, `ProjectRepositoryInit`, `ProjectCreateInput` and `ProjectCreateOptions`; constant `PROJECT_INITIALIZATION_POLL_MS`.
+
 ## Client 0.12.0
 
 Release `@yolo-labs/octocove-client` 0.12.0 alone (no CLI release): connecting a private GitHub repository through the Octocove GitHub App.

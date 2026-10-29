@@ -142,7 +142,7 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `githubConnect` | `network-only` | `null` | safe reads (`meConnectionsList`, `oauthMetadata`, `workspaceBindingGet` and `meGithubInstallationsList` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `githubConnect`, `projectInitializationGet` | `network-only` | `null` | safe reads (`meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `workspaceBindingCreate` | `network-only` | `stored-result` | the binding request ledger, keyed by client, human and key: the same key with another body is `409 idempotency-conflict`; a replay of a request that bound (or began creating) a binding answers that binding, with its destinations and access read now; a `pending` or `action-required` answer that bound nothing is worked out again; a refused creation replays its refusal; nothing is created twice |
@@ -186,7 +186,9 @@ Retry-After until the organization is ready, else `pending-timeout`, never creat
 (`GET /v1/owners/{slug}`), `projects.list` (`GET /me/projects`),
 `projects.create(input, { orgId? })` (`POST /orgs/{orgId}/projects`, or without `orgId` `POST /me/projects` in the
 caller's personal tenant; `409 org-creation-pending` is waited out under the same key and body until the deadline,
-then thrown as `OrgCreationPendingError`), `workspaces.bind(input)` and `workspaces.get(bindingId)` (an OAuth client's
+then thrown as `OrgCreationPendingError`; with `repository` it also sets up the project's repository and answers a
+`ProjectInitialization`, [below](#project-initialization)), `projects.initialization(operationId)`
+(`GET /v1/me/project-initializations/{operationId}`), `workspaces.bind(input)` and `workspaces.get(bindingId)` (an OAuth client's
 workspace bindings, [below](#workspace-bindings)), `org(tenantId)`, `forProject(project)` and `command` for a global
 operation. `org(tenantId)` (`tenantJourneys`) holds the rest, all under `/v1/orgs/{tenantId}`: `tasks.*`,
 `repositories.*` (including `declareLanePolicy`, `branches` and `registerTargetRef`), `claims.authorize/claim/status/waitForProvisioning/release`,
@@ -453,7 +455,30 @@ const client = createClient({ baseUrl: API, transport: bearer({ token: (await se
 - `oca_`, `ocf_` and `occ_` values (like `ocs_` and `ocb_`) and HTTP Basic credentials are redacted from every error
   text the client produces.
 
-### Workspace bindings
+## Project initialization
+
+`projects.create({slug, name, repository}, {orgId?})` creates a project and its repository in one server-owned
+operation, under one Idempotency-Key. `repository` is `{mode: 'seed', targetRef?}` (an Artifacts repository named
+after the slug, with a README commit on `targetRef`, default `refs/heads/main`), `{mode: 'import', url, branch?}` (a
+public HTTPS remote) or `{mode: 'none'}` (set up later). The answer is a `ProjectInitialization`:
+
+- `ready`: `project`, the creator's `membership.verbs` and `repository` (`{id, name, provider, targetRef, knownHeadSha?}`,
+  or null for `none`).
+- `pending` (`202`): a step is still settling; the journey sends the same body and key again after each Retry-After
+  until the deadline, then returns the `pending` view. A later call with the same input and `idempotencyKey`
+  resumes it.
+- `action-required`: the project exists and `action.reason` says what the repository needs:
+  `repository-creation-failed` (with `code`; call again with the same input, or create the repository on the
+  project), `repository-needs-operator`, `repository-import-failed`, `repository-ineligible`, `project-admin-required`,
+  `repository-unavailable` or `access-lost`.
+
+A replay never creates a second project; the same key with another body is `409 idempotency-conflict`, and a refusal
+of the project itself (`slug-taken`, `project-quota-exceeded`, ...) is an `ApiError` as for the plain create.
+`projects.initialization(operationId)` reads the operation's current view (`failed` with the `problem` when the
+project was refused) without resuming anything. Without `repository`, `projects.create` answers the `Project` as
+before.
+
+## Workspace bindings
 
 An OAuth client with the `octocove:workspaces` scope resolves each of its own workspaces to one Octocove project,
 repository and landing destination, once, and reuses it for every later task:
