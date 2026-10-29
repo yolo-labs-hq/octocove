@@ -6,6 +6,35 @@ import { setTimeout as pause } from 'node:timers/promises';
 import { Api, ApiError, type FetchLike } from './http.js';
 import { ConfigError, configDir, activeCredentials, loadCredentials, saveCredentials, type Credentials } from './config.js';
 
+/** JSON (including `+json`, such as problem details) and `text/*`: the bodies a credential could be echoed in. */
+function textual(contentType: string) {
+  const type = contentType.split(';')[0]!.trim().toLowerCase();
+  return type.startsWith('text/') || type === 'application/json' || type.endsWith('+json');
+}
+/**
+ * The response as the SDK sees it: header values and the status text scrubbed of the session's credentials, and a
+ * JSON or text body scrubbed too. Every other body (a Git pack, `application/octet-stream`, any binary or streamed
+ * media type) passes through as the same byte stream, never decoded as text. A body without a content type is
+ * scrubbed only when it is valid UTF-8 text; otherwise its bytes pass through as they are.
+ */
+async function rewrapped(response: Response, scrub: (text: string) => string, keepBody = false): Promise<Response> {
+  const headers = new Headers(response.headers);
+  headers.forEach((value, key) => headers.set(key, scrub(value)));
+  headers.delete('content-length');
+  const init = { status: response.status, statusText: scrub(response.statusText), headers };
+  if ([204,205,304].includes(response.status) || response.body === null) return new Response(null, init);
+  const type = response.headers.get('content-type');
+  if (keepBody || (type !== null && !textual(type))) return new Response(response.body, init);
+  if (type === null) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let text: string;
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
+    catch { return new Response(bytes, init); }
+    return new Response(scrub(text), init);
+  }
+  return new Response(scrub(await response.text()), init);
+}
+
 const wrappedFetches = new WeakMap<FetchLike, { apiUrl: string; directory: string; fetch: FetchLike }>();
 const SIGN_IN = 'Human session ended or was revoked; sign in again with `octo login`.';
 function checkLimits(creds: Credentials) {
@@ -121,16 +150,9 @@ export function humanSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, 
         const encoded = JSON.stringify(secret).slice(1,-1);
         return value.split(encoded).join('[redacted]').split(secret).join('[redacted]');
       }, text);
-      const headers = new Headers(response.headers);
-      headers.forEach((value, key) => headers.set(key, scrub(value)));
-      headers.delete('content-length');
       const sessionIssuance = new URL(url).pathname.endsWith('/auth/session/renew')
         && (routing.sessionRenew.successStatuses as readonly number[]).includes(response.status);
-      const empty = [204,205,304].includes(response.status);
-      const body = empty ? null : await response.text();
-      return new Response(sessionIssuance ? body : body === null ? null : scrub(body), {
-        status: response.status, statusText: scrub(response.statusText), headers,
-      });
+      return await rewrapped(response, scrub, sessionIssuance);
     }
     catch (error) {
       if (error instanceof ConfigError) return Response.json({ code: error.message === SIGN_IN ? 'session-sign-in-required' : 'config', detail: error.message }, { status: 401 });
@@ -228,13 +250,7 @@ export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, 
           response = await send();
         }
       }
-      const safeHeaders = new Headers(response.headers);
-      safeHeaders.forEach((value,key)=>safeHeaders.set(key,scrub(value)));
-      safeHeaders.delete('content-length');
-      const empty = [204,205,304].includes(response.status);
-      return new Response(empty ? null : scrub(await response.text()), {
-        status: response.status, statusText: scrub(response.statusText), headers: safeHeaders,
-      });
+      return await rewrapped(response, scrub);
     } catch (error) {
       if (error instanceof ConfigError) return Response.json({ code: 'delegation-renewal-required', detail: error.message }, { status: 401 });
       // Fetch exceptions can contain a replacement token unknown to the pinned SDK credential.

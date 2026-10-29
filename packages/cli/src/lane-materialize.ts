@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, existsSync, openSync, writeSync } from 'node:fs';
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, rename, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ConfigError } from './config.js';
@@ -474,8 +474,22 @@ export async function handover(api: Api, taskId: string, options: MaterializeOpt
  * a reopened lane's rebase resumes), then writes the files at the lane head into `dir` (absent or empty) with the sidecar.
  */
 export async function materialize(api: Api, taskId: string, dir: string, options: MaterializeOptions) {
+  let absent = false;
   try { if ((await readdir(dir)).length) throw new ConfigError(`${dir} is not empty`); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; absent = true; }
+  // The directory was absent or empty: whatever a failed materialize leaves in it is its own. Removed again, so the
+  // same command can be run again into the same directory.
+  const created = new Set<string>(['.octocove']);
+  // A top-level name is the command's own when it is absent just before the command writes beneath it.
+  const writing = async (path: string) => { const top = path.split('/')[0]!; if (!created.has(top) && !(await lstatOrNull(join(dir, top)))) created.add(top); };
+  try { return await materializeInto(api, taskId, dir, options, writing); }
+  catch (error) {
+    for (const name of created) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined);
+    if (absent) await rmdir(dir).catch(() => undefined);   // only when nothing else is in it
+    throw error;
+  }
+}
+async function materializeInto(api: Api, taskId: string, dir: string, options: MaterializeOptions, writing: (path: string) => Promise<void>) {
   const task = (await api.call('taskGet', { path: { id: taskId }, deadline: options.deadline })).body;
   const lane = isRecord(task) ? task.lane : undefined;
   if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string')
@@ -507,6 +521,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
     if (e.type === 'submodule') { files[e.path] = { mode: '160000', sha: e.sha, digest: null }; continue; }
     const content = await readPristine(dir, digests.get(e.sha) ?? null);
     if (!content) throw new ConfigError(`could not keep the content of ${JSON.stringify(e.path)}; materialize the lane again into a new directory`);
+    await writing(e.path);
     await writeEntry(dir, e.path, e.mode, content);
     files[e.path] = { mode: e.mode, sha: e.sha, digest: digests.get(e.sha)! };
   }

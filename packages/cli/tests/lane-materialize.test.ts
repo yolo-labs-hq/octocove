@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
 import { caseCollisions, INCOMING, SIDECAR } from "../src/lane-materialize.js";
+import { saveCredentials } from "../src/config.js";
 
 // The lane journey against a stub control plane: no Git, no helper, no broker. The lane head
 // of generation N is HEAD(N); a save point moves it to SAVED.
@@ -291,6 +292,61 @@ describe("octo lane (materialized)", () => {
       expect(sidecar().files["docs/copy.md"]).toMatchObject({ sha: ids["docs/copy.md"], digest: sha256("readme\n") });
       expect(await cli(["lane", "status", "--json"])).toBe(EXIT.ok);
       expect(JSON.parse(outText)).toMatchObject({ modified: [], added: [], deleted: [] });
+    });
+
+    it("a lane pack with bytes at and above 0x80 reaches the pack reader unchanged through the stored agent delegation", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { ...many("v1"), "README.md": "readme\n" };
+      const { ids, pack } = gitPack(files);
+      expect(pack.some((b) => b >= 0x80)).toBe(true);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      routes["GET /tasks/T1/lane/pack"] = () => packed(pack);
+      const env = { OCTOCOVE_CONFIG_DIR: join(work, "cfg"), OCTOCOVE_ORG: ORG };
+      await saveCredentials(env, { apiUrl: API, kind: "agent", orgId: ORG, agentId: "agent-one", delegationId: "D1", token: "stored-tok", expiresAt: new Date(Date.now() + 3600000).toISOString() });
+      expect(await cli(["lane", "materialize", "T1"], { credentials: undefined, env }), errText).toBe(EXIT.ok);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/pack")).map((c) => new Headers(c.headers).get("authorization"))).toEqual(["Bearer stored-tok"]);
+      for (const [path, content] of Object.entries(files)) expect(read(path)).toBe(content);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
+    });
+
+    it("a failed materialize removes what it created, so the same command can be run again", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { ...many("v1"), "README.md": "readme\n" };
+      const { ids, pack } = gitPack(files);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      // A pack whose checksum never matches: every read of it fails.
+      const damaged = Buffer.from(pack); damaged[damaged.length - 1] = damaged[damaged.length - 1]! ^ 0xff;
+      routes["GET /tasks/T1/lane/pack"] = () => packed(damaged);
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(errText).toContain("nothing was written. Run the same command again");
+      expect(existsSync(dir)).toBe(false);
+      // An empty directory that was there before is kept, and left empty.
+      mkdirSync(dir);
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(readdirSync(dir)).toEqual([]);
+      // Something else in the parent is never touched.
+      writeFileSync(join(work, "keep.txt"), "mine\n");
+      routes["GET /tasks/T1/lane/pack"] = () => packed(pack);
+      expect(await cli(["lane", "materialize", "T1"]), errText).toBe(EXIT.ok);
+      for (const [path, content] of Object.entries(files)) expect(read(path)).toBe(content);
+      expect(readFileSync(join(work, "keep.txt"), "utf8")).toBe("mine\n");
+    });
+
+    it("a materialize that fails after writing files removes them and its sidecar directory, never what it did not create", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { "a/one.txt": "one\n", "b/two.txt": "two\n" };
+      const { ids, pack } = gitPack(files);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      routes["GET /tasks/T1/lane/pack"] = () => packed(pack);
+      // A file where the second entry's parent directory must go: the write of b/two.txt fails after a/one.txt is written.
+      let created = false;
+      const real = routes["GET /tasks/T1/lane/pack"];
+      routes["GET /tasks/T1/lane/pack"] = (c) => { if (!created) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "b"), "in the way\n"); created = true; } return real(c); };
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(errText).toContain("is not a directory");
+      // a/ and .octocove were the command's own; b appeared while it ran and is kept, so the directory stays.
+      expect(readdirSync(dir)).toEqual(["b"]);
+      expect(readFileSync(join(dir, "b"), "utf8")).toBe("in the way\n");
     });
 
     it("reads a file the pack lacks one by one; an older server without the pack route is read file by file", async () => {

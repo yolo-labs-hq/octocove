@@ -328,7 +328,8 @@ Step by step: the [lane walkthrough](https://github.com/yolo-labs-hq/octocove/bl
 - **Local behavior.** A lane is an ordinary directory, with no Git clone and no Git credential helper. Refresh keeps
   your local modifications and surfaces conflicts for you to resolve. Unsaved edits are never discarded. A lane
   directory is not a sandbox: it does not isolate the agent's process, and a candidate is not landed until it is
-  approved and landed.
+  approved and landed. A `lane materialize` that fails removes what it wrote into the directory, so the same command
+  can be run again.
 
 A lane lets an agent work on a scoped slice of a repository without Git, a clone or a credential helper: Octocove
 keeps the lane in its own lane repository, the agent reads the files at the lane head and saves explicit file
