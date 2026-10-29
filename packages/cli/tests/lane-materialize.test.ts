@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { EXIT, run, type Deps } from "../src/cli.js";
 import { systemGit } from "../src/git.js";
-import { INCOMING, SIDECAR } from "../src/lane-materialize.js";
+import { caseCollisions, INCOMING, SIDECAR } from "../src/lane-materialize.js";
 
 // The lane journey against a stub control plane: no Git, no helper, no broker. The lane head
 // of generation N is HEAD(N); a save point moves it to SAVED.
@@ -310,6 +310,47 @@ describe("octo lane (materialized)", () => {
       expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
       for (const [path, content] of Object.entries(files)) expect(read(path)).toBe(content);
       expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(41);
+    });
+
+    it("a pack the server finds too large (413 lane-pack-too-large), or whose body cannot be read, is replaced by file-by-file reads or read again", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = many("v1");
+      const { ids, pack } = gitPack(files);
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      routes["GET /tasks/T1/lane/pack"] = () => json(413, { code: "lane-pack-too-large", status: 413, details: { reason: "pack-bytes", limit: 1 } });
+      routes["GET /tasks/T1/lane/blob"] = (c) => { const path = c.url.searchParams.get("path")!; const content = (files as Record<string, string>)[path]!;
+        return json(200, { path, mode: "100644", type: "file", sha: ids[path], size: content.length, encoding: "base64", content: b64(content) }); };
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/pack"))).toHaveLength(1);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(40);
+      expect(errText).toContain("reading 40 file(s) one by one");
+      rmSync(work, { recursive: true, force: true });
+      work = mkdtempSync(join(tmpdir(), "octocove-lane-")); dir = join(work, "T1"); calls = [];
+      let served = 0;
+      routes["GET /tasks/T1/lane/pack"] = () => (++served === 1
+        ? new Response(new ReadableStream({ pull(c) { c.error(new Error("connection reset")); } }), { status: 200, headers: { "content-type": "application/x-git-packfile" } })
+        : packed(pack));
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect(served).toBe(2);
+      expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
+    });
+
+    it("refuses a manifest naming a .git lookalike or the sidecar directory; letter-case twins materialize on a case-sensitive filesystem", async () => {
+      scope = { read: ["."], write: ["."] };
+      for (const bad of [".git./config", "a/GIT~1/x", ".g\u200cit/x", ".OCTOCOVE/x"]) {
+        const files = { "ok.txt": "ok\n", [bad]: "x\n" };
+        routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, { "ok.txt": SHA("ok"), [bad]: SHA("x") }));
+        expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+        expect(errText).toContain("invalid manifest entry");
+        expect(existsSync(join(dir, "ok.txt"))).toBe(false);
+      }
+      expect(caseCollisions(["README.md", "readme.md", "Src/a", "src/b", "x/y"])).toEqual([["README.md", "readme.md"], ["Src", "src"]]);
+      const files = { "README.md": "a\n", "readme.md": "b\n" };
+      const { ids, pack } = gitPack({ "x/README.md": "a\n", "y/readme.md": "b\n" });
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, { "README.md": ids["x/README.md"]!, "readme.md": ids["y/readme.md"]! }));
+      routes["GET /tasks/T1/lane/pack"] = () => packed(pack);
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);   // this test filesystem is case-sensitive
+      expect([read("README.md"), read("readme.md")]).toEqual(["a\n", "b\n"]);
     });
 
     it("refuses a damaged pack and writes nothing", async () => {

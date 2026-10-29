@@ -488,6 +488,21 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "laneSavePointsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneSavePointGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneSavePointDiff": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "laneScopeRequest": {
     "callable": true,
     "autoRetry": "network-only",

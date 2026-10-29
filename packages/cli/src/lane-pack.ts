@@ -18,13 +18,18 @@ const TYPES: Record<number, PackObjectType> = { 1: "commit", 2: "tree", 3: "blob
 const OFS_DELTA = 6, REF_DELTA = 7;
 
 export class PackError extends Error {}
+/** The largest object a lane pack may hold, declared or resolved (a file is at most 32 MiB; a tree of 100,000 entries
+ * is a few MiB): anything larger is refused before memory is allocated for it. */
+export const MAX_OBJECT_BYTES = 64 * 1024 * 1024;
 
 interface Entry { offset: number; type: number; start: number; size: number; base: number | string | null; end: number }
 
 /** Inflates the zlib stream at `start`, returning its bytes and the compressed length consumed. */
 function inflateAt(pack: Buffer, start: number, size: number): { data: Buffer; used: number } {
+  if (size > MAX_OBJECT_BYTES) throw new PackError("the pack holds an object larger than a lane may hold");
   let result: { buffer: Buffer; engine: { bytesWritten: number } };
-  try { result = inflateSync(pack.subarray(start), { info: true }) as unknown as typeof result; }
+  // Never more output than the object declares: a stream that inflates further is refused, not buffered.
+  try { result = inflateSync(pack.subarray(start), { info: true, maxOutputLength: Math.max(size, 1) }) as unknown as typeof result; }
   catch { throw new PackError("the pack holds a damaged object"); }
   if (result.buffer.length !== size) throw new PackError("the pack holds an object of the wrong size");
   return { data: result.buffer, used: result.engine.bytesWritten };
@@ -33,9 +38,18 @@ function inflateAt(pack: Buffer, start: number, size: number): { data: Buffer; u
 /** Applies a Git delta to `base`. */
 export function applyDelta(base: Buffer, delta: Buffer): Buffer {
   let at = 0;
-  const varint = () => { let value = 0, shift = 0, byte: number; do { byte = delta[at++]!; value += (byte & 0x7f) * 2 ** shift; shift += 7; } while (byte & 0x80); return value; };
+  const varint = () => {
+    let value = 0, shift = 0, byte: number;
+    do {
+      if (at >= delta.length || shift > 49) throw new PackError("a delta has a damaged header");
+      byte = delta[at++]!; value += (byte & 0x7f) * 2 ** shift; shift += 7;
+    } while (byte & 0x80);
+    return value;
+  };
   if (varint() !== base.length) throw new PackError("a delta does not match its base");
-  const size = varint(), out = Buffer.allocUnsafe(size);
+  const size = varint();
+  if (size > MAX_OBJECT_BYTES) throw new PackError("a delta builds an object larger than a lane may hold");
+  const out = Buffer.allocUnsafe(size);
   let written = 0;
   while (at < delta.length) {
     const op = delta[at++]!;
@@ -61,6 +75,14 @@ const objectId = (type: PackObjectType, data: Buffer) => createHash("sha1").upda
 
 /** Reads every object of `pack`, resolving deltas, and calls `onObject` once per object with its id. */
 export function readPack(pack: Buffer, onObject: (id: string, type: PackObjectType, data: Buffer) => void): { objects: number } {
+  try { return readPackUnchecked(pack, onObject); }
+  catch (error) {
+    // Arithmetic on hostile sizes and offsets ends as a refusal of the pack, never as another error.
+    if (error instanceof RangeError) throw new PackError("the pack holds an object that cannot be read");
+    throw error;
+  }
+}
+function readPackUnchecked(pack: Buffer, onObject: (id: string, type: PackObjectType, data: Buffer) => void): { objects: number } {
   if (pack.length < 32 || pack.toString("latin1", 0, 4) !== "PACK") throw new PackError("not a Git pack");
   const version = pack.readUInt32BE(4), count = pack.readUInt32BE(8);
   if (version !== 2 && version !== 3) throw new PackError(`unsupported pack version ${version}`);
@@ -75,15 +97,23 @@ export function readPack(pack: Buffer, onObject: (id: string, type: PackObjectTy
     let byte = pack[at++]!;
     const type = (byte >> 4) & 7;
     let size = byte & 15, shift = 4;
-    while (byte & 0x80) { byte = pack[at++]!; size += (byte & 0x7f) * 2 ** shift; shift += 7; }
+    while (byte & 0x80) {
+      if (at >= body.length || shift > 49) throw new PackError("the pack holds a damaged object header");
+      byte = pack[at++]!; size += (byte & 0x7f) * 2 ** shift; shift += 7;
+    }
+    if (size > MAX_OBJECT_BYTES) throw new PackError("the pack holds an object larger than a lane may hold");
     let base: number | string | null = null;
     if (type === OFS_DELTA) {
       byte = pack[at++]!;
       let back = byte & 0x7f;
-      while (byte & 0x80) { byte = pack[at++]!; back = (back + 1) * 128 + (byte & 0x7f); }
+      while (byte & 0x80) {
+        if (at >= body.length || back > offset) throw new PackError("a delta names a base outside the pack");
+        byte = pack[at++]!; back = (back + 1) * 128 + (byte & 0x7f);
+      }
       base = offset - back;
       if (base < 12 || base >= offset) throw new PackError("a delta names a base outside the pack");
     } else if (type === REF_DELTA) {
+      if (at + 20 > body.length) throw new PackError("the pack ends before its last object");
       base = pack.toString("hex", at, at + 20); at += 20;
     } else if (!TYPES[type]) throw new PackError(`the pack holds an object of unknown type ${type}`);
     const { used } = inflateAt(pack, at, size);

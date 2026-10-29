@@ -3,7 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { applyDelta, PackError, readPack } from "../src/lane-pack.js";
+import { createHash } from "node:crypto";
+import { deflateSync } from "node:zlib";
+import { applyDelta, MAX_OBJECT_BYTES, PackError, readPack } from "../src/lane-pack.js";
 
 // Packs written by real `git pack-objects`, with OFS_DELTA and REF_DELTA objects, read back without Git.
 function repoWith(files: Record<string, string>) {
@@ -54,5 +56,24 @@ describe("lane packs", () => {
     expect(applyDelta(base, delta).toString()).toBe("hello there");
     expect(() => applyDelta(Buffer.from("short"), delta)).toThrow(PackError);
     expect(() => applyDelta(base, Buffer.from([11, 11, 0x91, 8, 6]))).toThrow(PackError);
+  });
+
+  // Hand-built packs with a valid checksum, so only the object itself is wrong.
+  const header = (type: number, size: number) => { const out = [((type << 4) | (size & 15)) | (size > 15 ? 0x80 : 0)]; let rest = Math.floor(size / 16);
+    while (rest) { out.push((rest & 0x7f) | (rest > 0x7f ? 0x80 : 0)); rest = Math.floor(rest / 128); } return Buffer.from(out); };
+  const packOf = (...objects: Buffer[]) => { const head = Buffer.from([80, 65, 67, 75, 0, 0, 0, 2, 0, 0, 0, objects.length]); const body = Buffer.concat([head, ...objects]);
+    return Buffer.concat([body, createHash("sha1").update(body).digest()]); };
+  const varint = (n: number) => { const out: number[] = []; do { let b = n & 0x7f; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n); return out; };
+
+  it("refuses hostile objects before allocating for them: a declared size past the limit, more output than declared, a delta building a huge object, a truncated header", () => {
+    expect(() => readPack(packOf(header(3, MAX_OBJECT_BYTES + 1), deflateSync(Buffer.from("x"))), () => {})).toThrow(/larger than a lane may hold/);
+    expect(() => readPack(packOf(header(3, 5), deflateSync(Buffer.alloc(100_000, 7))), () => {})).toThrow(PackError);
+    const base = Buffer.from("base");
+    const huge = Buffer.from([...varint(base.length), ...varint(2 ** 40), 0x91, 0, 4]);
+    expect(() => applyDelta(base, huge)).toThrow(/larger than a lane may hold/);
+    const ofs = Buffer.concat([header(6, huge.length), Buffer.from([0x10]), deflateSync(huge)]);
+    expect(() => readPack(packOf(Buffer.concat([header(3, 4), deflateSync(base)]), ofs), () => {})).toThrow(PackError);
+    expect(() => applyDelta(base, Buffer.from([0x84]))).toThrow(PackError);
+    expect(() => readPack(packOf(Buffer.from([0xb3, 0x80])), () => {})).toThrow(PackError);
   });
 });

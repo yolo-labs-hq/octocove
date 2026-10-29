@@ -19,7 +19,7 @@ import { chmod, lstat, mkdir, open, readdir, readFile, readlink, realpath, renam
 import { randomUUID } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { ConfigError } from './config.js';
-import { ApiError, newIdempotencyKey, type Api } from './http.js';
+import { ApiError, TransportError, newIdempotencyKey, type Api } from './http.js';
 import { gitPatch, type PatchEntry, type PatchMode } from './lane-patch.js';
 import { PackError, readPack } from './lane-pack.js';
 
@@ -62,7 +62,46 @@ const gitBlobId = (content: Buffer, like: string) =>
 /** Repository-relative paths only: no absolute, dot-segment, backslash or NUL paths, and never the sidecar directory. */
 export function validLanePath(path: string) {
   return typeof path === 'string' && path.length > 0 && path.length <= 4096 && !path.startsWith('/') && !path.endsWith('/') &&
-    !/\0|\\/.test(path) && path.split('/').every((s) => s !== '' && s !== '.' && s !== '..') && path.split('/')[0] !== '.octocove';
+    !/\0|\\/.test(path) && path.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && !gitMetadataName(s)) &&
+    path.split('/')[0]!.replace(HFS_IGNORABLE, '').toLowerCase() !== '.octocove';
+}
+/** Code points HFS+ ignores in names, so `.g\u200cit` opens `.git` there. */
+const HFS_IGNORABLE = /[\u200c-\u200f\u202a-\u202e\u206a-\u206f\ufeff]/g;
+/** Whether a name opens a Git metadata directory on some filesystem: `.git` in any case, with NTFS trailing dots or
+ * spaces or an alternate data stream, NTFS's short name `git~1`, or HFS+ ignorable code points. */
+export function gitMetadataName(segment: string) {
+  const name = segment.replace(HFS_IGNORABLE, '').toLowerCase().replace(/:.*$/, '').replace(/[. ]+$/, '');
+  return name === '.git' || name === 'git~1';
+}
+/** Paths (or their directories) that differ only in letter case, as `[a, b]` pairs. */
+export function caseCollisions(paths: Iterable<string>): [string, string][] {
+  const seen = new Map<string, string>(), pairs: [string, string][] = [];
+  for (const path of paths) {
+    const parts = path.split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      const name = parts.slice(0, i).join('/'), folded = name.toLowerCase(), other = seen.get(folded);
+      if (other === undefined) seen.set(folded, name);
+      else if (other !== name && !pairs.some(([a, b]) => a === other && b === name)) pairs.push([other, name]);
+    }
+  }
+  return pairs;
+}
+/**
+ * Refuses to write paths that differ only in letter case into a directory on a case-insensitive filesystem (one
+ * would overwrite the other). Repositories may hold them; on a case-sensitive filesystem nothing is refused.
+ */
+async function refuseCaseCollisions(dir: string, paths: Iterable<string>) {
+  const pairs = caseCollisions(paths);
+  if (!pairs.length) return;
+  await mkdir(join(dir, '.octocove'), { recursive: true });
+  const probe = join(dir, '.octocove', `case-${randomUUID()}`);
+  await writeFile(probe, '', { flag: 'wx' });
+  let insensitive: boolean;
+  try { insensitive = !!(await lstatOrNull(probe.replace(/case-([^/]*)$/, (_, id: string) => `CASE-${id.toUpperCase()}`))); }
+  finally { await rm(probe, { force: true }); }
+  if (!insensitive) return;
+  const shown = pairs.slice(0, 5).map(([a, b]) => `${JSON.stringify(a)} and ${JSON.stringify(b)}`).join(', ');
+  throw new ConfigError(`the lane holds paths that differ only in letter case (${shown}${pairs.length > 5 ? `, and ${pairs.length - 5} more` : ''}), and ${dir} is on a case-insensitive filesystem where one would overwrite the other; materialize it on a case-sensitive filesystem`);
 }
 /** The whole-repository scope: the only entry of a read or write list that names it; never a path. */
 export const ROOT_SCOPE = '.';
@@ -285,7 +324,8 @@ async function packedBlobs(api: Api, dir: string, taskId: string, generation: nu
   for (let attempt = 1; ; attempt++) {
     try { return await packedOnce(api, dir, taskId, generation, wanted, deadline, at); }
     catch (error) {
-      if (!(error instanceof PackError)) throw error;
+      // A pack that ended early arrives damaged, or its body cannot be read at all: read it again.
+      if (!(error instanceof PackError) && !(error instanceof TransportError && error.code === 'network-error')) throw error;
       if (attempt >= PACK_READS) throw new ConfigError(`the lane pack could not be read (${error.message}) after ${attempt} attempts; nothing was written. Run the same command again`);
     }
   }
@@ -298,6 +338,8 @@ async function packedOnce(api: Api, dir: string, taskId: string, generation: num
     body = (await paced(api, deadline, () => api.call('lanePackGet', { path: { id: taskId }, query: { generation, ...(at.head ? { head: at.head } : {}), ...(at.have ? { have: at.have } : {}) }, deadline }))).body;
   } catch (error) {
     if (error instanceof ApiError && (error.status === 404 || (error.status === 409 && error.code === 'lane-pack-unavailable'))) return null;
+    // Larger than one download may be: read the files one by one instead.
+    if (error instanceof ApiError && error.status === 413 && error.code === 'lane-pack-too-large') return null;
     throw error;
   }
   if (!(body instanceof ArrayBuffer)) throw new ConfigError('invalid pack response from the control plane');
@@ -421,6 +463,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   if (!isRecord(repo) || !isSha(repo.laneHead) || !Number.isInteger(repo.generation)) throw new ConfigError('invalid materialize response from the control plane');
   const generation = repo.generation as number, head = repo.laneHead as string;
   const m = await readManifest(api, taskId, generation, options.deadline, head);
+  await refuseCaseCollisions(dir, m.entries.map((e) => e.path));
   const files = dict<LaneFile>();
   // Every file's content first (kept as pristine copies, one per distinct blob): a whole-repository lane in one pack,
   // anything else (or anything a pack lacked) file by file, a few at a time.
@@ -430,6 +473,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   const digests = new Map<string, string>(held ?? []);
   const missing = [...new Map(blobs.filter((e) => !digests.has(e.sha)).map((e) => [e.sha, e])).values()];
   if (held && missing.length) options.notify?.(`${missing.length} file(s) were not in the lane pack; reading them one by one`);
+  if (!held && wholeRepository(m.scope.read) && missing.length > PACK_AFTER) options.notify?.(`no lane pack for this lane; reading ${missing.length} file(s) one by one`);
   await pool(missing, BLOB_READS, async (e) => {
     const content = await readBlob(api, taskId, generation, e.path, options.deadline, { head });
     await keepPristine(dir, content);
@@ -485,6 +529,7 @@ async function applyManifest(api: Api, dir: string, sc: Sidecar, generation: num
     if (c?.incoming) await rm(await incomingTarget(dir, c.incoming), { recursive: true, force: true });
   };
   // Download every changed entry before touching the directory, so a network failure leaves it exactly as it was.
+  await refuseCaseCollisions(dir, m.entries.map((e) => e.path));
   const contents = new Map<string, Buffer>();
   const changed = m.entries.filter((e) => {
     if (e.type === 'submodule') return false;

@@ -11,12 +11,23 @@ request.
   `ArrayBuffer`); `have` names a lane commit already held, whose objects are left out. Documented: the
   whole-repository materialization limits and refusals (`materialization-too-large` with `reason`
   `listing-truncated`, `blob-bytes`, `bytes` or `pack-bytes`; `lane-path-refused`). The retry policy and the README
-  table cover 129 operation ids.
+  table cover 132 operation ids. A lane head pack over the server's limit answers `413 lane-pack-too-large`
+  (`reason` `pack-bytes`).
+- Client: the save point reads. New operations `laneSavePointsList` (`GET /v1/orgs/{orgId}/tasks/{id}/lane/save-points`,
+  with `claim`, `limit` and `cursor`), `laneSavePointGet` (`…/save-points/{savePointId}`) and `laneSavePointDiff`
+  (`…/save-points/{savePointId}/diff`), all `network-only` / `null`, and the journeys `lanes.savePoints(taskId, query,
+  options)`, `lanes.savePoint(taskId, savePointId, options)` and `lanes.savePointDiff(taskId, savePointId, options)`
+  (human only). Types `LaneSavePointList`, `LaneSavePointDetail` and `LaneSavePointDiff`.
 - CLI: `octo lane materialize` reads a whole-repository lane as one pack and unpacks it itself (no Git installation),
   checking every file against its Git id in the manifest; a file the pack lacks is read on its own, an incomplete
   pack is read again (three attempts), and a server without the pack route is read file by file. `octo lane refresh`
   reads many upstream changes of a whole-repository lane as one pack that leaves out what the previous lane head
-  holds. Files read one by one are read a few at a time, and each distinct content once.
+  holds. Files read one by one are read a few at a time, and each distinct content once. A pack the server finds too
+  large is replaced by file-by-file reads. The pack reader refuses objects over 64 MiB, declared or resolved, before
+  allocating for them.
+- CLI: a lane path that opens `.git` on some filesystem (any letter case, NTFS trailing dots or spaces or a stream
+  name, `git~1`, HFS+ ignorable code points) or a top-level `.octocove` in any case is refused. Paths that differ only
+  in letter case are refused, and named, when the lane directory is on a case-insensitive filesystem.
 
 ## CLI 0.8.1
 
