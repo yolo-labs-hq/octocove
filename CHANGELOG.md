@@ -12,8 +12,9 @@ is unchanged (0.15.0).
   as UTF-8 and failed its checksum on every attempt. Request bodies (`laneBlobPut` uploads) were and are sent as they
   are.
 - CLI: a `lane materialize` that fails removes what it created in the directory (its `.octocove` sidecar directory,
-  the files it wrote, and the directory itself when it created it), so the same command can be run again into the
-  same directory. Anything it did not create is left in place.
+  each file it wrote and each directory it created for one, once empty, and the directory itself when it created it,
+  once empty), so the same command can be run again into the same directory. Anything it did not create is left in
+  place.
 
 ## CLI 0.10.0 and client 0.15.0
 

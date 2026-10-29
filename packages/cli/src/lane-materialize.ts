@@ -477,15 +477,23 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   let absent = false;
   try { if ((await readdir(dir)).length) throw new ConfigError(`${dir} is not empty`); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; absent = true; }
-  // The directory was absent or empty: whatever a failed materialize leaves in it is its own. Removed again, so the
-  // same command can be run again into the same directory.
-  const created = new Set<string>(['.octocove']);
-  // A top-level name is the command's own when it is absent just before the command writes beneath it.
-  const writing = async (path: string) => { const top = path.split('/')[0]!; if (!created.has(top) && !(await lstatOrNull(join(dir, top)))) created.add(top); };
+  // The directory was absent or empty. A failed materialize removes what it created there, so the same command can
+  // be run again into the same directory: its own `.octocove` sidecar directory, each file it wrote and each directory
+  // it created for one (only once empty), and the directory itself when it created it (only once empty). A path that
+  // existed before the command wrote it, or anything another process put there, is left in place.
+  const created: { path: string; directory: boolean }[] = [];
+  const writing = async (path: string) => {
+    const parts = path.split('/');
+    for (let i = 1; i <= parts.length; i++) {
+      const at = join(dir, ...parts.slice(0, i));
+      if (!(await lstatOrNull(at))) created.push({ path: at, directory: i < parts.length });
+    }
+  };
   try { return await materializeInto(api, taskId, dir, options, writing); }
   catch (error) {
-    for (const name of created) await rm(join(dir, name), { recursive: true, force: true }).catch(() => undefined);
-    if (absent) await rmdir(dir).catch(() => undefined);   // only when nothing else is in it
+    for (const { path, directory } of created.reverse()) await (directory ? rmdir(path) : rm(path, { force: true })).catch(() => undefined);
+    await rm(join(dir, '.octocove'), { recursive: true, force: true }).catch(() => undefined);
+    if (absent) await rmdir(dir).catch(() => undefined);
     throw error;
   }
 }

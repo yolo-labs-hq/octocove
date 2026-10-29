@@ -341,11 +341,16 @@ describe("octo lane (materialized)", () => {
       // A file where the second entry's parent directory must go: the write of b/two.txt fails after a/one.txt is written.
       let created = false;
       const real = routes["GET /tasks/T1/lane/pack"];
-      routes["GET /tasks/T1/lane/pack"] = (c) => { if (!created) { mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, "b"), "in the way\n"); created = true; } return real(c); };
+      // Another process, while the command runs: a/ with a file of its own, and a file b where the directory b/ must go.
+      routes["GET /tasks/T1/lane/pack"] = (c) => {
+        if (!created) { mkdirSync(join(dir, "a"), { recursive: true }); writeFileSync(join(dir, "a/notes.txt"), "theirs\n"); writeFileSync(join(dir, "b"), "in the way\n"); created = true; }
+        return real(c);
+      };
       expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
       expect(errText).toContain("is not a directory");
-      // a/ and .octocove were the command's own; b appeared while it ran and is kept, so the directory stays.
-      expect(readdirSync(dir)).toEqual(["b"]);
+      // a/one.txt and .octocove were the command's own and are removed; a/, a/notes.txt and b were not, and are kept.
+      expect(readdirSync(dir).sort()).toEqual(["a", "b"]);
+      expect(readdirSync(join(dir, "a"))).toEqual(["notes.txt"]);
       expect(readFileSync(join(dir, "b"), "utf8")).toBe("in the way\n");
     });
 
