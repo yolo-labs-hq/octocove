@@ -994,6 +994,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{orgId}/tasks/{id}/lane/blobs/{blobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Upload a file's raw bytes for a later changes submission, up to what one save point carries (preview)
+         * @description Amendment (large uploads). The claim's agent sends one file's raw bytes (application/octet-stream) as the content laneBlobUpload stages, without base64 and up to 16 MiB (what one save point carries; 413 blob-too-large, details.limit, past it, before the body is read). blobId is the SHA-256 of the bytes, gitBlobId their Git blob id and size their exact length; all three are checked while the body streams, and a body that is not what they name is refused (400 blob-digest-mismatch, or invalid-request with details.parameter size) with nothing kept. A PUT is idempotent by content - a repeat answers the same and stores nothing again - so it takes no Idempotency-Key. Up to 1 MiB the content is kept like a laneBlobUpload; larger content needs the lane repository (409 lane-not-materialized before lane/materialize) and is kept there, never handed to any client. The answer is laneBlobUpload's; changes submissions, refresh and wrap-up resolutions name the blobId as for any upload, and staged content is discarded when the execution ends.
+         */
+        put: operations["laneBlobPut"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs/{orgId}/tasks/{id}/lane/changes": {
         parameters: {
             query?: never;
@@ -7053,6 +7073,49 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["LaneBlobUpload"];
+            };
+        };
+        responses: {
+            /** @description The content-addressed id. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        claimAttemptId: components["schemas"]["Id"];
+                        blobId: string;
+                        size: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    laneBlobPut: {
+        parameters: {
+            query: {
+                gitBlobId: string;
+                size: number;
+            };
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+                blobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
             };
         };
         responses: {

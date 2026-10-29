@@ -17,7 +17,8 @@ const problem = (status: number, code: string, details?: unknown, retryAfter?: n
   { status, headers: { "content-type": "application/problem+json", ...(retryAfter ? { "retry-after": String(retryAfter) } : {}) } });
 const API = "https://api.example.invalid/v1";
 const ORG = "org_00000000-0000-4000-8000-000000000001";
-const SHA = (s: string) => createHash("sha1").update(s).digest("hex");
+/** Git blob ids of contents (the CLI checks each file it reads against the manifest); any other hex for heads and bases. */
+const SHA = (s: string) => createHash("sha1").update(`blob ${Buffer.byteLength(s)}\0`).update(s).digest("hex");
 const sha256 = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64");
 type Files = Record<string, string>;

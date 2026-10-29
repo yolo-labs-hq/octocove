@@ -310,8 +310,10 @@ async function paced<T>(api: Api, deadline: number, read: () => Promise<T>): Pro
 const BLOB_READS_EACH = 3;
 /** An answer whose body ended early: a large file's answer streams, so a cut connection is a 200 with broken JSON. */
 const endedEarly = (error: unknown) => (error instanceof ApiError && error.incomplete && error.status < 300) ||
-  (error instanceof TransportError && error.code === 'network-error');
-async function readBlob(api: Api, taskId: string, generation: number, path: string, deadline: number, at: At = {}) {
+  // A body that could not be read after an answer arrived; a request that never got an answer is the client's to resend.
+  (error instanceof TransportError && error.code === 'network-error' && error.responseStatus !== undefined);
+/** One file at a lane commit, checked against the Git id the manifest names (`expected`) when it names one. */
+async function readBlob(api: Api, taskId: string, generation: number, path: string, deadline: number, at: At = {}, expected?: string) {
   const query = { generation, path, ...(at.head ? { head: at.head } : {}), ...(at.base ? { base: at.base } : {}), ...(at.claim ? { claim: at.claim } : {}) };
   let blob: unknown;
   for (let attempt = 1; ; attempt++) {
@@ -324,7 +326,10 @@ async function readBlob(api: Api, taskId: string, generation: number, path: stri
     }
   }
   if (!isRecord(blob) || blob.encoding !== 'base64' || typeof blob.content !== 'string') throw new ConfigError(`invalid blob response for ${path}`);
-  return Buffer.from(blob.content, 'base64');
+  const content = Buffer.from(blob.content, 'base64');
+  if (expected !== undefined && isSha(expected) && gitBlobId(content, expected) !== expected)
+    throw new ConfigError(`the content read for ${JSON.stringify(path)} is not the file the manifest names; nothing was written. Run the same command again`);
+  return content;
 }
 /** File reads in flight when files are read one by one. */
 const BLOB_READS = 8;
@@ -494,7 +499,7 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   if (held && missing.length) options.notify?.(`${missing.length} file(s) were not in the lane pack; reading them one by one`);
   if (!held && wholeRepository(m.scope.read) && missing.length > PACK_AFTER) options.notify?.(`no lane pack for this lane; reading ${missing.length} file(s) one by one`);
   await pool(missing, BLOB_READS, async (e) => {
-    const content = await readBlob(api, taskId, generation, e.path, options.deadline, { head });
+    const content = await readBlob(api, taskId, generation, e.path, options.deadline, { head }, e.sha);
     await keepPristine(dir, content);
     digests.set(e.sha, sha256(content));
   });
@@ -562,7 +567,7 @@ async function applyManifest(api: Api, dir: string, sc: Sidecar, generation: num
   // Content this directory already holds unedited, by blob id (a file moved or copied upstream).
   const pristine = new Map(Object.values(sc.files).filter((f) => f.digest).map((f) => [f.sha, f.digest!]));
   await pool(changed, BLOB_READS, async (e) => {
-    const content = await readPristine(dir, held?.get(e.sha) ?? pristine.get(e.sha) ?? null) ?? await readBlob(api, sc.taskId, generation, e.path, options.deadline, at);
+    const content = await readPristine(dir, held?.get(e.sha) ?? pristine.get(e.sha) ?? null) ?? await readBlob(api, sc.taskId, generation, e.path, options.deadline, at, e.sha);
     contents.set(e.path, content);
   });
   for (const content of contents.values()) await keepPristine(dir, content);
@@ -661,8 +666,17 @@ export interface ResolveOptions extends MaterializeOptions {
   cwd?: string;
 }
 /** Uploads one blob for the execution; the replay key is the execution and the digest, as for save points. */
+/** Files larger than this are uploaded raw (laneBlobPut); smaller ones as base64 JSON (laneBlobUpload). */
+const RAW_UPLOAD_AFTER = 1024 * 1024;
 async function uploadBlob(api: Api, sc: Sidecar, content: Buffer, deadline: number, what: string) {
   const digest = sha256(content);
+  if (content.length > RAW_UPLOAD_AFTER) {
+    if (sc.laneHead.length !== 40) throw new ConfigError(`${what} is over 1 MiB, which this lane's object format cannot upload`);
+    const r = (await api.call('laneBlobPut', { path: { id: sc.taskId, blobId: digest }, query: { gitBlobId: gitBlobId(content, sc.laneHead), size: content.length },
+      body: new Uint8Array(content.buffer, content.byteOffset, content.length), deadline })).body;
+    if (!isRecord(r) || r.blobId !== digest) throw new ConfigError(`the control plane recorded a different blob id for ${what}`);
+    return digest;
+  }
   const key = `lane-blob-${sc.executionId}-${digest}`.slice(0, 128);
   const r = (await api.j.command('laneBlobUpload', { path: { id: sc.taskId }, body: { content: content.toString('base64') } }, { deadline, idempotencyKey: key })).body;
   if (!isRecord(r) || r.blobId !== digest) throw new ConfigError(`the control plane recorded a different blob id for ${what}`);

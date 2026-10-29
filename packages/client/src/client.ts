@@ -50,7 +50,9 @@ type Defined<T> = Exclude<T, undefined>;
 type Field<Name extends string, T> = [Defined<T>] extends [never]
   ? unknown
   : {} extends Defined<T> ? { readonly [P in Name]?: Defined<T> } : { readonly [P in Name]: Defined<T> };
-type JsonBody<R> = Defined<R> extends { content: { 'application/json': infer B } } ? B : never;
+/** A request body: JSON as its schema, or raw bytes for an operation whose only media type is application/octet-stream. */
+type JsonBody<R> = Defined<R> extends { content: { 'application/json': infer B } } ? B
+  : Defined<R> extends { content: { 'application/octet-stream': unknown } } ? Uint8Array : never;
 type BodyField<K> = [JsonBody<Op<K>['requestBody']>] extends [never]
   ? unknown
   : undefined extends Op<K>['requestBody'] ? { readonly body?: JsonBody<Op<K>['requestBody']> } : { readonly body: JsonBody<Op<K>['requestBody']> };
@@ -233,7 +235,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
     }
     const scope = new CallScope([options.signal, input.signal], [options.deadline, input.deadline]);
     // Every value surfaced to the caller (errors, causes, raw bodies) is scrubbed of these.
-    let secrets: string[] = secretValues(input.body);
+    let secrets: string[] = secretValues(input.body instanceof Uint8Array ? undefined : input.body);
     try {
       const credential = credentialHeaders(transport, route.method, input.credential);
       const retry = retryClassFor(route);
@@ -242,16 +244,23 @@ export function createClient(options: ClientOptions): OctocoveClient {
       }
       const url = buildUrl(base, route, input.path as Record<string, unknown>, input.query as Record<string, unknown>);
       const headers: Record<string, string> = { accept: 'application/json, application/problem+json', ...credential.headers };
-      let body: string | undefined;
+      let body: string | Uint8Array | undefined;
       if (input.body !== undefined) {
         if (!route.requestBody) throw new TypeError(`${operationId} takes no request body`);
-        headers['content-type'] = 'application/json';
-        body = JSON.stringify(input.body);
+        // An operation whose only request media type is application/octet-stream takes raw bytes as they are.
+        if (route.requestBody.mediaTypes.length === 1 && route.requestBody.mediaTypes[0] === 'application/octet-stream') {
+          if (!(input.body instanceof Uint8Array)) throw new TypeError(`${operationId} takes its body as a Uint8Array`);
+          headers['content-type'] = 'application/octet-stream';
+          body = input.body;
+        } else {
+          headers['content-type'] = 'application/json';
+          body = JSON.stringify(input.body);
+        }
       } else if (route.requestBody?.required) throw new TypeError(`${operationId} requires a request body`);
       const idempotencyKey = route.idempotencyKey ? (input.idempotencyKey ?? newIdempotencyKey()) : undefined;
       if (idempotencyKey) headers['idempotency-key'] = idempotencyKey;
       secrets = [...credential.secrets, ...secrets];
-      const init: RequestInit = { method: route.method, headers, body, redirect: 'manual', signal: scope.signal, credentials: credential.credentials };
+      const init: RequestInit = { method: route.method, headers, body: body as RequestInit['body'], redirect: 'manual', signal: scope.signal, credentials: credential.credentials };
 
       let attempts = 0;
       let response: Response;

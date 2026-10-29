@@ -798,6 +798,20 @@ export const journeyCases: Case[] = [
     const agent = createClient({ baseUrl: BASE, transport: bearer({ token: 'delegation-fixture-0123', kind: 'delegation' }), fetch });
     await rejects(async () => journeys(agent).org(ORG).lanes.savePoints('t', {}, { deadline: soon() }), TypeError);
   }),
+  // ---- raw uploads ----
+  test('laneBlobPut sends raw bytes as application/octet-stream with its ids as query parameters, and takes no JSON', async () => {
+    const bytes = new Uint8Array([0, 1, 2, 255]);
+    const { fetch, calls } = scriptedFetch(json(201, { claimAttemptId: 'c', blobId: 'a'.repeat(64), size: 4 }));
+    const oc = journeys(client(fetch)).org(ORG);
+    const r = await oc.client.call('laneBlobPut', { path: { id: 't', blobId: 'a'.repeat(64) }, query: { gitBlobId: 'b'.repeat(40), size: 4 }, body: bytes, deadline: soon() });
+    equal(r.status, 201);
+    equal(calls[0]!.method, 'PUT');
+    equal(calls[0]!.url, `${BASE}/v1/orgs/${ORG}/tasks/t/lane/blobs/${'a'.repeat(64)}?gitBlobId=${'b'.repeat(40)}&size=4`);
+    equal(calls[0]!.headers['content-type'], 'application/octet-stream');
+    equal(calls[0]!.headers['idempotency-key'], undefined);
+    ok((calls[0]!.body as unknown) === bytes, 'the bytes go as they are');
+    await rejects(() => oc.client.call('laneBlobPut', { path: { id: 't', blobId: 'a'.repeat(64) }, query: { gitBlobId: 'b'.repeat(40), size: 4 }, body: 'text' as never, deadline: soon() }), TypeError);
+  }),
   // ---- code view ----
   test('repositories.tree and repositories.blob read the canonical repository with ref and path as query parameters', async () => {
     const tree = { repositoryId: 'repository-1', ref: 'refs/heads/main', commitSha: 'a'.repeat(40), path: 'src', entries: [{ name: 'a.ts', path: 'src/a.ts', type: 'file', size: 1 }], sizeTruncated: false, lastCommitTruncated: false, truncated: false };

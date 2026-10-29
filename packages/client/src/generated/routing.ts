@@ -3163,6 +3163,87 @@ export const routing = {
       "replay": null
     }
   },
+  "laneBlobPut": {
+    "operationId": "laneBlobPut",
+    "kind": "path",
+    "method": "PUT",
+    "path": "/orgs/{orgId}/tasks/{id}/lane/blobs/{blobId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "blobId",
+          "required": true
+        },
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "gitBlobId",
+          "required": true
+        },
+        {
+          "name": "size",
+          "required": true
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/octet-stream"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "state"
+    }
+  },
   "laneBlobUpload": {
     "operationId": "laneBlobUpload",
     "kind": "path",

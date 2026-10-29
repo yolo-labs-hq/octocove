@@ -44,19 +44,19 @@ describe('retry-policy.json validator', () => {
     expect(run(edit((p) => { p.webhookDisable.autoRetry = 'network-only'; }))).toContainEqual(expect.stringContaining('webhookDisable: retry-policy.json'));
     expect(run(edit((p) => { p.taskClaim.replay = 'stored-result'; }))).toContainEqual(expect.stringContaining('taskClaim'));
   });
-  it('parses all 132 ids from the README table', () => {
+  it('parses all 133 ids from the README table', () => {
     const table = readmeTable(readme) as Map<string, unknown>;
-    expect(table.size).toBe(132);
+    expect(table.size).toBe(133);
     expect(table.get('taskClaim')).toEqual({ autoRetry: 'network-only', replay: 'bounded-recovery' });
     expect(table.get('collaborationEventDelivery')).toEqual({ callable: false, reason: 'excluded' });
   });
 });
 
 describe('generated routing and build record', () => {
-  it('joins exactly the policy into the routing table: 132 operations, 131 path operations', () => {
+  it('joins exactly the policy into the routing table: 133 operations, 132 path operations', () => {
     const policy = JSON.parse(policyText);
-    expect(Object.keys(routing)).toHaveLength(132);
-    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(131);
+    expect(Object.keys(routing)).toHaveLength(133);
+    expect(Object.values(routing).filter((r) => r.kind === 'path')).toHaveLength(132);
     for (const [id, route] of Object.entries(routing)) expect(route.policy).toEqual(policy[id]);
   });
   it('records the same OpenAPI version and generator revisions in package.json and at runtime', () => {
