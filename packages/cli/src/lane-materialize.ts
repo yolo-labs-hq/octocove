@@ -306,9 +306,23 @@ async function paced<T>(api: Api, deadline: number, read: () => Promise<T>): Pro
     }
   }
 }
+/** Reads of one file before an answer that ended early is reported. */
+const BLOB_READS_EACH = 3;
+/** An answer whose body ended early: a large file's answer streams, so a cut connection is a 200 with broken JSON. */
+const endedEarly = (error: unknown) => (error instanceof ApiError && error.incomplete && error.status < 300) ||
+  (error instanceof TransportError && error.code === 'network-error');
 async function readBlob(api: Api, taskId: string, generation: number, path: string, deadline: number, at: At = {}) {
   const query = { generation, path, ...(at.head ? { head: at.head } : {}), ...(at.base ? { base: at.base } : {}), ...(at.claim ? { claim: at.claim } : {}) };
-  const blob = (await paced(api, deadline, () => api.call('laneBlobGet', { path: { id: taskId }, query, deadline }))).body;
+  let blob: unknown;
+  for (let attempt = 1; ; attempt++) {
+    try { blob = (await paced(api, deadline, () => api.call('laneBlobGet', { path: { id: taskId }, query, deadline }))).body; break; }
+    catch (error) {
+      if (!endedEarly(error) || attempt >= BLOB_READS_EACH || Date.now() >= deadline) {
+        if (endedEarly(error)) throw new ConfigError(`the answer for ${JSON.stringify(path)} ended early ${attempt} times; nothing was written. Run the same command again`);
+        throw error;
+      }
+    }
+  }
   if (!isRecord(blob) || blob.encoding !== 'base64' || typeof blob.content !== 'string') throw new ConfigError(`invalid blob response for ${path}`);
   return Buffer.from(blob.content, 'base64');
 }

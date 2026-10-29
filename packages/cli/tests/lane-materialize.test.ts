@@ -337,6 +337,26 @@ describe("octo lane (materialized)", () => {
       expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
     });
 
+    it("a file whose streamed answer ends early is read again, at most three times", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { "big.bin": "y".repeat(3 * 1024 * 1024) };
+      const ids = { "big.bin": SHA("big") };
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
+      const whole = JSON.stringify({ path: "big.bin", mode: "100644", type: "file", sha: ids["big.bin"], encoding: "base64", laneHead: HEAD(1), content: b64(files["big.bin"]), size: files["big.bin"].length });
+      let served = 0;
+      const cut = () => new Response(whole.slice(0, 1000), { status: 200, headers: { "content-type": "application/json" } });
+      routes["GET /tasks/T1/lane/blob"] = () => (++served < 3 ? cut() : new Response(whole, { status: 200, headers: { "content-type": "application/json" } }));
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      expect([served, read("big.bin").length]).toEqual([3, 3 * 1024 * 1024]);
+      rmSync(work, { recursive: true, force: true });
+      work = mkdtempSync(join(tmpdir(), "octocove-lane-")); dir = join(work, "T1"); served = 0;
+      routes["GET /tasks/T1/lane/blob"] = () => { served++; return cut(); };
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(served).toBe(3);
+      expect(errText).toContain("ended early 3 times");
+      expect(existsSync(join(dir, "big.bin"))).toBe(false);
+    });
+
     it("refuses a manifest naming a .git lookalike or the sidecar directory; letter-case twins materialize on a case-sensitive filesystem", async () => {
       scope = { read: ["."], write: ["."] };
       for (const bad of [".git./config", "a/GIT~1/x", ".g\u200cit/x", ".OCTOCOVE/x"]) {
