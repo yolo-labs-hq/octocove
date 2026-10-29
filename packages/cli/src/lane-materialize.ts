@@ -477,10 +477,15 @@ export async function materialize(api: Api, taskId: string, dir: string, options
   let absent = false;
   try { if ((await readdir(dir)).length) throw new ConfigError(`${dir} is not empty`); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; absent = true; }
-  // The directory was absent or empty. A failed materialize removes what it created there, so the same command can
-  // be run again into the same directory: its own `.octocove` sidecar directory, each file it wrote and each directory
-  // it created for one (only once empty), and the directory itself when it created it (only once empty). A path that
-  // existed before the command wrote it, or anything another process put there, is left in place.
+  // The sidecar directory is claimed before anything is asked for: created here, exclusively, so a second
+  // materialize into the same directory running at the same time is refused rather than sharing (or removing) it.
+  await mkdir(dir, { recursive: true });
+  try { await mkdir(join(dir, '.octocove')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new ConfigError(`${dir} is not empty`); throw error; }
+  // A failed materialize removes what it created, so the same command can be run again into the same directory: the
+  // sidecar directory it claimed, each file it wrote and each directory it created for one (only once empty), and the
+  // directory itself when it created it (only once empty). A path that existed before the command wrote it, or
+  // anything another process put there, is left in place.
   const created: { path: string; directory: boolean }[] = [];
   const writing = async (path: string) => {
     const parts = path.split('/');

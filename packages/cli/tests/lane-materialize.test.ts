@@ -332,6 +332,18 @@ describe("octo lane (materialized)", () => {
       expect(readFileSync(join(work, "keep.txt"), "utf8")).toBe("mine\n");
     });
 
+    it("a materialize claims its sidecar directory before asking for anything, and removes only that claim when it fails", async () => {
+      let claimed: unknown = null;
+      routes["GET /tasks/T1"] = () => {
+        // A second materialize into the same directory now cannot create the sidecar directory: it is refused as not empty.
+        try { mkdirSync(join(dir, ".octocove")); claimed = false; } catch (error) { claimed = (error as NodeJS.ErrnoException).code; }
+        return json(404, { code: "not-found", status: 404 });
+      };
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(claimed).toBe("EEXIST");
+      expect(existsSync(dir)).toBe(false);
+    });
+
     it("a materialize that fails after writing files removes them and its sidecar directory, never what it did not create", async () => {
       scope = { read: ["."], write: ["."] };
       const files = { "a/one.txt": "one\n", "b/two.txt": "two\n" };
