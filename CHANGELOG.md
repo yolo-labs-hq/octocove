@@ -1,5 +1,18 @@
 # Changelog
 
+## CLI 0.10.0 and client 0.15.0
+
+Release `@yolo-labs/octocove` 0.10.0 and `@yolo-labs/octocove-client` 0.15.0: saving files over 1 MiB.
+
+- Client: regenerated from the current API contract. New operation `laneBlobPut` (`PUT
+  /v1/orgs/{orgId}/tasks/{id}/lane/blobs/{blobId}?gitBlobId=&size=`, `network-only` / `state`): one file's raw bytes,
+  up to 16 MiB, named by its SHA-256, its Git blob id and its size; no Idempotency-Key (a repeat stores nothing twice).
+  An operation whose only request media type is `application/octet-stream` takes its body as a `Uint8Array`, sent as
+  it is. 133 operation ids.
+- CLI: `octo lane submit` (and a `--resolve PATH=FILE`) uploads a file over 1 MiB raw, so an edit to, say, a 2 MiB
+  `package-lock.json` saves. Every file read one by one is checked against the Git id its manifest names. A request
+  that never got an answer is no longer counted as an answer that ended early.
+
 ## CLI 0.9.0 and client 0.14.0
 
 Release `@yolo-labs/octocove` 0.9.0 and `@yolo-labs/octocove-client` 0.14.0: whole-repository lanes download in one

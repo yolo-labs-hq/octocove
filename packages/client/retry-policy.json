@@ -518,6 +518,11 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
+  "laneBlobPut": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
   "laneBlobUpload": {
     "callable": true,
     "autoRetry": "network-only",

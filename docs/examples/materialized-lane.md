@@ -99,7 +99,8 @@ octo lane submit ./lane --message "Clarify the setup steps"
 `lane submit` uploads only the changed files inside the write scope and records a **save point** on the
 lane head: one commit with your message, made against the lane head in `lane.json` (`expectedHead`). The new lane
 head is written back, so the saved files are the directory's new baseline. Save as often as you like; nothing is
-reviewed yet.
+reviewed yet. A file up to 16 MiB can be saved (one save point carries at most 16 MiB in all); files over 1 MiB are
+uploaded raw, on a lane that has been materialized.
 
 - **`lane-head-moved`:** another save (for example a second environment on the same claim) moved the lane head.
   Nothing local changes. Run `octo lane refresh ./lane`: it takes the new head (files you did not touch follow

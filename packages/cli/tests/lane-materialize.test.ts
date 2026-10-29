@@ -14,7 +14,8 @@ interface Call { method: string; url: URL; headers: Record<string, string>; body
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const API = "https://api.example.invalid/v1";
 const ORG = "org_00000000-0000-4000-8000-000000000001";
-const SHA = (s: string) => createHash("sha1").update(s).digest("hex");
+/** Git blob ids of contents (the CLI checks each file it reads against the manifest); any other hex for heads and bases. */
+const SHA = (s: string) => createHash("sha1").update(`blob ${Buffer.byteLength(s)}\0`).update(s).digest("hex");
 const sha256 = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64");
 
@@ -31,7 +32,7 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
     cwd: argv[1] !== "materialize" && existsSync(join(dir, SIDECAR)) ? dir : work,
     fetch: async (url, init) => {
       const u = new URL(url);
-      const call: Call = { method: init.method ?? "GET", url: u, headers: init.headers as any, body: init.body ? JSON.parse(init.body as string) : undefined };
+      const call: Call = { method: init.method ?? "GET", url: u, headers: init.headers as any, body: init.body instanceof Uint8Array ? init.body : init.body ? JSON.parse(init.body as string) : undefined };
       calls.push(call);
       const route = routes[`${call.method} ${u.pathname.replace(`/v1/orgs/${ORG}`, "").replace("/v1", "")}`];
       return route ? route(call) : json(404, { code: "not-found", status: 404 });
@@ -340,7 +341,7 @@ describe("octo lane (materialized)", () => {
     it("a file whose streamed answer ends early is read again, at most three times", async () => {
       scope = { read: ["."], write: ["."] };
       const files = { "big.bin": "y".repeat(3 * 1024 * 1024) };
-      const ids = { "big.bin": SHA("big") };
+      const ids = { "big.bin": SHA(files["big.bin"]) };
       routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, ids));
       const whole = JSON.stringify({ path: "big.bin", mode: "100644", type: "file", sha: ids["big.bin"], encoding: "base64", laneHead: HEAD(1), content: b64(files["big.bin"]), size: files["big.bin"].length });
       let served = 0;
@@ -355,6 +356,40 @@ describe("octo lane (materialized)", () => {
       expect(served).toBe(3);
       expect(errText).toContain("ended early 3 times");
       expect(existsSync(join(dir, "big.bin"))).toBe(false);
+    });
+
+    it("a file read one by one that is not what the manifest names is refused; a request that never got an answer is not read again", async () => {
+      scope = { read: ["."], write: ["."] };
+      const files = { "a.txt": "real\n" };
+      routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, rootManifest(1, files, { "a.txt": SHA("real\n") }));
+      routes["GET /tasks/T1/lane/blob"] = () => json(200, { path: "a.txt", mode: "100644", type: "file", sha: SHA("real\n"), size: 5, encoding: "base64", content: b64("fake\n") });
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(errText).toContain("is not the file the manifest names");
+      expect(existsSync(join(dir, "a.txt"))).toBe(false);
+      let tried = 0;
+      routes["GET /tasks/T1/lane/blob"] = () => { tried++; throw new TypeError("fetch failed"); };
+      expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
+      expect(tried).toBeLessThanOrEqual(3);   // the client's own resends only, never the CLI's three reads on top
+      expect(errText).not.toContain("ended early");
+    });
+
+    it("lane submit uploads a file over 1 MiB raw (laneBlobPut) and a small one as JSON", async () => {
+      scope = { read: ["."], write: ["."] };
+      expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
+      const big = Buffer.alloc(2 * 1024 * 1024 + 5, 9);
+      writeFileSync(join(dir, "big.bin"), big);
+      writeFileSync(join(dir, "small.txt"), "small\n");
+      const id = sha256(big), git = createHash("sha1").update(`blob ${big.length}\0`).update(big).digest("hex");
+      routes[`PUT /tasks/T1/lane/blobs/${id}`] = (c) => {
+        expect(c.url.searchParams.get("gitBlobId")).toBe(git);
+        expect(c.url.searchParams.get("size")).toBe(String(big.length));
+        expect(Buffer.from(c.body as Uint8Array).equals(big)).toBe(true);
+        return json(201, { claimAttemptId: "C1", blobId: id, size: big.length });
+      };
+      expect(await cli(["lane", "submit"])).toBe(EXIT.ok);
+      expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+      expect(calls.filter((c) => c.method === "POST" && c.url.pathname.endsWith("/lane/blobs")).map((c) => Buffer.from(c.body.content, "base64").toString())).toEqual(["small\n"]);
+      expect(changes()[0]!.body.operations).toContainEqual({ op: "put", path: "big.bin", blobId: id, mode: "100644" });
     });
 
     it("refuses a manifest naming a .git lookalike or the sidecar directory; letter-case twins materialize on a case-sensitive filesystem", async () => {
