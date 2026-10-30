@@ -64,11 +64,12 @@ export type Project = Schemas['Project'];
 /** A project initialization's current view (`projectCreate`'s and `meProjectCreate`'s answer when the body names a
  * `repository`, and `projectInitializationGet`'s): `ready` with the `project`, the creator's `membership` and the
  * `repository` (null for mode `none`); `pending` with `reason` and `retryAfter` (and the `project` once it exists);
- * `action-required` with `action.reason` (the project exists); `failed` (the read only) with the project step's
- * `problem`. */
+ * `action-required` with `action.reason` (the project exists; `action.installUrl` when GitHub must be connected
+ * again, for `workspaces.connectGitHub`); `failed` (the read only) with the project step's `problem`. */
 export type ProjectInitialization = OpenEnums<Schemas['ProjectInitialization']>;
-/** The repository a project initialization sets up: `{mode: 'seed', targetRef?}`, `{mode: 'import', url, branch?}` or
- * `{mode: 'none'}`. */
+/** The repository a project initialization sets up: `{mode: 'seed', targetRef?}`, `{mode: 'import', url, branch?}`,
+ * `{mode: 'github', owner, name, installationId?, providerRepoId?, targetRef?}` (an existing GitHub repository through
+ * a GitHub App installation the caller connected) or `{mode: 'none'}`. */
 export type ProjectRepositoryInit = Schemas['ProjectRepositoryInit'];
 /** `projectCreate`'s body. With `repository` the create is an initialization. */
 export type ProjectCreateInput = Schemas['ProjectCreate'];
@@ -92,8 +93,15 @@ export type WorkspaceBinding = OpenEnums<Schemas['WorkspaceBinding']>;
 export type WorkspaceBindingInput = Schemas['WorkspaceBindingCreate'];
 /** `githubConnect`'s answer: the browser URL that connects GitHub for the caller, and when its one-use ticket expires. */
 export type GitHubConnectStart = Schemas['GitHubConnectStart'];
-/** The repository a GitHub connection is for: a binding's `action.installUrl`, or the repository's parts. */
-export type GitHubConnectTarget = string | { readonly owner: string; readonly name: string; readonly providerRepoId?: string };
+/** The repository a GitHub connection is for: an answer's `action.installUrl`, the repository's parts, or `{}` to connect
+ * GitHub without naming one. */
+export type GitHubConnectTarget = string | { readonly owner?: string; readonly name?: string; readonly providerRepoId?: string };
+/** `meGithubInstallationsList`'s answer: the GitHub App installations the caller connected, and pending approvals. */
+export type GitHubInstallationList = OpenEnums<Schemas['GitHubInstallationList']>;
+/** `meGithubRepositoriesList`'s answer: one page of the repositories the caller's installations cover. */
+export type GitHubRepositoryList = OpenEnums<Schemas['GitHubRepositoryList']>;
+/** `meGithubRepositoriesList`'s query: one installation, a case-insensitive `owner/name` substring, the page. */
+export interface GitHubRepositoryQuery { readonly installationId?: string; readonly q?: string; readonly cursor?: string; readonly limit?: number }
 /** Waits between `pending` workspace binding answers when the server sends no Retry-After. */
 export const WORKSPACE_BINDING_POLL_MS = 5000;
 
@@ -306,7 +314,7 @@ export function tenantJourneys(client: TenantClient) {
   const repositories = {
     /**
      * Human only, `project:admin`: register the project's canonical repository and target ref (default
-     * `refs/heads/main`). The repository must be in the project's own namespace: an omitted `namespace` defaults to
+     * `refs/heads/main`). An Artifacts repository must be in the project's own namespace: an omitted `namespace` defaults to
      * it, any other is `409 repository-namespace-mismatch`. One per project (`409 canonical-exists`); an
      * identity already registered is `409 repository-taken`. With `mode: 'create'` or `mode: 'import'` Octocove
      * creates the repository in Artifacts instead (an empty one, or imported from a public https URL; born
@@ -316,6 +324,10 @@ export function tenantJourneys(client: TenantClient) {
      * and the creation may still be recorded, so retry under the same key. A refused import URL
      * `400 repository-import-url-invalid` / `400 repository-import-refused`. `stored-result` replay: a lost answer
      * is resent under the same key and body, and Artifacts is never called twice for a committed key.
+     * With `kind: 'github-app'` (`{installationId, owner, name, providerRepoId?, targetRef?}`) an existing GitHub
+     * repository is attached through a GitHub App installation the caller connected (any project admin; born
+     * verified): `403 github-installation-not-linked`, `409 github-connection-required` (`details.installationState`,
+     * `details.installUrl`), `409 target-ref-not-found`, `503 github-app-unavailable`. No token is sent or answered.
      */
     create(projectId: string, input: Body<'repositoryCreate'>, options: CommandOptions): Promise<Repository> {
       requireHuman(client, 'repositories.create');
@@ -837,7 +849,8 @@ export function journeys(client: OctocoveClient) {
      * Retry-After, until the deadline; then the `OrgCreationPendingError` is thrown and a later call with the same
      * `idempotencyKey` completes the same project. `stored-result` replay otherwise.
      *
-     * With `repository` (`{mode: 'seed', targetRef?}`, `{mode: 'import', url, branch?}` or `{mode: 'none'}`) the create
+     * With `repository` (`{mode: 'seed', targetRef?}`, `{mode: 'import', url, branch?}`, `{mode: 'github', owner, name,
+     * installationId?, providerRepoId?, targetRef?}` or `{mode: 'none'}`) the create
      * also sets up the project's repository, in one operation under the one key, and answers a
      * `ProjectInitialization`: `ready` (the project and its repository), `action-required` (the project exists;
      * `action.reason` says what the repository needs) or, while a step settles, `pending`: the same body and key are
@@ -1059,6 +1072,43 @@ export function journeys(client: OctocoveClient) {
     },
   };
 
+  const github = {
+    /**
+     * Human session only: `meGithubInstallationsList` (`GET /v1/me/github/installations`), the GitHub App
+     * installations the caller connected (account, selection, how many repositories, status, `manageUrl`) and the
+     * requests awaiting an organization owner's approval. Never a token.
+     */
+    async installations(options: JourneyOptions): Promise<GitHubInstallationList> {
+      requireHuman(client, 'github.installations');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'meGithubInstallationsList', {} as never);
+        const b: unknown = response.body;
+        if (!isObject(b) || typeof b.configured !== 'boolean' || !Array.isArray(b.items) || !Array.isArray(b.pending)) throw offShape(response, 'the response is not a GitHub installation list');
+        return response.body as GitHubInstallationList;
+      } finally { scope.dispose(); }
+    },
+    /**
+     * Human session only: `meGithubRepositoriesList` (`GET /v1/me/github/repositories`), one page of the repositories
+     * the caller's connected installations cover, as of each connection (no GitHub call). `nextCursor` is the next
+     * page's `cursor`, null on the last; `limit` is 1-100 (default 50). Each item's `state` is a hint the attach
+     * checks again with GitHub.
+     */
+    async repositories(query: GitHubRepositoryQuery, options: JourneyOptions): Promise<GitHubRepositoryList> {
+      requireHuman(client, 'github.repositories');
+      const params = { ...(query.installationId !== undefined ? { installationId: query.installationId } : {}), ...(query.q !== undefined ? { q: query.q } : {}),
+        ...(query.cursor !== undefined ? { cursor: query.cursor } : {}), ...(query.limit !== undefined ? { limit: query.limit } : {}) };
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'meGithubRepositoriesList', { query: params } as never);
+        const b: unknown = response.body;
+        if (!isObject(b) || typeof b.configured !== 'boolean' || !Array.isArray(b.items) || !(b.nextCursor === null || isString(b.nextCursor)))
+          throw offShape(response, 'the response is not a GitHub repository list');
+        return response.body as GitHubRepositoryList;
+      } finally { scope.dispose(); }
+    },
+  };
+
   /** One keyed command on a global route, under the same replay rule (tenant routes: `org(tenantId).command`). */
   const command = async <K extends CallableOperationId>(operationId: K, input: Omit<CallInput<K>, 'idempotencyKey' | 'deadline' | 'signal' | 'credential'>, options: CommandOptions,
     extra: Pick<SendOptions, 'busyIsFinal'> = {}) => {
@@ -1075,6 +1125,7 @@ export function journeys(client: OctocoveClient) {
     orgs,
     owners,
     workspaces,
+    github,
     org,
     /** The journeys of a discovered project's tenant (`projects.list()` items, `GET /me` memberships). */
     forProject: (project: { readonly tenantId: string }) => org(project.tenantId),

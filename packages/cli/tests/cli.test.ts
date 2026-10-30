@@ -165,6 +165,106 @@ describe("project create", () => {
     expect(calls[1]!.headers["idempotency-key"]).toBe("k".repeat(20));
   });
 
+  it("--github creates the project and attaches the GitHub repository in one initialization, and reads it back", async () => {
+    const ready = { state: "ready", operationId: "pinit_00000000-0000-4000-8000-000000000001", project, membership: { verbs: ["project:admin"] },
+      repository: { id: "r1", name: "web", provider: "github", targetRef: "refs/heads/main" } };
+    routes["POST /me/projects"] = () => json(201, ready);
+    expect(await cli(["project", "create", "first", "--name", "First project", "--github", "acme/web", "--installation", "7", "--repo-id", "42", "--target-ref", "refs/heads/main"],
+      { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ slug: "first", name: "First project",
+      repository: { mode: "github", owner: "acme", name: "web", installationId: "7", providerRepoId: "42", targetRef: "refs/heads/main" } });
+    expect(outText).toContain("GitHub:");
+    expect(outText).toContain("refs/heads/main");
+    routes[`GET /me/project-initializations/${ready.operationId}`] = () => json(200, ready);
+    expect(await cli(["--json", "project", "init-status", ready.operationId], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(JSON.parse(outText)).toEqual(ready);
+    // action-required: the project exists; the guidance names the reconnect and the attach. Exit 1.
+    const lost = { state: "action-required", operationId: ready.operationId, project, membership: { verbs: ["project:admin"] },
+      action: { reason: "repository-creation-failed", code: "github-connection-required", installUrl: "https://api.example.invalid/v1/github/connect?owner=acme&name=web&providerRepoId=42" } };
+    routes["POST /me/projects"] = () => json(201, lost);
+    expect(await cli(["project", "create", "first", "--name", "First project", "--github", "acme/web"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
+    expect(outText).toContain("octo github connect acme/web --repo-id 42");
+    expect(outText).toContain("https://api.example.invalid/v1/github/connect?owner=acme&name=web&providerRepoId=42");
+    expect(outText).toContain(`octo repo add ${project.id} --provider github-app`);
+    // failed (the read): its own code, exit 1.
+    routes[`GET /me/project-initializations/${ready.operationId}`] = () => json(200, { state: "failed", operationId: ready.operationId, problem: { code: "slug-taken", status: 409 } });
+    expect(await cli(["--json", "project", "init-status", ready.operationId], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
+    expect(JSON.parse(outText)).toMatchObject({ state: "failed", problem: { code: "slug-taken" } });
+    // pending at the deadline without --idempotency-key: exit 75, and the key the CLI chose is printed (text and --json) in
+    // the command that resumes it; every attempt sent that key.
+    routes["POST /me/projects"] = () => json(202, { state: "pending", operationId: ready.operationId, reason: "creation-in-progress", retryAfter: 1 }, { "Retry-After": "1" });
+    calls = [];
+    expect(await cli(["project", "create", "first", "--name", "First project", "--github", "acme/web", "--wait", "1"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.pending);
+    const chosen = calls[0]!.headers["idempotency-key"]!;
+    expect(chosen).toBeTruthy();
+    expect(new Set(calls.map((c) => c.headers["idempotency-key"]))).toEqual(new Set([chosen]));
+    expect(outText).toContain(`octo project create first --name "First project" --github acme/web --idempotency-key ${chosen}`);
+    expect(outText).toContain(`octo project init-status ${ready.operationId}`);
+    expect(await cli(["--json", "project", "create", "first", "--name", "First project", "--github", "acme/web", "--wait", "1", "--idempotency-key", "k".repeat(20)],
+      { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.pending);
+    expect(JSON.parse(outText)).toMatchObject({ state: "pending", idempotencyKey: "k".repeat(20) });
+    // No answer at all (a transport failure; a 503 after retries): the report names the key the CLI chose and the command
+    // that resumes the operation the server may have recorded. A key the caller passed is theirs: nothing is added.
+    routes["POST /me/projects"] = () => { throw new TypeError("fetch failed"); };
+    calls = [];
+    expect(await cli(["project", "create", "first", "--name", "First project", "--github", "acme/web", "--wait", "1"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
+    const lostKey = calls[0]!.headers["idempotency-key"]!;
+    expect(errText).toContain(`resume it with the same key: octo project create first --name "First project" --github acme/web --idempotency-key ${lostKey}`);
+    routes["POST /me/projects"] = () => problem(503, "temporarily-unavailable");
+    expect(await cli(["--json", "project", "create", "first", "--name", "First project", "--github", "acme/web", "--wait", "1"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
+    const unavailable = JSON.parse(errText.trim().split("\n").pop()!).error;
+    expect(unavailable).toMatchObject({ code: "temporarily-unavailable", idempotencyKey: expect.any(String), resume: expect.stringContaining("--idempotency-key ") });
+    expect(unavailable.resume).toContain(unavailable.idempotencyKey);
+    expect(await cli(["--json", "project", "create", "first", "--name", "First project", "--github", "acme/web", "--wait", "1", "--idempotency-key", "k".repeat(20)],
+      { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
+    expect(JSON.parse(errText.trim().split("\n").pop()!).error.idempotencyKey).toBeUndefined();
+    // Refusals before anything is created, with the state's guidance.
+    for (const [status, code, details, words] of [[409, "github-connection-required", { installationState: "suspended" }, "unsuspends"],
+      [409, "github-connection-required", { installationState: "permission-required", installUrl: "https://api.example.invalid/v1/github/connect?owner=acme&name=web&providerRepoId=42" }, "octo github connect acme/web --repo-id 42"],
+      [403, "github-installation-not-linked", {}, "octo github installations"], [503, "github-app-unavailable", {}, "no GitHub App"]] as const) {
+      routes["POST /me/projects"] = () => problem(status, code, { details });
+      expect(await cli(["--json", "project", "create", "first", "--name", "First project", "--github", "acme/web"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.failure);
+      expect(JSON.parse(errText).error).toMatchObject({ code, nextSteps: expect.stringContaining(words) });
+    }
+    calls = [];
+    for (const argv of [["--github", "acme"], ["--github", "a/b/c"], ["--github", `acme/${"w".repeat(101)}`], ["--installation", "7"], ["--github", "acme/web", "--installation", "x"], ["--github", "acme/web", "--repo-id", "0"]])
+      expect(await cli(["project", "create", "first", "--name", "First project", ...argv], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.usage);
+    expect(calls).toEqual([]);
+  });
+
+  it("github installations, repos and connect list what you connected and start a connection", async () => {
+    routes["GET /me/github/installations"] = () => json(200, { configured: true, items: [{ installationId: "7", account: { login: "acme", type: "Organization" }, repositorySelection: "selected",
+      repositoryCount: 2, status: "active", githubLogin: "jane", linkedAt: "2026-10-30T00:00:00.000Z", refreshedAt: "2026-10-30T00:00:00.000Z",
+      manageUrl: "https://github.com/organizations/acme/settings/installations/7" }], pending: [{ account: "other-org", requestedAt: "2026-10-30T00:00:00.000Z" }] });
+    expect(await cli(["github", "installations"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(outText).toContain("7  acme (Organization)  active");
+    expect(outText).toContain("pending approval  other-org");
+    const item = (name: string) => ({ installationId: "7", providerRepoId: name === "web" ? "42" : "43", owner: "acme", name, account: { login: "acme", type: "Organization" }, canPush: true, state: "available" });
+    let page = 0;
+    routes["GET /me/github/repositories"] = () => json(200, page++ === 0 ? { configured: true, items: [item("web")], nextCursor: "c1" } : { configured: true, items: [item("api")], nextCursor: null });
+    calls = [];
+    expect(await cli(["github", "repos", "--installation", "7", "--q", "a"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls.map((c) => Object.fromEntries(c.url.searchParams))).toEqual([{ installationId: "7", q: "a" }, { installationId: "7", q: "a", cursor: "c1" }]);
+    expect(outText).toContain("acme/web  repo-id 42  installation 7  available");
+    expect(outText).toContain("acme/api  repo-id 43");
+    page = 0;
+    expect(await cli(["--json", "github", "repos", "--limit", "1"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(JSON.parse(outText)).toEqual({ configured: true, items: [item("web")], nextCursor: "c1" });
+    routes["GET /github/connect"] = () => json(200, { url: "https://app.example.invalid/github/install?ticket=t", expiresAt: "2026-10-30T00:10:00.000Z" });
+    calls = [];
+    expect(await cli(["github", "connect", "acme/web"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(Object.fromEntries(calls[0]!.url.searchParams)).toEqual({ owner: "acme", name: "web" });
+    expect(outText).toContain("https://app.example.invalid/github/install?ticket=t");
+    expect(await cli(["github", "connect"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(Object.fromEntries(calls[1]!.url.searchParams)).toEqual({});
+    expect(await cli(["github", "connect", "acme/web", "--repo-id", "42"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(Object.fromEntries(calls[2]!.url.searchParams)).toEqual({ owner: "acme", name: "web", providerRepoId: "42" });
+    expect(await cli(["github", "connect", "acme"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.usage);
+    expect(await cli(["github", "connect", "--repo-id", "42"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.usage);
+    expect(await cli(["github", "repos", "--limit", "500"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.usage);
+    expect(await cli(["github", "installations"], { kind: "agent" }, { OCTOCOVE_ORG: "" })).toBe(EXIT.humanRequired);
+  });
+
   it("with --org posts to that org's projects", async () => {
     routes["POST /projects"] = () => json(201, project);
     expect(await cli(["project", "create", "first", "--name", "First project", "--org", ORG], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);

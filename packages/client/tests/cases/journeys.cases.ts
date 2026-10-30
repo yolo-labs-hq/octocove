@@ -517,7 +517,7 @@ export const journeyCases: Case[] = [
   }),
   test('workspaces.connectGitHub reads only the repository from an installUrl, calls its own base URL, and returns the browser URL', async () => {
     const start = { url: 'https://app.example.invalid/github/install?ticket=t', expiresAt: '2026-10-28T12:10:00.000Z' };
-    const { fetch, calls } = scriptedFetch(json(200, start), json(200, start));
+    const { fetch, calls } = scriptedFetch(json(200, start), json(200, start), json(200, start));
     const j = journeys(client(fetch));
     // A foreign origin in the URL is never contacted: the client's own baseUrl is, with the repository parameters only.
     equal(await j.workspaces.connectGitHub('https://elsewhere.example.invalid/v1/github/connect?owner=acme&name=web&providerRepoId=42&extra=1',
@@ -527,14 +527,37 @@ export const journeyCases: Case[] = [
     equal(Object.fromEntries(first.searchParams), { owner: 'acme', name: 'web', providerRepoId: '42', returnTo: 'https://console.example.invalid/ws/1' });
     equal(await j.workspaces.connectGitHub({ owner: 'acme', name: 'web' }, { deadline: soon() }), start);
     equal(Object.fromEntries(new URL(calls[1]!.url).searchParams), { owner: 'acme', name: 'web' });
+    equal(await j.workspaces.connectGitHub({}, { deadline: soon() }), start);
+    equal(Object.fromEntries(new URL(calls[2]!.url).searchParams), {});
     for (const bad of ['not a url', 'https://x.example.invalid/v1/other?owner=a', 'https://x.example.invalid/v1/github/connect?owner=a%2Fb'])
       await rejects(() => j.workspaces.connectGitHub(bad, { deadline: soon() }), TypeError, bad);
-    equal(calls.length, 2);
+    await rejects(() => j.workspaces.connectGitHub({ name: 'web' }, { deadline: soon() }), TypeError);
+    equal(calls.length, 3);
     const offShape = scriptedFetch(json(200, { url: 1 }));
     await rejects(() => journeys(client(offShape.fetch)).workspaces.connectGitHub({ owner: 'a', name: 'b' }, { deadline: soon() }), ApiError);
     const dormant = scriptedFetch(problem(503, 'github-app-unavailable'));
     const error = await rejects(() => journeys(client(dormant.fetch)).workspaces.connectGitHub({ owner: 'a', name: 'b' }, { deadline: soon() }), ApiError);
     equal([error.status, error.code], [503, 'github-app-unavailable']);
+  }),
+  test('github.installations and github.repositories read the caller\'s connected installations and covered repositories', async () => {
+    const installations = { configured: true, items: [{ installationId: '7', account: { login: 'acme', type: 'Organization' }, repositorySelection: 'selected',
+      repositoryCount: 2, status: 'active', githubLogin: 'jane', linkedAt: '2026-10-30T00:00:00.000Z', refreshedAt: '2026-10-30T00:00:00.000Z',
+      manageUrl: 'https://github.com/organizations/acme/settings/installations/7' }], pending: [] };
+    const page = { configured: true, items: [{ installationId: '7', providerRepoId: '42', owner: 'acme', name: 'web', account: { login: 'acme', type: 'Organization' },
+      canPush: true, state: 'available' }], nextCursor: 'c1' };
+    const { fetch, calls } = scriptedFetch(json(200, installations), json(200, page), json(200, { ...page, nextCursor: null }));
+    const j = journeys(client(fetch));
+    equal(await j.github.installations({ deadline: soon() }), installations);
+    equal([calls[0]!.method, new URL(calls[0]!.url).pathname], ['GET', '/v1/me/github/installations']);
+    equal(await j.github.repositories({ installationId: '7', q: 'we', limit: 20 }, { deadline: soon() }), page);
+    const second = new URL(calls[1]!.url);
+    equal([calls[1]!.method, second.pathname, Object.fromEntries(second.searchParams)], ['GET', '/v1/me/github/repositories', { installationId: '7', q: 'we', limit: '20' }]);
+    equal((await j.github.repositories({ cursor: 'c1' }, { deadline: soon() })).nextCursor, null);
+    equal(Object.fromEntries(new URL(calls[2]!.url).searchParams), { cursor: 'c1' });
+    const offShape = scriptedFetch(json(200, { items: [] }));
+    await rejects(() => journeys(client(offShape.fetch)).github.repositories({}, { deadline: soon() }), ApiError);
+    const delegated = createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).github.installations({ deadline: soon() }), TypeError);
   }),
   test('projects.list reads /me/projects with each project\'s tenant and reports a partial read', async () => {
     const other = 'org_00000000-0000-4000-8000-000000000002';
