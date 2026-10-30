@@ -102,7 +102,7 @@ unknown, reserved or not visible to you.
 
 ## Retry policy by operation
 
-[`retry-policy.json`](retry-policy.json) classifies all 133 operation ids on two independent axes; the
+[`retry-policy.json`](retry-policy.json) classifies all 150 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
 HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
@@ -142,7 +142,7 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `lanePackGet`, `laneSavePointsList`, `laneSavePointGet`, `laneSavePointDiff`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `githubConnect`, `projectInitializationGet` | `network-only` | `null` | safe reads (`meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `lanePackGet`, `laneSavePointsList`, `laneSavePointGet`, `laneSavePointDiff`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `githubConnect`, `projectInitializationGet`, `candidateMeritDiffGet`, `candidateMeritGet`, `candidateMeritReviewsList`, `candidateMeritReviewGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet`, `meritShadowGet`, `repositoryLanePolicyGet` | `network-only` | `null` | safe reads (the merit reads, `repositoryLanePolicyGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet` and `meritShadowGet` write nothing and are not audited; `candidateMeritDiffGet` computes the manifest from the candidate's commits and caches it server-side; `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `workspaceBindingCreate` | `network-only` | `stored-result` | the binding request ledger, keyed by client, human and key: the same key with another body is `409 idempotency-conflict`; a replay of a request that bound (or began creating) a binding answers that binding, with its destinations and access read now; a `pending` or `action-required` answer that bound nothing is worked out again; a refused creation replays its refusal; nothing is created twice |
@@ -157,6 +157,9 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 | `webhookCreate`, `webhookReplay`, `webhookDeliveryRedrive`, `webhookSecretRotate`, `webhookReactivate` | `network-only` | `stored-result` | per-request scopes with `409 idempotency-conflict` on body mismatch; rotation replays key ids only, never the secret the caller supplied |
 | `webhookDisable` | `never` | `state` | a committed disable is deduplicated by its operation record; disabling an already-disabled webhook records the key without an audit row, so a retry of that key never disables a later reactivation; the answer is the current state, and the library never auto-retries it |
 | `approvalPrincipalRegister`, `approvalPolicyRegister`, `approvalTrustRotate`, `approvalPrincipalDisable`, `approvalPolicyDisable`, `approvalTrustDisable`, `eventPermissionCreate`, `eventPermissionRevoke` | `network-only` | `stored-result` | administrator write ledger keyed by administrator + key, after re-authenticating the administrator |
+| `candidateMeritReviewCreate`, `candidateMeritEvaluationRequest`, `taskMeritRelease` | `network-only` | `stored-result` | merit: task commands ledgered on the task (`merit-review`, `merit-evaluate`, `merit-release`), one idempotency scope per task and actor; the same key with another body is `409 idempotency-conflict`; a lost answer is resent under the same key |
+| `meritPolicyRegister`, `meritPolicyDisable`, `meritPolicyPause`, `meritPolicyResume` | `network-only` | `stored-result` | merit policy versions: administrator writes on the per-principal ledger, as the approval-policy routes; a pause or resume already in effect answers the current state and writes nothing |
+| `meritProbe` | `never` | `none` | each call probes the configured decision models once (nothing recorded, rate-limited per project: `429 merit-probe-rate-limited` with `retryAfterSeconds`); never resent by the library |
 | `approvalGrantRevoke` | `network-only` | `stored-result` | recorded on the task; an already-revoked grant answers `204` from state **before** the ledger lookup |
 | `candidateApproveWithGrant` | `network-only` | `guarded-result` | decision ledger keyed by principal and idempotency key; grant authority rechecked before the recorded result is returned |
 | `taskClaim` | `network-only` | `bounded-recovery` | a claim bootstrap is the only credential the route accepts (any other is `401 unauthenticated`); the replay is bounded by the **bootstrap expiry** (5 min) and the authorizer's membership recheck; the reply is the **original claim snapshot** plus the recovered delegation, not current readiness — read `claimGet` for that; after the window: `401 unauthenticated` / `401 bootstrap-consumed` |
@@ -238,6 +241,28 @@ that polls under the same key with its own progress messages.
 - **Lanes** are materialized: an agent reads files from the lane manifest and blob routes and saves
   through `laneBlobUpload`, `laneChangesSubmit` and `laneWrapUp` (through `command`). No Git remote,
   provider credential or push transport is involved.
+
+### Merit
+
+Agent approval and landing on reviewed evidence: a lane agent reads the candidate's merit diff manifest, submits a
+structured review bound to its digest, and requests the evaluation of the head's evidence set; a decision model
+scores the review; humans read the state, the evidence in full and the score, release a hold, and administer the
+project's merit policies.
+
+```ts
+const merit = oc.org(tenantId).merit;
+const manifest = await merit.diff(candidateId, { deadline, credential });                      // cite manifest.digest
+await merit.submitReview(candidateId, review, { deadline, credential });                        // the agent's review
+await merit.evaluate(candidateId, { deadline, credential });                                    // 202 requested
+const state = await merit.status(candidateId, { deadline });                                    // stage, hold, score
+const evidence = await merit.reviews(candidateId, { deadline });                                // every body, in order
+await merit.release(taskId, { deadline });                                                      // human: end the hold
+const versions = await merit.policies.list(projectId, { repositoryId }, { deadline });
+```
+
+`state.stage` is the deployment's evaluator stage: `shadow` records what the evaluator would have decided and issues
+nothing; `approve` and `land` issue authority on a pass. `state.evaluation.enabled` says whether evaluations run at
+all. `state.score.answers` is typed per question (`MeritAnswers`).
 
 ### `events.follow`
 

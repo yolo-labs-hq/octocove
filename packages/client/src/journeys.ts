@@ -119,9 +119,40 @@ export type TenantOwner = OpenEnums<Schemas['TenantOwner']>;
 /** Polls `GET /me` for a pending organization when no Retry-After is sent. */
 export const ORG_READY_POLL_MS = 2000;
 
-/** A repository's lane policy, and `repositoryLanePolicyDeclare`'s answer. */
+/** A repository's lane policy, and `repositoryLanePolicyDeclare`'s and `repositoryLanePolicyGet`'s answer. */
 export type RepositoryLanePolicy = Schemas['RepositoryLanePolicy'];
 export type RepositoryLanePolicyDeclaration = OpenEnums<Schemas['RepositoryLanePolicyDeclaration']>;
+
+// ---- merit (agent approval and landing on reviewed evidence) ----
+/** `candidateMeritGet`'s answer: the task's merit state and hold, the attempt position, the evidence set, the latest
+ * review and the latest score, and the deployment's `stage` (`shadow` issues nothing) and `evaluation` runtime. */
+export type MeritState = OpenEnums<Schemas['MeritState']>;
+/** `candidateMeritDiffGet`'s answer: the versioned manifest of the whole change, every hunk a review must cite. */
+export type MeritManifest = OpenEnums<Schemas['MeritManifest']>;
+/** `candidateMeritReviewCreate`'s body: the structured review of one candidate head, bound to its manifest digest. */
+export type MeritReviewInput = Schemas['MeritReviewInput'];
+/** `candidateMeritReviewCreate`'s answer: the recorded submission, its deterministic state and the attempts left. */
+export type MeritReviewReceipt = OpenEnums<Schemas['MeritReviewReceipt']>;
+/** One submission with its stored body (`candidateMeritReviewsList` items, `candidateMeritReviewGet`). */
+export type MeritReviewRecord = OpenEnums<Schemas['MeritReviewRecord']>;
+export type MeritReviewList = OpenEnums<Schemas['MeritReviewList']>;
+export type MeritReviewRead = OpenEnums<Schemas['MeritReviewRead']>;
+/** `candidateMeritEvaluationRequest`'s answer: the request and its state. */
+export type MeritEvaluationRequest = OpenEnums<Schemas['MeritEvaluationRequest']>;
+/** A terminal evaluation's answers, typed per question (`MeritState['score']['answers']`). */
+export type MeritAnswers = Schemas['MeritAnswers'];
+export type MeritAnswer = Schemas['MeritAnswer'];
+/** `meritProbe`'s answer: each configured decision model probed once. */
+export type MeritProbe = OpenEnums<Schemas['MeritProbe']>;
+/** `meritUsageGet`'s answer: evaluations by outcome and model calls with their reported usage, per policy version, project and org. */
+export type MeritUsage = OpenEnums<Schemas['MeritUsage']>;
+/** `meritShadowGet`'s answer: the evaluator's verdicts beside the humans' per evaluated candidate. */
+export type MeritShadow = OpenEnums<Schemas['MeritShadow']>;
+/** `meritPolicyRegister`'s body and answer, and the read routes' view of a version with its standing. */
+export type MeritPolicyRegistration = Schemas['MeritPolicyRegistration'];
+export type MeritPolicyVersion = OpenEnums<Schemas['MeritPolicyVersion']>;
+export type MeritPolicyVersionView = OpenEnums<Schemas['MeritPolicyVersionView']>;
+export type MeritPolicyList = OpenEnums<Schemas['MeritPolicyList']>;
 /** `repositoryBranchesList`'s answer: provider branches, the default branch, heads, and the registered destinations. */
 export type RepositoryBranchList = OpenEnums<Schemas['RepositoryBranchList']>;
 /** `repositoryTargetRefRegister`'s body: register an existing branch, or create one from a pinned source. */
@@ -308,9 +339,16 @@ export function tenantJourneys(client: TenantClient) {
      */
     declareLanePolicy(projectId: string, repositoryId: string, policy: RepositoryLanePolicy, options: CommandOptions): Promise<RepositoryLanePolicyDeclaration> {
       requireHuman(client, 'repositories.declareLanePolicy');
-      const { candidatePublication, visibility } = policy;
-      return body(options, 'repositoryLanePolicyDeclare', { path: { project: projectId, repository: repositoryId }, body: { candidatePublication, visibility } });
+      const { candidatePublication, visibility, merit } = policy;
+      return body(options, 'repositoryLanePolicyDeclare', { path: { project: projectId, repository: repositoryId }, body: { candidatePublication, visibility, ...(merit === undefined ? {} : { merit }) } });
     },
+    /**
+     * A project admin, or a client token under `octocove:policies`: the repository's declared lane policy (its
+     * `candidatePublication`, `visibility` and the merit opt-in), when and by whom; the shape the declaration answers.
+     * `404 not-found` for a repository that is not a live canonical of the project. Writes nothing.
+     */
+    lanePolicy: (projectId: string, repositoryId: string, options: JourneyOptions): Promise<RepositoryLanePolicyDeclaration> =>
+      body(options, 'repositoryLanePolicyGet', { path: { project: projectId, repository: repositoryId } }),
     /**
      * Human only, `tasks:create`: the canonical repository's branches as the provider advertises them now (no clone),
      * the default branch as a full ref (or null), each branch's head, and which ones are registered landing
@@ -626,9 +664,82 @@ export function tenantJourneys(client: TenantClient) {
     return response.body;
   }
 
+  // ---- merit (agent approval and landing on reviewed evidence) ----
+  const merit = {
+    /**
+     * `candidates:read` (an agent: its own claim's candidate only, 404 otherwise): the candidate's merit state, hold,
+     * attempt position, evidence set, latest review and latest score, with the deployment's `stage` and `evaluation`
+     * runtime. Never cached.
+     */
+    status: (candidateId: string, options: JourneyOptions & { readonly credential?: BearerTransport }): Promise<MeritState> =>
+      body(options, 'candidateMeritGet', { path: { id: candidateId } }, { credential: options.credential }),
+    /** `candidates:read`: the versioned merit diff manifest of the candidate (a review cites its `digest`). */
+    diff: (candidateId: string, options: JourneyOptions & { readonly credential?: BearerTransport }): Promise<MeritManifest> =>
+      body(options, 'candidateMeritDiffGet', { path: { id: candidateId } }, { credential: options.credential }),
+    /** `candidates:read`: every submission of the candidate's evidence set with its stored body, in `seq` order (the latest 50). */
+    reviews: (candidateId: string, options: JourneyOptions & { readonly credential?: BearerTransport }): Promise<MeritReviewList> =>
+      body(options, 'candidateMeritReviewsList', { path: { id: candidateId } }, { credential: options.credential }),
+    /** `candidates:read`: one submission with its stored body. */
+    review: (candidateId: string, reviewId: string, options: JourneyOptions & { readonly credential?: BearerTransport }): Promise<MeritReviewRead> =>
+      body(options, 'candidateMeritReviewGet', { path: { id: candidateId, reviewId } }, { credential: options.credential }),
+    /**
+     * The live claim's agent (`submissions:create`): submit a structured review of the candidate head, bound to the
+     * manifest digest `diff` answered. Accumulates into the head's evidence set; consumes no attempt. `stored-result`
+     * replay under the task's ledger.
+     */
+    submitReview: (candidateId: string, input: MeritReviewInput, options: CommandOptions & { readonly credential?: BearerTransport }): Promise<MeritReviewReceipt> =>
+      body(options, 'candidateMeritReviewCreate', { path: { id: candidateId }, body: input }, { credential: options.credential }),
+    /**
+     * The live claim's agent: request the evaluation of the head's accumulated evidence set (`202 requested`, or
+     * `409 needs-human` once the evidence rounds are exhausted). `stored-result` replay.
+     */
+    evaluate: (candidateId: string, options: CommandOptions & { readonly credential?: BearerTransport }): Promise<MeritEvaluationRequest> =>
+      body(options, 'candidateMeritEvaluationRequest', { path: { id: candidateId }, body: {} }, { credential: options.credential }),
+    /**
+     * Human only, `candidates:approve` with a recent sign-in: release the task from the `needs-human` hold without
+     * deciding the candidate (a human approval, rejection or landing ends the hold too).
+     */
+    release(taskId: string, options: CommandOptions): Promise<SuccessBody<'taskMeritRelease'>> {
+      requireHuman(client, 'merit.release');
+      return body(options, 'taskMeritRelease', { path: { id: taskId }, body: {} });
+    },
+    /** Human only, `project:admin` with a recent sign-in: probe the configured decision models once (rate-limited per project). */
+    probe(projectId: string, options: CommandOptions): Promise<MeritProbe> {
+      requireHuman(client, 'merit.probe');
+      return body(options, 'meritProbe', { path: { project: projectId } });
+    },
+    /** A project admin, or a client token under `octocove:policies`: the usage counter's totals over a window (`since`, `until`). */
+    usage: (projectId: string, query: Query<'meritUsageGet'>, options: JourneyOptions): Promise<MeritUsage> =>
+      body(options, 'meritUsageGet', { path: { project: projectId }, query } as never),
+    /** A project admin, or a client token under `octocove:policies`: the shadow comparison over a window (`since`, `until`, `limit`). */
+    shadow: (projectId: string, query: Query<'meritShadowGet'>, options: JourneyOptions): Promise<MeritShadow> =>
+      body(options, 'meritShadowGet', { path: { project: projectId }, query } as never),
+    policies: {
+      /** A project admin, or a client token under `octocove:policies`: the project's merit policy versions, newest first (`repositoryId`, `targetRef` filters). */
+      list: (projectId: string, query: Query<'meritPolicyList'>, options: JourneyOptions): Promise<MeritPolicyList> =>
+        body(options, 'meritPolicyList', { path: { project: projectId }, query } as never),
+      /** One version with its standing. */
+      get: (projectId: string, policyId: string, options: JourneyOptions): Promise<MeritPolicyVersionView> =>
+        body(options, 'meritPolicyGet', { path: { project: projectId, id: policyId } }),
+      /**
+       * A project admin with a recent sign-in, or a client token under `octocove:policies`: append the next version
+       * for a repository and target ref (`version` = the current maximum + 1, else `409 policy-version-conflict`).
+       * `stored-result` replay.
+       */
+      register: (projectId: string, input: MeritPolicyRegistration, options: CommandOptions): Promise<MeritPolicyVersion> =>
+        body(options, 'meritPolicyRegister', { path: { project: projectId }, body: input }),
+      pause: (projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyPause'>> =>
+        body(options, 'meritPolicyPause', { path: { project: projectId, id: policyId } }),
+      resume: (projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyResume'>> =>
+        body(options, 'meritPolicyResume', { path: { project: projectId, id: policyId } }),
+      disable: (projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyDisable'>> =>
+        body(options, 'meritPolicyDisable', { path: { project: projectId, id: policyId } }),
+    },
+  };
+
   return {
     client, tenantId: client.tenantId, command: keyed, owner, tasks, repositories, claims, candidates, approvals, grants, landings, receipts, lanes,
-    webhooks, log, audit, events, auth: tenantAuthJourneys(client),
+    merit, webhooks, log, audit, events, auth: tenantAuthJourneys(client),
   };
 }
 

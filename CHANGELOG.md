@@ -1,5 +1,27 @@
 # Changelog
 
+## Client 0.16.0
+
+Release `@yolo-labs/octocove-client` 0.16.0: Merit, the agent approval and landing on reviewed evidence. The CLI is
+unchanged (0.10.1); its `octo merit` commands follow in a later release.
+
+- Client: regenerated from the current API contract. Seventeen new operations (150 operation ids): the candidate's
+  merit diff manifest (`candidateMeritDiffGet`), merit state (`candidateMeritGet`), the evidence set in full
+  (`candidateMeritReviewsList`, `candidateMeritReviewGet`), a review submission (`candidateMeritReviewCreate`), an
+  evaluation request (`candidateMeritEvaluationRequest`), the human release of a hold (`taskMeritRelease`), the
+  project's probe, usage counter and shadow comparison (`meritProbe`, `meritUsageGet`, `meritShadowGet`), the merit
+  policy versions (`meritPolicyList`, `meritPolicyGet`, `meritPolicyRegister`, `meritPolicyPause`,
+  `meritPolicyResume`, `meritPolicyDisable`) and a repository's lane policy read (`repositoryLanePolicyGet`). The
+  reads are `network-only` / `null`; the task commands and policy writes `network-only` / `stored-result`; the probe
+  `never` / `none`.
+- Client: `org(tenantId).merit` journeys (`status`, `diff`, `reviews`, `review`, `submitReview`, `evaluate`,
+  `release`, `probe`, `usage`, `shadow`, `policies.list/get/register/pause/resume/disable`),
+  `repositories.lanePolicy` (the read), and `repositories.declareLanePolicy` carries the `merit` opt-in. Exported
+  types: `MeritState` (with the deployment's `stage` and `evaluation` runtime, the `hold`, the typed `score.answers`),
+  `MeritManifest`, `MeritReviewInput`, `MeritReviewReceipt`, `MeritReviewRecord`, `MeritReviewList`,
+  `MeritReviewRead`, `MeritEvaluationRequest`, `MeritAnswers`, `MeritAnswer`, `MeritProbe`, `MeritUsage`,
+  `MeritShadow`, `MeritPolicyRegistration`, `MeritPolicyVersion`, `MeritPolicyVersionView`, `MeritPolicyList`.
+
 ## CLI 0.10.1
 
 Release `@yolo-labs/octocove` 0.10.1: `octo lane materialize` reads a whole-repository lane's pack again. The client

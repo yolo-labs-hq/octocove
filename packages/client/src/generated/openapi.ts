@@ -313,7 +313,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Read a canonical repository's declared lane policy
+         * @description Current human project admin, or a client token under `octocove:policies`. The repository's whole lane policy as declared (`candidatePublication`, `visibility`, the `merit` opt-in), when and by whom, in the shape the declaration answers. Writes nothing, not audited. 404 `not-found` when no live canonical repository with that id is in the project.
+         */
+        get: operations["repositoryLanePolicyGet"];
         put?: never;
         /**
          * Declare a canonical repository's lane policy
@@ -1208,6 +1212,130 @@ export interface paths {
         get: operations["candidateGet"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/candidates/{id}/merit-diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the merit diff manifest of a candidate
+         * @description The versioned canonical record of the whole change from the candidate's base to the candidate: every changed path with both-side blob ids, modes and types, its status, kind and unified hunks, with `complete` and `reasons` saying whether anything was omitted, and the `digest` a merit review must cite. The manifest carries no analysis of the code: the review agent supplies the evidence its verdict rests on. Requires candidates:read on the task's project; an agent delegation reads the candidate of its own claim only (404 otherwise), and the hunks of a changed path outside its lane's read scope are redacted (`redacted: true`, the entry kept, so the digest is unchanged). Computed once per candidate and manifest version from the candidate's persisted commits through the canonical repository's server-side credential, and cut to each reader's view per request (the HTTP answer is never cached). A change past the comparison bounds is an incomplete manifest (`complete: false`, reason `comparison-too-large`), not an error. 404 `not-found` for an unknown or blocked candidate, for a candidate that is not the agent's own claim's, or for a caller the project does not admit (a refusal reads as absence); 409 `repository-provider-unsupported`; 503 `broker-unavailable` or `broker-provider-unavailable`.
+         */
+        get: operations["candidateMeritDiffGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/candidates/{id}/merit-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a candidate's evidence set in full
+         * @description Every submission for the candidate head in `seq` order, each with its stored body (the declared reviewer, verdict, summary, behavioural change, per-file notes with concerns, callers and dependencies, findings, tests and inputs), its deterministic state and whether a later submission superseded it. Bodies are answered as stored (secret-scanned at submission; nothing refused is stored). The latest 50 submissions; `truncated` when earlier ones exist. Requires candidates:read on the task's project; an agent delegation reads the candidate of its own claim only (404 otherwise). Never cached.
+         */
+        get: operations["candidateMeritReviewsList"];
+        put?: never;
+        /**
+         * Record the merit review of a candidate
+         * @description The lane agent records the structured result of a review of its own live candidate, under its execution delegation (`submissions:create` on the live claim; a human session, a client token or a machine grant is 403 `forbidden`). The body names the reviewed head (`candidateSha`, `baseSha`, `intentVersion`) and the `diffDigest` of the manifest `GET /candidates/{id}/merit-diff` served; each must equal the live candidate's or the answer is 409 `approval-mismatch` with `details.field`. The body is validated against the manifest (every changed path has a note, every cited path and blob is in the manifest, bounded sizes): 400 `invalid-merit-review` with `details.field`; a text field matching the secret detector is 400 `sensitive-content` and nothing is stored. State refusals: 409 `candidate-superseded`, `fenced`, `already-approved`, `merit-needs-human` (the task was handed to a human), `attempts-exhausted`; 400 `self-review` when the declared reviewer agent is the submitting agent. The review supplies its evidence per changed file (`callers`, `dependencies`: path, excerpt, note). Submissions for the same head accumulate into its evidence set; each runs the deterministic checks only, calls no model and consumes no attempt. A recorded submission answers 201 with its `meritState`: `fail` (the verdict is not `approve`, or a `blocking` or `major` finding, which stands against this head until a new head), `needs-human` (a hard limit, listed in `reasons`; the task is handed to a human until released) or `scoring` (eligible: the evaluation of the head's evidence set is requested explicitly). The evidence set is the live submissions bound to one exact tuple (candidate, head, base, intent version, manifest digest); a submission bound otherwise (a new head, an edited intent, a changed manifest digest) opens a new set and supersedes every live review of the task outside it. Idempotency is by key and body; the same key with another body is 409 `idempotency-conflict`.
+         */
+        post: operations["candidateMeritReviewCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/candidates/{id}/merit-evaluations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request the evaluation of a candidate's evidence set
+         * @description (amendment 2). The lane agent asks for its head's accumulated merit review submissions to be evaluated, under its execution delegation (`submissions:create` on the live claim; anyone else is 403 `forbidden`). Refused 409 `merit-not-eligible` (with `details.reasons`) unless the head's latest submission passed the deterministic checks and hard limits, 409 `merit-needs-human` once the task is with a human, 409 `attempts-exhausted` when the policy's attempts are spent, 409 `evaluation-in-progress` while an evaluation is pending, 409 `candidate-superseded` for an old head. A repeated request for the same evidence set answers the existing request (200) with its state. A head past the policy's `evidence.maxRounds` answers 201 with `status: needs-human` and reason `evidence-rounds-exhausted`; otherwise 202 `requested`, and the evaluation runs from the task alarm over the whole evidence set. Its outcome is read at `GET /candidates/{id}/merit`: `pass`, `fail` (an attempt consumed), `needs-evidence` with the gaps (no attempt consumed; supplement and request again) or `needs-human`. A request whose evidence set is no longer the head's live set when the evaluator runs (a later submission, a new head) is `superseded`, never evaluated; the newest request is.
+         */
+        post: operations["candidateMeritEvaluationRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/candidates/{id}/merit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the merit state of a candidate
+         * @description The task's merit state (`none`, `scoring`, `fail`, `pass`, `needs-human`, sticky until a human releases it) with its reasons, the attempt position against the policy's maximum, whether the task was drawn for human sampling, the candidate's latest review, and its score, whose answers are shown only once the score is terminal (a pending evaluation shows `pending` and nothing else). Requires candidates:read on the task's project; an agent delegation reads the candidate of its own claim only (404 otherwise). Never cached.
+         */
+        get: operations["candidateMeritGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/candidates/{id}/merit-reviews/{reviewId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one submission of a candidate's evidence set
+         * @description One submission with its stored body, as the list answers it. 404 for a submission that is not this candidate's. Requires candidates:read on the task's project; an agent delegation reads the candidate of its own claim only (404 otherwise). Never cached.
+         */
+        get: operations["candidateMeritReviewGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/tasks/{id}/merit-release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release a task from the sticky needs-human merit state
+         * @description Human with `candidates:approve` only (agent credentials get 403 `human-required`). The task's merit attempts reset to zero and its merit state returns to `none`; the sampling draw stays. Nothing re-evaluates until a new merit review arrives. 409 `merit-not-needs-human` when the task is not with a human. Audited (`candidate.check_recorded` with `refs.milestone` `merit_release.recorded` and `refs.via` until the widened vocabulary lands). A human's approval, rejection or landing ends the hold the same way in its own batch (operator decision, 2026-10-30, `refs.via` `approve`, `reject` or `land`); this route hands the task back without deciding the candidate. The recent sign-in (`x-recent-sign-in`) applies to human sessions only; a client token under `octocove:review` carries no step-up. A release does not reset the head's `needs-evidence` round count, which is per evidence set.
+         */
+        post: operations["taskMeritRelease"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2374,6 +2502,164 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{orgId}/projects/{project}/merit-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the project's merit policy versions
+         * @description Current human project admin, or a client token under `octocove:policies` (no recent sign-in for a read). Every merit policy version of the project, newest first, each with its stored body, expiry, evaluator principal, who registered it and when, and its standing (`paused`, `revokedAt`, `expired`, `latest`, `live`). `live` is true for the one version per repository and target ref the evaluator reads, the latest version when it is neither revoked, expired nor paused. `repositoryId` and `targetRef` narrow the list (400 `invalid-request` with `details.field` for a malformed ref). At most 200 versions are answered (`truncated` says when more exist). Writes nothing, not audited.
+         */
+        get: operations["meritPolicyList"];
+        put?: never;
+        /**
+         * Append a merit policy version
+         * @description Current human project admin, or a client token under `octocove:policies` (admin tier, recent sign-in). One immutable version per append, exactly the previous maximum plus one for the repository and target ref (409 `policy-version-conflict`); the repository must be a live canonical of the project and the target ref registered (404 `not-found`). Durations (`approvalTtl`, `evaluation.deadline`) are ISO-8601 and stored as seconds; what the version does not set takes the ADR's defaults, and the stored body is answered. The `diff` limits must keep a candidate within the decision model's state bound (400 `limits-exceed-state-bound`); a value outside its domain is 400 `invalid-policy-body` with `details.field`. The project's evaluator principal is created with its first merit policy. The record's triggers emit `approval_policy.registered` with `refs.milestone` `merit_policy.registered`.
+         */
+        post: operations["meritPolicyRegister"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one merit policy version
+         * @description Current human project admin, or a client token under `octocove:policies` (no recent sign-in for a read). The version with its stored body, expiry, evaluator principal, registration and standing, as the list answers it. 404 `not-found` for an id that is not a merit policy version of the project.
+         */
+        get: operations["meritPolicyGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-policies/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Permanently revoke a merit policy version without fallback */
+        post: operations["meritPolicyDisable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-policies/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pause a merit policy version
+         * @description A paused version stays current (no earlier version becomes effective) and admits nothing; unfenced evaluator approvals under it are invalidated (`policy-changed`) and pending evaluations superseded. Already paused answers 200 with `paused` true. A revoked version is 409 `policy-revoked`.
+         */
+        post: operations["meritPolicyPause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-policies/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused merit policy version */
+        post: operations["meritPolicyResume"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The merit usage counter's totals
+         * @description Current human project admin, or a client token under `octocove:policies`. Read-only, no cap is enforced anywhere (operator decision, 2026-10-29). Every evaluation by outcome (a recorded score's outcome, or the status of one that never recorded) and every model call with its model and the usage the model reported (tokens or neurons, where available), per policy version of the project, for the project, and for the whole org record (an aggregate only, no other project is named), over a window on the evaluation's dispatch time (`since` inclusive, `until` exclusive; 400 `invalid-request` with `details.field` when malformed or out of order).
+         */
+        get: operations["meritUsageGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-shadow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The shadow-stage comparison of evaluator and human verdicts
+         * @description Current human project admin, or a client token under `octocove:policies`. Read-only. Per evaluated candidate (its latest recorded evaluation dispatched in the window), the evaluator's outcome and score beside what humans then did with the candidate, a human approval (whatever its later status), else the candidate's rejection, else undecided, with the landing time where it landed. The summary counts the candidates decided on both sides, the agreement among them and its rate, the evaluator's fails on work humans approved, its passes on work humans rejected, and the undecided on either side; `cost` is the usage per evaluation dispatched in the window from the usage counter. The list is newest first, `limit` entries (default 100, at most 1000); the summary and the cost cover the whole window.
+         */
+        get: operations["meritShadowGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orgs/{orgId}/projects/{project}/merit-probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probe the configured decision models through the Worker's binding
+         * @description Current human project admin with a recent sign-in; no client token. Runs one fixed, tiny question (the state is the word `probe`; no repository content) through each configured decision model (`jev`, `clef`) over the Workers AI binding and answers the sanitized outcome per model, the parsed answer or why the call failed (`provider-error`, `malformed-answer`, `deadline`), with the latency. Nothing is recorded; the outcome is logged without values. Answers `configured` false when `MERIT_EVALUATOR_MODELS` or the binding is absent.
+         */
+        post: operations["meritProbe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs/{orgId}/projects/{project}/approval-trust-bindings/{id}/activation-challenge": {
         parameters: {
             query?: never;
@@ -2746,7 +3032,7 @@ export interface components {
             policyVersion: string;
         };
         /** @enum {string} */
-        ApproverKind: "human" | "policy_bot" | "workload";
+        ApproverKind: "human" | "policy_bot" | "workload" | "evaluator";
         /** @description Opaque resource identifier. Includes UUIDs, prefixed hashes and provider-assigned IDs; clients must not parse it. */
         Id: string;
         Sha: string;
@@ -2992,6 +3278,629 @@ export interface components {
             submissionId: components["schemas"]["Id"];
             replacementSubmissionId: components["schemas"]["Id"];
         };
+        MeritFinding: {
+            /** @enum {string} */
+            severity: "blocking" | "major" | "minor" | "nit";
+            path: string;
+            line?: number;
+            claim: string;
+        };
+        /** @description Evidence the review supplies for a changed file, a caller or a dependency it checked, as a path and an excerpt of its code. Octocove does not verify it; the evaluator judges whether it supports the verdict. */
+        MeritExcerpt: {
+            path: string;
+            lines: string[];
+            note?: string;
+        };
+        /** @description The structured result of a review of one candidate, bound to the exact head and the served manifest digest. A finding is a statement about the reviewed head; there is no resolved flag, a defect is resolved only by a new head. Submissions for the same head accumulate into its evidence set; each runs the deterministic checks only and consumes no attempt. The evidence a verdict rests on is supplied per file as `callers` and `dependencies` excerpts. */
+        MeritReviewInput: {
+            candidateSha: components["schemas"]["Sha"];
+            baseSha: components["schemas"]["Sha"];
+            intentVersion: number;
+            diffDigest: string;
+            /** @description The declared reviewer, recorded for attribution, never trusted for authority. */
+            reviewer: {
+                agent?: string;
+                model?: string;
+                runner?: string;
+                strategy?: string;
+            };
+            /** @description What the reviewer says it saw and ran; assertions, never supplied to the evaluator as fact. */
+            inputs?: {
+                filesRead?: string[];
+                testsRun?: string[];
+            };
+            summary: string;
+            behaviouralChange: string;
+            files: {
+                path: string;
+                blobSha: string;
+                note: string;
+                concerns?: string[];
+                callers?: components["schemas"]["MeritExcerpt"][];
+                dependencies?: components["schemas"]["MeritExcerpt"][];
+            }[];
+            findings: components["schemas"]["MeritFinding"][];
+            tests: {
+                present: boolean;
+                paths?: string[];
+                adequacy?: string;
+            };
+            /** @enum {string} */
+            verdict: "approve" | "request-changes" | "abstain";
+            /** @enum {integer} */
+            schemaVersion: 1;
+        };
+        /** @description (amendment 2). A request to evaluate a candidate head's accumulated evidence set, and its state. */
+        MeritEvaluationRequest: {
+            id: components["schemas"]["Id"] | null;
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            evidenceSet: {
+                count: number;
+                reviewIds: components["schemas"]["Id"][];
+                digest: string;
+            };
+            /** Format: date-time */
+            requestedAt: string;
+            /** @enum {string} */
+            status: "requested" | "evaluating" | "pass" | "fail" | "needs-evidence" | "needs-human" | "failed" | "superseded";
+            scoreId?: components["schemas"]["Id"];
+            reasons?: string[];
+        };
+        /** @description The answer to a recorded merit review. */
+        MeritReviewReceipt: {
+            id: components["schemas"]["Id"];
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            seq: number;
+            attempt: number;
+            /** @description The attempts the policy leaves after this one (`attempts.max - attempt`); null without a live policy. */
+            attemptsRemaining: number | null;
+            bound: {
+                candidateSha: components["schemas"]["Sha"];
+                baseSha: components["schemas"]["Sha"];
+                intentVersion: number;
+                diffDigest: string;
+            };
+            /**
+             * @description `scoring` is eligible: the head's evidence set may be evaluated on request.
+             * @enum {string}
+             */
+            meritState: "scoring" | "fail" | "needs-human";
+            reasons: string[];
+            /** @description The head's accumulated submissions, this one included. */
+            evidenceSet: {
+                count: number;
+                reviewIds: components["schemas"]["Id"][];
+            };
+            scoreId: components["schemas"]["Id"] | null;
+            /** Format: date-time */
+            recordedAt: string;
+        };
+        /** @description One decision-model answer, by its question's type. */
+        MeritAnswer: {
+            noul: number;
+        } | {
+            choice: string;
+            probabilities?: {
+                [key: string]: number;
+            };
+            confidence: number;
+        } | {
+            score: number;
+            rawScore?: number;
+            legend?: unknown;
+            probabilities?: unknown;
+            confidence: number;
+        };
+        /** @description A terminal evaluation's answers; the review call's by question id (`intent_match`, `depth`, `generic`, `security_unaddressed`, `tests_cover`, `scope_creep`, `verdict_consistent`, `risk`, `instruction_present`) and each file call's by the changed path, then by question id (`note_accurate`, `material_defect`, `sensitive_content`, `cross_file_hidden`, `consumer_impact`, `instruction_present`). */
+        MeritAnswers: {
+            review: {
+                [key: string]: components["schemas"]["MeritAnswer"];
+            };
+            files: {
+                [key: string]: {
+                    [key: string]: components["schemas"]["MeritAnswer"];
+                };
+            };
+        };
+        /** @description (operator request, 2026-10-30). One submission of a candidate's evidence set with its stored body, as the agent submitted it and the secret scan admitted it (nothing refused is stored), its deterministic state and whether a later submission superseded it. */
+        MeritReviewRecord: {
+            id: components["schemas"]["Id"];
+            seq: number;
+            attempt: number;
+            /** @enum {string} */
+            verdict: "approve" | "request-changes" | "abstain";
+            /** @enum {string} */
+            meritState: "scoring" | "fail" | "needs-human";
+            reasons: string[];
+            diffDigest: string;
+            intentVersion: number;
+            reviewer: Record<string, never>;
+            /** Format: date-time */
+            recordedAt: string;
+            superseded: boolean;
+            supersededBy: components["schemas"]["Id"] | null;
+            body: components["schemas"]["MeritReviewInput"] | null;
+        };
+        /** @description A candidate's submissions in `seq` order (the latest 50; `truncated` when earlier ones exist). */
+        MeritReviewList: {
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            items: components["schemas"]["MeritReviewRecord"][];
+            truncated: boolean;
+        };
+        /** @description One submission of a candidate's evidence set with its stored body (`MeritReviewRecord`), named with its candidate and task. */
+        MeritReviewRead: {
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            id: components["schemas"]["Id"];
+            seq: number;
+            attempt: number;
+            /** @enum {string} */
+            verdict: "approve" | "request-changes" | "abstain";
+            /** @enum {string} */
+            meritState: "scoring" | "fail" | "needs-human";
+            reasons: string[];
+            diffDigest: string;
+            intentVersion: number;
+            reviewer: Record<string, never>;
+            /** Format: date-time */
+            recordedAt: string;
+            superseded: boolean;
+            supersededBy: components["schemas"]["Id"] | null;
+            body: components["schemas"]["MeritReviewInput"] | null;
+        };
+        /** @description Amendment, decision 5. Why a decision-model call failed, reduced to what cannot echo the request. `provider-error` carries the thrown error's name, its numeric or short `code` (Workers AI's `7003` user input error, `5018` no access to the model, `5035` plan required) and its HTTP `status` when it had them, never the message (a provider may quote the input in it); `malformed-answer` the answer's key structure, never a value; `deadline` nothing more. */
+        MeritCallFailure: {
+            /** @enum {string} */
+            class: "provider-error" | "malformed-answer" | "deadline";
+            name?: string;
+            code?: string | number;
+            status?: number;
+            shape?: {
+                type: string;
+                keys?: string[];
+                answers?: {
+                    [key: string]: string[] | string;
+                };
+            };
+        };
+        /** @description Amendment, decision 5. The outcome of one probe of the configured decision models. */
+        MeritProbe: {
+            projectId: components["schemas"]["Id"];
+            /** Format: date-time */
+            probedAt: string;
+            /** @description `MERIT_EVALUATOR_MODELS` parsed and the binding present. */
+            configured: boolean;
+            /** @description The Workers AI binding is present. */
+            binding: boolean;
+            /** @description `MERIT_AI_GATEWAY_ID` is set: a third-party model's calls (TypeSafe Jev) go through that AI Gateway; Cloudflare's own models are called without one. */
+            gateway: boolean;
+            models: {
+                /** @enum {string} */
+                choice: "jev" | "clef";
+                /** @description The configured Workers AI model id. */
+                model: string;
+                /** @description The request's `model` field: Clef's short name (`clef`, `clef-flash`); null for a provider whose input schema has no such field (Jev). */
+                providerModel: string | null;
+                /** @description The call went through the configured AI Gateway (a third-party model with `MERIT_AI_GATEWAY_ID` set). */
+                gateway: boolean;
+                ok: boolean;
+                latencyMs: number;
+                answer: {
+                    noul: number;
+                } | null;
+                failure: components["schemas"]["MeritCallFailure"] | null;
+            }[];
+        };
+        /** @description A candidate's merit state (`GET /orgs/{orgId}/candidates/{id}/merit`). The task's `needs-human` hold (operator decision, 2026-10-30) is sticky across heads until a human acts while any sticky reason stands (the attempt bailout, the evidence rounds exhausted, a hard limit, an instruction present, a sampling hand-off); a hold made only of head-scoped reasons (a low-confidence answer, an evaluator failure) clears on a genuinely new head. A human's approval, rejection or landing ends any hold, as `merit-release` does. A fresh candidate shows a sticky hold as inherited (`inheritedHold`), a head-scoped one as cleared (`hold.cleared`). Any other task state belongs to the head that recorded it; a head with no review and no score of its own is `none`. */
+        MeritState: {
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            /**
+             * @description The deployment's evaluator stage now: shadow records what the evaluator would have decided and issues nothing (no approval, no landing); approve issues the evaluator approval on a pass; land lands it too.
+             * @enum {string}
+             */
+            stage: "shadow" | "approve" | "land";
+            /** @description Whether evaluations run at all in this deployment. */
+            evaluation: {
+                /** @description The models and the binding are configured and the kill switch is not set. */
+                enabled: boolean;
+                modelsConfigured: boolean;
+                binding: boolean;
+                /** @description The launch-day kill switch (`MERIT_DISABLED`). */
+                disabled: boolean;
+            };
+            /** @enum {string} */
+            meritState: "none" | "scoring" | "fail" | "pass" | "needs-human";
+            reasons: string[];
+            /** @description The `needs-human` shown was recorded on an earlier head of the task and holds this one until a human acts. */
+            inheritedHold: boolean;
+            hold: {
+                reasons: string[];
+                /** @description Per reason */
+                sticky: {
+                    [key: string]: boolean;
+                };
+                /** @enum {string} */
+                scope: "sticky" | "head";
+                /** @description The hold was recorded on an earlier head. */
+                inherited: boolean;
+                /** @description A head-scoped hold an earlier head recorded; this head is not held by it. */
+                cleared: boolean;
+                /** @description The route a human calls to release the task. */
+                release: string;
+            } | null;
+            attempts: number;
+            attemptsMax: number | null;
+            sampled: boolean;
+            /** @description `needs-evidence` evaluations of this head so far. */
+            evidenceRounds: number;
+            /** @description Every submission for this candidate head, in order. */
+            evidenceSet: {
+                count: number;
+                submissions: {
+                    id: components["schemas"]["Id"];
+                    seq: number;
+                    /** @enum {string} */
+                    meritState: "scoring" | "fail" | "needs-human";
+                    /** Format: date-time */
+                    recordedAt: string;
+                }[];
+            };
+            review: {
+                id: components["schemas"]["Id"];
+                seq: number;
+                attempt: number;
+                /** @enum {string} */
+                verdict: "approve" | "request-changes" | "abstain";
+                /** @enum {string} */
+                meritState: "scoring" | "fail" | "needs-human";
+                reasons: string[];
+                diffDigest: string;
+                reviewer: Record<string, never>;
+                /** Format: date-time */
+                recordedAt: string;
+                superseded: boolean;
+            } | null;
+            score: {
+                id: components["schemas"]["Id"];
+                /** @enum {string} */
+                status: "pending";
+                /** Format: date-time */
+                dispatchedAt: string;
+            } | {
+                id: components["schemas"]["Id"];
+                /** @enum {string} */
+                status: "recorded" | "failed" | "superseded";
+                outcome: ("pass" | "fail" | "needs-human" | "needs-evidence") | null;
+                reasons: string[];
+                /** @description Observations that did not decide the outcome: `instruction-present-model-only: <call>` (the model's canary alone), `instruction-present-filter-only: <call>:<field>` (the pattern filter alone; both together on a call are the hand-off `instruction-present`), `depth-skipped: docs-only` (every changed path a `.md`, `.txt`, `.rst` or `.adoc` text document). */
+                signals: string[];
+                score: number | null;
+                answers: components["schemas"]["MeritAnswers"] | null;
+                modelIdentifier: string | null;
+                /** Format: date-time */
+                dispatchedAt: string;
+                completedAt: string | null;
+                /** @description The stage frozen in the evaluation's dispatch snapshot (what a pass could have issued); null for a score dispatched before it was recorded. */
+                stage: ("shadow" | "approve" | "land") | null;
+                /** @description Amendment, decision 5. The evaluation's journaled model calls (one row per issue), with why a failed one failed, sanitized at the write (`provider-error` with the error's name, code, status and a bounded message that passed the secret detector; `malformed-answer` with the answer's key structure, never a value; `deadline`). */
+                calls: {
+                    index: number;
+                    kind: string;
+                    /** @enum {integer} */
+                    issue: 1 | 2;
+                    /** @enum {string} */
+                    status: "pending" | "answered" | "failed";
+                    model: string | null;
+                    failure: components["schemas"]["MeritCallFailure"] | null;
+                    usage: Record<string, never> | null;
+                    /** @description From the issue to the answer or failure; null while pending. */
+                    latencyMs: number | null;
+                    /** Format: date-time */
+                    issuedAt: string;
+                    answeredAt: string | null;
+                }[];
+            } | null;
+        };
+        /** @description One piece of context in a merit diff manifest entry, by path, blob and line range; `lines` is the excerpt (empty with `redacted` when the reader's lane scope excludes the path). */
+        MeritContextRef: {
+            path: string;
+            blob: string;
+            range: number[];
+            lines: string[];
+            /** @enum {string} */
+            via?: "import" | "symbol" | "key" | "same-file";
+            symbol?: string;
+            /** @enum {boolean} */
+            redacted?: true;
+        };
+        /** @description The enclosing definition of one hunk, as it stands in the candidate tree. */
+        MeritEnclosingRef: {
+            symbol: string;
+            range: number[];
+            lines: string[];
+            /** @enum {boolean} */
+            redacted?: true;
+        };
+        /** @description A merit policy version as appended; durations are ISO-8601 (`PT24H`, `PT10M`); what is omitted takes the ADR's defaults. */
+        MeritPolicyRegistration: {
+            repositoryId: components["schemas"]["Id"];
+            targetRef: string;
+            version: number;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description The digest of the candidate check-policy JSON this version admits. */
+            checkPolicyDigest: string;
+            requireCheckRun?: boolean;
+            /** @description false: approve only, a human lands. */
+            land?: boolean;
+            /** @description ISO-8601 duration an unfenced evaluator approval stays valid. */
+            approvalTtl?: string;
+            diff?: {
+                maxFiles?: number;
+                maxChangedLines?: number;
+                maxFileBytes?: number;
+                allowBinary?: boolean;
+                allowDeletes?: number;
+            };
+            paths?: {
+                allow?: string[];
+                deny?: string[];
+            };
+            reviewer?: {
+                models?: string[];
+            };
+            evaluation?: {
+                /** @enum {string} */
+                model?: "jev" | "clef";
+                questionSet?: string;
+                weights?: {
+                    [key: string]: number;
+                };
+                thresholds?: {
+                    score?: number;
+                    /** @enum {string} */
+                    riskMax?: "trivial" | "low" | "moderate";
+                    minConfidence?: number;
+                };
+                /** @description ISO-8601 duration after which the evaluation fails closed. */
+                deadline?: string;
+            };
+            attempts?: {
+                max?: number;
+            };
+            humanSampleRate?: number;
+            /** @description `needs-evidence` evaluations a candidate head may have before the task goes to a human. */
+            evidence?: {
+                maxRounds?: number;
+            };
+        };
+        /** @description An appended merit policy version, its evaluator principal and the stored body (durations as seconds). */
+        MeritPolicyVersion: {
+            id: components["schemas"]["Id"];
+            version: number;
+            principalId: components["schemas"]["Id"];
+            /** Format: date-time */
+            expiresAt: string;
+            body: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description A merit policy version as the read routes answer it, with its standing. `latest` is whether it is the highest version of its repository and target ref; `live` is `latest` and neither revoked, expired nor paused (the one version the evaluator reads). */
+        MeritPolicyVersionView: {
+            id: components["schemas"]["Id"];
+            repositoryId: components["schemas"]["Id"];
+            targetRef: string;
+            version: number;
+            principalId: components["schemas"]["Id"];
+            /** @description The stored body (durations as seconds). */
+            body: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            registeredAt: string;
+            /** @description The registering principal id (issuer|sub */
+            registeredBy: string;
+            paused: boolean;
+            revokedAt: string | null;
+            expired: boolean;
+            latest: boolean;
+            live: boolean;
+        };
+        MeritPolicyList: {
+            projectId: components["schemas"]["Id"];
+            /** @description Newest first. */
+            items: components["schemas"]["MeritPolicyVersionView"][];
+            /** @description More than 200 versions exist; narrow with the filters. */
+            truncated: boolean;
+        };
+        /** @description Amendment 3. Evaluations by outcome and model calls with the usage the models reported, for one scope. */
+        MeritUsageTotals: {
+            evaluations: number;
+            outcomes: {
+                pass: number;
+                fail: number;
+                "needs-human": number;
+                "needs-evidence": number;
+                pending: number;
+                failed: number;
+                superseded: number;
+            };
+            calls: number;
+            /** @description Calls whose model reported no usage (a cut-off */
+            unreportedCalls: number;
+            /** @description The numeric usage fields the models reported (`neurons`, `prompt_tokens`, …), summed. */
+            usage: {
+                [key: string]: number;
+            };
+            models: {
+                model: string | null;
+                calls: number;
+                unreportedCalls: number;
+                usage: {
+                    [key: string]: number;
+                };
+            }[];
+        };
+        /** @description Amendment 3. The usage counter's totals for a project, its policy versions, and the org record (aggregate only). */
+        MeritUsage: {
+            projectId: components["schemas"]["Id"];
+            window: {
+                /** Format: date-time */
+                since: string | null;
+                /** Format: date-time */
+                until: string | null;
+            };
+            project: components["schemas"]["MeritUsageTotals"];
+            policyVersions: (components["schemas"]["MeritUsageTotals"] & {
+                policyVersion: components["schemas"]["Id"];
+            })[];
+            org: components["schemas"]["MeritUsageTotals"];
+        };
+        /** @description Shadow stage. The evaluator's verdicts beside the humans' per evaluated candidate, the agreement figures, and the usage per evaluation. */
+        MeritShadow: {
+            projectId: components["schemas"]["Id"];
+            window: {
+                /** Format: date-time */
+                since: string | null;
+                /** Format: date-time */
+                until: string | null;
+            };
+            summary: {
+                /** @description Evaluated candidates in the window (at most the read's scan bound of 5000 */
+                candidates: number;
+                /** @description More evaluated candidates exist in the window than the summary counted; narrow the window. */
+                truncated: boolean;
+                /** @description Candidates with a pass or fail from the evaluator and an approval or rejection from a human. */
+                decided: number;
+                agreement: {
+                    count: number;
+                    /** @description `count / decided`; null when nothing is decided on both sides. */
+                    rate: number | null;
+                };
+                evaluatorFailOnHumanApproved: number;
+                evaluatorPassOnHumanRejected: number;
+                /** @description Candidates whose latest evaluation failed (a model call or the deadline); counted among the evaluator's undecided. */
+                evaluatorFailed?: number;
+                /** @description Candidates a newer head replaced; outside the agreement statistics. */
+                superseded?: number;
+                undecided: {
+                    /** @description `needs-human` or `needs-evidence` as the latest outcome. */
+                    evaluator: number;
+                    /** @description Neither a human approval nor a rejection yet. */
+                    human: number;
+                    both: number;
+                };
+                evaluator: {
+                    pass: number;
+                    fail: number;
+                    undecided: number;
+                };
+                human: {
+                    approved: number;
+                    rejected: number;
+                    undecided: number;
+                    superseded: number;
+                };
+            };
+            /** @description Every evaluation dispatched in the window (whatever its status) and the model calls it made; the usage sums cover the calls that reported figures (`reportedCalls`), the per-evaluation figures divide by every evaluation. */
+            cost: {
+                evaluations: number;
+                calls: number;
+                reportedCalls: number;
+                unreportedCalls: number;
+                usage: {
+                    [key: string]: number;
+                };
+                perEvaluation: {
+                    calls: number | null;
+                    usage: {
+                        [key: string]: number;
+                    };
+                };
+            };
+            candidates: components["schemas"]["MeritShadowCandidate"][];
+        };
+        MeritShadowCandidate: {
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            policyVersion: components["schemas"]["Id"];
+            evaluator: {
+                /**
+                 * @description `failed`: the evaluation itself failed (a model call or the deadline); see `reasons`.
+                 * @enum {string}
+                 */
+                outcome: "pass" | "fail" | "needs-human" | "needs-evidence" | "failed";
+                reasons: string[];
+                signals: string[];
+                score: number | null;
+                attempt: number;
+                /** Format: date-time */
+                completedAt: string;
+            };
+            human: {
+                /**
+                 * @description The humans' last word
+                 * @enum {string}
+                 */
+                outcome: "approved" | "rejected" | "undecided" | "superseded";
+                /**
+                 * Format: date-time
+                 * @description The first live or consumed human approval of the candidate (a withdrawn one does not count).
+                 */
+                approvedAt: string | null;
+                /** Format: date-time */
+                rejectedAt: string | null;
+                /** Format: date-time */
+                landedAt: string | null;
+            };
+            /** @description Both sides decided and alike (true) or apart (false); null while a side is undecided. */
+            agreement: boolean | null;
+        };
+        /** @description One changed path of a merit diff manifest with both sides, hunks, kind and content state. */
+        MeritManifestEntry: {
+            path: string;
+            /** @enum {string} */
+            status: "added" | "modified" | "deleted" | "renamed" | "type-changed";
+            renamedFrom?: string;
+            before: components["schemas"]["MeritBlobSide"] | null;
+            after: components["schemas"]["MeritBlobSide"] | null;
+            /** @enum {string} */
+            content: "included" | "omitted-too-large" | "omitted-binary" | "omitted-unavailable";
+            added: number;
+            removed: number;
+            hunks: string[];
+            /** @enum {string} */
+            kind: "implementation" | "test" | "config" | "data" | "docs";
+            /**
+             * @description Present when the reader's lane scope excludes the path; the hunks are then empty.
+             * @enum {boolean}
+             */
+            redacted?: true;
+        };
+        MeritBlobSide: {
+            blob: string;
+            mode: string | null;
+            /** @enum {string} */
+            type: "blob" | "symlink" | "submodule";
+        };
+        /** @description The merit diff manifest of a candidate (`GET /orgs/{orgId}/candidates/{id}/merit-diff`). `digest` covers the canonical serialization without hunk text, so it is the same for every reader. `complete` is false, with `reasons`, when any entry's content was omitted, the listing was cut, or the comparison exceeded its bounds (then `files` is empty and `reasons` holds `comparison-too-large`). */
+        MeritManifest: {
+            /** @enum {integer} */
+            version: 1;
+            candidateSha: components["schemas"]["Sha"];
+            baseSha: components["schemas"]["Sha"];
+            complete: boolean;
+            files: components["schemas"]["MeritManifestEntry"][];
+            omittedFiles: number;
+            reasons: string[];
+            digest: string;
+        };
         CandidateResult: components["schemas"]["CandidateReady"] | components["schemas"]["CandidateSuperseded"];
         CandidatePending: {
             workAttribution?: components["schemas"]["WorkAttribution"];
@@ -3004,11 +3913,25 @@ export interface components {
         Approval: {
             approverKind?: components["schemas"]["ApproverKind"];
             approvalGrantId?: components["schemas"]["Id"];
+            meritAuthorityId?: components["schemas"]["Id"];
             policyVersion?: string;
             evidenceRefs?: string[];
             checkRunIds?: components["schemas"]["Id"][];
             /** Format: date-time */
             authorityExpiresAt?: string;
+            /** @description On an evaluator approval, the declared reviewer of the merit review its authority scored (agent, model, runner, strategy), recorded as the review declared it, as frozen landing evidence. */
+            declaredReviewer?: {
+                agent?: string;
+                model?: string;
+                runner?: string;
+                strategy?: string;
+            };
+            /** @description On an evaluator approval, the decision model identifier the score was recorded by. */
+            evaluatorModel?: string;
+            /** @description On an evaluator approval, the human who registered the policy version the authority was issued under (the policy author may be the human the lane agent works for; operator decision, 2026-10-29). */
+            policyRegisteredBy?: string;
+            meritScoreId?: components["schemas"]["Id"];
+            meritReviewId?: components["schemas"]["Id"];
             id: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
             candidateId: components["schemas"]["Id"];
@@ -3587,7 +4510,7 @@ export interface components {
          * @description An OAuth client scope; see the `OAuthClientToken` security scheme.
          * @enum {string}
          */
-        OAuthScope: "octocove:read" | "octocove:tasks" | "octocove:review" | "octocove:land" | "octocove:agents" | "octocove:targets" | "octocove:workspaces";
+        OAuthScope: "octocove:read" | "octocove:tasks" | "octocove:review" | "octocove:land" | "octocove:agents" | "octocove:targets" | "octocove:workspaces" | "octocove:policies";
         OAuthTokenRequest: {
             /** @enum {string} */
             grant_type: "authorization_code" | "refresh_token";
@@ -3904,6 +4827,11 @@ export interface components {
             candidatePublication: "repository-readers" | "public-on-submit";
             /** @enum {string} */
             visibility: "private" | "public";
+            /**
+             * @description Whether the repository is opted in to merit evaluation (its content may be sent to the decision model). Default disabled; omitted in a declaration, the current value stays.
+             * @enum {string}
+             */
+            merit?: "enabled" | "disabled";
         };
         /** @description A canonical repository's lane policy as `POST /orgs/{orgId}/projects/{project}/repositories/{repository}/lane-policy` declared it, with when and by whom. */
         RepositoryLanePolicyDeclaration: {
@@ -4504,7 +5432,7 @@ export interface components {
         };
         CandidateLandAction: {
             available: boolean;
-            /** @description Present exactly when available is false. Stable values: forbidden, claim-inactive, reauth-required (authorization, including the route's recent sign-in); fenced, target-fenced (another task's landing holds the same target), approval-required (no active approval of this candidate), approval-invalidated, candidate-not-active, provider-landing-unsupported (no landing executor for this provider and lane kind), stale-base, submission-superseded, checks-failed, a machine approval grant's denial code, and candidate-superseded. Clients treat an unknown value as unavailable. */
+            /** @description Present exactly when available is false. Stable values: forbidden, claim-inactive, reauth-required (authorization, including the route's recent sign-in); fenced, target-fenced (another task's landing holds the same target), approval-required (no active approval of this candidate), approval-invalidated, merit-authority-invalid, candidate-not-active, provider-landing-unsupported (no landing executor for this provider and lane kind), stale-base, submission-superseded, checks-failed, a machine approval grant's denial code, and candidate-superseded. Clients treat an unknown value as unavailable. */
             reason?: string;
             /** @description The newest active approval of this candidate, the approvalId candidateLand would be called with. */
             approvalId?: components["schemas"]["Id"];
@@ -5520,6 +6448,37 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    repositoryLanePolicyGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                /** @description The repository id (`GET /orgs/{orgId}/projects/{project}/repositories` items). */
+                repository: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The declared policy. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RepositoryLanePolicyDeclaration"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     repositoryLanePolicyDeclare: {
@@ -7528,6 +8487,287 @@ export interface operations {
             409: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritDiffGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description Opaque resource identifier; not visible resources return 404. */
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The manifest. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritManifest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritReviewsList: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description Opaque resource identifier; not visible resources return 404. */
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The submissions. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritReviewList"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritReviewCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description Opaque resource identifier; not visible resources return 404. */
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeritReviewInput"];
+            };
+        };
+        responses: {
+            /** @description The merit review receipt. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritReviewReceipt"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            408: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritEvaluationRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** @description `{}`: the request carries no fields (the evidence set is the head's accumulated submissions); the body is read as every JSON command's is, so an absent body is 400 `invalid-request`. */
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description The existing request for this evidence set. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritEvaluationRequest"];
+                };
+            };
+            /** @description The head is past its evidence rounds; the task is with a human. */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritEvaluationRequest"];
+                };
+            };
+            /** @description Requested; the evaluation runs from the task alarm. */
+            202: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritEvaluationRequest"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            408: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description Opaque resource identifier; not visible resources return 404. */
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The merit state. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritState"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritReviewGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description Opaque resource identifier; not visible resources return 404. */
+                id: components["schemas"]["Id"];
+                reviewId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The submission. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritReviewRead"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+        };
+    };
+    taskMeritRelease: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task released. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        taskId: components["schemas"]["Id"];
+                        /** @enum {string} */
+                        meritState: "none";
+                        attempts: number;
+                        /** Format: date-time */
+                        releasedAt: string;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     candidateApprove: {
@@ -9870,6 +11110,327 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritPolicyList: {
+        parameters: {
+            query?: {
+                repositoryId?: components["schemas"]["Id"];
+                targetRef?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The versions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritPolicyList"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritPolicyRegister: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MeritPolicyRegistration"];
+            };
+        };
+        responses: {
+            /** @description The immutable version, its evaluator principal and the stored body. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritPolicyVersion"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritPolicyGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritPolicyVersionView"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritPolicyDisable: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disabled or already disabled; history and held fences are preserved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritPolicyPause: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version and whether it is paused. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: components["schemas"]["Id"];
+                        paused: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritPolicyResume: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                /** @description Required with human session cookie on every POST, plus exact allowed Origin. Not needed for bearer-only requests. */
+                "X-CSRF-Token"?: components["parameters"]["CsrfToken"];
+            };
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version and whether it is paused. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        id: components["schemas"]["Id"];
+                        paused: boolean;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    meritUsageGet: {
+        parameters: {
+            query?: {
+                /** @description Count evaluations dispatched at or after this instant. Defaults to thirty days before `until` (or before now); the effective window is returned. */
+                since?: string;
+                /** @description Count evaluations dispatched before this instant. */
+                until?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The totals. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritUsage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    meritShadowGet: {
+        parameters: {
+            query?: {
+                /** @description Compare evaluations dispatched at or after this instant; absent, thirty days before `until` (or now). */
+                since?: string;
+                /** @description Compare evaluations dispatched before this instant. */
+                until?: string;
+                /** @description How many candidates to list, newest first. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The comparison. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritShadow"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    meritProbe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                /** @description The project, by its id or by its slug (`GET /me` memberships `projectId` or `slug`). Both are unique and immutable in the organization's record and a slug is never UUID-shaped (422 `invalid-slug`), so neither names another project - a UUID-shaped value is an id; any other value is a slug, or an id when no project has that slug. The value is resolved in the record of the organization `orgId` only, then authorized on the project id, so every answer is the same whichever of the two the caller used. Once the caller is authenticated, a value that names no project of this organization (an unknown id or slug, or a project of another organization, with one answer) is 404 `project-not-found`; a caller without the route's authority in a project that is there is 403 `forbidden`. Responses always carry the id. */
+                project: components["parameters"]["ProjectPath"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The probe's outcome per model. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritProbe"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["ReauthRequiredProblem"];
+            404: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };
