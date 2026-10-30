@@ -439,7 +439,8 @@ waits under its own signal), the store's `lock` serializes holders across proces
 `compareAndSet` decides a race, so a holder that loses adopts the winner's replacement. The renewal's Idempotency-Key
 is `renew-` + the SHA-256 of the predecessor, so a lost answer or a restart with the predecessor still stored
 resends under the same key and gets the recorded replacement. A `credential-revoked` refusal only adopts a
-replacement another holder stored; it is never renewed. `reauthorize` is the seam for a source of fresh
+replacement another holder stored; it is never renewed. An explicit `renew({idempotencyKey})` joins a renewal in
+flight only under that same key; one under another key is refused (`renewal-in-flight`, retryable). `reauthorize` is the seam for a source of fresh
 authorizations; without it the helper throws `CredentialUnavailableError` (`disposition: 'reauth'`).
 
 ```ts
@@ -464,7 +465,8 @@ delegation renewal is exactly this helper over `fileCredentialStore`.
 operation, the path, the attempt, `clientRequestId` (generated per call and shared by its attempts; not sent to the
 server), the Idempotency-Key, the credential kind (never the credential); responses add the status, the server's
 `X-Request-Id`, the duration, `Retry-After`, the headers (redacted; `set-cookie`, `authorization`,
-`www-authenticate`, `proxy-authenticate` and any `*token*` header dropped, `location` without its query) and, for a refusal, the code,
+`www-authenticate`, `proxy-authenticate`, `x-api-key` and any `*token*`, `*secret*` or `*credential*` header
+dropped, `location` without its userinfo or query) and, for a refusal, the code,
 disposition and outcome; retries add the reason (`network-error`, `credential-refresh`, and a journey's `busy` and
 `lost-answer` replays) and the delay. A hook that throws is ignored.
 

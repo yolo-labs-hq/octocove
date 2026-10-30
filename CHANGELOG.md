@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+Follow-ups to the agent runner foundation; they ride the next release.
+
+- Client: errors and hook events also drop `x-api-key` and any `*secret*` or `*credential*` header, and show
+  `location` without its userinfo.
+- Client: `renewingCredential(...).renew({idempotencyKey})` joins a renewal already in flight only under that same
+  key. A flight under another key is refused as `renewal-in-flight` (retryable) rather than answered for.
+- Client (`/node`): `fileCredentialStore`'s lock is re-entrant. A flow queued behind another flow of the same process
+  gives up at `lockTimeoutMs` (`credential-store-busy`) or when its signal aborts, without breaking the queue.
+- Tests: the bound transport's allow list is pinned to its 32 operation ids.
+- Repository: the parity gate also checks that every hand-listed helper is called in the CLI.
+
 ## CLI 0.20.0 and client 0.20.0
 
 Release `@yolo-labs/octocove` 0.20.0 and `@yolo-labs/octocove-client` 0.20.0: the foundation for agent runners. The

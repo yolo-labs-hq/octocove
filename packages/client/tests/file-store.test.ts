@@ -60,3 +60,21 @@ it.runIf(NODE_CREDENTIAL_STORE_AVAILABLE)('compare-and-set from another flow wai
   expect(order).toEqual(['lock', 'inside-cas', 'outside-cas']);
   expect((await a.load())?.token).toBe('inside-token-0123456789');
 });
+
+it.runIf(NODE_CREDENTIAL_STORE_AVAILABLE)('the lock is re-entrant, and a flow queued behind it gives up at its timeout or abort without breaking the queue', async () => {
+  const store = fileCredentialStore<StoredCredential>({ path: file(), lockTimeoutMs: 80 });
+  await store.save({ token: 'old-token-0123456789' });
+  expect(await store.lock!(async () => store.lock!(async () => 'nested'))).toBe('nested');
+  let finish!: () => void;
+  const holding = store.lock!(() => new Promise<string>((resolve) => { finish = () => resolve('first'); }));
+  await new Promise((r) => setTimeout(r, 5));
+  const timedOut = await store.lock!(async () => 'never').catch((e: unknown) => e);
+  expect((timedOut as CredentialUnavailableError).code).toBe('credential-store-busy');
+  const controller = new AbortController();
+  const aborted = store.lock!(async () => 'never', { signal: controller.signal }).catch((e: unknown) => e);
+  controller.abort(new Error('caller gave up'));
+  expect(((await aborted) as Error).message).toBe('caller gave up');
+  const later = store.lock!(async () => 'later');
+  finish();
+  expect([await holding, await later]).toEqual(['first', 'later']);
+});

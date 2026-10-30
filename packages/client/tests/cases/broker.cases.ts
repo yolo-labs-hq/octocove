@@ -61,14 +61,17 @@ export const brokerCases: Case[] = [
     }
     equal(calls.length, 0, 'nothing was sent');
   }),
-  test('the bound allow list is the delegation routes of the generated security, less the credential-issuing and authority-changing ones', async () => {
+  test('the bound allow list is exactly these 32 operations: a new or changed route needs a deliberate update here', async () => {
     const routes = Object.values(routing as Record<string, RouteEntry>).filter((r) => r.kind === 'path' && r.policy.callable === true);
     const allowed = routes.filter(boundAllows).map((r) => r.operationId).sort();
-    const expected = routes.filter((r) => r.security.includes('AgentDelegation') && !BOUND_EXCLUDED.includes(r.operationId)).map((r) => r.operationId).sort();
-    equal(allowed, expected);
-    for (const id of ['laneChangesSubmit', 'laneWrapUp', 'laneBlobPut', 'lanePackGet', 'laneMaterialize', 'taskGet']) ok(allowed.includes(id), id);
-    for (const id of BOUND_EXCLUDED) ok(!allowed.includes(id), id);
-    ok(allowed.every((id) => !/(^|\/)(auth|oauth)(\/|$)/.test((routing as Record<string, RouteEntry>)[id]!.path)));
+    equal(allowed, [
+      'auditList', 'candidateGet', 'candidateLand', 'candidateMeritDiffGet', 'candidateMeritEvaluationRequest', 'candidateMeritGet',
+      'candidateMeritReviewCreate', 'candidateMeritReviewGet', 'candidateMeritReviewsList', 'candidateWithdraw', 'claimGet', 'codeBlobGet',
+      'codeCommitsGet', 'codeCompareGet', 'codeTreeGet', 'eventsReplay', 'landingsList', 'laneBlobGet', 'laneBlobPut', 'laneBlobUpload',
+      'laneChangesSubmit', 'laneManifestGet', 'laneMaterialize', 'lanePackGet', 'laneScopeRequest', 'laneWrapUp', 'meGet', 'receiptGet',
+      'repositoriesList', 'taskGet', 'taskLog', 'tasksList',
+    ]);
+    equal([...BOUND_EXCLUDED].sort(), ['delegationRenew', 'delegationRevoke', 'laneExecutionBegin', 'laneGenerationCreate']);
   }),
   test('an opaque redirect (status 0) is refused on every transport, never read as an answer', async () => {
     const opaque = { type: 'opaqueredirect', status: 0, headers: new Headers(), body: null, text: async () => '' } as unknown as Response;

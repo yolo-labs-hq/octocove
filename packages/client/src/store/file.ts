@@ -30,17 +30,39 @@ const held = new AsyncLocalStorage<ReadonlySet<string>>();
 /** One in-process chain per lock path: flows of this process queue here before taking the lock directory. */
 const chains = new Map<string, Promise<void>>();
 
-async function inProcess<T>(key: string, work: () => Promise<T>): Promise<T> {
+const busy = () => new CredentialUnavailableError('credential-store-busy',
+  'credential renewal is locked by another process; retry after it finishes (inspect a crashed renewal lock before removing it)', { disposition: 'retryable' });
+
+/**
+ * Runs `work` after every earlier flow of this process queued on `key`. The wait ends early with `credential-store-busy`
+ * at `deadline`, or with the signal's reason when it aborts; a flow that gives up still keeps the queue's order.
+ */
+async function inProcess<T>(key: string, deadline: number, signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
   const previous = chains.get(key) ?? Promise.resolve();
   let release!: () => void;
   const mine = new Promise<void>((resolve) => { release = resolve; });
   const tail = previous.then(() => mine);
   chains.set(key, tail);
-  await previous;
-  try { return await work(); } finally {
-    release();
-    if (chains.get(key) === tail) chains.delete(key);
+  const settle = () => { release(); if (chains.get(key) === tail) chains.delete(key); };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) return reject(signal.reason);
+      timer = setTimeout(() => reject(busy()), Math.max(0, deadline - Date.now()));
+      onAbort = () => reject(signal!.reason);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      previous.then(resolve);
+    });
+  } catch (error) {
+    // Given up: the slot is released once the flows ahead finish, so the ones behind keep their order.
+    void previous.then(settle);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
   }
+  try { return await work(); } finally { settle(); }
 }
 
 const defaultDecode = <R>(value: unknown): R => {
@@ -68,18 +90,17 @@ export function fileCredentialStore<R extends { readonly token: string }>(option
   }
 
   function lock<T>(work: (signal: AbortSignal | undefined) => Promise<T>, context?: StoreContext): Promise<T> {
-    return inProcess(lockPath, async () => {
-      const deadline = Date.now() + timeout;
+    // Re-entrant: a flow that already holds this lock runs the work inside it.
+    if (held.getStore()?.has(lockPath)) return work(context?.signal);
+    const deadline = Date.now() + timeout;
+    return inProcess(lockPath, deadline, context?.signal, async () => {
       for (;;) {
         context?.signal?.throwIfAborted();
         try { await mkdir(lockPath, { mode: 0o700 }); break; } catch (error) {
           // The first credential of a fresh directory: create the private parent, then take the lock.
           if (errno(error) === 'ENOENT') { await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 }); continue; }
           if (errno(error) !== 'EEXIST') throw error;
-          if (Date.now() >= deadline) {
-            throw new CredentialUnavailableError('credential-store-busy',
-              'credential renewal is locked by another process; retry after it finishes (inspect a crashed renewal lock before removing it)', { disposition: 'retryable' });
-          }
+          if (Date.now() >= deadline) throw busy();
           await pause(50, undefined, { signal: context?.signal });
         }
       }
@@ -100,7 +121,7 @@ export function fileCredentialStore<R extends { readonly token: string }>(option
       await store().writeSecret(options.path, next);
       return true;
     };
-    return held.getStore()?.has(lockPath) ? write() : lock(write, context);
+    return lock(write, context);
   }
 
   return Object.freeze({
