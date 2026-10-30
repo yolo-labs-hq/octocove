@@ -1,262 +1,134 @@
-import { routing } from '../../client/src/generated/routing.js';
-import { mkdir, rmdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
-import { setTimeout as pause } from 'node:timers/promises';
-import { Api, ApiError, type FetchLike } from './http.js';
-import { ConfigError, configDir, activeCredentials, loadCredentials, saveCredentials, type Credentials } from './config.js';
-
-/** JSON (including `+json`, such as problem details) and `text/*`: the bodies a credential could be echoed in. */
-function textual(contentType: string) {
-  const type = contentType.split(';')[0]!.trim().toLowerCase();
-  return type.startsWith('text/') || type === 'application/json' || type.endsWith('+json');
-}
 /**
- * The response as the SDK sees it: header values and the status text scrubbed of the session's credentials, and a
- * JSON or text body scrubbed too. Every other body (a Git pack, `application/octet-stream`, any binary or streamed
- * media type) passes through as the same byte stream, never decoded as text. A body without a content type is
- * scrubbed only when it is valid UTF-8 text; otherwise its bytes pass through as they are.
+ * The stored human session and agent delegation, as client credential providers. Renewal itself is the client's
+ * renew-ahead helper (`renewingCredential`) over its file credential store: renew shortly before the stored expiry
+ * and once after a `credential-expired` refusal, single-flighted in the process and serialized across CLI processes
+ * by the store's lock, adopting a replacement another process already stored. The CLI supplies only what is its own:
+ * the credentials file and its lock, the expiry and ceiling of each kind, the identity a provider is bound to, its
+ * local limits, and the wording of the sign-in and re-authorization messages.
  */
-async function rewrapped(response: Response, scrub: (text: string) => string, keepBody = false): Promise<Response> {
-  const headers = new Headers(response.headers);
-  headers.forEach((value, key) => headers.set(key, scrub(value)));
-  headers.delete('content-length');
-  const init = { status: response.status, statusText: scrub(response.statusText), headers };
-  if ([204,205,304].includes(response.status) || response.body === null) return new Response(null, init);
-  const type = response.headers.get('content-type');
-  if (keepBody || (type !== null && !textual(type))) return new Response(response.body, init);
-  if (type === null) {
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    let text: string;
-    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
-    catch { return new Response(bytes, init); }
-    return new Response(scrub(text), init);
-  }
-  return new Response(scrub(await response.text()), init);
-}
+import { join, resolve } from 'node:path';
+import {
+  authorizedFetch,
+  CredentialUnavailableError,
+  fileCredentialStore,
+  renewingCredential,
+  type CredentialStore,
+  type RenewContext,
+  type RenewingCredential,
+} from '../../client/src/node.js';
+import { Api, ApiError, type FetchLike } from './http.js';
+import { activeCredentials, activeFile, configDir, parseCredentials, type Credentials } from './config.js';
 
-const wrappedFetches = new WeakMap<FetchLike, { apiUrl: string; directory: string; fetch: FetchLike }>();
 const SIGN_IN = 'Human session ended or was revoked; sign in again with `octo login`.';
-function checkLimits(creds: Credentials) {
-  for (const field of ['absoluteExpiresAt', 'idleExpiresAt'] as const) {
-    if (creds[field] && Date.parse(creds[field]) <= Date.now()) throw new ConfigError(SIGN_IN);
-  }
-}
-function due(creds: Credentials) {
-  const expiry = creds.expiresAt ? Date.parse(creds.expiresAt) : creds.issuedAt ? Date.parse(creds.issuedAt) + 1800000 : Infinity;
-  return expiry <= Date.now() + 60000 && (!creds.absoluteExpiresAt || expiry < Date.parse(creds.absoluteExpiresAt));
-}
+const AUTHORIZE_AGAIN = "Agent delegation ended or was revoked; ask the delegating human for a new task authorization and import its bootstrap into this agent's config directory.";
+const signIn = (cause?: unknown) => new CredentialUnavailableError('session-sign-in-required', SIGN_IN, { cause });
+const authorizeAgain = (cause?: unknown) => new CredentialUnavailableError('delegation-renewal-required', AUTHORIZE_AGAIN, { cause });
 
-async function renewalLock(env: NodeJS.ProcessEnv, signal?: AbortSignal) {
-  const lock = join(configDir(env), 'credentials', 'session-renew.lock');
-  const deadline = Date.now() + 15000;
-  for (;;) {
-    signal?.throwIfAborted();
-    try { await mkdir(lock, { mode: 0o700 }); break; }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      if (Date.now() >= deadline) throw new ConfigError('Session renewal is locked by another CLI process; retry after it finishes. Inspect a crashed renewal lock before removing it.');
-      await pause(50, undefined, { signal });
-    }
-  }
-  return { deadline, release: () => rmdir(lock) };
-}
-
-/** A private per-config lock serializes rotations; never steal a crashed writer's lock. */
-export async function renewHuman(env: NodeJS.ProcessEnv, expected: Credentials, fetch: FetchLike,
-  options: { signal?: AbortSignal; idempotencyKey?: string; adoptOnly?: boolean } = {}): Promise<Credentials> {
-  const { deadline, release } = await renewalLock(env, options.signal);
-  try {
-    const current = await loadCredentials(env);
-    if (current.kind !== 'human' || current.apiUrl !== expected.apiUrl) throw new ConfigError('Active credential changed; retry using this config directory.');
-    checkLimits(current);
-    if (current.token !== expected.token) return current;
-    if (options.adoptOnly) throw new ConfigError(SIGN_IN);
-    let metadata: Pick<Credentials, 'idleExpiresAt'> = {};
-    const api = new Api({ apiUrl: current.apiUrl, credential: current, signal: options.signal, fetch: async (url, init) => {
-      const response = await fetch(url, init);
-      if (response.ok) {
-        const body: any = await response.clone().json().catch(() => undefined);
-        if (typeof body?.idleExpiresAt === 'string') metadata = { idleExpiresAt: body.idleExpiresAt };
+/** The config directory's active credential, as a store; renewals take `credentials/session-renew.lock`. */
+export function cliStore(env: NodeJS.ProcessEnv): CredentialStore<Credentials> {
+  return fileCredentialStore<Credentials>({
+    path: activeFile(env),
+    lockPath: join(configDir(env), 'credentials', 'session-renew.lock'),
+    decode: (value) => {
+      try { return parseCredentials(JSON.stringify(value)); } catch {
+        throw new CredentialUnavailableError('config', 'credentials file is unreadable or invalid', { disposition: 'terminal' });
       }
-      return response;
-    } });
-    const key = options.idempotencyKey ?? 'session-' + createHash('sha256').update(current.token).digest('hex');
-    const session = await api.root.auth.session.renew({ ...api.until(deadline), idempotencyKey: key }).catch(error => {
-      if (error instanceof ApiError && error.status === 401) throw new ConfigError(SIGN_IN);
+    },
+  });
+}
+
+const ms = (value: string | undefined) => (value ? Date.parse(value) : undefined);
+/** The stored expiry is only a scheduling hint (from the issue time when absent: 30 min for a session, 15 for a delegation); the server checks all authority. */
+function schedule(c: Credentials) {
+  const lifetime = c.kind === 'human' ? 1_800_000 : 900_000;
+  const expiresAt = ms(c.expiresAt) ?? (c.issuedAt ? Date.parse(c.issuedAt) + lifetime : undefined);
+  const ceilings = [c.absoluteExpiresAt, ...(c.kind === 'agent' ? [c.claimExpiresAt] : [])].map(ms).filter((v): v is number => v !== undefined);
+  return { expiresAt, ceilingAt: ceilings.length ? Math.min(...ceilings) : undefined };
+}
+
+const sameIdentity = (a: Credentials, b: Credentials) => a.kind === b.kind && a.apiUrl === b.apiUrl
+  && (a.kind !== 'agent' || (a.orgId === b.orgId && a.delegationId === b.delegationId && a.agentId === b.agentId));
+
+/**
+ * The renewing provider for the stored credential `initial` names (a human session or an agent delegation). It never
+ * adopts a different credential: a stored record of another kind, origin, org, delegation or agent is refused.
+ */
+export function cliCredential(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike): RenewingCredential<Credentials> {
+  const human = initial.kind === 'human';
+  const refuse = human ? signIn : authorizeAgain;
+  return renewingCredential<Credentials>({
+    store: cliStore(env),
+    renewAheadMs: human ? 60_000 : 120_000,
+    schedule,
+    check(c) {
+      if (!sameIdentity(c, initial)) {
+        throw new CredentialUnavailableError('config', human ? 'Active credential changed; retry using this config directory.'
+          : "Active agent credential changed; use this agent's config directory.", { disposition: 'terminal' });
+      }
+      const limits = human ? [c.absoluteExpiresAt, c.idleExpiresAt] : [c.absoluteExpiresAt, c.claimExpiresAt];
+      if (limits.some((limit) => limit && Date.parse(limit) <= Date.now())) throw refuse();
+    },
+    // No re-authorization source in the CLI: a human signs in again, an agent gets a new authorization.
+    reauthorize: async ({ cause }) => { throw cause instanceof CredentialUnavailableError ? cause : refuse(cause); },
+    renew: human ? (current, context) => renewSession(current, context, fetch) : (current, context) => renewDelegation(current, context, fetch),
+  });
+}
+
+async function renewSession(current: Credentials, context: RenewContext, fetch: FetchLike): Promise<Credentials> {
+  let metadata: Pick<Credentials, 'idleExpiresAt'> = {};
+  const api = new Api({ apiUrl: current.apiUrl, credential: current, signal: context.signal, fetch: async (url, init) => {
+    const response = await fetch(url, init);
+    if (response.ok) {
+      const body: any = await response.clone().json().catch(() => undefined);
+      if (typeof body?.idleExpiresAt === 'string') metadata = { idleExpiresAt: body.idleExpiresAt };
+    }
+    return response;
+  } });
+  const session = await api.root.auth.session.renew({ deadline: context.deadline, signal: context.signal, idempotencyKey: context.idempotencyKey }).catch((error) => {
+    if (error instanceof ApiError && error.status === 401) throw signIn(error);
+    throw error;
+  });
+  if (session.transport !== 'bearer') throw new CredentialUnavailableError('config', 'renewal did not return a bearer credential', { disposition: 'terminal' });
+  return { ...current, token: session.token, expiresAt: session.expiresAt, absoluteExpiresAt: session.absoluteExpiresAt, issuedAt: new Date().toISOString(), ...metadata };
+}
+
+async function renewDelegation(current: Credentials, context: RenewContext, fetch: FetchLike): Promise<Credentials> {
+  if (!current.delegationId) throw authorizeAgain();
+  const api = new Api({ apiUrl: current.apiUrl, orgId: current.orgId, credential: current, signal: context.signal, fetch });
+  const issued = await api.j.auth.delegation.renew({ kind: 'agent-delegation', token: current.token, delegationId: current.delegationId, revocationId: '', expiresAt: current.expiresAt ?? '' },
+    { deadline: context.deadline, signal: context.signal, idempotencyKey: context.idempotencyKey }).catch((error) => {
+      if (error instanceof ApiError && [401, 403].includes(error.status)) throw authorizeAgain(error);
       throw error;
     });
-    if (session.transport !== 'bearer') throw new ConfigError('renewal did not return a bearer credential');
-    const renewed: Credentials = { ...current, token: session.token, expiresAt: session.expiresAt,
-      absoluteExpiresAt: session.absoluteExpiresAt, issuedAt: new Date().toISOString(), ...metadata };
-    await saveCredentials(env, renewed);
-    return renewed;
-  } finally { await release(); }
-}
-
-/** One human-session recovery per request; agents and renewal requests never enter this path. */
-export function humanSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike): FetchLike {
-  const existing = wrappedFetches.get(fetch), directory = resolve(configDir(env));
-  if (existing && existing.directory === directory && existing.apiUrl === initial.apiUrl) return fetch;
-  if (existing) fetch = existing.fetch;
-  const rawFetch = fetch, secrets = new Set([initial.token]);
-  const perform: FetchLike = async (url, init) => {
-    if (new URL(url).pathname.endsWith('/auth/session/renew')) return fetch(url, init);
-    const headers = new Headers(init.headers);
-    const token = headers.get('authorization')?.replace(/^Bearer /, '');
-    if (!token || !headers.get('authorization')?.startsWith('Bearer ') || new URL(url).origin !== new URL(initial.apiUrl).origin) return fetch(url, init);
-    if (!secrets.has(token)) {
-      const selected = await activeCredentials(env);
-      if (selected?.kind !== 'human' || selected.apiUrl !== initial.apiUrl || token !== selected.token) return fetch(url, init);
-    }
-    const stored = await loadCredentials(env);
-    if (stored.kind !== 'human' || stored.apiUrl !== initial.apiUrl) throw new ConfigError('Active credential changed; retry using this config directory.');
-    let current = stored, recovered = false; secrets.add(current.token);
-    checkLimits(current);
-    if (!recovered && due(current)) {
-      recovered = true;
-      current = await renewHuman(env, current, fetch, { signal: init.signal ?? undefined });
-      secrets.add(current.token);
-    }
-    const send = () => {
-      headers.set('authorization', 'Bearer ' + current.token);
-      return fetch(url, { ...init, headers: Object.fromEntries(headers) });
-    };
-    const response = await send();
-    if (response.status !== 401) return response;
-    const body: any = await response.clone().json().catch(() => undefined);
-    if (body?.code !== 'credential-expired' && body?.code !== 'credential-revoked') return response;
-    if (recovered) throw new ConfigError(SIGN_IN);
-    recovered = true;
-    current = await renewHuman(env, current, fetch, { signal: init.signal ?? undefined, adoptOnly: body.code === 'credential-revoked' });
-    secrets.add(current.token);
-    const retried = await send();
-    if (retried.status === 401) {
-      const problem: any = await retried.clone().json().catch(() => undefined);
-      if (problem?.code === 'credential-expired' || problem?.code === 'credential-revoked') throw new ConfigError(SIGN_IN);
-    }
-    return retried;
-  };
-  // The SDK treats thrown fetch errors as network failures. Return a local problem
-  // response for credential-store refusals so they are neither hidden nor resent.
-  const wrapped: FetchLike = async (url, init) => {
-    try {
-      const response = await perform(url, init);
-      // The SDK pinned the predecessor before fetch. Mask both known session
-      // credentials for every status, including redirects and malformed successes.
-      // Exact replacements preserve unrelated newly issued grant credentials.
-      const known = [...secrets].sort((a,b)=>b.length-a.length);
-      const scrub = (text: string) => known.reduce((value, secret) => {
-        const encoded = JSON.stringify(secret).slice(1,-1);
-        return value.split(encoded).join('[redacted]').split(secret).join('[redacted]');
-      }, text);
-      const sessionIssuance = new URL(url).pathname.endsWith('/auth/session/renew')
-        && (routing.sessionRenew.successStatuses as readonly number[]).includes(response.status);
-      return await rewrapped(response, scrub, sessionIssuance);
-    }
-    catch (error) {
-      if (error instanceof ConfigError) return Response.json({ code: error.message === SIGN_IN ? 'session-sign-in-required' : 'config', detail: error.message }, { status: 401 });
-      throw error;
-    }
-  };
-  wrappedFetches.set(wrapped, { apiUrl: initial.apiUrl, directory, fetch: rawFetch });
-  return wrapped;
-}
-
-const AUTHORIZE_AGAIN = "Agent delegation ended or was revoked; ask the delegating human for a new task authorization and import its bootstrap into this agent's config directory.";
-function agentLimits(creds: Credentials) {
-  for (const field of ['absoluteExpiresAt', 'claimExpiresAt'] as const) {
-    if (creds[field] && Date.parse(creds[field]) <= Date.now()) throw new ConfigError(AUTHORIZE_AGAIN);
+  if (issued.delegationId !== current.delegationId) {
+    throw new CredentialUnavailableError('config', 'Renewal returned a different delegation; request a new authorization.', { disposition: 'terminal' });
   }
-}
-/** The stored expiry is only a scheduling hint; the server checks all authority. */
-function agentExpiry(creds: Credentials) {
-  if (creds.expiresAt) return Date.parse(creds.expiresAt);
-  return creds.issuedAt ? Date.parse(creds.issuedAt) + 900000 : Infinity;
+  return { ...current, token: issued.token, expiresAt: issued.expiresAt, issuedAt: new Date().toISOString() };
 }
 
-/** The same rotation lock and predecessor-key recovery as human sessions, bound to one delegation. */
-export async function renewAgent(env: NodeJS.ProcessEnv, expected: Credentials, fetch: FetchLike,
-  options: { signal?: AbortSignal; idempotencyKey?: string; adoptOnly?: boolean } = {}): Promise<Credentials> {
-  const { deadline, release } = await renewalLock(env, options.signal);
-  try {
-    const current = await loadCredentials(env);
-    if (current.kind !== 'agent' || current.apiUrl !== expected.apiUrl || current.orgId !== expected.orgId || current.delegationId !== expected.delegationId
-      || current.agentId !== expected.agentId) throw new ConfigError('Active agent credential changed; retry using this agent\'s config directory.');
-    agentLimits(current);
-    if (current.token !== expected.token) return current;
-    if (options.adoptOnly || !current.delegationId) throw new ConfigError(AUTHORIZE_AGAIN);
-    const api = new Api({ apiUrl: current.apiUrl, orgId: current.orgId, credential: current, signal: options.signal, fetch });
-    const key = options.idempotencyKey ?? 'delegation-' + createHash('sha256').update(current.token).digest('hex');
-    const issued = await api.j.auth.delegation.renew({ kind: 'agent-delegation', token: current.token,
-      delegationId: current.delegationId, revocationId: '', expiresAt: current.expiresAt ?? '' },
-      { ...api.until(deadline), idempotencyKey: key }).catch(error => {
-        if (error instanceof ApiError && [401,403].includes(error.status)) throw new ConfigError(AUTHORIZE_AGAIN);
-        throw error;
-      });
-    if (issued.delegationId !== current.delegationId) throw new ConfigError('Renewal returned a different delegation; request a new authorization.');
-    const renewed = { ...current, token: issued.token, expiresAt: issued.expiresAt, issuedAt: new Date().toISOString() };
-    await saveCredentials(env, renewed);
-    return renewed;
-  } finally { await release(); }
-}
+// ---- raw fetches outside the typed client (Git preflight, credential helper, wrapped connections) ----
 
-const agentFetches = new WeakMap<FetchLike, { initial: Credentials; directory: string; fetch: FetchLike }>();
-const sameAgent = (a: Credentials, b: Credentials) => a.kind === 'agent' && b.kind === 'agent'
-  && a.apiUrl === b.apiUrl && a.orgId === b.orgId && a.delegationId === b.delegationId && a.agentId === b.agentId;
-/** Per-request bounded recovery for the agent delegation. */
-export function agentSessionFetch(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike): FetchLike {
-  const existing = agentFetches.get(fetch), directory = resolve(configDir(env));
-  if (existing && existing.directory === directory && sameAgent(existing.initial, initial)) return fetch;
-  // Explicit bootstrap hand-off may replace an old delegation in the same command.
+const wrapped = new WeakMap<FetchLike, { initial: Credentials; directory: string; fetch: FetchLike }>();
+
+/**
+ * A fetch that authorizes the stored credential's requests through its provider (`authorizedFetch`): a request to
+ * the credential's origin presenting it (or a replacement it was renewed into, or the one stored now) carries the
+ * current token. Other bearers, other origins and the renewal routes pass through.
+ */
+function storedCredentialFetch(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike, renewal: RegExp): FetchLike {
+  const existing = wrapped.get(fetch), directory = resolve(configDir(env));
+  if (existing && existing.directory === directory && sameIdentity(existing.initial, initial)) return fetch;
+  // An explicit hand-off (a new bootstrap's delegation) may replace an old wrapper in the same command.
   if (existing) fetch = existing.fetch;
-  const rawFetch = fetch;
-  const secrets = new Set([initial.token]);
-  const scrub = (text: string) => [...secrets].sort((a,b)=>b.length-a.length).reduce((value, secret) =>
-    value.split(JSON.stringify(secret).slice(1,-1)).join('[redacted]').split(secret).join('[redacted]'), text);
-  const wrapped: FetchLike = async (url, init) => {
-    const headers = new Headers(init.headers);
-    const token = headers.get('authorization')?.replace(/^Bearer /, '');
-    // Machine proofs and other origins' bearers are never replaced.
-    if (!token || !headers.get('authorization')?.startsWith('Bearer ') || new URL(url).origin !== new URL(initial.apiUrl).origin) return fetch(url, init);
-    if (/\/delegations\/[^/]+\/renew$/.test(new URL(url).pathname)) return fetch(url, init);
-    try {
-      const stored = await loadCredentials(env);
-      if (!secrets.has(token) && (token !== stored.token || !sameAgent(stored, initial))) return fetch(url, init);
-      if (stored.kind !== 'agent' || stored.apiUrl !== initial.apiUrl || stored.orgId !== initial.orgId || stored.delegationId !== initial.delegationId
-        || stored.agentId !== initial.agentId) throw new ConfigError('Active agent credential changed; use this agent\'s config directory.');
-      let current = stored; secrets.add(current.token); agentLimits(current);
-      let recovered = false;
-      const expiry = agentExpiry(current);
-      const ceiling = Math.min(...[current.absoluteExpiresAt,current.claimExpiresAt].filter((v): v is string=>!!v).map(Date.parse), Infinity);
-      if (expiry <= Date.now() + 120000 && expiry < ceiling) {
-        recovered = true;
-        current = await renewAgent(env, current, fetch, { signal: init.signal ?? undefined });
-        secrets.add(current.token);
-      }
-      const send = () => {
-        headers.set('authorization', 'Bearer ' + current.token);
-        return fetch(url, { ...init, headers: Object.fromEntries(headers) });
-      };
-      let response = await send();
-      if (response.status === 401) {
-        const problem: any = await response.clone().json().catch(() => undefined);
-        const expired = problem?.code === 'credential-expired';
-        const revoked = problem?.code === 'credential-revoked';
-        if (expired || revoked) {
-          if (recovered) throw new ConfigError(AUTHORIZE_AGAIN);
-          current = await renewAgent(env, current, fetch, { signal: init.signal ?? undefined, adoptOnly: revoked });
-          secrets.add(current.token);
-          response = await send();
-        }
-      }
-      return await rewrapped(response, scrub);
-    } catch (error) {
-      if (error instanceof ConfigError) return Response.json({ code: 'delegation-renewal-required', detail: error.message }, { status: 401 });
-      // Fetch exceptions can contain a replacement token unknown to the pinned SDK credential.
-      throw new Error('Agent request failed; check connectivity and retry.');
-    }
-  };
-  agentFetches.set(wrapped, { initial, directory, fetch: rawFetch });
-  return wrapped;
+  const provider = cliCredential(env, initial, fetch);
+  const owns = async (token: string) => token === initial.token || provider.knownTokens().includes(token)
+    || await activeCredentials(env).then((stored) => !!stored && stored.token === token && sameIdentity(stored, initial));
+  const result = authorizedFetch(provider, fetch, { origin: new URL(initial.apiUrl).origin, owns, bypass: (url) => renewal.test(url.pathname) });
+  wrapped.set(result, { initial, directory, fetch });
+  return result;
 }
+
+export const humanSessionFetch = (env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike) =>
+  storedCredentialFetch(env, initial, fetch, /\/auth\/session\/renew$/);
+export const agentSessionFetch = (env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike) =>
+  storedCredentialFetch(env, initial, fetch, /\/delegations\/[^/]+\/renew$/);

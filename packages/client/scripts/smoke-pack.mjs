@@ -27,7 +27,7 @@ renameSync(join(out, packed.filename), tarball);
 const files = packed.files.map((f) => f.path);
 const unexpected = files.filter((f) => !/^(dist\/.+\.(js|d\.ts)|retry-policy\.json|README\.md|package\.json|LICENSE|NOTICE)$/.test(f));
 if (unexpected.length) throw new Error(`unexpected files in the tarball: ${unexpected.join(', ')}`);
-for (const required of ['dist/index.js', 'dist/index.d.ts', 'dist/node.js', 'dist/generated/openapi.d.ts', 'retry-policy.json']) {
+for (const required of ['dist/index.js', 'dist/index.d.ts', 'dist/node.js', 'dist/testing.js', 'dist/testing.d.ts', 'dist/generated/openapi.d.ts', 'retry-policy.json']) {
   if (!files.includes(required)) throw new Error(`tarball is missing ${required}`);
 }
 // The core stays runtime-neutral; only the /node entry and its credential store may import node: modules.
@@ -45,11 +45,26 @@ try {
   const manifest = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8'));
   const core = await import(pathToFileURL(join(pkg, manifest.exports['.'].import)).href);
   const node = await import(pathToFileURL(join(pkg, manifest.exports['./node'].import)).href);
-  for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys', 'tenantClient', 'tenantJourneys', 'verifyWebhook', 'eventKey', 'approvalGrantAudience', 'eventAuthorityAudience', 'TenantNotFoundError', 'ProjectNotFoundError', 'OrgCreationPendingError', 'RouteUnavailableError', 'InsufficientScopeError', 'StepUpRequiredError', 'ConnectionRevokedError', 'authorizationUrl', 'parseAuthorizationResponse', 'createPkce', 'exchangeCode', 'refreshGrant', 'revokeGrant', 'privateKeyJwt', 'clientSecretBasic', 'createGrantSession']) {
+  const testing = await import(pathToFileURL(join(pkg, manifest.exports['./testing'].import)).href);
+  for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys', 'tenantClient', 'tenantJourneys', 'verifyWebhook', 'eventKey', 'approvalGrantAudience', 'eventAuthorityAudience', 'TenantNotFoundError', 'ProjectNotFoundError', 'OrgCreationPendingError', 'RouteUnavailableError', 'InsufficientScopeError', 'StepUpRequiredError', 'ConnectionRevokedError', 'authorizationUrl', 'parseAuthorizationResponse', 'createPkce', 'exchangeCode', 'refreshGrant', 'revokeGrant', 'privateKeyJwt', 'clientSecretBasic', 'createGrantSession', 'bound', 'renewingCredential', 'memoryCredentialStore', 'authorizedFetch', 'CredentialUnavailableError', 'PROBLEM_CODES', 'problemClass', 'isRetryable', 'outcomeUnknown']) {
     if (!(name in core)) throw new Error(`packed root entry does not export ${name}`);
   }
-  for (const name of ['credentialStore', 'ProtectedStoreError']) {
+  for (const name of ['credentialStore', 'ProtectedStoreError', 'fileCredentialStore']) {
     if (!(name in node)) throw new Error(`packed /node entry does not export ${name}`);
+  }
+  for (const name of ['fakeServer', 'fakeBroker', 'scriptedFetch', 'json', 'problem', 'matchOperation']) {
+    if (!(name in testing)) throw new Error(`packed /testing entry does not export ${name}`);
+  }
+  // The fake drives the packaged client: one bound call through the broker.
+  {
+    const server = testing.fakeServer();
+    const broker = testing.fakeBroker(server);
+    const upstream = server.issue({ kind: 'delegation', taskId: 'T1' });
+    server.lane('T1');
+    const handle = broker.grant({ orgId: 'org_00000000-0000-4000-8000-000000000001', taskId: 'T1', operations: ['laneMaterialize'], upstreamToken: upstream.token });
+    const c = core.tenantClient(core.createClient({ baseUrl: server.baseUrl, transport: core.bound(), fetch: broker.fetch(handle) }), 'org_00000000-0000-4000-8000-000000000001');
+    const r = await c.call('laneMaterialize', { path: { id: 'T1' }, body: {} });
+    if (r.status !== 200 || broker.forwarded !== 1) throw new Error('the packed testing fake did not answer the packed client');
   }
   if ('credentialStore' in core) throw new Error('the root entry must not carry the node-only store');
   if (node.createClient !== core.createClient) throw new Error('the /node entry does not re-export the core');

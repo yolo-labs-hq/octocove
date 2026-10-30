@@ -23,7 +23,8 @@ npm i @yolo-labs/octocove-client
 | --- | --- |
 | root | `createClient`, `tenantClient`, transports, `ApiError`/`TransportError` and the tenant errors, credential and proof types, `journeys`, `follow`, `eventKey`, `verifyWebhook`, the OAuth confidential-client helpers, `routing`, `BUILD` |
 | `/openapi` | Generated `paths`, `components`, `operations` types only |
-| `/node` | The root plus the protected credential store (`credentialStore()`, Linux and macOS) |
+| `/node` | The root plus the protected credential store (`credentialStore()`, Linux and macOS) and `fileCredentialStore()` |
+| `/testing` | `fakeServer()`, `fakeBroker()`, `scriptedFetch()`, `json()`, `problem()`: in-process fakes for tests, Node and workerd ([Building an agent runner](#building-an-agent-runner)) |
 
 ```ts
 const client = createClient({
@@ -97,6 +98,18 @@ unknown, reserved or not visible to you.
 
 - `unauthenticated()`: no credential, for the public auth routes (`authLogin`, `authCliExchange`)
   before a session exists; per-call `credential`s are allowed on it.
+- `bound({kind?})`: the client sends no credential; the injected `fetch` (a credential broker holding the real
+  credential) authorizes every request it forwards. Bound to one authority, it sends only an allow list
+  (`boundAllows(route)`): the operations an agent delegation may call, by the generated security of each route, less
+  those whose answer issues a credential or that change the authority (`BOUND_EXCLUDED`: `delegationRenew`,
+  `delegationRevoke`, `laneExecutionBegin`, `laneGenerationCreate`) and any sign-in, session or OAuth route. Anything
+  else, and a per-call `credential`, is a `BoundTransportError` (`outcome: 'not-sent'`) before sending; an injected
+  `fetch` is required. A redirect is never followed: any 3xx is an `ApiError` `redirect-refused` with its status and
+  headers (every transport refuses an opaque redirect, status 0, the same way). Nothing renews on it; renewal belongs
+  to the broker. `kind` (default `'delegation'`) is the credential the broker presents, for the journeys that check it.
+
+`bearer({token})` takes a fixed string, a function read before every attempt (it may return a promise), or a
+`CredentialProvider` ([Building an agent runner](#building-an-agent-runner)).
 
 `https://` is required; `http://` only for loopback (`TransportError` `insecure-api-url`).
 
@@ -105,7 +118,9 @@ unknown, reserved or not visible to you.
 [`retry-policy.json`](retry-policy.json) classifies all 151 operation ids on two independent axes; the
 table below is the classification it must encode, and `check:policy` fails when the file and the
 table disagree. The transport honours `autoRetry`: `network-only` resends at most twice, only when no
-HTTP response was received, with the same `Idempotency-Key`, inside the deadline; any HTTP response
+HTTP response was received, with the same `Idempotency-Key` and body, inside the deadline, after a jittered
+backoff (250 ms · 2ⁿ: half of it fixed, half random; `retryDelayMs` replaces it) and through the injected `fetch`
+again; any HTTP response
 ends transport retry; `never` is never resent, including after a 5xx. `replay` documents what an
 identical retry returns and is reported on each response as `retry`. `429`, `operation-in-progress`
 and pending answers are journey polling (below), not transport retries.
@@ -226,7 +241,8 @@ that polls under the same key with its own progress messages.
   through `staleBaseRefusal(error)`: `pending` (retry the same `idempotencyKey` after the named re-read),
   `committed` (approval invalidated, recompute scheduled) or `detail-less`.
 - **Replay.** A journey sends each logical operation under one Idempotency-Key, one body and the
-  credential it sent first (a per-request token is pinned). It resends only after a lost answer (no
+  credential it sent first (a per-request function token is pinned; a `CredentialProvider` is read before every
+  attempt, except for `sessionRenew`, `delegationRenew` and `authLogout`, which pin it). It resends only after a lost answer (no
   response, or a response whose body could not be read) for `network-only` operations whose replay is
   `stored-result`, `guarded-result` or `bounded-recovery` — at most twice — after `429` /
   `operation-in-progress`, honouring Retry-After, and after `408 request-body-timeout` (the body did
@@ -395,6 +411,94 @@ Paths must be canonical on both platforms (on macOS, `/var` and `/tmp` are symli
 persistent swaps at fixed points, not general race detection. It has not been verified on a real
 macOS host.
 
+## Building an agent runner
+
+A runner (a background agent working a task's lane) needs four things from the client: a credential it never has to
+hold itself, events it can log, failures it can act on without a code list of its own, and a fake to test against.
+
+**A broker holds the credential.** When a credential broker keeps the tokens (the agent and its model never see
+one), give the runner a client on the bound transport whose injected fetch is the broker's, one client per exact
+task authority:
+
+```ts
+const lane = tenantClient(createClient({ baseUrl: brokerUrl, transport: bound(), fetch: brokerFetch }), orgId);
+await lane.call('laneChangesSubmit', { path: { id: taskId }, body: changes, idempotencyKey: saveKey });
+```
+
+The broker sees every attempt (a resend calls `fetch` again, so it can re-check its authority each time) and adds
+the real `Authorization`. The bound client never renews, never starts an execution, hands over, reclaims or moves to
+a newer head after a refusal, never follows a redirect and takes no per-call credential.
+
+**Or the runner holds it, through a provider.** A `CredentialProvider` is `{ token(context), refresh?(context),
+knownTokens?() }`: `token` is called before every attempt (throw to stop the call), `refresh` at most once per call
+after a 401 `credential-expired` / `credential-revoked`, and the call is then sent again under the same key and body.
+Tokens never reach hooks or errors. `renewingCredential({store, renew, ...})` is the renew-ahead helper: it renews
+`renewAheadMs` (default 60 s) before the record's expiry, never past its ceiling, and after a refusal;
+concurrent calls share one renewal in the process (it runs on its own signal under `renewTimeoutMs`; each caller
+waits under its own signal), the store's `lock` serializes holders across processes and
+`compareAndSet` decides a race, so a holder that loses adopts the winner's replacement. The renewal's Idempotency-Key
+is `renew-` + the SHA-256 of the predecessor, so a lost answer or a restart with the predecessor still stored
+resends under the same key and gets the recorded replacement. A `credential-revoked` refusal only adopts a
+replacement another holder stored; it is never renewed. `reauthorize` is the seam for a source of fresh
+authorizations; without it the helper throws `CredentialUnavailableError` (`disposition: 'reauth'`).
+
+```ts
+const provider = renewingCredential({
+  store: fileCredentialStore({ path }),        // /node; memoryCredentialStore() anywhere
+  renewAheadMs: 120_000,
+  renew: async (current, { idempotencyKey, deadline, signal }) => {
+    const d = await journeys(createClient({ baseUrl, transport: bearer({ token: current.token, kind: 'delegation' }), fetch }))
+      .org(orgId).auth.delegation.renew(current.delegation, { idempotencyKey, deadline, signal });
+    return { ...current, token: d.token, expiresAt: d.expiresAt };
+  },
+});
+const client = createClient({ baseUrl, transport: bearer({ token: provider, kind: 'delegation' }) });
+```
+
+A `CredentialStore` is `load`, `save`, `compareAndSet(expected, next)` (writes only while the stored record still
+carries `expected`'s token) and an optional `lock(work)`. `authorizedFetch(provider, fetch, {origin})` authorizes
+requests sent outside the typed client (a Git smart-HTTP preflight) the same way. The `octo` CLI's session and
+delegation renewal is exactly this helper over `fileCredentialStore`.
+
+**Hooks.** `onRequest`, `onResponse` and `onRetry` in `createClient` options receive frozen, redacted events: the
+operation, the path, the attempt, `clientRequestId` (generated per call and shared by its attempts; not sent to the
+server), the Idempotency-Key, the credential kind (never the credential); responses add the status, the server's
+`X-Request-Id`, the duration, `Retry-After`, the headers (redacted; `set-cookie`, `authorization`,
+`www-authenticate`, `proxy-authenticate` and any `*token*` header dropped, `location` without its query) and, for a refusal, the code,
+disposition and outcome; retries add the reason (`network-error`, `credential-refresh`, and a journey's `busy` and
+`lost-answer` replays) and the delay. A hook that throws is ignored.
+
+**Failures.** Every `ApiError` and `TransportError` carries `disposition` (`terminal`, `retryable` with the same key
+and body, or `reauth`), `outcome` (`not-sent`, `refused` — nothing recorded — or `unknown`: the request may have been
+applied, so recover only with the same key and body), `idempotencyKey` and, on an `ApiError`, `endsAuthority` (the
+claim, execution or delegation is over: stop that work), `reason` and every response header. `PROBLEM_CODES` lists the
+classification of each documented code; an unlisted code falls back on its status, and `details.retryable: true`
+makes any answer retryable. Guards: `isRetryable`, `isTerminal`, `needsReauth`, `outcomeUnknown`, `endsAuthority`.
+
+**Bytes.** `laneBlobPut` sends raw bytes as given (up to 16 MiB). `lanePackGet` answers an `ArrayBuffer`, or with
+`stream: true` a `ReadableStream` that keeps the call's deadline and signal; a body shorter or longer than its
+`content-length` is a `TransportError`, never a clean end. A streamed body is reported to `onResponse` when the
+stream is handed over; a later truncation surfaces only as the stream's error.
+
+**The testing fakes** (`@yolo-labs/octocove-client/testing`) run in Node and in workerd. `fakeServer()` routes requests
+by the generated routing table, authenticates the bearers it `issue`s (expiry, revocation, task binding), replays a
+keyed POST under the same Idempotency-Key (another body is `409 idempotency-conflict`), rotates sessions and
+delegations, and implements the focused-lane routes (materialize, blob upload with digest, Git blob id and size
+checks, pack, save point, wrap-up). `fail(operationId, ...faults)` injects a `'lost-answer'` (applied, then the
+connection drops), a `'truncate'`d body, or any Response or Error. `fakeBroker(server)` grants opaque handles bound to
+a task, its operations, its write paths and an expiry; `broker.fetch(handle)` refuses anything else without an
+upstream call and forwards the rest with the upstream bearer.
+
+```ts
+const server = fakeServer();
+const broker = fakeBroker(server);
+const upstream = server.issue({ kind: 'delegation', taskId: 'T1' });
+server.lane('T1', { pack });
+const handle = broker.grant({ orgId, taskId: 'T1', operations: ['laneMaterialize', 'laneChangesSubmit'], writePaths: ['src'], upstreamToken: upstream.token });
+const lane = tenantClient(createClient({ baseUrl: server.baseUrl, transport: bound(), fetch: broker.fetch(handle) }), orgId);
+server.fail('laneChangesSubmit', 'lost-answer');   // the save point is recovered under the same key
+```
+
 ## Errors
 
 - `ApiError`: `status`, `code` (any non-empty server code verbatim; `http-<status>` only when the body has
@@ -421,6 +525,9 @@ macOS host.
   and `ceiling` (the verbs an agent authorization through a client may carry, on `403 forbidden`).
 - `TransportError`: `deadline-exceeded`, `network-error`, `insecure-api-url`, `aborted`. A server
   refusal (`409 idempotency-result-expired`, `401 bootstrap-consumed`, …) is always an `ApiError`.
+- Both carry `disposition`, `outcome` and `idempotencyKey`; an `ApiError` also `endsAuthority`, `reason` and `headers`
+  (every response header but the credential-bearing ones, redacted), on refusals as on successes
+  ([Building an agent runner](#building-an-agent-runner)).
 
 Values under keys matching `/token|secret|verifier|deviceCode|assertion|cookie/i`, the bearer
 itself, `Basic …` credentials and Octocove's prefixed opaque credentials (`ocs_`, `ocb_`, `occ_`, `oca_`, `ocf_`)

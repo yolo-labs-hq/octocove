@@ -1,7 +1,7 @@
 {
   "name": "@yolo-labs/octocove",
   "license": "Apache-2.0",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "The octo command-line client for the Octocove API: login, projects, repositories, tasks, lanes and candidates.",
   "type": "module",
   "repository": {
@@ -38,7 +38,7 @@
     "test": "CI=1 timeout 300 vitest run --maxWorkers=1 --minWorkers=1 --no-file-parallelism < /dev/null"
   },
   "devDependencies": {
-    "@yolo-labs/octocove-client": "workspace:0.19.0",
+    "@yolo-labs/octocove-client": "workspace:0.20.0",
     "@types/node": "26.6.4",
     "esbuild": "0.28.1",
     "typescript": "5.9.3",

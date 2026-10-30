@@ -435,7 +435,10 @@ export const journeyCases: Case[] = [
     const { fetch, calls } = scriptedFetch(withRetryAfter(json(202, pending), '2'), lost(201), json(201, ready));
     equal(await journeys(client(fetch)).projects.create(input, { orgId: ORG, deadline: soon(), sleep: async (ms) => { delays.push(ms); } }), ready);
     // The Retry-After wait, then the lost answer's replay backoff: never a second project, the same key throughout.
-    equal(delays, [2000, 250]);
+    // The replay backoff is jittered: half of the 250 ms step fixed, half random.
+    equal(delays.length, 2);
+    equal(delays[0], 2000);
+    ok(delays[1]! >= 125 && delays[1]! <= 250, `replay backoff ${delays[1]} within 125-250 ms`);
     equal(calls.map((c) => `${c.method} ${c.url}`), Array(3).fill(`POST ${BASE}/v1/orgs/${ORG}/projects`));
     equal(new Set(keys(calls)).size, 1);
     equal(new Set(calls.map((c) => c.body)).size, 1);
@@ -483,7 +486,10 @@ export const journeyCases: Case[] = [
     const oauth = createClient({ baseUrl: BASE, transport: bearer({ token: TOKEN, kind: 'client' }), fetch, ...fast });
     equal(await journeys(oauth).workspaces.bind(input, { deadline: soon(), sleep: async (ms) => { delays.push(ms); } }), ready);
     // The Retry-After wait, then the lost answer's replay backoff: never a second binding, the same key throughout.
-    equal(delays, [2000, 250]);
+    // The replay backoff is jittered: half of the 250 ms step fixed, half random.
+    equal(delays.length, 2);
+    equal(delays[0], 2000);
+    ok(delays[1]! >= 125 && delays[1]! <= 250, `replay backoff ${delays[1]} within 125-250 ms`);
     equal(calls.map((c) => `${c.method} ${c.url}`), Array(3).fill(`POST ${BASE}/v1/workspace-bindings`));
     ok(!!keys(calls)[0]);
     equal(new Set(keys(calls)).size, 1);

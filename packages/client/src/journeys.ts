@@ -36,7 +36,6 @@ import {
   type WaitOptions,
   type WaitStop,
   journeySecrets,
-  pinnedCredential,
   scopeError,
   waitStop,
 } from './journey-core.js';
@@ -271,7 +270,7 @@ export const PROVISIONING_POLL_MS = 2000;
 /** Fails before sending when the client's credential is known to act for no human (an OAuth client token acts for one). */
 function requireHuman(client: JourneyClient, what: string): void {
   const t = client.transport;
-  const kind = t.type === 'bearer' ? t.kind : t.type === 'forwardedSession' && t.authorizationHeader ? (t.bearerKind ?? 'session') : t.type === 'unauthenticated' ? 'none' : 'session';
+  const kind = t.type === 'bearer' || t.type === 'bound' ? t.kind : t.type === 'forwardedSession' && t.authorizationHeader ? (t.bearerKind ?? 'session') : t.type === 'unauthenticated' ? 'none' : 'session';
   if (kind !== 'session' && kind !== 'client') throw new TypeError(`${what} requires a human session (this client presents ${kind})`);
 }
 
@@ -871,7 +870,7 @@ export function journeys(client: OctocoveClient) {
     const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
     const target: JourneyClient = options.orgId === undefined ? client : org(options.orgId).client;
     const initializing = input.repository !== undefined;
-    const secrets = journeySecrets(client, 'POST', pinnedCredential(client), input);
+    const secrets = journeySecrets(client, 'POST', undefined, input);
     let last: ProjectInitialization | undefined;
     try {
       for (;;) {
@@ -1107,7 +1106,7 @@ export function journeys(client: OctocoveClient) {
       requireHuman(client, 'workspaces.bind');
       const scope = journeyScope(options);
       const idempotencyKey = options.idempotencyKey ?? newIdempotencyKey();
-      const secrets = journeySecrets(client, 'POST', pinnedCredential(client), input);
+      const secrets = journeySecrets(client, 'POST', undefined, input);
       let last: WorkspaceBinding | undefined;
       try {
         for (;;) {

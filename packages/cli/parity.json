@@ -1,0 +1,427 @@
+{
+  "$comment": "Each CLI command and the client methods it calls (org.* = a tenant journey, root.* = a global journey, call:/command: = a generic call by operation id, governance:/lane-directory: = a shared handler). tools/check-parity.mjs checks it in CI: every command listed, every direct call in its handler listed, every generic call named with a reason.",
+  "commands": {
+    "approval withdraw": {
+      "client": [
+        "governance:approvalWithdraw"
+      ]
+    },
+    "auth approve": {
+      "client": [],
+      "helpers": [
+        "org.approvals.approveWithGrant",
+        "org.grants.exchangeApproval"
+      ]
+    },
+    "auth exchange": {
+      "client": [],
+      "helpers": [
+        "org.grants.exchangeApproval"
+      ]
+    },
+    "auth renew": {
+      "client": [
+        "org.auth.delegation.renew",
+        "root.auth.session.renew"
+      ]
+    },
+    "auth revoke": {
+      "client": [
+        "command:delegationRevoke",
+        "root.auth.me",
+        "root.projects.list"
+      ]
+    },
+    "candidate reject": {
+      "client": [
+        "governance:candidateReject"
+      ]
+    },
+    "candidate show": {
+      "client": [
+        "call:candidateGet",
+        "command:candidateLand",
+        "org.approvals.approve"
+      ]
+    },
+    "candidate withdraw": {
+      "client": [
+        "governance:candidateWithdraw"
+      ]
+    },
+    "claim": {
+      "client": [],
+      "helpers": [
+        "org.claims.claim"
+      ]
+    },
+    "events": {
+      "client": [],
+      "helpers": [
+        "org.events.follow"
+      ]
+    },
+    "events replay": {
+      "client": [
+        "call:eventsReplay"
+      ]
+    },
+    "github connect": {
+      "client": [
+        "root.workspaces.connectGitHub"
+      ]
+    },
+    "github installations": {
+      "client": [
+        "root.github.installations"
+      ]
+    },
+    "github repos": {
+      "client": [
+        "root.github.repositories"
+      ]
+    },
+    "lane materialize": {
+      "client": [
+        "lane-directory:materialize"
+      ]
+    },
+    "lane patch": {
+      "client": [
+        "lane-directory:patch"
+      ]
+    },
+    "lane refresh": {
+      "client": [
+        "lane-directory:refresh"
+      ]
+    },
+    "lane reopen": {
+      "client": [
+        "call:taskGet",
+        "command:laneReopen"
+      ]
+    },
+    "lane resolve": {
+      "client": [
+        "lane-directory:resolve"
+      ]
+    },
+    "lane retire": {
+      "client": [
+        "org.lanes.retire",
+        "root.auth.cli.prepare",
+        "root.auth.cli.start",
+        "root.auth.cli.waitForSession",
+        "root.auth.logout"
+      ]
+    },
+    "lane scope-requests": {
+      "client": [
+        "call:laneScopeRequestsList"
+      ]
+    },
+    "lane status": {
+      "client": [
+        "lane-directory:status"
+      ]
+    },
+    "lane submit": {
+      "client": [
+        "lane-directory:submit"
+      ]
+    },
+    "lane wrap-up": {
+      "client": [
+        "lane-directory:wrap-up"
+      ]
+    },
+    "merit policy create": {
+      "client": [
+        "fn:isTenantId",
+        "fn:newIdempotencyKey"
+      ],
+      "helpers": [
+        "org.merit.policies.prepare",
+        "org.merit.policies.prepareCopy",
+        "org.merit.policies.register"
+      ]
+    },
+    "merit policy disable": {
+      "client": [],
+      "helpers": [
+        "org.merit.policies.disable"
+      ]
+    },
+    "merit policy get": {
+      "client": [
+        "fn:meritPolicyInputFromRead",
+        "org.merit.policies.get"
+      ],
+      "helpers": [
+        "fn:meritPolicyStanding"
+      ]
+    },
+    "merit policy list": {
+      "client": [
+        "org.merit.policies.list"
+      ],
+      "helpers": [
+        "fn:meritPolicyStanding"
+      ]
+    },
+    "merit policy pause": {
+      "client": [],
+      "helpers": [
+        "org.merit.policies.pause"
+      ]
+    },
+    "merit policy resume": {
+      "client": [],
+      "helpers": [
+        "org.merit.policies.resume"
+      ]
+    },
+    "merit release": {
+      "client": [
+        "org.merit.release",
+        "org.merit.releaseCandidate"
+      ]
+    },
+    "merit shadow": {
+      "client": [
+        "org.merit.shadow"
+      ]
+    },
+    "merit usage": {
+      "client": [
+        "org.merit.usage"
+      ]
+    },
+    "org create": {
+      "client": [
+        "root.orgs.create"
+      ]
+    },
+    "org list": {
+      "client": [
+        "root.orgs.list"
+      ]
+    },
+    "org rename": {
+      "client": [
+        "fn:isTenantId",
+        "root.orgs.update",
+        "root.owners.resolve"
+      ]
+    },
+    "project create": {
+      "client": [
+        "fn:newIdempotencyKey",
+        "root.projects.create"
+      ]
+    },
+    "project init-status": {
+      "client": [
+        "fn:isTenantId",
+        "root.projects.initialization"
+      ]
+    },
+    "project list": {
+      "client": [
+        "root.projects.list"
+      ]
+    },
+    "project member add": {
+      "client": [
+        "command:memberAdd"
+      ]
+    },
+    "receipt show": {
+      "client": [
+        "call:taskLog"
+      ]
+    },
+    "repo add": {
+      "client": [
+        "org.repositories.create"
+      ]
+    },
+    "repo branches": {
+      "client": [
+        "org.repositories.branches"
+      ]
+    },
+    "repo clone": {
+      "client": [
+        "root.auth.me"
+      ]
+    },
+    "repo create": {
+      "client": [
+        "org.repositories.create"
+      ]
+    },
+    "repo lane-policy": {
+      "client": [
+        "org.repositories.declareLanePolicy",
+        "org.repositories.setMerit"
+      ]
+    },
+    "repo list": {
+      "client": [
+        "org.repositories.list"
+      ]
+    },
+    "repo target-add": {
+      "client": [
+        "org.repositories.registerTargetRef"
+      ]
+    },
+    "repo target-create": {
+      "client": [
+        "org.repositories.registerTargetRef"
+      ]
+    },
+    "repo verify": {
+      "client": [
+        "org.repositories.verify"
+      ]
+    },
+    "task authorize": {
+      "client": [
+        "org.claims.authorize"
+      ]
+    },
+    "task claim": {
+      "client": [],
+      "helpers": [
+        "org.claims.claim"
+      ]
+    },
+    "task claim-status": {
+      "client": [
+        "call:claimGet"
+      ]
+    },
+    "task create": {
+      "client": [
+        "org.tasks.create"
+      ]
+    },
+    "task dependency-add": {
+      "client": [
+        "governance:taskDependencyAdd"
+      ]
+    },
+    "task dependency-remove": {
+      "client": [
+        "governance:taskDependencyRemove"
+      ]
+    },
+    "task edit": {
+      "client": [
+        "org.tasks.editIntent"
+      ]
+    },
+    "task list": {
+      "client": [
+        "call:tasksList"
+      ]
+    },
+    "task publish": {
+      "client": [
+        "call:taskGet",
+        "org.tasks.publish"
+      ]
+    },
+    "task reject": {
+      "client": [
+        "governance:taskReject"
+      ]
+    },
+    "task release": {
+      "client": [
+        "org.claims.release"
+      ]
+    },
+    "task show": {
+      "client": [
+        "call:receiptGet",
+        "call:taskGet"
+      ]
+    },
+    "task supersede": {
+      "client": [
+        "governance:taskSupersede"
+      ]
+    },
+    "task unpublish": {
+      "client": [
+        "governance:taskUnpublish"
+      ]
+    },
+    "webhook create": {
+      "client": [
+        "org.webhooks.create"
+      ]
+    },
+    "webhook deliveries": {
+      "client": [
+        "call:webhookDeliveriesInspect"
+      ]
+    },
+    "webhook disable": {
+      "client": [
+        "org.webhooks.disable"
+      ]
+    },
+    "webhook reactivate": {
+      "client": [
+        "org.webhooks.reactivate"
+      ]
+    },
+    "webhook redrive": {
+      "client": [
+        "org.webhooks.redrive"
+      ]
+    },
+    "webhook replay": {
+      "client": [
+        "org.webhooks.replay"
+      ]
+    },
+    "webhook rotate-secret": {
+      "client": [
+        "org.webhooks.rotateSecret"
+      ]
+    }
+  },
+  "generic": {
+    "call:candidateGet": "a plain read; the CLI formats the body itself",
+    "call:claimGet": "a plain read; the CLI formats the body itself",
+    "call:eventsReplay": "one replay page; the follow journey is for long waits",
+    "call:landingsList": "a plain read",
+    "call:laneBlobGet": "raw bytes of one lane blob (lane directory)",
+    "call:laneBlobPut": "raw bytes up to 16 MiB; content-addressed PUT, no Idempotency-Key",
+    "call:laneManifestGet": "a plain read of the generation manifest (lane directory)",
+    "call:lanePackGet": "the lane pack bytes (lane directory)",
+    "call:laneScopeRequestsList": "a plain read",
+    "call:receiptGet": "a plain read; waits poll it with the CLI deadline",
+    "call:taskGet": "a plain read",
+    "call:taskLog": "a plain read",
+    "call:tasksList": "a plain read",
+    "call:webhookDeliveriesInspect": "a plain read",
+    "command:approvalGrantRevoke": "one keyed command; no outcome beyond the answer",
+    "command:candidateLand": "the land request; its receipt is polled separately (receiptGet)",
+    "command:delegationRevoke": "one keyed command; no outcome beyond the answer",
+    "command:laneBlobUpload": "the base64 upload of a small blob, keyed by execution and digest",
+    "command:laneChangesSubmit": "a save point; the key is the execution and the change digest",
+    "command:laneExecutionBegin": "the explicit handover (--handover), never automatic",
+    "command:laneGenerationCreate": "the explicit lane refresh",
+    "command:laneMaterialize": "the explicit materialize",
+    "command:laneReopen": "one keyed command",
+    "command:laneWrapUp": "the explicit wrap-up",
+    "command:memberAdd": "one keyed command"
+  }
+}

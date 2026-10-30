@@ -1,7 +1,7 @@
 {
   "name": "@yolo-labs/octocove-client",
   "license": "Apache-2.0",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Typed client for the Octocove API: transports, generated operations and routing, retry policy, errors.",
   "repository": {
     "type": "git",
@@ -28,6 +28,10 @@
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
     },
     "./retry-policy.json": "./retry-policy.json",
     "./package.json": "./package.json"

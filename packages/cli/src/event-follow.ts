@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { atomicSecret, readSecret } from './store.js';
 import { ConfigError, configDir, type Credentials } from './config.js';
-import { Api, type FetchLike } from './http.js';
+import { Api, type ConnectOptions, type FetchLike } from './http.js';
 
 /** A crash after output but before the checkpoint can repeat an event. Consumers
  * deduplicate by (envelope.tenantId, envelope.id), never by sequence. A checkpoint is never advanced before output.
@@ -11,6 +11,9 @@ export async function followEvents(options: {
   creds: Credentials; env: NodeJS.ProcessEnv; orgId: string; projectId: string; taskId?: string;
   from?: string; checkpoint?: string; limit?: number; signal: AbortSignal;
   fetch: FetchLike;
+  /** The renewing provider of a stored credential (else `creds` is sent as it is). */
+  credential?: ConnectOptions['credential'];
+  hooks?: ConnectOptions['hooks'];
   stdout: (s: string) => void; sleep?: (ms: number) => Promise<void>;
 }) {
   const { signal } = options;
@@ -26,7 +29,7 @@ export async function followEvents(options: {
       after = saved.cursor;
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
   }
-  const api = new Api({ apiUrl: options.creds.apiUrl, orgId: options.orgId, credential: options.creds, fetch: options.fetch, signal });
+  const api = new Api({ apiUrl: options.creds.apiUrl, orgId: options.orgId, credential: options.credential ?? options.creds, fetch: options.fetch, hooks: options.hooks, signal });
   // The library polls without its own idle wait (pollMs 0); the pause below stays injectable and cancellable.
   // pollMs only paces empty pages: after a 429 or a lost answer the library keeps its own error backoff
   // (Retry-After, else 1 s doubling to 30 s), timed by the same injectable sleep.
