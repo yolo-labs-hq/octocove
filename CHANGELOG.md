@@ -1,17 +1,50 @@
 # Changelog
 
-## Unreleased
+## CLI 0.21.0 and client 0.21.0
 
-Follow-ups to the agent runner foundation; they ride the next release.
+Release `@yolo-labs/octocove` 0.21.0 and `@yolo-labs/octocove-client` 0.21.0: the lane engine moves from the CLI into
+the client, so a runner gets the lane protocol from the library. The CLI's lane commands are now a thin layer over it.
 
-- Client: errors and hook events also drop `x-api-key` and any `*secret*` or `*credential*` header, and show
-  `location` without its userinfo.
-- Client: `renewingCredential(...).renew({idempotencyKey})` joins a renewal already in flight only under that same
-  key. A flight under another key is refused as `renewal-in-flight` (retryable) rather than answered for.
-- Client (`/node`): `fileCredentialStore`'s lock is re-entrant. A flow queued behind another flow of the same process
-  gives up at `lockTimeoutMs` (`credential-store-busy`) or when its signal aborts, without breaking the queue.
-- Tests: the bound transport's allow list is pinned to its 32 operation ids.
-- Repository: the parity gate also checks that every hand-listed helper is called in the CLI.
+- Client: `createLanes({client, files, journal?, pack?})`, the lane engine. Its methods: `materialize`, `status`,
+  `refresh`, `resolve`, `save`, `wrapUp`, `patch`, `handover`, `checkResolvable`, `pending`, `resume` and `discard`.
+  They keep the CLI's semantics: manifest and blob verification against Git ids, whole-repository packs, the write
+  scope, non-destructive refresh with upstream copies under `.octocove/incoming`, `refresh-conflict` resolutions,
+  save points on `expectedHead` and the wrap-up into one candidate.
+- Client: the `LaneFiles` port, exact bytes in and out (`stat`, `read`, `write`, `remove`, `list`, optional
+  `caseInsensitive`, `claim` and `release`). `memoryLaneFiles()` is runtime-neutral; `nodeLaneFiles(dir)` under
+  `/node` is a filesystem directory that never follows a symlink.
+- Client: the lane journal. Every materialize, refresh, save and wrap-up records its Idempotency-Key and exact body
+  before it is sent. `resume` continues after a crash or a lost answer with the same key and body, so the server
+  answers its recorded result: no second save point or candidate. A save point's and a wrap-up's key is derived from
+  the body (`saveKey`, `wrapUpKey`). An unknown outcome and a retryable refusal (`fenced`) keep the entry, resent
+  only after its Retry-After. A refusal that ends the attempt or the credential, or names a moved intent or a
+  superseded generation, is kept as a `refused` record and never resent. Stores: `memoryJournal()`,
+  `laneFilesJournal(files)` and, under `/node`, `fileJournal(dir)`.
+- Client: on the bound transport the engine never asks for a new execution or generation. `handover` and the
+  generation step of `refresh` throw `LaneActionRequiredError` (`outcome: 'not-sent'`) with the request for the
+  broker to send. The broker passes its answer to `resume(journalId, {delegated})`. A bound refresh never follows a
+  moved head or the server's current generation by itself.
+- Client: `LaneError` for the engine's own refusals (`outcome: 'not-sent'`, or `unknown` for an unusable write
+  answer). `LANE_LIMITS` holds the server limits the engine plans around, in one place: the API documents them but
+  does not expose them in any answer.
+- Client: `ApiError.endsAttempt` and `endsAttempt()` are new. `claim-inactive`, `execution-superseded`,
+  `execution-inactive` and `authority-lost` end the claim attempt or execution and now set `endsAttempt`, not
+  `endsAuthority`. `endsAuthority` is kept for what the server guarantees ends the credential: `credential-revoked`
+  and `connection-revoked`.
+- Client: `BOUND_EXCLUDED` also names `claimAuthorize` and `taskClaim`, so neither becomes bound-callable if its
+  security changes.
+- Client: a `location` header whose password holds an `@` loses the whole userinfo.
+- Client (`/testing`): `fakeServer()` lanes hold files. It answers the task read, the manifest, blob reads and
+  uploads, a real Git pack of the head, base refreshes (`lane.upstream`) and save points that apply their
+  operations. It records every wrap-up. `server.clear()` drops queued faults.
+- CLI: `lane materialize`, `status`, `refresh`, `resolve`, `submit`, `wrap-up` and `patch` run on the client's
+  engine, with the same output and exit codes. An interrupted lane command resumes from the directory's journal
+  (`.octocove/journal`) when run again. `lane-materialize.ts` keeps only argument reading and the CLI's wording, and
+  the pack and patch code now live in the client.
+- CLI: a renewal already in flight under another key (`renewal-in-flight`, retryable) exits 75, to run again. It
+  used to be a configuration error.
+- Repository: the parity manifest lists the lane engine methods each lane command reaches (`lanes:` names), and
+  `smoke:pack` runs a bound lane flow through the packed tarball.
 
 ## CLI 0.20.0 and client 0.20.0
 
@@ -63,6 +96,15 @@ CLI pins exactly this client and keeps no logic the client lacks; a CI gate now 
 - Repository: `tools/check-parity.mjs` runs in CI. It checks the shared version and the exact client pin. It also
   checks the parity manifest, `packages/cli/parity.json`: every CLI command, the client calls its handler makes, and
   a reason for every generic `command`/`call`.
+- Follow-ups that shipped in 0.20.0:
+  - Client: errors and hook events also drop `x-api-key` and any `*secret*` or `*credential*` header, and show
+    `location` without its userinfo.
+  - Client: `renewingCredential(...).renew({idempotencyKey})` joins a renewal already in flight only under that same
+    key. A flight under another key is refused as `renewal-in-flight` (retryable) rather than answered for.
+  - Client (`/node`): `fileCredentialStore`'s lock is re-entrant. A flow queued behind another flow of the same process
+    gives up at `lockTimeoutMs` (`credential-store-busy`) or when its signal aborts, without breaking the queue.
+  - Tests: the bound transport's allow list is pinned to its 32 operation ids.
+  - Repository: the parity gate also checks that every hand-listed helper is called in the CLI.
 
 ## CLI 0.19.0 and client 0.19.0
 

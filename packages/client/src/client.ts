@@ -228,11 +228,11 @@ function retag(error: TransportError, secrets: readonly string[], attempts: numb
 }
 
 /**
- * Delegation operations the bound transport never sends: their answer issues a credential (a renewal, a new
- * execution, a refreshed generation) or they change the authority itself (a revocation). These belong to whoever
- * holds the credential.
+ * Operations the bound transport never sends, whatever their security says: their answer issues a credential (a
+ * renewal, a new execution, a refreshed generation) or they change the authority itself (a revocation, an
+ * authorization or a claim, which re-delegate). These belong to whoever holds the credential.
  */
-export const BOUND_EXCLUDED: readonly string[] = Object.freeze(['delegationRenew', 'delegationRevoke', 'laneExecutionBegin', 'laneGenerationCreate']);
+export const BOUND_EXCLUDED: readonly string[] = Object.freeze(['claimAuthorize', 'delegationRenew', 'delegationRevoke', 'laneExecutionBegin', 'laneGenerationCreate', 'taskClaim']);
 
 /**
  * The operations the bound transport may send: an allow list, read from the generated security of each route —

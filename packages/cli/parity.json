@@ -1,5 +1,5 @@
 {
-  "$comment": "Each CLI command and the client methods it calls (org.* = a tenant journey, root.* = a global journey, call:/command: = a generic call by operation id, governance:/lane-directory: = a shared handler). tools/check-parity.mjs checks it in CI: every command listed, every direct call in its handler listed, every generic call named with a reason.",
+  "$comment": "Each CLI command and the client methods it calls (org.* = a tenant journey, root.* = a global journey, call:/command: = a generic call by operation id, governance:/lane-directory: = a shared handler, lanes: = a method of the client's lane engine). tools/check-parity.mjs checks it in CI: every command listed, every direct call in its handler listed, every generic call named with a reason.",
   "commands": {
     "approval withdraw": {
       "client": [
@@ -84,16 +84,27 @@
     "lane materialize": {
       "client": [
         "lane-directory:materialize"
+      ],
+      "helpers": [
+        "lanes:handover",
+        "lanes:materialize"
       ]
     },
     "lane patch": {
       "client": [
         "lane-directory:patch"
+      ],
+      "helpers": [
+        "lanes:patch"
       ]
     },
     "lane refresh": {
       "client": [
         "lane-directory:refresh"
+      ],
+      "helpers": [
+        "lanes:checkResolvable",
+        "lanes:refresh"
       ]
     },
     "lane reopen": {
@@ -105,6 +116,9 @@
     "lane resolve": {
       "client": [
         "lane-directory:resolve"
+      ],
+      "helpers": [
+        "lanes:resolve"
       ]
     },
     "lane retire": {
@@ -124,16 +138,26 @@
     "lane status": {
       "client": [
         "lane-directory:status"
+      ],
+      "helpers": [
+        "lanes:status"
       ]
     },
     "lane submit": {
       "client": [
         "lane-directory:submit"
+      ],
+      "helpers": [
+        "lanes:save"
       ]
     },
     "lane wrap-up": {
       "client": [
         "lane-directory:wrap-up"
+      ],
+      "helpers": [
+        "lanes:checkResolvable",
+        "lanes:wrapUp"
       ]
     },
     "merit policy create": {
@@ -402,10 +426,6 @@
     "call:claimGet": "a plain read; the CLI formats the body itself",
     "call:eventsReplay": "one replay page; the follow journey is for long waits",
     "call:landingsList": "a plain read",
-    "call:laneBlobGet": "raw bytes of one lane blob (lane directory)",
-    "call:laneBlobPut": "raw bytes up to 16 MiB; content-addressed PUT, no Idempotency-Key",
-    "call:laneManifestGet": "a plain read of the generation manifest (lane directory)",
-    "call:lanePackGet": "the lane pack bytes (lane directory)",
     "call:laneScopeRequestsList": "a plain read",
     "call:receiptGet": "a plain read; waits poll it with the CLI deadline",
     "call:taskGet": "a plain read",
@@ -415,13 +435,7 @@
     "command:approvalGrantRevoke": "one keyed command; no outcome beyond the answer",
     "command:candidateLand": "the land request; its receipt is polled separately (receiptGet)",
     "command:delegationRevoke": "one keyed command; no outcome beyond the answer",
-    "command:laneBlobUpload": "the base64 upload of a small blob, keyed by execution and digest",
-    "command:laneChangesSubmit": "a save point; the key is the execution and the change digest",
-    "command:laneExecutionBegin": "the explicit handover (--handover), never automatic",
-    "command:laneGenerationCreate": "the explicit lane refresh",
-    "command:laneMaterialize": "the explicit materialize",
     "command:laneReopen": "one keyed command",
-    "command:laneWrapUp": "the explicit wrap-up",
     "command:memberAdd": "one keyed command"
   }
 }

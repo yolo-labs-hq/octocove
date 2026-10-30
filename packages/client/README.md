@@ -101,8 +101,8 @@ unknown, reserved or not visible to you.
 - `bound({kind?})`: the client sends no credential; the injected `fetch` (a credential broker holding the real
   credential) authorizes every request it forwards. Bound to one authority, it sends only an allow list
   (`boundAllows(route)`): the operations an agent delegation may call, by the generated security of each route, less
-  those whose answer issues a credential or that change the authority (`BOUND_EXCLUDED`: `delegationRenew`,
-  `delegationRevoke`, `laneExecutionBegin`, `laneGenerationCreate`) and any sign-in, session or OAuth route. Anything
+  those whose answer issues a credential or that change the authority (`BOUND_EXCLUDED`: `claimAuthorize`,
+  `delegationRenew`, `delegationRevoke`, `laneExecutionBegin`, `laneGenerationCreate`, `taskClaim`) and any sign-in, session or OAuth route. Anything
   else, and a per-call `credential`, is a `BoundTransportError` (`outcome: 'not-sent'`) before sending; an injected
   `fetch` is required. A redirect is never followed: any 3xx is an `ApiError` `redirect-refused` with its status and
   headers (every transport refuses an opaque redirect, status 0, the same way). Nothing renews on it; renewal belongs
@@ -472,10 +472,14 @@ disposition and outcome; retries add the reason (`network-error`, `credential-re
 
 **Failures.** Every `ApiError` and `TransportError` carries `disposition` (`terminal`, `retryable` with the same key
 and body, or `reauth`), `outcome` (`not-sent`, `refused` — nothing recorded — or `unknown`: the request may have been
-applied, so recover only with the same key and body), `idempotencyKey` and, on an `ApiError`, `endsAuthority` (the
-claim, execution or delegation is over: stop that work), `reason` and every response header. `PROBLEM_CODES` lists the
-classification of each documented code; an unlisted code falls back on its status, and `details.retryable: true`
-makes any answer retryable. Guards: `isRetryable`, `isTerminal`, `needsReauth`, `outcomeUnknown`, `endsAuthority`.
+applied, so recover only with the same key and body), `idempotencyKey` and, on an `ApiError`, `endsAttempt` (the
+claim attempt or lane execution is over: stop that attempt's work; the delegation may go on), `endsAuthority` (the
+credential itself is over: set only for `credential-revoked` and `connection-revoked`), `reason` and every response
+header. Neither flag is a reason to end a process, a delegation or a claim by itself: the caller decides that.
+`PROBLEM_CODES` lists the classification of each documented code; an unlisted code falls back on its status, and
+`details.retryable: true` makes any answer retryable. `fenced` is retryable only with the same key, body and
+credential, after its Retry-After; `intent-version-mismatch` and `generation-superseded` are terminal for that
+attempt. Guards: `isRetryable`, `isTerminal`, `needsReauth`, `outcomeUnknown`, `endsAttempt`, `endsAuthority`.
 
 **Bytes.** `laneBlobPut` sends raw bytes as given (up to 16 MiB). `lanePackGet` answers an `ArrayBuffer`, or with
 `stream: true` a `ReadableStream` that keeps the call's deadline and signal; a body shorter or longer than its
@@ -485,8 +489,10 @@ stream is handed over; a later truncation surfaces only as the stream's error.
 **The testing fakes** (`@yolo-labs/octocove-client/testing`) run in Node and in workerd. `fakeServer()` routes requests
 by the generated routing table, authenticates the bearers it `issue`s (expiry, revocation, task binding), replays a
 keyed POST under the same Idempotency-Key (another body is `409 idempotency-conflict`), rotates sessions and
-delegations, and implements the focused-lane routes (materialize, blob upload with digest, Git blob id and size
-checks, pack, save point, wrap-up). `fail(operationId, ...faults)` injects a `'lost-answer'` (applied, then the
+delegations, and implements the lane routes over the files a lane holds (`server.lane(taskId, {files, scope})`): the
+task read, materialize, the manifest, blob reads and uploads with digest, Git blob id and size checks, a real Git pack
+of the head, base refreshes (`lane.upstream`), save points that apply their operations, and wrap-ups. `clear()`
+drops queued faults. `fail(operationId, ...faults)` injects a `'lost-answer'` (applied, then the
 connection drops), a `'truncate'`d body, or any Response or Error. `fakeBroker(server)` grants opaque handles bound to
 a task, its operations, its write paths and an expiry; `broker.fetch(handle)` refuses anything else without an
 upstream call and forwards the rest with the upstream bearer.
@@ -500,6 +506,83 @@ const handle = broker.grant({ orgId, taskId: 'T1', operations: ['laneMaterialize
 const lane = tenantClient(createClient({ baseUrl: server.baseUrl, transport: bound(), fetch: broker.fetch(handle) }), orgId);
 server.fail('laneChangesSubmit', 'lost-answer');   // the save point is recovered under the same key
 ```
+
+## Lanes
+
+`createLanes` is the lane engine the `octo` CLI's lane commands run on: one lane's files, the protocol around them,
+and a journal that makes every multi-step write resumable. It is runtime-neutral (Node and workerd).
+
+```ts
+const files = memoryLaneFiles();                 // or nodeLaneFiles(dir) from /node, or your own LaneFiles
+const lanes = createLanes({ client: tenantClient(client, orgId), files, journal: memoryJournal() });
+const options = { deadline: Date.now() + 120_000 };
+await lanes.materialize(taskId, options);       // files at the lane head, plus .octocove/lane.json
+await files.write('src/app.ts', { kind: 'file', bytes });
+await lanes.status();                            // { modified, added, deleted, conflicts, pending, ... }
+await lanes.save({ ...options, message: 'first pass' });   // one save point on the sidecar's lane head
+await lanes.wrapUp(options);                     // the one candidate a human reviews
+```
+
+- `materialize(taskId, options)`: asks for the lane repository (idempotent) and writes the files at its head into an
+  empty target. Every file is checked against the Git id the manifest names. A whole-repository lane comes as one Git
+  pack, read with the built-in inflater (`/node` offers `nodePackPrimitives`, `node:zlib` speed); anything else, or
+  anything a pack lacks, is read file by file.
+- `status()`: local edits against the sidecar. `save({message})` uploads the changed files (over 1 MiB raw, up to
+  16 MiB) and sends one save point with `expectedHead`, the lane head the edits were made on. A moved head is
+  `409 lane-head-moved`, and nothing local changes.
+- `refresh({resolve?})`: takes a `base-refreshed` generation without discarding anything. An edited file keeps the
+  local copy and gets the upstream one under `.octocove/incoming` until `resolve(path, 'local' | 'incoming')`. A
+  conflict with saved work (`409 refresh-conflict`) is recorded; the next `refresh` or `wrapUp` decides it with
+  `resolve: [{path, take: 'lane' | 'base'} | {path, take: 'content', content}]`.
+- `wrapUp({message?, resolve?, allowUnsaved?})`, `patch()` (the unsaved edits as a Git-format patch) and
+  `handover(taskId)` (moves the open execution here).
+
+**`LaneFiles`.** Seven methods with exact bytes: `stat`, `read`, `write`, `remove`, `list`, and optional
+`caseInsensitive`, `claim` and `release`. Content is `{kind: 'file' | 'symlink', bytes, executable?}`; a symlink's
+bytes are its target. Nothing follows a symlink, and a path beneath a file does not exist. The engine keeps its own
+state beside the files under `.octocove/`. A pod volume or a remote sandbox is one more implementation of the port.
+
+**The journal.** Each `materialize`, `refresh`, `save` and `wrapUp` writes a `LaneJournalEntry` to the
+`JournalStore` before sending: the Idempotency-Key, the exact body and the steps done. After a crash or a lost
+answer, run the same operation again, or `resume(entry)`. Either resends exactly that key and body, so the server
+answers its recorded result: one save point, one candidate, no new key. A save resends the bytes it planned (kept
+under `.octocove/objects`) on its original `expectedHead`, even if the files changed since; those later edits stay
+unsaved for the next save. A save point's and a wrap-up's key is derived from the execution and the body
+(`saveKey`, `wrapUpKey`), so the same work always carries the same key. What happens to an entry after an answer:
+
+- an unknown outcome, or a retryable refusal such as `fenced`: kept, and resent no earlier than its Retry-After;
+- a refusal that ends the attempt or the credential, `intent-version-mismatch` or `generation-superseded`: kept as a
+  `refused` record that is never resent (`resume` refuses it, nothing sent); `discard` it once handled;
+- any other refusal: removed. The edits stay in the files.
+
+Stores: `memoryJournal()`, `laneFilesJournal(files)` (beside the files, as the CLI uses it) and `fileJournal(dir)`
+under `/node`. `pending()` lists a lane's entries.
+
+**Behind a credential broker.** On the bound transport the engine never asks for a new execution or generation:
+`handover` and the generation step of `refresh` throw `LaneActionRequiredError` (`outcome: 'not-sent'`). It carries
+`action` (`operationId`, `taskId`, `body`, `idempotencyKey`) and, for a refresh, `journalId`. The broker sends the
+action with its own client, under that key and body, and hands back what it got:
+
+```ts
+try { await lanes.refresh(options); }
+catch (error) {
+  if (!(error instanceof LaneActionRequiredError)) throw error;
+  const answer = await broker.send(error.action);                      // the broker's own client
+  await lanes.resume(error.journalId!, { ...options, delegated: { body: answer.body } });   // or { error }
+}
+```
+
+A bound refresh never follows a moved head or the server's current generation by itself, and nothing is renewed,
+reclaimed or handed over after a refusal. Two lanes with separate authorities are two engines, each with its own
+bound client.
+
+**Errors.** Server refusals are `ApiError`s, as everywhere. `LaneError` is the engine's own: `code` (`not-empty`,
+`unsafe-path`, `lane-unsaved-edits`, `scope-refused`, `blob-too-large`, `pack-unreadable`, …), `details`, and
+`outcome: 'not-sent'`, or `unknown` for an answer to a write it could not use (resume it).
+
+**Server limits.** `LANE_LIMITS` holds the limits the engine plans around: 2000 operations per save point, 1 MiB
+base64 blobs, 16 MiB raw blobs, 512 MiB packs and 1 MiB JSON bodies. The API documents them but exposes them in no
+answer, so they are kept here in one place; the server stays the authority.
 
 ## Errors
 
@@ -527,7 +610,7 @@ server.fail('laneChangesSubmit', 'lost-answer');   // the save point is recovere
   and `ceiling` (the verbs an agent authorization through a client may carry, on `403 forbidden`).
 - `TransportError`: `deadline-exceeded`, `network-error`, `insecure-api-url`, `aborted`. A server
   refusal (`409 idempotency-result-expired`, `401 bootstrap-consumed`, …) is always an `ApiError`.
-- Both carry `disposition`, `outcome` and `idempotencyKey`; an `ApiError` also `endsAuthority`, `reason` and `headers`
+- Both carry `disposition`, `outcome` and `idempotencyKey`; an `ApiError` also `endsAttempt`, `endsAuthority`, `reason` and `headers`
   (every response header but the credential-bearing ones, redacted), on refusals as on successes
   ([Building an agent runner](#building-an-agent-runner)).
 

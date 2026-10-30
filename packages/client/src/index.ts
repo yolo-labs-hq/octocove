@@ -1,6 +1,6 @@
 export { createClient, newIdempotencyKey, buildUrl, retryClassFor, tenantClient, isTenantId, isTenantScoped, boundAllows, BOUND_EXCLUDED, MAX_RESENDS, TENANT_ID } from './client.js';
 export type { ApiResponse, CallableOperationId, OpenEnums, CallInput, CallOptions, ClientOptions, FetchLike, OctocoveClient, SuccessBody, TenantCallInput, TenantClient, TenantScopedOperationId } from './client.js';
-export { isRetryable, isTerminal, needsReauth, outcomeUnknown, endsAuthority } from './errors.js';
+export { isRetryable, isTerminal, needsReauth, outcomeUnknown, endsAttempt, endsAuthority } from './errors.js';
 export { PROBLEM_CODES, problemClass } from './dispositions.js';
 export type { Disposition, Outcome, ProblemArea, ProblemClass } from './dispositions.js';
 export {
@@ -182,4 +182,5 @@ export type { EventEnvelope, EventFilter, FollowItem, FollowOptions } from './ev
 export { routing } from './generated/routing.js';
 export type { OperationId } from './generated/routing.js';
 export type { AutoRetry, PolicyEntry, Replay, RetryClass, RouteEntry } from './routing-types.js';
+export * from './lanes/index.js';
 export { BUILD, CLIENT_VERSION } from './version.js';

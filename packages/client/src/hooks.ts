@@ -107,5 +107,5 @@ function withoutQuery(value: string): string {
   const cut = value.search(/[?#]/);
   const bare = cut < 0 ? value : value.slice(0, cut);
   // `scheme://user:password@host/...` or `//user@host/...`: the userinfo goes.
-  return bare.replace(/^((?:[a-z][a-z0-9+.-]*:)?\/\/)[^/@]*@/i, '$1');
+  return bare.replace(/^((?:[a-z][a-z0-9+.-]*:)?\/\/)[^/]*@/i, '$1');
 }

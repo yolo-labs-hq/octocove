@@ -27,11 +27,11 @@ renameSync(join(out, packed.filename), tarball);
 const files = packed.files.map((f) => f.path);
 const unexpected = files.filter((f) => !/^(dist\/.+\.(js|d\.ts)|retry-policy\.json|README\.md|package\.json|LICENSE|NOTICE)$/.test(f));
 if (unexpected.length) throw new Error(`unexpected files in the tarball: ${unexpected.join(', ')}`);
-for (const required of ['dist/index.js', 'dist/index.d.ts', 'dist/node.js', 'dist/testing.js', 'dist/testing.d.ts', 'dist/generated/openapi.d.ts', 'retry-policy.json']) {
+for (const required of ['dist/index.js', 'dist/index.d.ts', 'dist/node.js', 'dist/lanes/engine.js', 'dist/lanes/engine.d.ts', 'dist/lanes/node.js', 'dist/testing.js', 'dist/testing.d.ts', 'dist/generated/openapi.d.ts', 'retry-policy.json']) {
   if (!files.includes(required)) throw new Error(`tarball is missing ${required}`);
 }
 // The core stays runtime-neutral; only the /node entry and its credential store may import node: modules.
-const nodeOnly = (f) => f === 'dist/node.js' || f.startsWith('dist/store/');
+const nodeOnly = (f) => f === 'dist/node.js' || f === 'dist/lanes/node.js' || f.startsWith('dist/store/');
 for (const file of files.filter((f) => f.endsWith('.js') && !nodeOnly(f))) {
   const text = readFileSync(join(root, file), 'utf8');
   if (/\bfrom\s*["']node:|import\(["']node:/.test(text)) throw new Error(`${file} imports a node: module`);
@@ -46,10 +46,11 @@ try {
   const core = await import(pathToFileURL(join(pkg, manifest.exports['.'].import)).href);
   const node = await import(pathToFileURL(join(pkg, manifest.exports['./node'].import)).href);
   const testing = await import(pathToFileURL(join(pkg, manifest.exports['./testing'].import)).href);
-  for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys', 'tenantClient', 'tenantJourneys', 'verifyWebhook', 'eventKey', 'approvalGrantAudience', 'eventAuthorityAudience', 'TenantNotFoundError', 'ProjectNotFoundError', 'OrgCreationPendingError', 'RouteUnavailableError', 'InsufficientScopeError', 'StepUpRequiredError', 'ConnectionRevokedError', 'authorizationUrl', 'parseAuthorizationResponse', 'createPkce', 'exchangeCode', 'refreshGrant', 'revokeGrant', 'privateKeyJwt', 'clientSecretBasic', 'createGrantSession', 'bound', 'renewingCredential', 'memoryCredentialStore', 'authorizedFetch', 'CredentialUnavailableError', 'PROBLEM_CODES', 'problemClass', 'isRetryable', 'outcomeUnknown']) {
+  for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys', 'tenantClient', 'tenantJourneys', 'verifyWebhook', 'eventKey', 'approvalGrantAudience', 'eventAuthorityAudience', 'TenantNotFoundError', 'ProjectNotFoundError', 'OrgCreationPendingError', 'RouteUnavailableError', 'InsufficientScopeError', 'StepUpRequiredError', 'ConnectionRevokedError', 'authorizationUrl', 'parseAuthorizationResponse', 'createPkce', 'exchangeCode', 'refreshGrant', 'revokeGrant', 'privateKeyJwt', 'clientSecretBasic', 'createGrantSession', 'bound', 'renewingCredential', 'memoryCredentialStore', 'authorizedFetch', 'CredentialUnavailableError', 'PROBLEM_CODES', 'problemClass', 'isRetryable', 'outcomeUnknown', 'endsAttempt', 'endsAuthority',
+    'createLanes', 'memoryLaneFiles', 'memoryJournal', 'laneFilesJournal', 'LaneError', 'LaneActionRequiredError', 'LANE_LIMITS', 'saveKey', 'wrapUpKey']) {
     if (!(name in core)) throw new Error(`packed root entry does not export ${name}`);
   }
-  for (const name of ['credentialStore', 'ProtectedStoreError', 'fileCredentialStore']) {
+  for (const name of ['credentialStore', 'ProtectedStoreError', 'fileCredentialStore', 'nodeLaneFiles', 'fileJournal', 'nodePackPrimitives']) {
     if (!(name in node)) throw new Error(`packed /node entry does not export ${name}`);
   }
   for (const name of ['fakeServer', 'fakeBroker', 'scriptedFetch', 'json', 'problem', 'matchOperation']) {
@@ -65,6 +66,52 @@ try {
     const c = core.tenantClient(core.createClient({ baseUrl: server.baseUrl, transport: core.bound(), fetch: broker.fetch(handle) }), 'org_00000000-0000-4000-8000-000000000001');
     const r = await c.call('laneMaterialize', { path: { id: 'T1' }, body: {} });
     if (r.status !== 200 || broker.forwarded !== 1) throw new Error('the packed testing fake did not answer the packed client');
+  }
+  // The packaged lane engine through the packaged broker fake: two scoped lanes on the bound transport, a save point
+  // whose answer is lost and resumed under its journaled key (one save point), the refresh the broker must send, and
+  // the broker's refusals of another task and of a path outside the grant.
+  {
+    const ORG = 'org_00000000-0000-4000-8000-000000000001';
+    const ops = ['taskGet', 'laneMaterialize', 'laneManifestGet', 'laneBlobGet', 'lanePackGet', 'laneBlobUpload', 'laneBlobPut', 'laneChangesSubmit', 'laneWrapUp'];
+    const server = testing.fakeServer();
+    const broker = testing.fakeBroker(server);
+    const options = () => ({ deadline: Date.now() + 30_000, sleep: async () => {} });
+    const runner = (taskId, write) => {
+      server.lane(taskId, { files: { [`${write}/f.txt`]: `${taskId}\n`, 'other/x.txt': 'x\n' }, scope: { read: ['.'], write: ['.'] } });
+      const handle = broker.grant({ orgId: ORG, taskId, operations: ops, writePaths: [write], upstreamToken: server.issue({ kind: 'delegation', taskId }).token });
+      const client = core.tenantClient(core.createClient({ baseUrl: server.baseUrl, transport: core.bound(), fetch: broker.fetch(handle), retryDelayMs: () => 1 }), ORG);
+      const files = core.memoryLaneFiles(), journal = core.memoryJournal();
+      return { client, files, journal, lanes: core.createLanes({ client, files, journal }) };
+    };
+    const check = (cond, what) => { if (!cond) throw new Error(`packed lanes: ${what}`); };
+    const one = runner('T1', 'src'), two = runner('T2', 'docs');
+    for (const [r, taskId, path] of [[one, 'T1', 'src/f.txt'], [two, 'T2', 'docs/f.txt']]) {
+      await r.lanes.materialize(taskId, options());
+      await r.files.write(path, { kind: 'file', bytes: new TextEncoder().encode(`${taskId} edited\n`) });
+      if (taskId === 'T1') {
+        server.fail('laneChangesSubmit', ...Array(12).fill('lost-answer'));
+        const lost = await r.lanes.save(options()).then(() => null, (e) => e);
+        check(lost instanceof core.TransportError && lost.outcome === 'unknown', 'a lost save point answer is an unknown outcome');
+        server.clear();
+        const [entry] = await r.journal.list();
+        check(entry?.operation === 'save' && entry.idempotencyKey === await core.saveKey(server.lane('T1').executionId, entry.body), 'the save is journaled under its body key');
+        await core.createLanes({ client: r.client, files: r.files, journal: r.journal }).resume(entry, options());
+        check(server.lane('T1').savePoints.length === 1, 'one save point after the resume');
+        check(new Set(server.requests.filter((q) => q.operationId === 'laneChangesSubmit').map((q) => q.idempotencyKey)).size === 1, 'one key for every send');
+      } else await r.lanes.save(options());
+      await r.lanes.wrapUp(options());
+      check(server.lane(taskId).wrapUps.length === 1, `${taskId} has one candidate`);
+    }
+    server.lane('T1').upstream = { 'src/g.txt': 'g\n' };
+    const action = await one.lanes.refresh(options()).then(() => null, (e) => e);
+    check(action instanceof core.LaneActionRequiredError && action.action.operationId === 'laneGenerationCreate' && action.outcome === 'not-sent' && server.count('laneGenerationCreate') === 0,
+      'a bound refresh asks the broker, sending nothing');
+    const crossTask = await core.createLanes({ client: one.client, files: core.memoryLaneFiles() }).materialize('T2', options()).then(() => null, (e) => e);
+    check(crossTask instanceof core.ApiError && crossTask.code === 'forbidden', 'another task is refused');
+    await two.files.write('other/x.txt', { kind: 'file', bytes: new TextEncoder().encode('outside\n') });
+    const outside = await two.lanes.save(options()).then(() => null, (e) => e);
+    check(outside instanceof core.ApiError && outside.code === 'scope-refused', 'a path outside the grant is refused');
+    check(broker.denials.map((d) => d.code).join() === 'forbidden,scope-refused', 'both refusals came from the broker, before the API');
   }
   if ('credentialStore' in core) throw new Error('the root entry must not carry the node-only store');
   if (node.createClient !== core.createClient) throw new Error('the /node entry does not re-export the core');

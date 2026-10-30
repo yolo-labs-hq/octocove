@@ -177,26 +177,26 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1118](src/cli.ts#L1118 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1119](src/cli.ts#L1119 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1120](src/cli.ts#L1120 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1121](src/cli.ts#L1121 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1122](src/cli.ts#L1122 "\"task supersede\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1123](src/cli.ts#L1123 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1124](src/cli.ts#L1124 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1125](src/cli.ts#L1125 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1120](src/cli.ts#L1120 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1121](src/cli.ts#L1121 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1122](src/cli.ts#L1122 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1123](src/cli.ts#L1123 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1124](src/cli.ts#L1124 "\"task supersede\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1125](src/cli.ts#L1125 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1126](src/cli.ts#L1126 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1127](src/cli.ts#L1127 "\"candidate reject\": governance")) |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--repository ID --target-ref REF] [--note TEXT]` | `POST /candidates/{id}/approve`; `--repository` and `--target-ref` assert the reviewed landing destination (409 `destination-mismatch` for any other) |
 | `land ID --approval ID [--repository ID --target-ref REF] [--wait]` | `POST /candidates/{id}/land`, then `GET /receipts/{id}`; `--repository` and `--target-ref` assert the destination as on `approve` |
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1718](src/cli.ts#L1718 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1730](src/cli.ts#L1730 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1720](src/cli.ts#L1720 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1732](src/cli.ts#L1732 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1770](src/cli.ts#L1770 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1772](src/cli.ts#L1772 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:690](src/cli.ts#L690 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:691](src/cli.ts#L691 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -367,6 +367,13 @@ content) and posts one `changes` request (`put` with mode `100644`, `100755` or 
 the baseline (`lastSavePoint`). A `409 lane-head-moved` means another save moved the head: nothing local changes, and
 `lane refresh` takes the new head before you save again. A save carries at most 16 MiB of file content (`413
 changes-too-large`); split larger work into several saves.
+
+**Interrupted commands.** The lane commands run on the client's lane engine (`createLanes`, see the client README),
+which journals each materialize, refresh, submit and wrap-up under `.octocove/journal` before sending it. When an
+answer is lost or the command is interrupted, run the same command again: it resends the recorded request under the
+same key and body, so the server answers what it recorded (no second save point or candidate), and only then looks at
+the directory again. A save sends the files as they were when it was first run; edits made since stay unsaved for the
+next `lane submit`.
 
 **Lane repository state.** `lane status` in a lane directory, with a credential at hand, and `task show` print the
 task's lane repository as the server records it, whether or not a claim is live: its state (`ready`, `failed` with

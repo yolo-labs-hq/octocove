@@ -91,7 +91,9 @@ export class ApiError extends Error {
   readonly disposition: Disposition;
   /** `refused` (nothing recorded) or `unknown` (may have been applied: resend only with the same key and body). */
   readonly outcome: Outcome;
-  /** The claim, execution or delegation this credential acts under is over. */
+  /** The claim attempt or lane execution behind the request is over: stop that attempt (the delegation may go on). */
+  readonly endsAttempt: boolean;
+  /** The credential itself is over (revoked): set only where the server guarantees it. */
   readonly endsAuthority: boolean;
 
   constructor(init: ApiErrorInit) {
@@ -112,6 +114,7 @@ export class ApiError extends Error {
     const c = problemClass(init.code, init.status, init.details);
     this.disposition = c.disposition;
     this.outcome = c.outcome;
+    this.endsAttempt = c.endsAttempt;
     this.endsAuthority = c.endsAuthority;
   }
 
@@ -122,7 +125,7 @@ export class ApiError extends Error {
   }
 }
 
-type Classified = { readonly disposition?: unknown; readonly outcome?: unknown; readonly endsAuthority?: unknown };
+type Classified = { readonly disposition?: unknown; readonly outcome?: unknown; readonly endsAttempt?: unknown; readonly endsAuthority?: unknown };
 const classified = (error: unknown): Classified => (error && typeof error === 'object' ? (error as Classified) : {});
 /** The same request (same key and body) may succeed later. */
 export const isRetryable = (error: unknown): boolean => classified(error).disposition === 'retryable';
@@ -134,6 +137,8 @@ export const needsReauth = (error: unknown): boolean => classified(error).dispos
 export const outcomeUnknown = (error: unknown): boolean => classified(error).outcome === 'unknown';
 /** The claim, execution or delegation behind the credential is over: stop that work. */
 export const endsAuthority = (error: unknown): boolean => classified(error).endsAuthority === true;
+/** The claim attempt or lane execution behind the request is over: stop that attempt's work (the delegation may continue). */
+export const endsAttempt = (error: unknown): boolean => classified(error).endsAttempt === true;
 
 /** The organization a `409 org-creation-pending` names (`details.organization`), as far as its guards hold. */
 export interface PendingOrganization {
