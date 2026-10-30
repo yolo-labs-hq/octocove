@@ -279,7 +279,10 @@ await merit.releaseCandidate(candidateId, { deadline });                        
 ```
 
 `copySource` throws `MeritPolicySourceError` (`no-live-policy`, `ambiguous-live-policy` with the `policyIds`) when
-the source project has no single live version; name one with `policyId`. `prepare` takes the next version (one more
+the source project has no single live version; name one with `policyId`. `prepareCopy` (`copySource`, then `prepare`;
+what `copy` registers) refuses a source in another project or org without `overrides.repositoryId` as
+`repository-required`, before anything is read. `meritPolicyStanding(view)` names a version's standing (`live`,
+`revoked`, `expired`, `paused`, `superseded`, `not-live`). `prepare` takes the next version (one more
 than the highest the project lists for the repository and target ref) unless the draft names one: to resume a
 register whose answer was lost, pass the same key and that version.
 

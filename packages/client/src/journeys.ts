@@ -45,6 +45,9 @@ import { authJourneys, isPartialRead, tenantAuthJourneys, type UnavailableTenant
 import { follow, type FollowOptions } from './events.js';
 import { meritPolicyInputFromRead, MeritPolicySourceError, type MeritPolicyDraft, type MeritPolicyOverrides } from './merit-policy.js';
 
+/** `merit.policies.disable`'s result: the route answers `204`; this names the version it revoked. */
+export interface MeritPolicyDisabled { readonly id: string; readonly disabled: true }
+
 type Schemas = components['schemas'];
 type Body<K extends CallableOperationId> = CallInput<K> extends { body: infer B } ? B : CallInput<K> extends { body?: infer B } ? B : never;
 type Query<K extends CallableOperationId> = CallInput<K> extends { query?: infer Q } ? Q : never;
@@ -779,10 +782,12 @@ export function tenantJourneys(client: TenantClient) {
         requireHuman(client, 'merit.policies.resume');
         return body(options, 'meritPolicyResume', { path: { project: projectId, id: policyId } });
       },
-      /** Revoke the version for good (`204`); register a new version to evaluate again. */
-      disable(projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyDisable'>> {
+      /** Revoke the version for good (or answer an already revoked one); register a new version to evaluate again. The
+       * route answers `204` without a body: the result is `{id: policyId, disabled: true}`. */
+      async disable(projectId: string, policyId: string, options: CommandOptions): Promise<MeritPolicyDisabled> {
         requireHuman(client, 'merit.policies.disable');
-        return body(options, 'meritPolicyDisable', { path: { project: projectId, id: policyId } });
+        await body(options, 'meritPolicyDisable', { path: { project: projectId, id: policyId } });
+        return { id: policyId, disabled: true };
       },
       /**
        * A registration for this project from a policy in either form (`meritPolicyInputFromRead`: a read, a stored
@@ -793,6 +798,8 @@ export function tenantJourneys(client: TenantClient) {
       async prepare(projectId: string, source: unknown, overrides: MeritPolicyOverrides, options: JourneyOptions): Promise<MeritPolicyRegistration> {
         const draft: MeritPolicyDraft = meritPolicyInputFromRead(source, overrides);
         if (draft.version !== undefined) return draft as MeritPolicyRegistration;
+        // Narrowed to the one repository and target ref, newest first: versions only grow, so a truncated list (more
+        // than 200 versions of the pair) still starts with the highest.
         const listed = await body(options, 'meritPolicyList', { path: { project: projectId }, query: { repositoryId: draft.repositoryId, targetRef: draft.targetRef } });
         const highest = listed.items.filter((p) => p.repositoryId === draft.repositoryId && p.targetRef === draft.targetRef).reduce((max, p) => Math.max(max, p.version), 0);
         const { repositoryId, targetRef, expiresAt, ...rest } = draft;
@@ -811,14 +818,25 @@ export function tenantJourneys(client: TenantClient) {
         return live[0]!;
       },
       /**
-       * Copy another project's policy here: `copySource`, `prepare` (with `overrides`; a copy across projects names
-       * this project's `repositoryId`), then `register` under `options.idempotencyKey`. To resume a lost answer, keep
+       * Copy another project's policy here: `prepareCopy` (with `overrides`; a copy across projects names this
+       * project's `repositoryId`), then `register` under `options.idempotencyKey`. To resume a lost answer, keep
        * the key and pass the `version` the first attempt prepared.
        */
       async copy(projectId: string, from: MeritPolicyCopySource, overrides: MeritPolicyOverrides, options: CommandOptions): Promise<MeritPolicyVersion> {
         requireHuman(client, 'merit.policies.copy');
-        const input = await merit.policies.prepare(projectId, await merit.policies.copySource(from, options), overrides, options);
+        const { input } = await merit.policies.prepareCopy(projectId, from, overrides, options);
         return merit.policies.register(projectId, input, options);
+      },
+      /**
+       * `copySource` then `prepare`, reads only: the version copied and the registration for this project. A source in
+       * another project or org needs `overrides.repositoryId` (this project's repository): `MeritPolicySourceError`
+       * `repository-required` before anything is read.
+       */
+      async prepareCopy(projectId: string, from: MeritPolicyCopySource, overrides: MeritPolicyOverrides, options: JourneyOptions): Promise<{ readonly source: MeritPolicyVersionView; readonly input: MeritPolicyRegistration }> {
+        const elsewhere = from.projectId !== projectId || (from.orgId !== undefined && from.orgId !== client.tenantId);
+        if (elsewhere && overrides.repositoryId === undefined) throw new MeritPolicySourceError('repository-required', from.projectId);
+        const source = await merit.policies.copySource(from, options);
+        return { source, input: await merit.policies.prepare(projectId, source, overrides, options) };
       },
     },
   };

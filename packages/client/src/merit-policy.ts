@@ -39,7 +39,7 @@ export function isoDuration(seconds: number): string {
 
 /** One duration field from either form: the ISO value as given, or the seconds converted; both is ambiguous. */
 function duration(from: Record<string, unknown>, iso: string, seconds: string, where: string): string | undefined {
-  if (from[iso] !== undefined && from[seconds] !== undefined) throw new TypeError(`${where}: give ${iso} or ${seconds}, not both`);
+  if (from[iso] !== undefined && from[seconds] !== undefined) throw new TypeError(`give ${where}${iso} or ${where}${seconds}, not both`);
   if (from[seconds] !== undefined) {
     if (typeof from[seconds] !== 'number') throw new TypeError(`${where}${seconds} must be a number of seconds`);
     return isoDuration(from[seconds]);
@@ -63,7 +63,8 @@ export function meritPolicyInputFromRead(source: unknown, overrides: MeritPolicy
   const flat: Record<string, unknown> = read ? { ...(source.body as Record<string, unknown>) } : { ...source };
   for (const k of READ_ONLY) delete flat[k];
   if (read) {
-    for (const k of ['repositoryId', 'targetRef', 'expiresAt'] as const) if (source[k] !== undefined && flat[k] === undefined) flat[k] = source[k];
+    // The version's own identity wins over anything the stored body carries under the same name.
+    for (const k of ['repositoryId', 'targetRef', 'expiresAt'] as const) if (source[k] !== undefined) flat[k] = source[k];
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(flat)) if (k !== 'approvalTtlSeconds') out[k] = v;
@@ -92,17 +93,27 @@ export function meritPolicyInputFromRead(source: unknown, overrides: MeritPolicy
   return ordered as MeritPolicyDraft;
 }
 
-/** Why `merit.policies.copySource` found no single version to copy. */
+/** Why a copy of another project's merit policy cannot proceed (nothing was read for `repository-required`). */
 export class MeritPolicySourceError extends Error {
   constructor(
     /** `no-live-policy`: the project has no live version (narrowed by the repository and target ref, when given);
-     * `ambiguous-live-policy`: more than one is live, one per repository and target ref (`policyIds`). */
-    readonly code: 'no-live-policy' | 'ambiguous-live-policy',
+     * `ambiguous-live-policy`: more than one is live, one per repository and target ref (`policyIds`);
+     * `repository-required`: the source is another project (or org), whose repository is not this project's, and
+     * the overrides name no `repositoryId`. */
+    readonly code: 'no-live-policy' | 'ambiguous-live-policy' | 'repository-required',
     readonly projectId: string,
-    readonly policyIds: readonly string[],
+    readonly policyIds: readonly string[] = [],
   ) {
     super(code === 'no-live-policy' ? `project ${projectId} has no live merit policy to copy`
+      : code === 'repository-required' ? `a copy from project ${projectId} needs this project's repositoryId (another project's repository is never assumed)`
       : `project ${projectId} has ${policyIds.length} live merit policies (${policyIds.join(', ')}); name one`);
     this.name = 'MeritPolicySourceError';
   }
+}
+
+/** A version's standing as one word: `live` (the one the evaluator reads), else why not, in this order: `revoked`,
+ * `expired`, `paused`, `superseded` (a later version exists), `not-live`. */
+export type MeritPolicyStanding = 'live' | 'revoked' | 'expired' | 'paused' | 'superseded' | 'not-live';
+export function meritPolicyStanding(view: { readonly live: boolean; readonly revokedAt: string | null; readonly expired: boolean; readonly paused: boolean; readonly latest: boolean }): MeritPolicyStanding {
+  return view.live ? 'live' : view.revokedAt ? 'revoked' : view.expired ? 'expired' : view.paused ? 'paused' : !view.latest ? 'superseded' : 'not-live';
 }

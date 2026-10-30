@@ -24,7 +24,7 @@ import {
 import { ConfigError, type CredentialKind } from "./config.js";
 
 export { ApiError, TransportError, ProtectedStoreError, newIdempotencyKey } from "../../client/src/node.js";
-export { isTenantId, meritPolicyInputFromRead, MeritPolicySourceError } from "../../client/src/node.js";
+export { isTenantId, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError } from "../../client/src/node.js";
 export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike, Project, ProjectInitialization, GitHubRepositoryList, MeritPolicyList, MeritPolicyVersionView, MeritPolicyOverrides, MeritUsage, MeritShadow } from "../../client/src/node.js";
 
 /** Why a tenant-scoped command could not run: no org was given. */

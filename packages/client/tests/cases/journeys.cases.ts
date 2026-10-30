@@ -14,6 +14,7 @@ import {
   ProjectNotFoundError,
   TransportError,
   meritPolicyInputFromRead,
+  meritPolicyStanding,
   isoDuration,
   MeritPolicySourceError,
   type ClaimBootstrap,
@@ -995,17 +996,41 @@ export const journeyCases: Case[] = [
     // None live, or several: a MeritPolicySourceError naming them; nothing is registered.
     for (const [items, code, ids] of [[[{ ...policyRead, live: false }], 'no-live-policy', []], [[policyRead, { ...policyRead, id: 'pol-x', repositoryId: 'repo-2' }], 'ambiguous-live-policy', [policyRead.id, 'pol-x']]] as const) {
       const s = scriptedFetch(json(200, { projectId: 'src', items, truncated: false }));
-      const e = await rejects(() => journeys(client(s.fetch)).org(ORG).merit.policies.copy('p', { projectId: 'src' }, {}, { deadline: soon() }), MeritPolicySourceError);
+      const e = await rejects(() => journeys(client(s.fetch)).org(ORG).merit.policies.copy('p', { projectId: 'src' }, { repositoryId: 'repo-here' }, { deadline: soon() }), MeritPolicySourceError);
       equal([e.code, e.policyIds], [code, ids] as never);
       equal(s.calls.length, 1);
     }
+  }),
+  test('merit.policies.prepareCopy refuses another project or org without this project repository, before any read', async () => {
+    const OTHER = 'org_00000000-0000-4000-8000-000000000002';
+    const quiet = scriptedFetch();
+    const policies = journeys(client(quiet.fetch)).org(ORG).merit.policies;
+    for (const from of [{ projectId: 'src' }, { projectId: 'p', orgId: OTHER }]) {
+      const e = await rejects(() => policies.prepareCopy('p', from, { evaluator: 'clef' }, { deadline: soon() }), MeritPolicySourceError);
+      equal([e.code, e.projectId], ['repository-required', from.projectId]);
+      await rejects(() => policies.copy('p', from, {}, { deadline: soon() }), MeritPolicySourceError);
+    }
+    equal(quiet.calls.length, 0, 'nothing is read');
+    // The same project in the same org keeps its own repository.
+    const same = scriptedFetch(json(200, { projectId: 'p', items: [policyRead], truncated: false }), json(200, { projectId: 'p', items: [policyRead], truncated: true }));
+    const { source, input } = await journeys(client(same.fetch)).org(ORG).merit.policies.prepareCopy('p', { projectId: 'p', orgId: ORG }, {}, { deadline: soon() });
+    equal([source.id, input.repositoryId, input.version], [policyRead.id, 'repo-1', 4], 'a truncated list still starts with the highest version');
+  }),
+  test('meritPolicyStanding names why a version is not live; a read prefers the version identity over its body', async () => {
+    const base = { live: false, revokedAt: null, expired: false, paused: false, latest: true };
+    equal([{ ...base, live: true }, { ...base, revokedAt: 't', expired: true }, { ...base, expired: true }, { ...base, paused: true }, { ...base, latest: false }, base].map(meritPolicyStanding),
+      ['live', 'revoked', 'expired', 'paused', 'superseded', 'not-live']);
+    const odd = meritPolicyInputFromRead({ ...policyRead, body: { ...policyRead.body, repositoryId: 'stale', targetRef: 'refs/heads/stale', expiresAt: '2020-01-01T00:00:00Z' } });
+    equal([odd.repositoryId, odd.targetRef, odd.expiresAt], ['repo-1', 'refs/heads/main', '2027-01-01T00:00:00.000Z']);
+    const both = (() => { try { meritPolicyInputFromRead({ ...meritPolicyInputFromRead(policyRead), approvalTtlSeconds: 60 }); } catch (e) { return (e as Error).message; } return ''; })();
+    equal(both, 'give approvalTtl or approvalTtlSeconds, not both');
   }),
   test('merit.policies.pause, resume and disable are keyed commands without a body; agents are refused before sending', async () => {
     const { fetch, calls } = scriptedFetch(json(200, { id: 'pol-3', paused: true }), json(200, { id: 'pol-3', paused: false }), new Response(null, { status: 204 }));
     const policies = journeys(client(fetch)).org(ORG).merit.policies;
     equal((await policies.pause('p', 'pol-3', { deadline: soon() })).paused, true);
     equal((await policies.resume('p', 'pol-3', { deadline: soon(), idempotencyKey: 'oc-merit-resume-0000000001' })).paused, false);
-    await policies.disable('p', 'pol-3', { deadline: soon() });
+    equal(await policies.disable('p', 'pol-3', { deadline: soon() }), { id: 'pol-3', disabled: true });
     equal(calls.map((c) => `${c.method} ${c.url}`), ['pause', 'resume', 'disable'].map((verb) => `POST ${BASE}/v1/orgs/${ORG}/projects/p/merit-policies/pol-3/${verb}`));
     equal(calls.map((c) => c.body), [undefined, undefined, undefined]);
     ok(keys(calls).every((k) => typeof k === 'string'));

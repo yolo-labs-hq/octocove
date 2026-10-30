@@ -13,7 +13,7 @@ import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, meritPolicyInputFromRead, MeritPolicySourceError, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -434,8 +434,6 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "This merit policy version was disabled for good; register a new version (`octo merit policy create`) instead."
       : err.code === "merit-not-needs-human"
         ? "The task is not held for a human (its merit state is not needs-human), so there is nothing to release. `octo task show TASK_ID` shows it."
-      : err.code === "merit-probe-rate-limited"
-        ? `The decision models were probed recently; run it again${err.retryAfter ? ` after ${err.retryAfter} s` : " later"}.`
       : err.code === "already-claimed"
           ? "Run `octo task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octo task release TASK_ID --claim ID`)."
           : undefined;
@@ -1406,7 +1404,7 @@ const COMMANDS: Record<string, Handler> = {
       ["Merit", r.lanePolicy?.merit ?? "disabled"], ["Declared", `${r.declaredAt} by ${r.declaredBy}`]]));
   },
 
-  // Merit (ADR 0040): a project admin's policy versions, the usage counter and the shadow comparison, and a human's
+  // Merit: a project admin's policy versions, the usage counter and the shadow comparison, and a human's
   // release of a needs-human hold. Each is one client journey (`org(tenantId).merit`); the CLI parses and prints.
   "merit policy list": async (d, args) => {
     const { v, pos } = opts(args, { repository: { type: "string" }, "target-ref": { type: "string" } }, 1);
@@ -1437,17 +1435,19 @@ const COMMANDS: Record<string, Handler> = {
       const text = v.file === "-" ? await d.stdin() : await readFile(resolve(d.cwd ?? process.cwd(), v.file), "utf8").catch((err: NodeJS.ErrnoException) => { throw new UsageError(`--file ${v.file}: ${err.code ?? err.message}`); });
       try { source = JSON.parse(text); } catch { throw new UsageError(`--file ${v.file} is not JSON`); }
     }
-    const sameProject = v["from-project"] === pos[0] && (v["from-org"] === undefined || v["from-org"] === (d.org ?? (d.env.OCTOCOVE_ORG || undefined)));
-    if (v["from-project"] !== undefined && !repositoryId && !sameProject) throw new UsageError("a copy from another project names this project's repository: pass --repository ID (`octo repo list PROJECT`)");
     const { api } = await meritAdmin(d, "merit policy create");
     const policies = api.j.merit.policies, project = pos[0]!;
     const options = api.write(COMMAND_SECONDS, v["idempotency-key"]);
-    if (source === undefined) {
-      source = await policies.copySource({ projectId: v["from-project"], ...(v["from-org"] ? { orgId: v["from-org"] } : {}), ...(v["from-policy"] ? { policyId: v["from-policy"] } : {}) }, options);
-    }
     let input;
-    try { input = await policies.prepare(project, source, overrides, options); }
-    catch (err) { throw err instanceof TypeError ? new UsageError(err.message) : err; }
+    try {
+      if (source === undefined) {
+        const from = { projectId: v["from-project"], ...(v["from-org"] ? { orgId: v["from-org"] } : {}), ...(v["from-policy"] ? { policyId: v["from-policy"] } : {}) };
+        ({ source, input } = await policies.prepareCopy(project, from, overrides, options));
+      } else input = await policies.prepare(project, source, overrides, options);
+    } catch (err) {
+      if (err instanceof MeritPolicySourceError && err.code === "repository-required") throw new UsageError(`${err.message}: pass --repository ID (\`octo repo list ${project}\`)`);
+      throw err instanceof TypeError ? new UsageError(err.message) : err;
+    }
     // The key is chosen here, so a create that gets no answer can name it with the version it prepared.
     const key: string = v["idempotency-key"] ?? newIdempotencyKey();
     const resume = ["octo merit policy create", project, ...(v.file !== undefined ? ["--file", v.file] : ["--from-project", v["from-project"], ...(v["from-org"] ? ["--from-org", v["from-org"]] : []), "--from-policy", (source as { id?: string }).id ?? v["from-policy"]]),
@@ -1775,8 +1775,7 @@ function meritPolicyWrite(verb: "pause" | "resume" | "disable"): Handler {
     const { v, pos } = opts(args, {}, 2);
     const { api } = await meritAdmin(d, `merit policy ${verb}`);
     const r = await api.j.merit.policies[verb](pos[0]!, pos[1]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
-    const body = verb === "disable" ? { id: pos[1], disabled: true } : r;
-    out(d, v.json, body, () => kv(verb === "disable" ? [["Policy", pos[1]], ["Status", "disabled (revoked for good; register a new version to evaluate again)"]]
+    out(d, v.json, r, () => kv(verb === "disable" ? [["Policy", pos[1]], ["Status", "disabled (revoked for good; register a new version to evaluate again)"]]
       : [["Policy", (r as { id: string }).id], ["Paused", (r as { paused: boolean }).paused ? "yes (the evaluator admits nothing under it)" : "no (live again when it is the latest, unexpired version)"]]));
   };
 }
@@ -1784,7 +1783,7 @@ function windowFlags(v: Record<string, any>) {
   for (const flag of ["since", "until"]) if (v[flag] !== undefined && !Number.isFinite(Date.parse(v[flag]))) throw new UsageError(`--${flag} must be an RFC 3339 timestamp`);
   return { ...(v.since ? { since: v.since } : {}), ...(v.until ? { until: v.until } : {}) };
 }
-const standing = (p: MeritPolicyVersionView) => p.live ? "live" : p.revokedAt ? `revoked ${p.revokedAt}` : p.expired ? "expired" : p.paused ? "paused" : !p.latest ? "superseded" : "not live";
+const standing = (p: MeritPolicyVersionView) => { const s = meritPolicyStanding(p); return s === "revoked" ? `revoked ${p.revokedAt}` : s; };
 function policyRows(p: MeritPolicyVersionView): [string, unknown][] {
   const b = p.body as Record<string, any>;
   return [["Policy", p.id], ["Version", p.version], ["Repository", p.repositoryId], ["Target ref", p.targetRef], ["Standing", standing(p)], ["Expires", p.expiresAt],

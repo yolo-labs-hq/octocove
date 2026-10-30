@@ -16,11 +16,14 @@ with every command a thin layer over a typed client method.
   `repositoryId`, `targetRef`, `expiresAt`, `version` and `evaluation.model` (`evaluator`). New journeys:
   `merit.policies.prepare` (the registration, with the next version from the project list unless one is named),
   `merit.policies.copySource` (another project's version by id, or its one live version, in this or another org;
-  `MeritPolicySourceError` with `no-live-policy` / `ambiguous-live-policy`), `merit.policies.copy` (both, then
-  `register`), `merit.releaseCandidate` (the release for a candidate's task) and `repositories.setMerit` (the merit
+  `MeritPolicySourceError` with `no-live-policy` / `ambiguous-live-policy`), `merit.policies.prepareCopy` (both;
+  a source in another project or org needs `overrides.repositoryId`, else `MeritPolicySourceError`
+  `repository-required` before anything is read), `merit.policies.copy` (`prepareCopy`, then `register`), `merit.releaseCandidate` (the release for a candidate's task) and `repositories.setMerit` (the merit
   opt-in, keeping the publication and visibility it reads). `merit.policies.register`, `pause`, `resume` and
-  `disable` now refuse a delegation, bootstrap or grant before sending, as `merit.release` does. Exported types
-  `MeritPolicyDraft`, `MeritPolicyOverrides`, `MeritPolicyCopySource`.
+  `disable` now refuse a delegation, bootstrap or grant before sending, as `merit.release` does; `disable` resolves to
+  `{id, disabled: true}` (the route answers `204`). `meritPolicyStanding(view)` (pure) names a version's standing:
+  `live`, `revoked`, `expired`, `paused`, `superseded` or `not-live`. Exported types `MeritPolicyDraft`,
+  `MeritPolicyOverrides`, `MeritPolicyCopySource`, `MeritPolicyDisabled`, `MeritPolicyStanding`.
 - CLI: `octo merit policy list|get|create|pause|resume|disable`, `octo merit usage`, `octo merit shadow` and
   `octo merit release (TASK | --candidate ID)`, human-only, each with text output and `--json`. `merit policy create`
   takes `--file FILE` (`-` for stdin) in the registration form or the read form (`merit policy get --json` as is), or
@@ -29,7 +32,7 @@ with every command a thin layer over a typed client method.
   it. `merit policy get` also prints the registration form. `octo repo lane-policy PROJECT REPOSITORY --merit
   enabled|disabled` opts a repository in or out (alone it keeps the publication and visibility). Specific guidance for
   `policy-version-conflict`, `invalid-policy-body`, `limits-exceed-state-bound`, `policy-revoked`,
-  `merit-not-needs-human` and `merit-probe-rate-limited`.
+  `merit-not-needs-human`.
 - CLI: `project create --github` and `project init-status` print an attached GitHub repository as `owner/name`
   (init-status reads the owner from the project's repository list), not the bare name.
 
