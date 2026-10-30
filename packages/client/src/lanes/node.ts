@@ -19,6 +19,11 @@ const absent = (error: unknown) => ['ENOENT', 'ENOTDIR'].includes((error as Node
 async function lstatOrNull(target: string) {
   try { return await lstat(target); } catch (error) { if (absent(error)) return null; throw error; }
 }
+/** Makes a rename into `dir` durable: the directory entry itself is synced (best effort where a platform cannot). */
+async function syncDir(dir: string) {
+  let handle;
+  try { handle = await open(dir, constants.O_RDONLY); await handle.sync(); } catch { /* not supported here */ } finally { await handle?.close().catch(() => undefined); }
+}
 const kindOf = (s: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): LaneEntryKind =>
   s.isSymbolicLink() ? 'symlink' : s.isDirectory() ? 'directory' : s.isFile() ? 'file' : 'other';
 
@@ -123,6 +128,7 @@ export function nodeLaneFiles(directory: string): LaneFiles {
         const existing = await lstatOrNull(at);
         if (existing?.isDirectory()) await rm(at, { recursive: true, force: true });
         await rename(temp, at);
+        if (isState) await syncDir(dirname(at));
       } catch (error) {
         await rm(temp, { force: true }).catch(() => undefined);
         throw error;
@@ -197,6 +203,7 @@ export function fileJournal(directory: string): JournalStore {
       try { await handle.writeFile(JSON.stringify(entry, null, 2) + '\n'); await handle.sync(); } finally { await handle.close(); }
       await chmod(temp, 0o600);
       await rename(temp, name(entry.id));
+      await syncDir(root);
     },
     async delete(id) { await rm(name(id), { force: true }); },
     async list(taskId) {

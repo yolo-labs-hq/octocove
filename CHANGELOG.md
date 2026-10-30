@@ -31,6 +31,10 @@ the client, so a runner gets the lane protocol from the library. The CLI's lane 
   broker to send. The broker passes its answer to `resume(journalId, {delegated})`. A bound refresh never follows a
   moved head or the server's current generation by itself.
 - Client: the pack reader caps the bytes a pack inflates to and the delta chain it follows.
+- Client: a staged blob whose recorded answer expired (`idempotency-result-expired` on `laneBlobUpload`) is staged
+  again under a new key, and the save carries on. Only an operation's own write marks it applied and keeps its
+  entry as a record. Under `/node`, the directory is synced after the lane's state or a journal entry is renamed
+  into place.
 - Client: `LaneError` for the engine's own refusals (`outcome: 'not-sent'`, or `unknown` for an unusable write
   answer). `LANE_LIMITS` holds the server limits the engine plans around, in one place: the API documents them but
   does not expose them in any answer.

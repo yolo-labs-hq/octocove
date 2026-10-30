@@ -506,11 +506,12 @@ export function createLanes(options: LanesOptions): Lanes {
    * a `refused` record that is never resent (the work it carried is not silently redone as something new). Any other
    * refusal ends it.
    */
-  const settle = async (entry: LaneJournalEntry, error: unknown): Promise<unknown> => {
+  const settle = async (entry: LaneJournalEntry, error: unknown, own = true): Promise<unknown> => {
+    // Only for the operation's own write (a staged blob's expiry is handled where it is staged).
     // The key's recorded result has expired: the write was applied, and its answer is gone. Resending cannot recover it,
     // so the entry is kept as a record and the lane head it moved is taken by a refresh (the next save on the old head
     // is refused lane-head-moved).
-    if (error instanceof ApiError && error.code === 'idempotency-result-expired') {
+    if (own && error instanceof ApiError && error.code === 'idempotency-result-expired') {
       entry.refusal = { code: error.code, status: error.status, disposition: error.disposition };
       await advance(entry, 'refused');
       return new LaneError('result-expired', `the ${entry.operation} was applied, but its recorded answer expired; refresh the lane to take the lane head it moved to, then discard ${entry.id}`,
@@ -809,8 +810,16 @@ export function createLanes(options: LanesOptions): Lanes {
       if (!isRecord(r) || r.blobId !== digest) fail('invalid-response', `the control plane recorded a different blob id for ${what}`);
       return digest;
     }
-    const key = `lane-blob-${sc.executionId}-${digest}`.slice(0, 128);
-    const r = (await write(run, 'laneBlobUpload', { path: { id: sc.taskId }, body: { content: toBase64(content) } }, key)).body;
+    const body = { content: toBase64(content) };
+    let r: unknown;
+    try { r = (await write(run, 'laneBlobUpload', { path: { id: sc.taskId }, body }, `lane-blob-${sc.executionId}-${digest}`.slice(0, 128))).body; }
+    catch (error) {
+      // This content was staged under its key longer ago than the server keeps the answer. Staging is by content, so
+      // it is staged again under a new key (nothing but the blob is written); the operation it belongs to was never
+      // sent and carries on.
+      if (!(error instanceof ApiError) || error.code !== 'idempotency-result-expired') throw error;
+      r = (await write(run, 'laneBlobUpload', { path: { id: sc.taskId }, body }, `lane-blob-${newIdempotencyKey()}`)).body;
+    }
     if (!isRecord(r) || r.blobId !== digest) fail('invalid-response', `the control plane recorded a different blob id for ${what}`);
     return digest;
   }
@@ -1059,7 +1068,7 @@ export function createLanes(options: LanesOptions): Lanes {
           if (!content) fail('content-missing', `the bytes planned for ${JSON.stringify(p.path)} are no longer kept (${OBJECTS}); nothing was saved. Save again`, { path: p.path, digest: p.digest });
           await uploadBlob(run, staging, content!, p.path, p.digest);
         }
-      } catch (error) { throw await settle(entry, error); }
+      } catch (error) { throw await settle(entry, error, false); }   // staging, not the save point itself
       await advance(entry, 'sent');
       let r: Record<string, any>;
       try { r = (await write(run, 'laneChangesSubmit', { path: { id: entry.taskId }, body: entry.body }, entry.idempotencyKey)).body; }

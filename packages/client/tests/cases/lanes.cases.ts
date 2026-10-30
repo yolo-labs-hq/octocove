@@ -274,6 +274,27 @@ export const laneCases: Case[] = [
     equal(w.server.count('laneChangesSubmit'), before, 'never resent');
   }),
 
+  test('a staged blob whose recorded answer expired is staged again under a new key; the save point is sent as planned, once, and is not marked applied', async () => {
+    const w = world();
+    const { files, journal, lanes } = await materialized(w);
+    await files.write('src/a.txt', { kind: 'file', bytes: enc('staged long ago\n') });
+    w.server.fail('laneBlobUpload', problem(409, 'idempotency-result-expired'));
+    const saved = await lanes.save(opts());
+    const uploads = keysOf(w.server, 'laneBlobUpload');
+    equal([uploads.length, new Set(uploads).size, w.server.lane('T1').savePoints.length, saved.savePointId, (await journal.list()).length],
+      [2, 2, 1, w.server.lane('T1').savePoints[0]!.savePointId, 0]);
+    // The same on a resume: a save point whose answer was lost, resumed after its blob's staging answer expired.
+    await files.write('src/a.txt', { kind: 'file', bytes: enc('second\n') });
+    w.server.fail('laneChangesSubmit', ...Array(12).fill('lost-answer'));
+    await rejects(() => lanes.save(opts()), TransportError);
+    w.server.clear();
+    const [entry] = await journal.list();
+    w.server.fail('laneBlobUpload', problem(409, 'idempotency-result-expired'));
+    await lanes.resume(entry!.id, opts());
+    const sends = keysOf(w.server, 'laneChangesSubmit').slice(1);
+    equal([w.server.lane('T1').savePoints.length, sends.every((k) => k === entry!.idempotencyKey), (await journal.list()).length], [2, true, 0]);
+  }),
+
   test('resume takes only its own journal ids, for the lane these files hold, and a delegated answer only for a newer generation at a lane head', async () => {
     const server = fakeServer();
     const broker = fakeBroker(server);
