@@ -32,6 +32,17 @@ export function nodeLaneFiles(directory: string): LaneFiles {
   const root = resolve(directory);
   let created = false;
   let insensitive: boolean | undefined;
+  let swept = false;
+  /** Once per process: temporary files a killed writer left under `.octocove/tmp` (older than a minute) are removed. */
+  async function sweep(dir: string) {
+    if (swept) return;
+    swept = true;
+    for (const name of await readdir(dir).catch(() => [] as string[])) {
+      if (!/^\.octocove-[0-9a-f-]+\.tmp$/.test(name)) continue;
+      const s = await lstatOrNull(join(dir, name));
+      if (s && Date.now() - s.mtimeMs > 60_000) await rm(join(dir, name), { force: true }).catch(() => undefined);
+    }
+  }
   /** The first existing parent of `path` that is not a real directory: a symlink, or a file (a tree transition). */
   async function blockingParent(path: string): Promise<{ at: string; symlink: boolean } | null> {
     const parts = path.split('/');
@@ -61,12 +72,26 @@ export function nodeLaneFiles(directory: string): LaneFiles {
     async read(path) {
       const { at, blocked } = await target(path);
       if (blocked) return null;
-      const s = await lstatOrNull(at);
-      if (!s) return null;
-      if (s.isSymbolicLink()) { const link = await readlink(at, { encoding: 'buffer' }); return { kind: 'symlink', bytes: new Uint8Array(link.buffer, link.byteOffset, link.length) }; }
-      if (!s.isFile()) return null;
-      const bytes = await readFile(at);
-      return { kind: 'file', bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), executable: (s.mode & 0o111) !== 0 };
+      // Opened without following a link (a symlink is read as one) and checked on the open handle, so what is read is
+      // what was checked; non-blocking, so a FIFO planted at the path is reported as not a file rather than waited on.
+      let handle;
+      try { handle = await open(at, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (absent(error)) return null;
+        if (code === 'ELOOP' || code === 'EMLINK') {
+          const link = await readlink(at, { encoding: 'buffer' });
+          return { kind: 'symlink', bytes: new Uint8Array(link.buffer, link.byteOffset, link.length) };
+        }
+        if (code === 'ENXIO' || code === 'EISDIR') return null;
+        throw error;
+      }
+      try {
+        const s = await handle.stat();
+        if (!s.isFile()) return null;
+        const bytes = await handle.readFile();
+        return { kind: 'file', bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.length), executable: (s.mode & 0o111) !== 0 };
+      } finally { await handle.close(); }
     },
     async write(path, content: LaneContent) {
       const { at, blocked } = await target(path);
@@ -84,13 +109,16 @@ export function nodeLaneFiles(directory: string): LaneFiles {
         const s = await lstat(dir);
         if (s.isDirectory() && !s.isSymbolicLink()) tempDir = dir;
       }
+      if (tempDir !== dirname(at)) await sweep(tempDir);
       const temp = join(tempDir, `.octocove-${randomUUID()}.tmp`);
+      // The lane's own state (sidecar, journal, kept copies) is private and durable before it is renamed into place.
+      const isState = path === LANE_DIR || path.startsWith(`${LANE_DIR}/`);
       try {
         if (content.kind === 'symlink') await symlink(Buffer.from(content.bytes.buffer, content.bytes.byteOffset, content.bytes.length), temp);
         else {
-          const mode = content.executable ? 0o755 : 0o644;
+          const mode = isState ? 0o600 : content.executable ? 0o755 : 0o644;
           const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
-          try { await handle.writeFile(content.bytes); await handle.chmod(mode); } finally { await handle.close(); }
+          try { await handle.writeFile(content.bytes); await handle.chmod(mode); if (isState) await handle.sync(); } finally { await handle.close(); }
         }
         const existing = await lstatOrNull(at);
         if (existing?.isDirectory()) await rm(at, { recursive: true, force: true });

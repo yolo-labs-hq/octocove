@@ -41,6 +41,8 @@ const r = (area: ProblemArea, extra: Partial<ProblemClass> = {}): ProblemClass =
 const a = (area: ProblemArea, extra: Partial<ProblemClass> = {}): ProblemClass => Object.freeze({ area, disposition: 'reauth', ...extra });
 const ATTEMPT = { endsAttempt: true } as const;
 const ENDS = { endsAuthority: true } as const;
+/** The execution is over, and so is every token of it: the server refuses them on every route, renewal included. */
+const SUPERSEDED = { endsAttempt: true, endsAuthority: true } as const;
 const UNKNOWN = { unknown: true } as const;
 
 /**
@@ -66,7 +68,7 @@ export const PROBLEM_CODES: Readonly<Record<string, ProblemClass>> = Object.free
   'repository-import-failed': t('claim'),
   'repository-unverified': t('claim'),
   // lanes
-  'execution-superseded': t('lane', ATTEMPT),
+  'execution-superseded': t('lane', SUPERSEDED),
   'execution-inactive': t('lane', ATTEMPT),
   'authority-lost': t('lane', ATTEMPT),
   'generation-superseded': t('lane'),

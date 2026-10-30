@@ -54,13 +54,13 @@ function renewing(record: StoredCredential, options: { renewAheadMs?: number; fa
 }
 
 /** The expected disposition of every code the client classifies: kept here, independent of PROBLEM_CODES. */
-/** The third column: which end a code means — `attempt` (the claim attempt or execution), `authority` (the credential) or none. */
-const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', 'attempt' | 'authority' | false]> = {
+/** The third column: which end a code means — `attempt` (the claim attempt or execution), `authority` (the credential), `both`, or none. */
+const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', 'attempt' | 'authority' | 'both' | false]> = {
   'claim-inactive': ['terminal', 'refused', 'attempt'], 'already-claimed': ['terminal', 'refused', false], 'not-ready': ['terminal', 'refused', false],
   'unauthorized': ['terminal', 'refused', false], 'task-closed': ['terminal', 'refused', false], 'bootstrap-consumed': ['reauth', 'refused', false],
   'lane-reopen-required': ['reauth', 'refused', false], 'dependency-unlanded': ['terminal', 'refused', false], 'write-scope-claimed': ['terminal', 'refused', false],
   'repository-importing': ['retryable', 'refused', false], 'repository-import-failed': ['terminal', 'refused', false], 'repository-unverified': ['terminal', 'refused', false],
-  'execution-superseded': ['terminal', 'refused', 'attempt'], 'execution-inactive': ['terminal', 'refused', 'attempt'], 'authority-lost': ['terminal', 'refused', 'attempt'],
+  'execution-superseded': ['terminal', 'refused', 'both'], 'execution-inactive': ['terminal', 'refused', 'attempt'], 'authority-lost': ['terminal', 'refused', 'attempt'],
   'generation-superseded': ['terminal', 'refused', false], 'lane-not-materialized': ['terminal', 'refused', false], 'lane-head-moved': ['terminal', 'refused', false],
   'refresh-conflict': ['terminal', 'refused', false], 'scope-overlap': ['terminal', 'refused', false], 'scope-refused': ['terminal', 'refused', false],
   'scope-unchanged': ['terminal', 'refused', false], 'scope-request-decided': ['terminal', 'refused', false], 'base-unchanged': ['terminal', 'refused', false],
@@ -244,7 +244,7 @@ export const runnerCases: Case[] = [
     for (const [code, [disposition, outcome, ends]] of Object.entries(EXPECTED)) {
       const status = STATUS[code] ?? 409;
       const error = new ApiError({ status, code });
-      const attempt = ends === 'attempt', authority = ends === 'authority';
+      const attempt = ends === 'attempt' || ends === 'both', authority = ends === 'authority' || ends === 'both';
       equal([error.disposition, error.outcome, error.endsAttempt, error.endsAuthority], [disposition, outcome, attempt, authority], code);
       equal(problemClass(code, status), { disposition, outcome, endsAttempt: attempt, endsAuthority: authority }, code);
       equal([isRetryable(error), isTerminal(error), needsReauth(error), outcomeUnknown(error), endsAttempt(error), endsAuthority(error)],

@@ -74,7 +74,7 @@ export const laneCases: Case[] = [
     equal((await journal.list()).length, 0, 'nothing unfinished');
   }),
 
-  test('journal: a save point records its exact body (operations, message, expectedHead) and the key derived from it, before it is sent', async () => {
+  test('journal: a save point records its exact body (operations, message, expectedHead) and a new key, before it is sent; a derived key only on request', async () => {
     const w = world();
     const { files, journal } = await materialized(w);
     const seen: LaneJournalEntry[] = [];
@@ -87,15 +87,19 @@ export const laneCases: Case[] = [
     const body = entry.body as { generation: number; expectedHead: string; operations: { op: string; path: string; blobId: string }[]; message: string };
     equal([body.expectedHead, body.message, body.generation, body.operations.map((o) => [o.op, o.path, o.blobId])],
       [head, 'the message', 1, [['put', 'src/b.txt', await blobDigest(enc('bravo 2\n'))]]]);
-    equal(entry.idempotencyKey, await saveKey(w.server.lane('T1').executionId, entry.body));
+    ok(/^oc-[0-9a-f]{32}$/.test(entry.idempotencyKey), 'a new random key, recorded before sending');
     equal(keysOf(w.server, 'laneChangesSubmit'), [entry.idempotencyKey]);
     const sent = w.server.requests.find((r) => r.operationId === 'laneChangesSubmit')!;
     equal(sent.body, entry.body, 'the request is exactly the journaled body');
     // A wrap-up's key is derived from its body the same way.
     const wrapSeen: LaneJournalEntry[] = [];
     const lanes2 = createLanes({ client: w.client, files, journal: { ...journal, async put(e) { if (e.operation === 'wrap-up') wrapSeen.push(structuredClone(e)); return journal.put(e); } } });
-    await lanes2.wrapUp(opts({ message: 'wrap' }));
-    equal(wrapSeen[0]!.idempotencyKey, await wrapUpKey(w.server.lane('T1').executionId, wrapSeen[0]!.body));
+    await lanes2.wrapUp(opts({ message: 'wrap', derivedKey: true }));
+    equal(wrapSeen[0]!.idempotencyKey, await wrapUpKey(w.server.lane('T1').executionId, wrapSeen[0]!.body), 'derivedKey: the key from the body');
+    await files.write('src/b.txt', { kind: 'file', bytes: enc('bravo 3\n') });
+    const derived: LaneJournalEntry[] = [];
+    await createLanes({ client: w.client, files, journal: { ...journal, async put(e) { if (e.operation === 'save') derived.push(structuredClone(e)); return journal.put(e); } } }).save(opts({ derivedKey: true }));
+    equal(derived[0]!.idempotencyKey, await saveKey(w.server.lane('T1').executionId, derived[0]!.body));
     equal((wrapSeen[0]!.body as { laneHead: string }).laneHead, w.server.lane('T1').savePoints[0]!.laneHead);
   }),
 
@@ -159,7 +163,7 @@ export const laneCases: Case[] = [
     await files.write('src/a.txt', { kind: 'file', bytes: enc('second edit\n') });
     await files.write('src/c.txt', { kind: 'file', bytes: enc('charlie\n') });
     const restarted = createLanes({ client: w.client, files, journal });
-    await restarted.resume((await journal.list())[0]!, opts());
+    await restarted.resume((await journal.list())[0]!.id, opts());
     const lane = w.server.lane('T1');
     const sends = w.server.requests.filter((r) => r.operationId === 'laneChangesSubmit');
     equal([lane.savePoints.length, dec(lane.files.get('src/a.txt')!.bytes), lane.files.has('src/c.txt')], [1, 'first edit\n', false]);
@@ -224,11 +228,74 @@ export const laneCases: Case[] = [
       const [kept] = (await journal.list()).filter((e) => e.step === 'refused');
       equal([kept?.operation, kept?.refusal?.code], ['save', code], code);
       const before = w.server.count('laneChangesSubmit');
-      const again = await rejects(() => lanes.resume(kept!, opts()), LaneError);
+      const again = await rejects(() => lanes.resume(kept!.id, opts()), LaneError);
       equal([again.code, again.outcome, w.server.count('laneChangesSubmit')], ['operation-refused', 'not-sent', before], `${code}: never resent`);
       equal((await lanes.status()).modified, ['src/a.txt'], `${code}: the edits are kept`);
       await lanes.discard(kept!);
     }
+  }),
+
+  test('a new key per operation: wrapping up the same head again after a stale or failed candidate, or saving again after a terminal refusal, is a new request with a new answer', async () => {
+    const w = world();
+    const { files, journal, lanes } = await materialized(w);
+    await files.write('src/a.txt', { kind: 'file', bytes: enc('x\n') });
+    await lanes.save(opts());
+    const first = await lanes.wrapUp(opts({ message: 'same' }));
+    // The candidate went stale (or failed its checks): the same head and message wrap up again, afresh.
+    const second = await lanes.wrapUp(opts({ message: 'same' }));
+    const keys = keysOf(w.server, 'laneWrapUp');
+    equal([w.server.lane('T1').wrapUps.length, keys.length, new Set(keys).size, second.candidateId !== first.candidateId], [2, 2, 2, true]);
+    // A terminal refusal of a wrap-up does not bind the next one to it.
+    w.server.fail('laneWrapUp', problem(409, 'change-failed', { details: { reason: 'checks' } }));
+    await rejects(() => lanes.wrapUp(opts({ message: 'same' })), ApiError);
+    equal((await journal.list()).length, 0, 'a terminal refusal is not kept to resend');
+    const third = await lanes.wrapUp(opts({ message: 'same' }));
+    equal([w.server.lane('T1').wrapUps.length, new Set(keysOf(w.server, 'laneWrapUp')).size, third.candidateId], [3, 4, w.server.lane('T1').wrapUps[2]!.candidateId]);
+    // The same for a save point refused terminally: the same edits save afresh, under a new key.
+    await files.write('src/a.txt', { kind: 'file', bytes: enc('y\n') });
+    w.server.fail('laneChangesSubmit', problem(409, 'change-failed', { details: { reason: 'push-rejected' } }));
+    await rejects(() => lanes.save(opts()), ApiError);
+    await lanes.save(opts());
+    const saves = keysOf(w.server, 'laneChangesSubmit');
+    equal([w.server.lane('T1').savePoints.length, saves.length, new Set(saves).size], [2, 3, 3]);
+  }),
+
+  test('an expired idempotency result means the write was applied: the entry is kept as a record, never resent, and the lane head is taken by a refresh', async () => {
+    const w = world();
+    const { files, journal, lanes } = await materialized(w);
+    await files.write('src/a.txt', { kind: 'file', bytes: enc('x\n') });
+    w.server.fail('laneChangesSubmit', problem(409, 'idempotency-result-expired'));
+    const expired = await rejects(() => lanes.save(opts()), LaneError);
+    equal([expired.code, expired.outcome], ['result-expired', 'unknown']);
+    const [kept] = await journal.list();
+    equal([kept?.step, kept?.refusal?.code], ['refused', 'idempotency-result-expired']);
+    const before = w.server.count('laneChangesSubmit');
+    equal((await rejects(() => lanes.resume(kept!.id, opts()), LaneError)).code, 'operation-refused');
+    equal(w.server.count('laneChangesSubmit'), before, 'never resent');
+  }),
+
+  test('resume takes only its own journal ids, for the lane these files hold, and a delegated answer only for a newer generation at a lane head', async () => {
+    const server = fakeServer();
+    const broker = fakeBroker(server);
+    server.lane('T1', { files: FILES, scope: { read: ['src', 'docs'], write: ['src'] } });
+    const upstream = server.issue({ kind: 'delegation', taskId: 'T1' });
+    const handle = broker.grant({ orgId: ORG, taskId: 'T1', operations: [...LANE_OPS], writePaths: ['src'], upstreamToken: upstream.token });
+    const runner = tenantClient(createClient({ baseUrl: server.baseUrl, transport: bound(), fetch: broker.fetch(handle), retryDelayMs: () => 1 }), ORG);
+    const files = memoryLaneFiles(), journal = memoryJournal();
+    const lanes = createLanes({ client: runner, files, journal });
+    await lanes.materialize('T1', opts());
+    server.lane('T1').upstream = { 'src/b.txt': 'b2\n' };
+    const required = await rejects(() => lanes.refresh(opts()), LaneActionRequiredError);
+    const entry = (await journal.get(required.journalId!))!;
+    equal((await rejects(() => lanes.resume({ ...entry } as unknown as string, opts()), LaneError)).code, 'journal-unknown', 'a caller-built entry is not resumed');
+    await journal.put({ ...entry, id: 'T9:refresh:x', taskId: 'T9' });
+    equal((await rejects(() => lanes.resume('T9:refresh:x', opts()), LaneError)).code, 'journal-unknown', 'another lane\'s entry is not resumed here');
+    for (const body of [{ generation: 1, laneHead: 'a'.repeat(40) }, { generation: 2 }, { generation: 2, laneHead: 'not-a-sha' }, 'nothing']) {
+      const error = await rejects(() => lanes.resume(required.journalId!, opts({ delegated: { body } })), LaneError, JSON.stringify(body));
+      ok(['invalid-delegated-answer', 'invalid-response'].includes(error.code), error.code);
+      ok((await journal.get(required.journalId!)) !== undefined, 'the entry is kept for the right answer');
+    }
+    equal(server.count('laneManifestGet'), 1, 'nothing was read with a refused answer');
   }),
 
   test('bound mode: refresh and handover need the broker (LaneActionRequiredError, nothing sent); the broker sends them with its own client and the refresh resumes', async () => {
@@ -254,6 +321,7 @@ export const laneCases: Case[] = [
     const own = tenantClient(createClient({ baseUrl: server.baseUrl, transport: bearer({ token: upstream.token, kind: 'delegation' }), fetch: server.fetch }), ORG);
     const answer = await own.call('laneGenerationCreate', { path: { id: 'T1' }, body: required.action.body as never, idempotencyKey: required.action.idempotencyKey });
     const refreshed = await lanes.resume(required.journalId!, opts({ delegated: { body: answer.body } })) as { refreshed: boolean; generation: number; updated: string[]; added: string[] };
+    equal(Object.keys((await journal.list())[0]?.answer ?? {}), [], 'finished: nothing kept');
     equal([refreshed.refreshed, refreshed.generation, refreshed.updated, refreshed.added], [true, 2, ['src/b.txt'], ['src/z.txt']]);
     equal([dec((await files.read('src/a.txt'))!.bytes), dec((await files.read('src/b.txt'))!.bytes), (await journal.list()).length], ['local edit\n', 'bravo upstream\n', 0]);
     equal(broker.denials.length, 0, 'the runner never asked the broker for either');

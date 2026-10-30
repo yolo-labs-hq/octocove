@@ -69,8 +69,17 @@ export interface LaneCallOptions extends CommandOptions {
   readonly notify?: (line: string) => void;
 }
 export interface LaneRefreshOptions extends LaneCallOptions { readonly resolve?: readonly LaneResolutionInput[] }
-export interface LaneSaveOptions extends LaneCallOptions { readonly message?: string }
-export interface LaneWrapUpOptions extends LaneRefreshOptions { readonly message?: string; readonly allowUnsaved?: boolean }
+export interface LaneSaveOptions extends LaneCallOptions {
+  readonly message?: string;
+  /**
+   * Opt in to the key `saveKey` derives from the execution and the body, instead of a new random key. Only for a
+   * caller that keeps no journal and must resend the same work under the same key: the server replays the recorded
+   * answer for that key and body for as long as it keeps it, a refusal included, so the same body can never be saved
+   * afresh under it. Default: a new key per operation, recorded in the journal before anything is sent.
+   */
+  readonly derivedKey?: boolean;
+}
+export interface LaneWrapUpOptions extends LaneRefreshOptions { readonly message?: string; readonly allowUnsaved?: boolean; /** As for `save`, with `wrapUpKey`. */ readonly derivedKey?: boolean }
 export interface LaneResumeOptions extends LaneCallOptions {
   /** What a broker got for the `LaneActionRequiredError.action` it sent: the answer's body, or the error it raised. */
   readonly delegated?: { readonly body: unknown } | { readonly error: unknown };
@@ -137,8 +146,8 @@ export interface Lanes {
   pending(taskId?: string): Promise<LaneJournalEntry[]>;
   /** Removes a journal entry (a `refused` one, once the caller has handled it). Nothing is sent. */
   discard(entry: LaneJournalEntry | string): Promise<void>;
-  /** Continues an unfinished operation with its recorded key and body. */
-  resume(entry: LaneJournalEntry | string, options: LaneResumeOptions): Promise<LaneMaterializeResult | LaneRefreshResult | LaneSaveResult | LaneWrapUpResult>;
+  /** Continues an unfinished operation, by its journal id, with its recorded key and body. */
+  resume(journalId: string, options: LaneResumeOptions): Promise<LaneMaterializeResult | LaneRefreshResult | LaneSaveResult | LaneWrapUpResult>;
 }
 
 // ---- helpers ----
@@ -167,9 +176,14 @@ interface At { head?: string | null; base?: string | null; claim?: string }
 type Resolution = { path: string; take: 'lane' | 'base' } | { path: string; take: 'content'; blobId: string; mode: '100644' | '100755' | '120000' };
 interface Run { readonly scope: CallScope; readonly options: LaneCallOptions; readonly deadline: number }
 
-/** The key a save point is sent under: the execution and the exact body, so the same work always has the same key. */
+/**
+ * A key derived from the execution and the exact body of a save point: the same work, the same key. Opt-in only
+ * (`derivedKey`): the server replays a key's recorded answer, a terminal refusal or a stale result included, so a
+ * derived key would turn one failed or stale save into a permanent replay. The engine's default is a random key per
+ * operation, kept in the journal for recovery.
+ */
 export const saveKey = async (executionId: string, body: Record<string, unknown>) => `lane-save-${await sha256(utf8(canonical({ executionId, body })))}`;
-/** The key a wrap-up is sent under: the execution and the exact body. */
+/** A key derived from the execution and the exact body of a wrap-up; opt-in only, as `saveKey`. */
 export const wrapUpKey = async (executionId: string, body: Record<string, unknown>) => `lane-wrap-up-${await sha256(utf8(canonical({ executionId, body })))}`;
 
 /** Why a lane write is waiting: another transition settling, the lane repository resuming, or a rate limit. */
@@ -492,7 +506,16 @@ export function createLanes(options: LanesOptions): Lanes {
    * a `refused` record that is never resent (the work it carried is not silently redone as something new). Any other
    * refusal ends it.
    */
-  const settle = async (entry: LaneJournalEntry, error: unknown) => {
+  const settle = async (entry: LaneJournalEntry, error: unknown): Promise<unknown> => {
+    // The key's recorded result has expired: the write was applied, and its answer is gone. Resending cannot recover it,
+    // so the entry is kept as a record and the lane head it moved is taken by a refresh (the next save on the old head
+    // is refused lane-head-moved).
+    if (error instanceof ApiError && error.code === 'idempotency-result-expired') {
+      entry.refusal = { code: error.code, status: error.status, disposition: error.disposition };
+      await advance(entry, 'refused');
+      return new LaneError('result-expired', `the ${entry.operation} was applied, but its recorded answer expired; refresh the lane to take the lane head it moved to, then discard ${entry.id}`,
+        { outcome: 'unknown', disposition: 'terminal', details: { entry: entry.id }, cause: error });
+    }
     const refusal = error instanceof ApiError
       ? { code: error.code, status: error.status, disposition: error.disposition, ...(error.retryAfter ? { notBefore: Date.now() + error.retryAfter * 1000 } : {}) } : undefined;
     if (outcomeOf(error) === 'unknown' || (error instanceof ApiError && error.disposition === 'retryable')) {
@@ -577,7 +600,10 @@ export function createLanes(options: LanesOptions): Lanes {
       await advance(entry, 'sent');
       const answer = (await settled(run, 'lane materialize', () => write(run, 'laneMaterialize', { path: { id: taskId }, body: {} }, entry.idempotencyKey, true))).body;
       if (!isRecord(answer) || !isSha(answer.laneHead) || !Number.isInteger(answer.generation)) throw unusable('invalid materialize response from the control plane');
-      await advance(entry, 'answered', answer);
+      // Only what is used later is recorded.
+      await advance(entry, 'answered', { generation: answer.generation, laneHead: answer.laneHead, executionId: answer.executionId, claimAttemptId: answer.claimAttemptId,
+        snapshotCommit: answer.snapshotCommit, laneRepository: isRecord(answer.laneRepository) ? { id: answer.laneRepository.id } : undefined, created: answer.created === true,
+        reopenId: typeof answer.reopenId === 'string' ? answer.reopenId : undefined });
     }
     const repo = entry.answer as Record<string, any>;
     const generation = repo.generation as number, head = repo.laneHead as string;
@@ -887,7 +913,7 @@ export function createLanes(options: LanesOptions): Lanes {
   }
   async function refreshRefused(run: Run, entry: LaneJournalEntry, error: unknown): Promise<LaneRefreshResult> {
     if (!(error instanceof ApiError) || outcomeOf(error) === 'unknown' || (error.disposition === 'retryable' && error.code !== 'base-unchanged')) throw await settle(entry, error);
-    if (endsAttempt(error) || endsAuthority(error) || error.code === 'intent-version-mismatch' || error.code === 'generation-superseded') throw await settle(entry, error);
+    if (endsAttempt(error) || endsAuthority(error) || error.code === 'intent-version-mismatch' || error.code === 'generation-superseded' || error.code === 'idempotency-result-expired') throw await settle(entry, error);
     await journal.delete(entry.id);
     const sc = await load();
     const attempt = Number(entry.state.attempt ?? 0), caughtUp = (entry.state.caughtUp ?? null) as string | null;
@@ -917,10 +943,15 @@ export function createLanes(options: LanesOptions): Lanes {
     }
     return applyGeneration(run, sc, { generation: lane!.generation, laneHead: lane!.laneHead }, resolutions, caughtUp);
   }
-  async function refreshAnswered(run: Run, entry: LaneJournalEntry, gen: unknown) {
+  async function refreshAnswered(run: Run, entry: LaneJournalEntry, gen: unknown, delegated = false) {
+    const sc = await load();
     if (!isRecord(gen) || !Number.isInteger(gen.generation)) throw unusable('invalid generation response from the control plane');
-    await advance(entry, 'answered', gen);
-    const result = await applyGeneration(run, await load(), gen, entry.body.resolutions as Resolution[] | undefined, (entry.state.caughtUp ?? null) as string | null);
+    // A broker's answer is checked before anything is read with it: a newer generation of this lane, at a lane head.
+    if (delegated && (entry.taskId !== sc.taskId || (gen.generation as number) <= sc.generation || !isSha(gen.laneHead)))
+      fail('invalid-delegated-answer', 'the delegated answer is not a newer generation of this lane at a lane head', { taskId: entry.taskId, generation: gen.generation });
+    const kept = { generation: gen.generation as number, ...(isSha(gen.laneHead) ? { laneHead: gen.laneHead } : {}) };
+    await advance(entry, 'answered', kept);
+    const result = await applyGeneration(run, sc, kept, entry.body.resolutions as Resolution[] | undefined, (entry.state.caughtUp ?? null) as string | null);
     await journal.delete(entry.id);
     return result;
   }
@@ -943,7 +974,7 @@ export function createLanes(options: LanesOptions): Lanes {
       const d = o.delegated;
       if (!d) { if (entry.step !== 'delegated') await advance(entry, 'delegated'); throw delegate(entry); }
       if ('error' in d) return refreshRefused(run, entry, d.error);
-      return refreshAnswered(run, entry, d.body);
+      return refreshAnswered(run, entry, d.body, true);
     }
     return sendRefresh(run, entry);
   }
@@ -983,7 +1014,11 @@ export function createLanes(options: LanesOptions): Lanes {
     return within(o, async (run) => {
       let sc = await load();
       const prior = await unfinished(run, sc.taskId, 'save');
-      if (prior) return continueSave(run, prior);
+      if (prior) {
+        // The save that was interrupted is finished first, exactly as it was planned: edits made since are not in it.
+        run.options.notify?.('resuming the save interrupted earlier with its recorded key and files; edits made since stay unsaved until the next save');
+        return continueSave(run, prior);
+      }
       sc = await load();
       const st = await status(sc);
       if (st.conflicts.length) fail('lane-conflicts-unresolved', `resolve ${st.conflicts.map((c) => c.path).join(', ')} first`, { conflicts: st.conflicts.map((c) => c.path) });
@@ -1005,7 +1040,7 @@ export function createLanes(options: LanesOptions): Lanes {
       for (const path of deletes) operations.push({ op: 'delete', path });
       operations.sort((a, b) => a.path.localeCompare(b.path));
       const body = { generation: sc.generation, expectedHead: sc.laneHead, operations, ...(o.message ? { message: o.message } : {}) };
-      const key = o.idempotencyKey ?? await saveKey(sc.executionId, body);
+      const key = o.idempotencyKey ?? (o.derivedKey ? await saveKey(sc.executionId, body) : newIdempotencyKey());
       const entry = await record('save', sc.taskId, key, body, { executionId: sc.executionId, planned });
       return continueSave(run, entry);
     });
@@ -1030,7 +1065,7 @@ export function createLanes(options: LanesOptions): Lanes {
       try { r = (await write(run, 'laneChangesSubmit', { path: { id: entry.taskId }, body: entry.body }, entry.idempotencyKey)).body; }
       catch (error) { throw await settle(entry, error); }
       if (!isRecord(r) || typeof r.savePointId !== 'string' || !isSha(r.laneHead)) throw unusable('invalid save point response from the control plane');
-      await advance(entry, 'answered', r);
+      await advance(entry, 'answered', { savePointId: r.savePointId, laneHead: r.laneHead, previousHead: r.previousHead, supersededCandidateId: r.supersededCandidateId ?? null });
     }
     const r = entry.answer as Record<string, any>;
     // The lane head now holds these edits, so they become the files' baseline (once: a resumed entry finds it done).
@@ -1053,7 +1088,7 @@ export function createLanes(options: LanesOptions): Lanes {
     return within(o, async (run) => {
       let sc = await load();
       const prior = await unfinished(run, sc.taskId, 'wrap-up');
-      if (prior) return continueWrapUp(run, prior);
+      if (prior) { run.options.notify?.('resuming the wrap-up interrupted earlier with its recorded key and body'); return continueWrapUp(run, prior); }
       sc = await load();
       const resolutions = await resolutionsFor(run, sc, 'wrap-up', o.resolve);
       const st = await status(sc);
@@ -1066,7 +1101,7 @@ export function createLanes(options: LanesOptions): Lanes {
           { unsaved, conflicts: st.conflicts.map((c) => c.path) });
       }
       const body = { generation: sc.generation, laneHead: sc.laneHead, ...(o.message ? { message: o.message } : {}), ...(resolutions ? { resolutions } : {}) };
-      const key = o.idempotencyKey ?? await wrapUpKey(sc.executionId, body);
+      const key = o.idempotencyKey ?? (o.derivedKey ? await wrapUpKey(sc.executionId, body) : newIdempotencyKey());
       const entry = await record('wrap-up', sc.taskId, key, body, { unsavedLeftOut: o.allowUnsaved ? unsaved : [], resolutions: resolutions?.length ?? 0 });
       return continueWrapUp(run, entry);
     });
@@ -1082,7 +1117,8 @@ export function createLanes(options: LanesOptions): Lanes {
         throw await settle(entry, error);
       }
       if (!isRecord(r) || typeof r.candidateId !== 'string' || !isSha(r.candidateSha) || !isSha(r.baseSha)) throw unusable('invalid wrap-up response from the control plane');
-      await advance(entry, 'answered', r);
+      await advance(entry, 'answered', { wrapUpId: r.wrapUpId, id: r.id, candidateId: r.candidateId, candidateSha: r.candidateSha, baseSha: r.baseSha, candidateStatus: r.candidateStatus,
+        contributionRef: r.contributionRef, laneHead: r.laneHead, supersededCandidateId: r.supersededCandidateId ?? null, provenance: { savePointCount: r.provenance?.savePointCount ?? null } });
     }
     const r = entry.answer as Record<string, any>;
     const sc = await load();
@@ -1144,10 +1180,12 @@ export function createLanes(options: LanesOptions): Lanes {
     checkResolvable: (operation) => checkResolvable(operation),
     async pending(taskId) { return journal.list(taskId ?? (await isLane() ? (await load()).taskId : undefined)); },
     async discard(entryOrId) { await journal.delete(typeof entryOrId === 'string' ? entryOrId : entryOrId.id); },
-    async resume(entryOrId, o) {
-      const entry = typeof entryOrId === 'string' ? await journal.get(entryOrId) : entryOrId;
-      if (!entry) return fail('journal-unknown', `no unfinished lane operation ${typeof entryOrId === 'string' ? entryOrId : ''}`.trim());
-      return within(o, (run) => resumeEntry(run, entry!, o));
+    async resume(journalId, o) {
+      // Only the store's own entries are resumed (never a caller-built one), and only for the lane these files hold.
+      const entry = typeof journalId === 'string' ? await journal.get(journalId) : undefined;
+      if (!entry) return fail('journal-unknown', `no unfinished lane operation ${String(journalId)}`);
+      if (entry.operation !== 'materialize' && (await load()).taskId !== entry.taskId) fail('journal-unknown', `${entry.id} belongs to another lane than these files hold`);
+      return within(o, (run) => resumeEntry(run, entry, o));
     },
   };
 }

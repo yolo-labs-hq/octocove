@@ -94,8 +94,8 @@ try {
         check(lost instanceof core.TransportError && lost.outcome === 'unknown', 'a lost save point answer is an unknown outcome');
         server.clear();
         const [entry] = await r.journal.list();
-        check(entry?.operation === 'save' && entry.idempotencyKey === await core.saveKey(server.lane('T1').executionId, entry.body), 'the save is journaled under its body key');
-        await core.createLanes({ client: r.client, files: r.files, journal: r.journal }).resume(entry, options());
+        check(entry?.operation === 'save' && entry.step === 'sent' && typeof entry.idempotencyKey === 'string', 'the save is journaled with its key');
+        await core.createLanes({ client: r.client, files: r.files, journal: r.journal }).resume(entry.id, options());
         check(server.lane('T1').savePoints.length === 1, 'one save point after the resume');
         check(new Set(server.requests.filter((q) => q.operationId === 'laneChangesSubmit').map((q) => q.idempotencyKey)).size === 1, 'one key for every send');
       } else await r.lanes.save(options());

@@ -1,13 +1,15 @@
 // The Node lane ports: a filesystem directory as LaneFiles, the file journal, and the pack reader's runtime-neutral
 // inflater and SHA-1 checked against real `git pack-objects` output (and against node:zlib).
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LaneError } from '../src/index.js';
 import { fileJournal, nodeLaneFiles, nodePackPrimitives } from '../src/node.js';
-import { readPack } from '../src/lanes/pack.js';
+import { MAX_DELTA_DEPTH, PackError, readPack } from '../src/lanes/pack.js';
 
 const dirs: string[] = [];
 const scratch = (prefix: string) => { const d = mkdtempSync(join(tmpdir(), prefix)); dirs.push(d); return d; };
@@ -61,6 +63,27 @@ describe('nodeLaneFiles', () => {
   });
 });
 
+describe('nodeLaneFiles state and reads', () => {
+  it('writes the lane state privately (0600), reads a FIFO as no file without blocking, and sweeps stale temporary files', async () => {
+    const root = scratch('oc-state-');
+    const files = nodeLaneFiles(root);
+    await files.claim!();
+    await files.write('.octocove/journal/x.json', { kind: 'file', bytes: bytes('{}') });
+    await files.write('.octocove/objects/abc', { kind: 'file', bytes: bytes('kept') });
+    await files.write('src/a.txt', { kind: 'file', bytes: bytes('a') });
+    expect([statSync(join(root, '.octocove/journal/x.json')).mode & 0o777, statSync(join(root, '.octocove/objects/abc')).mode & 0o777, statSync(join(root, 'src/a.txt')).mode & 0o777])
+      .toEqual([0o600, 0o600, 0o644]);
+    execFileSync('mkfifo', [join(root, 'src/fifo')]);
+    expect(await files.read('src/fifo')).toBeNull();
+    expect(await files.stat('src/fifo')).toBe('other');
+    const stale = join(root, '.octocove/tmp/.octocove-00000000-0000-4000-8000-000000000000.tmp');
+    writeFileSync(stale, 'left by a killed writer');
+    execFileSync('touch', ['-d', '2020-01-01', stale]);
+    await nodeLaneFiles(root).write('src/b.txt', { kind: 'file', bytes: bytes('b') });
+    expect(() => statSync(stale)).toThrow();
+  });
+});
+
 describe('fileJournal', () => {
   it('keeps entries privately, one file each, and lists them by task', async () => {
     const dir = scratch('oc-journal-');
@@ -77,6 +100,26 @@ describe('fileJournal', () => {
 });
 
 describe('the pack reader without node:zlib', () => {
+  it('refuses a delta chain longer than it follows', () => {
+    const varint = (n: number) => { const out: number[] = []; do { let b = n & 0x7f; n = Math.floor(n / 128); if (n) b |= 0x80; out.push(b); } while (n); return out; };
+    const header = (type: number, size: number) => { const out = [((type << 4) | (size & 15)) | (size > 15 ? 0x80 : 0)]; let rest = Math.floor(size / 16);
+      while (rest) { out.push((rest & 0x7f) | (rest > 0x7f ? 0x80 : 0)); rest = Math.floor(rest / 128); } return Buffer.from(out); };
+    const ofs = (back: number) => { const out = [back & 0x7f]; while ((back >>= 7)) { back--; out.unshift(0x80 | (back & 0x7f)); } return Buffer.from(out); };
+    const objects: Buffer[] = [Buffer.concat([header(3, 4), deflateSync(Buffer.from('base'))])];
+    const delta = Buffer.from([...varint(4), ...varint(4), 0x91, 0, 4]);   // copy the whole base
+    const offsets = [12];
+    let at = 12 + objects[0]!.length;
+    for (let i = 0; i <= MAX_DELTA_DEPTH; i++) {
+      const o = Buffer.concat([header(6, delta.length), ofs(at - offsets[offsets.length - 1]!), deflateSync(delta)]);
+      offsets.push(at); objects.push(o); at += o.length;
+    }
+    const head = Buffer.from([80, 65, 67, 75, 0, 0, 0, 2, ...[24, 16, 8, 0].map((s) => (objects.length >>> s) & 255)]);
+    const body = Buffer.concat([head, ...objects]);
+    const pack = Buffer.concat([body, createHash('sha1').update(body).digest()]);
+    expect(() => readPack(pack, () => {})).toThrow(PackError);
+    expect(() => readPack(pack, () => {})).toThrow(/delta chain/);
+  });
+
   it('reads a deltified pack from git with the runtime-neutral inflater and SHA-1, exactly as with node:zlib', () => {
     const repo = scratch('oc-pack-');
     const git = (args: string[], input?: string) => execFileSync('git', ['-C', repo, ...args], { input, maxBuffer: 64 << 20, stdio: ['pipe', 'pipe', 'ignore'] });

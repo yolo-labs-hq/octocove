@@ -23,6 +23,10 @@ export class PackError extends Error {
 /** The largest object a lane pack may hold, declared or resolved (a file is at most 32 MiB; a tree of 100,000 entries
  * is a few MiB): anything larger is refused before memory is allocated for it. */
 export const MAX_OBJECT_BYTES = 64 * 1024 * 1024;
+/** The most bytes a whole pack may inflate to across its objects (the server's own content cap is 2 GiB of files). */
+export const MAX_INFLATED_BYTES = 4 * 1024 * 1024 * 1024;
+/** The longest delta chain followed (Git's own `--depth` cannot exceed 4095). */
+export const MAX_DELTA_DEPTH = 4095;
 
 /**
  * The two primitives the reader needs, replaceable by platform ones (the Node entry point offers `node:zlib` and
@@ -99,8 +103,11 @@ function* packObjectsUnchecked(pack: Uint8Array, inflate: NonNullable<PackPrimit
   if (version !== 2 && version !== 3) throw new PackError(`unsupported pack version ${version}`);
   const body = pack.subarray(0, pack.length - 20);
   if (!equalBytes(sha1(body), pack.subarray(pack.length - 20))) throw new PackError('the pack is incomplete or damaged (checksum)');
+  let inflated = 0;
   const inflateAt = (start: number, size: number) => {
     if (size > MAX_OBJECT_BYTES) throw new PackError('the pack holds an object larger than a lane may hold');
+    // Every inflation counts (each object is inflated once to find its end and once to resolve it).
+    if ((inflated += size) > 2 * MAX_INFLATED_BYTES) throw new PackError('the pack inflates to more than a lane may hold');
     let result: { data: Uint8Array; used: number };
     // Never more output than the object declares: a stream that inflates further is refused, not buffered.
     try { result = inflate(body, start, size); }
@@ -149,20 +156,23 @@ function* packObjectsUnchecked(pack: Uint8Array, inflate: NonNullable<PackPrimit
     else if (typeof e.base === 'string') byId.set(e.base, [...(byId.get(e.base) ?? []), e]);
   }
   let resolved = 0;
-  const stack: { entry: Entry; type: PackObjectType; data: Uint8Array }[] = [];
-  const settle = (entry: Entry, type: PackObjectType, data: Uint8Array) => {
+  const stack: { entry: Entry; type: PackObjectType; data: Uint8Array; depth: number }[] = [];
+  let resolvedBytes = 0;
+  const settle = (entry: Entry, type: PackObjectType, data: Uint8Array, depth: number) => {
+    if (depth > MAX_DELTA_DEPTH) throw new PackError('the pack holds a delta chain longer than a lane may follow');
+    if ((resolvedBytes += data.length) > MAX_INFLATED_BYTES) throw new PackError('the pack resolves to more than a lane may hold');
     const id = hex(sha1(utf8(`${type} ${data.length}\0`), data));
     resolved++;
-    for (const child of [...(byOffset.get(entry.offset) ?? []), ...(byId.get(id) ?? [])]) stack.push({ entry: child, type, data });
+    for (const child of [...(byOffset.get(entry.offset) ?? []), ...(byId.get(id) ?? [])]) stack.push({ entry: child, type, data, depth: depth + 1 });
     byId.delete(id);
     return { id, type, data };
   };
   for (const e of entries) {
     if (e.base !== null) continue;
-    yield settle(e, TYPES[e.type]!, inflateAt(e.start, e.size).data);
+    yield settle(e, TYPES[e.type]!, inflateAt(e.start, e.size).data, 0);
     while (stack.length) {
-      const { entry, type, data } = stack.pop()!;
-      yield settle(entry, type, applyDelta(data, inflateAt(entry.start, entry.size).data));
+      const { entry, type, data, depth } = stack.pop()!;
+      yield settle(entry, type, applyDelta(data, inflateAt(entry.start, entry.size).data), depth);
     }
   }
   if (resolved !== count) throw new PackError('the pack holds a delta whose base it does not contain');

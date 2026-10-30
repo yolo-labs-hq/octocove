@@ -474,7 +474,8 @@ disposition and outcome; retries add the reason (`network-error`, `credential-re
 and body, or `reauth`), `outcome` (`not-sent`, `refused` — nothing recorded — or `unknown`: the request may have been
 applied, so recover only with the same key and body), `idempotencyKey` and, on an `ApiError`, `endsAttempt` (the
 claim attempt or lane execution is over: stop that attempt's work; the delegation may go on), `endsAuthority` (the
-credential itself is over: set only for `credential-revoked` and `connection-revoked`), `reason` and every response
+credential itself is over: `credential-revoked`, `connection-revoked`, and `execution-superseded`, which sets both),
+`reason` and every response
 header. Neither flag is a reason to end a process, a delegation or a claim by itself: the caller decides that.
 `PROBLEM_CODES` lists the classification of each documented code; an unlisted code falls back on its status, and
 `details.retryable: true` makes any answer retryable. `fenced` is retryable only with the same key, body and
@@ -547,21 +548,29 @@ state beside the files under `.octocove/`. A pod volume or a remote sandbox is o
 answer, run the same operation again, or `resume(entry)`. Either resends exactly that key and body, so the server
 answers its recorded result: one save point, one candidate, no new key. A save resends the bytes it planned (kept
 under `.octocove/objects`) on its original `expectedHead`, even if the files changed since; those later edits stay
-unsaved for the next save. A save point's and a wrap-up's key is derived from the execution and the body
-(`saveKey`, `wrapUpKey`), so the same work always carries the same key. What happens to an entry after an answer:
+unsaved for the next save (`notify` says so). Each new operation gets a new random key, so wrapping up the same head
+again after a stale or refused candidate is a new request with a new answer. `derivedKey: true` opts in to a key
+derived from the execution and the body (`saveKey`, `wrapUpKey`), for a caller without a journal; the server
+replays such a key's recorded answer, a refusal included, for as long as it keeps it. What happens to an entry after
+an answer:
 
 - an unknown outcome, or a retryable refusal such as `fenced`: kept, and resent no earlier than its Retry-After;
 - a refusal that ends the attempt or the credential, `intent-version-mismatch` or `generation-superseded`: kept as a
   `refused` record that is never resent (`resume` refuses it, nothing sent); `discard` it once handled;
+- `idempotency-result-expired`: the write was applied but its answer is gone. The entry is kept as a `refused`
+  record, and the operation throws `LaneError` `result-expired` (`outcome: 'unknown'`); refresh to take the lane head
+  it moved;
 - any other refusal: removed. The edits stay in the files.
 
 Stores: `memoryJournal()`, `laneFilesJournal(files)` (beside the files, as the CLI uses it) and `fileJournal(dir)`
-under `/node`. `pending()` lists a lane's entries.
+under `/node`. `pending()` lists a lane's entries; `resume(journalId)` takes only an id from the store, for the lane
+the files hold.
 
 **Behind a credential broker.** On the bound transport the engine never asks for a new execution or generation:
 `handover` and the generation step of `refresh` throw `LaneActionRequiredError` (`outcome: 'not-sent'`). It carries
 `action` (`operationId`, `taskId`, `body`, `idempotencyKey`) and, for a refresh, `journalId`. The broker sends the
-action with its own client, under that key and body, and hands back what it got:
+action with its own client, under that key and body, and hands back what it got (a delegated answer must name a
+newer generation of this lane at a lane head; only the fields used are recorded):
 
 ```ts
 try { await lanes.refresh(options); }

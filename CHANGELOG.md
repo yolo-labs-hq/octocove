@@ -15,22 +15,32 @@ the client, so a runner gets the lane protocol from the library. The CLI's lane 
   `/node` is a filesystem directory that never follows a symlink.
 - Client: the lane journal. Every materialize, refresh, save and wrap-up records its Idempotency-Key and exact body
   before it is sent. `resume` continues after a crash or a lost answer with the same key and body, so the server
-  answers its recorded result: no second save point or candidate. A save point's and a wrap-up's key is derived from
-  the body (`saveKey`, `wrapUpKey`). An unknown outcome and a retryable refusal (`fenced`) keep the entry, resent
-  only after its Retry-After. A refusal that ends the attempt or the credential, or names a moved intent or a
-  superseded generation, is kept as a `refused` record and never resent. Stores: `memoryJournal()`,
-  `laneFilesJournal(files)` and, under `/node`, `fileJournal(dir)`.
+  answers its recorded result: no second save point or candidate. Each new operation gets a new random key, so a
+  stale or refused wrap-up or save never binds the next one to its answer. A key derived from the body
+  (`saveKey`, `wrapUpKey`) is opt-in (`derivedKey: true`). How an entry is kept after an answer:
+  - an unknown outcome or a retryable refusal (`fenced`) keeps the entry, resent only after its Retry-After;
+  - a refusal that ends the attempt or the credential, a moved intent, a superseded generation, or an expired
+    idempotency result (the write was applied) is kept as a `refused` record and never resent.
+
+  `resume` takes only journal ids, for the lane the files hold. A broker's delegated answer must name a newer
+  generation at a lane head, and only the fields of an answer that are used are recorded. Stores: `memoryJournal()`,
+  `laneFilesJournal(files)` and, under `/node`, `fileJournal(dir)`. Under `/node` the lane's own state is written
+  0600 and synced.
 - Client: on the bound transport the engine never asks for a new execution or generation. `handover` and the
   generation step of `refresh` throw `LaneActionRequiredError` (`outcome: 'not-sent'`) with the request for the
   broker to send. The broker passes its answer to `resume(journalId, {delegated})`. A bound refresh never follows a
   moved head or the server's current generation by itself.
+- Client: the pack reader caps the bytes a pack inflates to and the delta chain it follows.
 - Client: `LaneError` for the engine's own refusals (`outcome: 'not-sent'`, or `unknown` for an unusable write
   answer). `LANE_LIMITS` holds the server limits the engine plans around, in one place: the API documents them but
   does not expose them in any answer.
-- Client: `ApiError.endsAttempt` and `endsAttempt()` are new. `claim-inactive`, `execution-superseded`,
-  `execution-inactive` and `authority-lost` end the claim attempt or execution and now set `endsAttempt`, not
-  `endsAuthority`. `endsAuthority` is kept for what the server guarantees ends the credential: `credential-revoked`
-  and `connection-revoked`.
+- **BREAKING** (client): `endsAuthority` is narrowed, and `ApiError.endsAttempt` and `endsAttempt()` are new.
+  - `claim-inactive`, `execution-inactive` and `authority-lost` end the claim attempt or execution: they now set
+    `endsAttempt` and no longer set `endsAuthority`.
+  - `execution-superseded` sets both: every token of the superseded execution is refused on every route, renewal
+    included.
+  - `endsAuthority` stays on `credential-revoked` and `connection-revoked`.
+  - Migration: where you checked `endsAuthority` to stop work, check `endsAttempt || endsAuthority`.
 - Client: `BOUND_EXCLUDED` also names `claimAuthorize` and `taskClaim`, so neither becomes bound-callable if its
   security changes.
 - Client: a `location` header whose password holds an `@` loses the whole userinfo.
