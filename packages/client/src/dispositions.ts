@@ -25,7 +25,12 @@ export type ProblemArea = 'claim' | 'lane' | 'credential' | 'candidate' | 'task'
 export interface ProblemClass {
   readonly area: ProblemArea;
   readonly disposition: Disposition;
-  /** The claim, execution or delegation this credential acts under is over: stop the work it was doing. */
+  /**
+   * The claim attempt or lane execution the request ran under is over (released, revoked, superseded by a handover,
+   * or its execution closed): stop that attempt's work. The delegation itself is not necessarily over.
+   */
+  readonly endsAttempt?: true;
+  /** The credential itself is over (revoked): nothing more is done with it. Set only where the server guarantees it. */
   readonly endsAuthority?: true;
   /** The answer leaves the request's effect unknown (default: refused). */
   readonly unknown?: true;
@@ -34,7 +39,10 @@ export interface ProblemClass {
 const t = (area: ProblemArea, extra: Partial<ProblemClass> = {}): ProblemClass => Object.freeze({ area, disposition: 'terminal', ...extra });
 const r = (area: ProblemArea, extra: Partial<ProblemClass> = {}): ProblemClass => Object.freeze({ area, disposition: 'retryable', ...extra });
 const a = (area: ProblemArea, extra: Partial<ProblemClass> = {}): ProblemClass => Object.freeze({ area, disposition: 'reauth', ...extra });
+const ATTEMPT = { endsAttempt: true } as const;
 const ENDS = { endsAuthority: true } as const;
+/** The execution is over, and so is every token of it: the server refuses them on every route, renewal included. */
+const SUPERSEDED = { endsAttempt: true, endsAuthority: true } as const;
 const UNKNOWN = { unknown: true } as const;
 
 /**
@@ -46,7 +54,7 @@ const UNKNOWN = { unknown: true } as const;
  */
 export const PROBLEM_CODES: Readonly<Record<string, ProblemClass>> = Object.freeze({
   // claims
-  'claim-inactive': t('claim', ENDS),
+  'claim-inactive': t('claim', ATTEMPT),
   'already-claimed': t('claim'),
   'not-ready': t('claim'),
   'unauthorized': t('claim'),
@@ -60,9 +68,9 @@ export const PROBLEM_CODES: Readonly<Record<string, ProblemClass>> = Object.free
   'repository-import-failed': t('claim'),
   'repository-unverified': t('claim'),
   // lanes
-  'execution-superseded': t('lane', ENDS),
-  'execution-inactive': t('lane', ENDS),
-  'authority-lost': t('lane', ENDS),
+  'execution-superseded': t('lane', SUPERSEDED),
+  'execution-inactive': t('lane', ATTEMPT),
+  'authority-lost': t('lane', ATTEMPT),
   'generation-superseded': t('lane'),
   'lane-not-materialized': t('lane'),
   'lane-head-moved': t('lane'),
@@ -150,12 +158,12 @@ export const PROBLEM_CODES: Readonly<Record<string, ProblemClass>> = Object.free
 });
 
 /** Classification of an HTTP answer: the code's entry, else by status; `details.retryable: true` wins. */
-export function problemClass(code: string, status: number, details?: unknown): { readonly disposition: Disposition; readonly outcome: Outcome; readonly endsAuthority: boolean } {
+export function problemClass(code: string, status: number, details?: unknown): { readonly disposition: Disposition; readonly outcome: Outcome; readonly endsAttempt: boolean; readonly endsAuthority: boolean } {
   const known = Object.prototype.hasOwnProperty.call(PROBLEM_CODES, code) ? PROBLEM_CODES[code] : undefined;
   const flagged = !!details && typeof details === 'object' && (details as { retryable?: unknown }).retryable === true;
   const byStatus: Disposition = status === 401 ? 'reauth' : status === 408 || status === 425 || status === 429 || status >= 500 ? 'retryable' : 'terminal';
   const disposition: Disposition = flagged ? 'retryable' : known?.disposition ?? byStatus;
   // A success or redirect the client could not use (off-shape, refused redirect) may have been applied.
   const outcome: Outcome = status < 400 || status >= 500 ? 'unknown' : known?.unknown ? 'unknown' : 'refused';
-  return { disposition, outcome, endsAuthority: known?.endsAuthority === true };
+  return { disposition, outcome, endsAttempt: known?.endsAttempt === true, endsAuthority: known?.endsAuthority === true };
 }

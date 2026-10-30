@@ -9,7 +9,8 @@
 //    `.command("<operationId>"`, `.call("<operationId>"`, a client function such as `meritPolicyStanding(`); its
 //    entry's `client` must be exactly that set, so the manifest cannot drift from the code. Calls inside CLI helper
 //    modules are listed by hand under `helpers`, and each must be called somewhere in packages/cli/src. Every name
-//    must be a client journey, function or operation.
+//    must be a client journey, function or operation, or (`lanes:<method>`) a method of the client's lane engine
+//    (`Lanes` in packages/client/src/lanes/engine.ts), which the lane directory binding calls.
 // 3. A generic call (`.command(...)`, `.call(...)`) anywhere in packages/cli/src must name its operation with a
 //    string literal and have an entry under `generic` with the reason it has no shaped journey (or why it is exempt);
 //    an entry nothing calls fails too.
@@ -66,6 +67,10 @@ const usesOf = (text) => {
 // client function, an operation id, a governance operation or a lane-directory action.
 const journeySource = ['journeys.ts', 'auth.ts', 'events.ts', 'journey-core.ts'].map((f) => read(`packages/client/src/${f}`)).join('\n');
 const operations = new Set([...read('packages/client/src/generated/routing.ts').matchAll(/^ {2}"(\w+)": \{/gm)].map((m) => m[1]));
+// The lane engine's methods: the members of its `Lanes` interface.
+const engine = read('packages/client/src/lanes/engine.ts');
+const lanesInterface = engine.slice(engine.indexOf('export interface Lanes {'), engine.indexOf('\n}', engine.indexOf('export interface Lanes {')));
+const laneMethods = new Set([...lanesInterface.matchAll(/^ {2}([a-zA-Z]+)\(/gm)].map((m) => m[1]));
 const actions = new Set([...(/const MATERIALIZED_FLAGS[^{]*\{([\s\S]*?)\n\};?/.exec(source)?.[1] ?? '').matchAll(/^ {2}"?([a-z-]+)"?:/gm)].map((m) => m[1]));
 const known = (name) => {
   const [kind, rest] = name.includes(':') ? name.split(/:(.*)/) : ['journey', name];
@@ -73,6 +78,7 @@ const known = (name) => {
   if (kind === 'fn') return clientFunctions.has(rest);
   if (kind === 'call' || kind === 'command' || kind === 'governance') return operations.has(rest);
   if (kind === 'lane-directory') return actions.has(rest);
+  if (kind === 'lanes') return laneMethods.has(rest);
   return false;
 };
 
@@ -81,6 +87,8 @@ const known = (name) => {
 const cliSource = readdirSync(join(root, 'packages/cli/src')).filter((f) => /\.(ts|mjs)$/.test(f)).map((f) => read(`packages/cli/src/${f}`)).join('\n');
 const helperCalled = (helper, handler) => {
   if (helper.startsWith('fn:')) return new RegExp(`(?<![.\\w])${helper.slice(3)}\\s*\\(`).test(cliSource);
+  // A lane engine method: called on the engine (`lanes.<method>(`, or on `lanesOf(...)` directly).
+  if (helper.startsWith('lanes:')) return new RegExp(`(\\blanes|\\blanesOf\\([^)]*\\))\\.${helper.slice(6)}\\s*\\(`).test(cliSource);
   const segments = helper.split('.');
   const [owner, method] = segments.slice(-2);
   return new RegExp(`\\b${owner}\\.${method}\\s*\\(`).test(cliSource)

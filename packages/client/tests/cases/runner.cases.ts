@@ -5,6 +5,7 @@ import {
   bearer,
   createClient,
   CredentialUnavailableError,
+  endsAttempt,
   endsAuthority,
   isRetryable,
   isTerminal,
@@ -53,12 +54,13 @@ function renewing(record: StoredCredential, options: { renewAheadMs?: number; fa
 }
 
 /** The expected disposition of every code the client classifies: kept here, independent of PROBLEM_CODES. */
-const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', boolean]> = {
-  'claim-inactive': ['terminal', 'refused', true], 'already-claimed': ['terminal', 'refused', false], 'not-ready': ['terminal', 'refused', false],
+/** The third column: which end a code means — `attempt` (the claim attempt or execution), `authority` (the credential), `both`, or none. */
+const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', 'attempt' | 'authority' | 'both' | false]> = {
+  'claim-inactive': ['terminal', 'refused', 'attempt'], 'already-claimed': ['terminal', 'refused', false], 'not-ready': ['terminal', 'refused', false],
   'unauthorized': ['terminal', 'refused', false], 'task-closed': ['terminal', 'refused', false], 'bootstrap-consumed': ['reauth', 'refused', false],
   'lane-reopen-required': ['reauth', 'refused', false], 'dependency-unlanded': ['terminal', 'refused', false], 'write-scope-claimed': ['terminal', 'refused', false],
   'repository-importing': ['retryable', 'refused', false], 'repository-import-failed': ['terminal', 'refused', false], 'repository-unverified': ['terminal', 'refused', false],
-  'execution-superseded': ['terminal', 'refused', true], 'execution-inactive': ['terminal', 'refused', true], 'authority-lost': ['terminal', 'refused', true],
+  'execution-superseded': ['terminal', 'refused', 'both'], 'execution-inactive': ['terminal', 'refused', 'attempt'], 'authority-lost': ['terminal', 'refused', 'attempt'],
   'generation-superseded': ['terminal', 'refused', false], 'lane-not-materialized': ['terminal', 'refused', false], 'lane-head-moved': ['terminal', 'refused', false],
   'refresh-conflict': ['terminal', 'refused', false], 'scope-overlap': ['terminal', 'refused', false], 'scope-refused': ['terminal', 'refused', false],
   'scope-unchanged': ['terminal', 'refused', false], 'scope-request-decided': ['terminal', 'refused', false], 'base-unchanged': ['terminal', 'refused', false],
@@ -69,7 +71,7 @@ const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', boolean]> = 
   'blob-unknown': ['terminal', 'refused', false], 'blob-digest-mismatch': ['terminal', 'refused', false], 'blob-too-large': ['terminal', 'refused', false],
   'materialization-too-large': ['terminal', 'refused', false], 'wrap-up-too-large': ['terminal', 'refused', false], 'changes-too-large': ['terminal', 'refused', false],
   'lane-pack-too-large': ['terminal', 'refused', false], 'repository-provider-unsupported': ['terminal', 'refused', false],
-  'credential-expired': ['reauth', 'refused', false], 'credential-revoked': ['reauth', 'refused', true], 'connection-revoked': ['reauth', 'refused', true],
+  'credential-expired': ['reauth', 'refused', false], 'credential-revoked': ['reauth', 'refused', 'authority'], 'connection-revoked': ['reauth', 'refused', 'authority'],
   'unauthenticated': ['reauth', 'refused', false], 'invalid-id-token': ['reauth', 'refused', false], 'login-expired': ['reauth', 'refused', false],
   'reauth-required': ['reauth', 'refused', false], 'step-up-required': ['reauth', 'refused', false], 'insufficient-scope': ['reauth', 'refused', false],
   'human-required': ['terminal', 'refused', false], 'forbidden': ['terminal', 'refused', false], 'membership-revoked': ['terminal', 'refused', false],
@@ -237,15 +239,16 @@ export const runnerCases: Case[] = [
     ok(delays.length === 2 && delays[0]! >= 125 && delays[0]! <= 250 && delays[1]! >= 250 && delays[1]! <= 500, `delays ${delays}`);
   }),
   // ---- dispositions ----
-  test('every listed problem code has its disposition, outcome and authority flag', async () => {
+  test('every listed problem code has its disposition, outcome and which end it means: the attempt or the credential', async () => {
     equal(Object.keys(PROBLEM_CODES).sort(), Object.keys(EXPECTED).sort(), 'the catalog and this table list the same codes');
     for (const [code, [disposition, outcome, ends]] of Object.entries(EXPECTED)) {
       const status = STATUS[code] ?? 409;
       const error = new ApiError({ status, code });
-      equal([error.disposition, error.outcome, error.endsAuthority], [disposition, outcome, ends], code);
-      equal(problemClass(code, status), { disposition, outcome, endsAuthority: ends }, code);
-      equal([isRetryable(error), isTerminal(error), needsReauth(error), outcomeUnknown(error), endsAuthority(error)],
-        [disposition === 'retryable', disposition === 'terminal', disposition === 'reauth', outcome === 'unknown', ends], code);
+      const attempt = ends === 'attempt' || ends === 'both', authority = ends === 'authority' || ends === 'both';
+      equal([error.disposition, error.outcome, error.endsAttempt, error.endsAuthority], [disposition, outcome, attempt, authority], code);
+      equal(problemClass(code, status), { disposition, outcome, endsAttempt: attempt, endsAuthority: authority }, code);
+      equal([isRetryable(error), isTerminal(error), needsReauth(error), outcomeUnknown(error), endsAttempt(error), endsAuthority(error)],
+        [disposition === 'retryable', disposition === 'terminal', disposition === 'reauth', outcome === 'unknown', attempt, authority], code);
     }
   }),
   test('unlisted codes classify by status; details.retryable wins; an unusable success is an unknown outcome', async () => {
@@ -321,6 +324,14 @@ export const runnerCases: Case[] = [
     for (const headers of [error.headers, seen[0]!.headers]) {
       equal([headers.location, 'www-authenticate' in headers, 'x-upload-token' in headers, headers['x-octocove-revision']], ['https://cp.octocove.test/v1/x', false, false, 'rev-2']);
       equal(hidden.filter((h) => h in headers), []);
+    }
+  }),
+  test('a location whose password holds an @ loses the whole userinfo, not just its first part', async () => {
+    const userinfo = ['user', ['p', 'w'].join('@')].join(':');
+    for (const [location, shown] of <[string, string][]>[[`https://${userinfo}${'@'}cp.octocove.test/v1/x?q=1`, 'https://cp.octocove.test/v1/x'], [`//${userinfo}${'@'}cp.octocove.test/a@b`, '//cp.octocove.test/a@b']]) {
+      const { fetch } = scriptedFetch(json(409, { type: 'x', title: 'x', status: 409, code: 'fenced', detail: 'd', requestId: 'r' }, { location }));
+      const error = await rejects(() => client(fetch).call('taskGet', { path: { orgId: ORG, id: 't' } }), ApiError);
+      equal(error.headers.location as string, shown);
     }
   }),
   test('authorizedFetch keeps the declared length of a body it passes through unchanged, and drops it from a rewritten one', async () => {

@@ -6,7 +6,8 @@
  * - `scriptedFetch`, `json`, `problem`: one scripted answer per request.
  * - `fakeServer()`: routes requests by the generated routing table, authenticates bearers it issued (expiry,
  *   revocation, task binding), replays keyed POSTs under the same Idempotency-Key, rotates sessions and
- *   delegations, and implements the focused-lane routes (materialize, blob upload, pack, save point, wrap-up).
+ *   delegations, and implements the lane routes over the files a lane holds (task read, materialize, manifest,
+ *   blob read and upload, a real Git pack, save point, base refresh, wrap-up).
  *   Faults are injected per operation: a lost answer after the server applied the request, a truncated body, or
  *   any answer or thrown error.
  * - `fakeBroker(server)`: a credential broker in front of it. A runner gets an opaque handle; `broker.fetch(handle)`
@@ -72,6 +73,65 @@ export async function gitBlobId(bytes: Uint8Array): Promise<string> {
   const all = new Uint8Array(header.length + bytes.length);
   all.set(header); all.set(bytes, header.length);
   return digest('SHA-1', all);
+}
+
+const fakeFile = (f: FakeFileInput): FakeFile => typeof f === 'string' ? { bytes: new TextEncoder().encode(f), mode: '100644' } : f instanceof Uint8Array ? { bytes: f, mode: '100644' } : f;
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function base64(bytes: Uint8Array) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i]! << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    out += B64[(n >> 18) & 63]! + B64[(n >> 12) & 63]! + (i + 1 < bytes.length ? B64[(n >> 6) & 63]! : '=') + (i + 2 < bytes.length ? B64[n & 63]! : '=');
+  }
+  return out;
+}
+function unbase64(text: string) {
+  const clean = text.replace(/=+$/, ''), out = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let bits = 0, value = 0, o = 0;
+  for (const c of clean) { value = (value << 6) | B64.indexOf(c); bits += 6; if (bits >= 8) { bits -= 8; out[o++] = (value >> bits) & 255; } }
+  return out;
+}
+const concat = (parts: readonly Uint8Array[]) => {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+};
+/** A zlib stream of stored (uncompressed) deflate blocks: valid input for any inflater. */
+function zlibStored(data: Uint8Array) {
+  const parts: Uint8Array[] = [new Uint8Array([0x78, 0x01])];
+  let a = 1, b = 0;
+  for (let i = 0; i < data.length;) {
+    const end = Math.min(i + 3800, data.length);
+    for (; i < end; i++) { a += data[i]!; b += a; }
+    a %= 65521; b %= 65521;
+  }
+  for (let at = 0; ; at += 65535) {
+    const chunk = data.subarray(at, at + 65535), last = at + 65535 >= data.length;
+    parts.push(new Uint8Array([last ? 1 : 0, chunk.length & 255, chunk.length >> 8, ~chunk.length & 255, (~chunk.length >> 8) & 255]), chunk);
+    if (last) break;
+  }
+  const adler = ((b << 16) | a) >>> 0;
+  parts.push(new Uint8Array([adler >>> 24, (adler >>> 16) & 255, (adler >>> 8) & 255, adler & 255]));
+  return concat(parts);
+}
+/** A version 2 Git pack of these blobs (distinct contents once each), with its SHA-1 trailer. */
+async function packOf(blobs: Uint8Array[]) {
+  const seen = new Set<string>(), objects: Uint8Array[] = [];
+  for (const bytes of blobs) {
+    const key = await gitBlobId(bytes);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const header: number[] = [];
+    let size = bytes.length, byte = (3 << 4) | (size & 15);
+    size = Math.floor(size / 16);
+    while (size) { header.push(byte | 0x80); byte = size & 0x7f; size = Math.floor(size / 128); }
+    header.push(byte);
+    objects.push(new Uint8Array(header), zlibStored(bytes));
+  }
+  const head = new Uint8Array([0x50, 0x41, 0x43, 0x4b, 0, 0, 0, 2, (seen.size >>> 24) & 255, (seen.size >>> 16) & 255, (seen.size >>> 8) & 255, seen.size & 255]);
+  const body = concat([head, ...objects]);
+  return concat([body, new Uint8Array(await globalThis.crypto.subtle.digest('SHA-1', body as unknown as ArrayBuffer))]);
 }
 
 interface CompiledRoute { readonly route: RouteEntry; readonly pattern: RegExp; readonly names: readonly string[] }
@@ -150,17 +210,32 @@ export type FakeHandler = (request: FakeRequest) => Response | unknown | Promise
  */
 export type FakeFault = 'lost-answer' | 'truncate' | Response | Error;
 
+/** A file a fake lane holds: its bytes and Git mode (`100644`, `100755` or `120000`). */
+export interface FakeFile { readonly bytes: Uint8Array; readonly mode: '100644' | '100755' | '120000' }
+export type FakeFileInput = string | Uint8Array | FakeFile;
+
 export interface FakeLane {
   readonly taskId: string;
   readonly claimAttemptId: string;
   readonly executionId: string;
   generation: number;
   laneHead: string;
+  baseSha: string;
   materialized: boolean;
-  /** The pack `lanePackGet` answers (any bytes; not parsed). */
-  pack: Uint8Array;
+  scope: { read: string[]; write: string[] };
+  /** The files at the current lane head; a save point or a refresh replaces the map. */
+  files: Map<string, FakeFile>;
+  /** The files at every lane head the lane has had, by head (manifest and blob reads name one). */
+  readonly heads: Map<string, Map<string, FakeFile>>;
+  /** An upstream change the next `base-refreshed` generation takes (a null removes the path); none: `base-unchanged`. */
+  upstream: Record<string, FakeFileInput | null> | null;
+  /** When set, the bytes `lanePackGet` answers as they are; otherwise a real pack of the head's blobs. */
+  pack: Uint8Array | undefined;
+  /** Staged blobs, by SHA-256. */
   readonly blobs: Map<string, Uint8Array>;
   readonly savePoints: Array<{ readonly savePointId: string; readonly laneHead: string; readonly paths: readonly string[] }>;
+  /** Every candidate a wrap-up recorded. */
+  readonly wrapUps: Array<{ readonly wrapUpId: string; readonly candidateId: string; readonly submissionId: string; readonly laneHead: string }>;
 }
 
 export interface FakeServerOptions {
@@ -181,12 +256,14 @@ export interface FakeServer {
   on(operationId: OperationId, handler: FakeHandler): FakeServer;
   /** Queues faults for the next requests of `operationId`, one per request. */
   fail(operationId: OperationId, ...faults: FakeFault[]): FakeServer;
+  /** Drops the faults still queued (for `operationId`, or all). */
+  clear(operationId?: OperationId): FakeServer;
   /** Issues a bearer the fake accepts. */
   issue(options?: { readonly kind?: FakeCredentialKind; readonly token?: string; readonly expiresInMs?: number; readonly taskId?: string; readonly delegationId?: string; readonly principalId?: string }): FakeCredential;
   expire(token: string): void;
   revoke(token: string): void;
-  /** Creates (or returns) a focused lane for `taskId`. */
-  lane(taskId: string, options?: { readonly pack?: Uint8Array; readonly materialized?: boolean }): FakeLane;
+  /** Creates (or returns) a lane for `taskId`, holding `files` at its first lane head. */
+  lane(taskId: string, options?: { readonly pack?: Uint8Array; readonly materialized?: boolean; readonly files?: Readonly<Record<string, FakeFileInput>>; readonly scope?: { read: string[]; write: string[] } }): FakeLane;
   /** Requests of `operationId` that reached the fake. */
   count(operationId: OperationId): number;
 }
@@ -212,6 +289,7 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
     requests,
     on(operationId, handler) { handlers.set(operationId, handler); return server; },
     fail(operationId, ...list) { faults.set(operationId, [...(faults.get(operationId) ?? []), ...list]); return server; },
+    clear(operationId) { if (operationId) faults.delete(operationId); else faults.clear(); return server; },
     issue(o = {}) {
       const kind = o.kind ?? 'delegation';
       const credential: FakeCredential = { token: o.token ?? `fake-${kind}-${randomHex(12)}`, kind, principalId: o.principalId ?? (kind === 'session' ? 'human-1' : 'agent-1'),
@@ -224,8 +302,11 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
     lane(taskId, o = {}) {
       let lane = lanes.get(taskId);
       if (!lane) {
-        lane = { taskId, claimAttemptId: id('cla'), executionId: id('exe'), generation: 1, laneHead: sha(), materialized: o.materialized ?? true,
-          pack: o.pack ?? new Uint8Array(), blobs: new Map(), savePoints: [] };
+        const files = new Map(Object.entries(o.files ?? {}).map(([path, f]) => [path, fakeFile(f)]));
+        const laneHead = sha();
+        lane = { taskId, claimAttemptId: id('cla'), executionId: id('exe'), generation: 1, laneHead, baseSha: sha(), materialized: o.materialized ?? true,
+          scope: o.scope ?? { read: ['.'], write: ['.'] }, files, heads: new Map([[laneHead, files]]), upstream: null,
+          pack: o.pack, blobs: new Map(), savePoints: [], wrapUps: [] };
         lanes.set(taskId, lane);
       }
       if (o.pack) lane.pack = o.pack;
@@ -329,14 +410,63 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
     const taskId = request.path.id;
     const lane = taskId ? lanes.get(taskId) : undefined;
     if (route.path.startsWith('/orgs/{orgId}/tasks/{id}/lane') && !lane) return refuse(404, 'not-found', { detail: 'no lane for this task' });
+    if (route.operationId === 'taskGet') {
+      if (!lane) return refuse(404, 'not-found');
+      return json(200, { id: taskId, status: 'claimed', lane: { kind: 'materialized', claimAttemptId: lane.claimAttemptId, executionId: lane.executionId, generation: lane.generation,
+        baseSha: lane.baseSha, scopeVersion: 1, scope: lane.scope, laneHead: lane.materialized ? lane.laneHead : null, superseded: null } });
+    }
+    /** The files at the head a read names (the current one by default); undefined for a head the lane never had. */
+    const at = (l: FakeLane) => { const head = request.query.get('head'); return head ? l.heads.get(head) : l.files; };
     switch (route.operationId) {
-      case 'laneMaterialize':
+      case 'laneMaterialize': {
+        const created = !lane!.materialized;
         lane!.materialized = true;
-        return json(200, { claimAttemptId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation, laneHead: lane!.laneHead });
+        return json(created ? 201 : 200, { claimAttemptId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation, baseSha: lane!.baseSha, laneHead: lane!.laneHead,
+          snapshotCommit: lane!.laneHead, entryCount: lane!.files.size, laneRepository: { id: `lr_${taskId}`, state: 'ready', materializedAt: new Date(now()).toISOString(), retiredAt: null }, created });
+      }
+      case 'laneManifestGet': {
+        if (Number(request.path.generation) !== lane!.generation) return refuse(409, 'generation-superseded');
+        const files = at(lane!);
+        if (!files) return refuse(409, 'generation-superseded', { detail: 'not a lane head of this generation' });
+        const entries = await Promise.all([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(async ([path, f]) =>
+          ({ path, mode: f.mode, type: f.mode === '120000' ? 'symlink' : 'file', sha: await gitBlobId(f.bytes), size: f.bytes.length })));
+        return json(200, { taskId, claimId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation, kind: lane!.generation === 1 ? 'initial' : 'base-refreshed',
+          baseSha: lane!.baseSha, scopeVersion: 1, scope: lane!.scope, entries, truncated: false, laneHead: request.query.get('head') ?? lane!.laneHead, changedSincePrevious: null });
+      }
+      case 'laneBlobGet': {
+        const files = at(lane!), path = request.query.get('path') ?? '';
+        const f = files?.get(path);
+        if (!f) return refuse(404, 'not-found');
+        if (f.bytes.length > 1024 * 1024) return refuse(413, 'blob-too-large', { details: { limit: 1024 * 1024 } });
+        return json(200, { path, mode: f.mode, type: f.mode === '120000' ? 'symlink' : 'file', sha: await gitBlobId(f.bytes), size: f.bytes.length, encoding: 'base64', content: base64(f.bytes),
+          laneHead: request.query.get('head') ?? lane!.laneHead });
+      }
+      case 'laneBlobUpload': {
+        const bytes = unbase64(String(b.content ?? ''));
+        if (bytes.length > 1024 * 1024) return refuse(413, 'blob-too-large', { details: { limit: 1024 * 1024 } });
+        const blobId = await blobDigest(bytes);
+        lane!.blobs.set(blobId, bytes);
+        return json(201, { claimAttemptId: lane!.claimAttemptId, blobId, size: bytes.length });
+      }
       case 'lanePackGet': {
         if (!lane!.materialized) return refuse(409, 'lane-not-materialized');
         if (Number(request.query.get('generation')) !== lane!.generation) return refuse(409, 'generation-superseded');
-        return new Response(lane!.pack as unknown as BodyInit, { status: 200, headers: { 'content-type': 'application/x-git-packfile', 'content-length': String(lane!.pack.length) } });
+        const files = at(lane!);
+        if (!files) return refuse(409, 'generation-superseded');
+        const pack = lane!.pack ?? await packOf([...files.values()].map((f) => f.bytes));
+        return new Response(pack as unknown as BodyInit, { status: 200, headers: { 'content-type': 'application/x-git-packfile', 'content-length': String(pack.length) } });
+      }
+      case 'laneGenerationCreate': {
+        if (b.kind !== 'base-refreshed') return refuse(400, 'invalid-request');
+        if (b.expectedHead !== undefined && b.expectedHead !== lane!.laneHead) return refuse(409, 'lane-head-moved', { details: { laneHead: lane!.laneHead } });
+        if (!lane!.upstream) return refuse(409, 'base-unchanged');
+        const files = new Map(lane!.files);
+        for (const [path, f] of Object.entries(lane!.upstream)) { if (f === null) files.delete(path); else files.set(path, fakeFile(f)); }
+        lane!.upstream = null;
+        const previousHead = lane!.laneHead;
+        lane!.generation++; lane!.baseSha = sha(); lane!.laneHead = sha(); lane!.files = files; lane!.heads.set(lane!.laneHead, files);
+        return json(201, { claimAttemptId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation, kind: 'base-refreshed', baseSha: lane!.baseSha,
+          scopeVersion: 1, previousGeneration: lane!.generation - 1, scope: lane!.scope, laneHead: lane!.laneHead, previousHead });
       }
       case 'laneBlobPut': {
         const bytes = request.bytes ?? new Uint8Array();
@@ -352,8 +482,15 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
         if (b.expectedHead !== lane!.laneHead) return refuse(409, 'lane-head-moved', { details: { laneHead: lane!.laneHead } });
         const operations = Array.isArray(b.operations) ? (b.operations as Array<Record<string, unknown>>) : [];
         for (const op of operations) if (op.op === 'put' && !lane!.blobs.has(String(op.blobId))) return refuse(409, 'blob-unknown', { details: { blobId: op.blobId } });
+        const files = new Map(lane!.files);
+        for (const op of operations) {
+          if (op.op === 'delete') files.delete(String(op.path));
+          else files.set(String(op.path), { bytes: lane!.blobs.get(String(op.blobId))!, mode: (op.mode ?? '100644') as FakeFile['mode'] });
+        }
         const previousHead = lane!.laneHead;
         lane!.laneHead = sha();
+        lane!.files = files;
+        lane!.heads.set(lane!.laneHead, files);
         const savePoint = { savePointId: id('svp'), claimAttemptId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation,
           laneHead: lane!.laneHead, previousHead, supersededCandidateId: null };
         lane!.savePoints.push({ savePointId: savePoint.savePointId, laneHead: savePoint.laneHead, paths: operations.map((op) => String(op.path)) });
@@ -363,8 +500,10 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
         if (b.generation !== lane!.generation) return refuse(409, 'generation-superseded');
         if (b.laneHead !== lane!.laneHead) return refuse(409, 'lane-head-moved', { details: { laneHead: lane!.laneHead } });
         if (!lane!.savePoints.length) return refuse(409, 'nothing-to-wrap-up', { details: { reason: 'no-changes' } });
-        const submission = id('sub');
-        return json(201, { wrapUpId: id('wru'), id: submission, seq: 1, candidateId: id('cand'), candidateSha: sha(), baseSha: sha(), contributionRef: `refs/octocove/contributions/${submission}` });
+        const submission = id('sub'), wrapUpId = id('wru'), candidateId = id('cand');
+        lane!.wrapUps.push({ wrapUpId, candidateId, submissionId: submission, laneHead: lane!.laneHead });
+        return json(201, { wrapUpId, id: submission, seq: lane!.wrapUps.length, candidateId, candidateSha: sha(), baseSha: lane!.baseSha, contributionRef: `refs/octocove/contributions/${submission}`,
+          candidateStatus: 'active', laneHead: lane!.laneHead, supersededCandidateId: null, staged: false, provenance: { wrapUpId, savePointCount: lane!.savePoints.length } });
       }
     }
     return refuse(501, 'not-implemented', { detail: `the fake does not implement ${route.operationId}; add a handler with on()` });

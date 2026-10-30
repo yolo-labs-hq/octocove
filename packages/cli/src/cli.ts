@@ -343,8 +343,9 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof CloneError) return emit(err.code, err.message, { status: err.status }), err.exitCode;
   if (err instanceof HumanRequiredError) return emit("human-required", err.message), EXIT.humanRequired;
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
-  // A stored credential that cannot be used or renewed: nothing was sent for the request that hit it.
-  if (err instanceof CredentialUnavailableError) return emit(err.code, `${err.code}: ${err.message}`, { status: 401 }), EXIT.failure;
+  // A stored credential that cannot be used or renewed: nothing was sent for the request that hit it. One that is
+  // only busy (another renewal of it in flight) is worth running again once that settles.
+  if (err instanceof CredentialUnavailableError) return emit(err.code, `${err.code}: ${err.message}`, { status: 401 }), err.disposition === "retryable" ? EXIT.pending : EXIT.failure;
   if (err instanceof CandidateFailedError) return emit(err.code, err.message), EXIT.candidateFailed;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
   if (err instanceof ActionRequiredError) return emit(err.code, err.message), EXIT.failure;
@@ -1060,7 +1061,8 @@ const COMMANDS: Record<string, Handler> = {
     // renewed afresh under a new key. The replacement is saved before anything else happens.
     if (!d.credentials) {
       const renewed = await cliCredential(d.env, creds, d.fetch).renew({ signal: d.signal, idempotencyKey: v["idempotency-key"] }).catch((error) => {
-        throw error instanceof CredentialUnavailableError ? new ConfigError(error.message) : error;
+        // A renewal already in flight under another key is retryable, not a configuration problem.
+        throw error instanceof CredentialUnavailableError && error.disposition !== "retryable" ? new ConfigError(error.message) : error;
       });
       out(d, v.json, { renewed: true, kind: creds.kind, ...(creds.kind === "agent" ? { delegationId: creds.delegationId } : {}), expiresAt: renewed.expiresAt, credentialsFile: join(configDir(d.env), "credentials", "cli.json") }, () => "Credential renewed and saved privately.");
       return;

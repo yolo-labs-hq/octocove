@@ -1,27 +1,27 @@
 /**
  * Unsaved lane edits as a Git-format patch, so they can be kept aside and applied in another lane directory
  * (`git apply PATCH`, or `patch -p1 < PATCH` for text-only patches). Text files get unified hunks; files with
- * a NUL byte get a `GIT binary patch` literal; symlinks carry their target, as Git writes them.
+ * a NUL byte get a `GIT binary patch` literal; symlinks carry their target, as Git writes them. Runtime-neutral:
+ * a binary literal is deflated with the platform's `CompressionStream`.
  */
-import { createHash } from 'node:crypto';
-import { deflateSync } from 'node:zlib';
+import { equalBytes, hex, sha1, utf8 } from './bytes.js';
 
 export type PatchMode = '100644' | '100755' | '120000';
-export interface PatchSide { mode: PatchMode; content: Buffer }
-export interface PatchEntry { path: string; old: PatchSide | null; new: PatchSide | null }
+export interface PatchSide { readonly mode: PatchMode; readonly content: Uint8Array }
+export interface PatchEntry { readonly path: string; readonly old: PatchSide | null; readonly new: PatchSide | null }
 
 const CONTEXT = 3;
 /** Above this many lines on one side, or this edit distance, a file is written as one replacement hunk. */
 const MAX_LINES = 50_000, MAX_EDITS = 1_000;
 const ZERO = '0'.repeat(40);
 
-const blobId = (content: Buffer) => createHash('sha1').update(`blob ${content.length}\0`).update(content).digest('hex');
-const binary = (content: Buffer) => content.subarray(0, 8000).includes(0);
+const blobId = (content: Uint8Array) => hex(sha1(utf8(`blob ${content.length}\0`), content));
+const binary = (content: Uint8Array) => content.subarray(0, 8000).includes(0);
 
 /** Git's C-style quoting for a path with a quote, backslash, control or non-ASCII byte. */
 function quoted(prefix: string, path: string) {
-  const raw = Buffer.from(`${prefix}${path}`, 'utf8');
-  if (![...raw].some((b) => b < 0x20 || b >= 0x7f || b === 0x22 || b === 0x5c)) return `${prefix}${path}`;
+  const raw = utf8(`${prefix}${path}`);
+  if (!raw.some((b) => b < 0x20 || b >= 0x7f || b === 0x22 || b === 0x5c)) return `${prefix}${path}`;
   const named: Record<number, string> = { 0x07: '\\a', 0x08: '\\b', 0x09: '\\t', 0x0a: '\\n', 0x0b: '\\v', 0x0c: '\\f', 0x0d: '\\r', 0x22: '\\"', 0x5c: '\\\\' };
   let out = '"';
   for (const b of raw) out += named[b] ?? (b < 0x20 || b >= 0x7f ? `\\${b.toString(8).padStart(3, '0')}` : String.fromCharCode(b));
@@ -29,8 +29,8 @@ function quoted(prefix: string, path: string) {
 }
 
 /** Lines with their terminators, so a missing final newline is a difference like any other. */
-function lines(content: Buffer) {
-  const text = content.toString('utf8');
+function lines(content: Uint8Array) {
+  const text = new TextDecoder().decode(content);
   const out: string[] = [];
   let start = 0;
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') { out.push(text.slice(start, i + 1)); start = i + 1; }
@@ -85,7 +85,8 @@ function hunks(a: string[], b: string[]) {
   }
   while (i < script.length) {
     if (script[i]!.op === ' ') { i++; continue; }
-    let start = Math.max(0, i - CONTEXT), end = i;
+    const start = Math.max(0, i - CONTEXT);
+    let end = i;
     // Extend while the next change is within 2 * CONTEXT unchanged lines.
     for (;;) {
       while (end < script.length && script[end]!.op !== ' ') end++;
@@ -104,10 +105,15 @@ function hunks(a: string[], b: string[]) {
   return out.join('');
 }
 
+async function deflate(content: Uint8Array) {
+  const stream = new Blob([content as unknown as ArrayBuffer]).stream().pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 const B85 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+-;<=>?@^_`{|}~';
 /** One `literal` block: the zlib-deflated content in Git's base85 lines of at most 52 bytes. */
-function literal(content: Buffer) {
-  const data = deflateSync(content);
+async function literal(content: Uint8Array) {
+  const data = await deflate(content);
   let out = `literal ${content.length}\n`;
   for (let at = 0; at < data.length; at += 52) {
     const chunk = data.subarray(at, at + 52);
@@ -124,29 +130,29 @@ function literal(content: Buffer) {
   return out + '\n';
 }
 
-function body(path: string, old: PatchSide | null, now: PatchSide | null) {
-  const a = old?.content ?? Buffer.alloc(0), b = now?.content ?? Buffer.alloc(0);
+async function body(path: string, old: PatchSide | null, now: PatchSide | null) {
+  const a = old?.content ?? new Uint8Array(), b = now?.content ?? new Uint8Array();
   const header = [`diff --git ${quoted('a/', path)} ${quoted('b/', path)}\n`];
   if (!old) header.push(`new file mode ${now!.mode}\n`);
   else if (!now) header.push(`deleted file mode ${old.mode}\n`);
   else if (old.mode !== now.mode) header.push(`old mode ${old.mode}\n`, `new mode ${now.mode}\n`);
-  const same = !!old && !!now && a.equals(b);
+  const same = !!old && !!now && equalBytes(a, b);
   if (same) return header.join('');
   const sameMode = !!old && !!now && old.mode === now.mode;
   header.push(`index ${old ? blobId(a) : ZERO}..${now ? blobId(b) : ZERO}${sameMode ? ` ${old!.mode}` : ''}\n`);
-  if (binary(a) || binary(b)) return header.join('') + 'GIT binary patch\n' + literal(b) + literal(a);
+  if (binary(a) || binary(b)) return header.join('') + 'GIT binary patch\n' + await literal(b) + await literal(a);
   if (!a.length && !b.length) return header.join('');
   header.push(`--- ${old ? quoted('a/', path) : '/dev/null'}\n`, `+++ ${now ? quoted('b/', path) : '/dev/null'}\n`);
   return header.join('') + hunks(lines(a), lines(b));
 }
 
 /** The whole patch, sorted by path. A symlink turned into a file (or back) is a deletion and an addition, as in Git. */
-export function gitPatch(entries: PatchEntry[]) {
+export async function gitPatch(entries: readonly PatchEntry[]): Promise<string> {
   const out: string[] = [];
   for (const e of [...entries].sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0))) {
     const typeChange = e.old && e.new && (e.old.mode === '120000') !== (e.new.mode === '120000');
-    if (typeChange) out.push(body(e.path, e.old, null), body(e.path, null, e.new));
-    else out.push(body(e.path, e.old, e.new));
+    if (typeChange) out.push(await body(e.path, e.old, null), await body(e.path, null, e.new));
+    else out.push(await body(e.path, e.old, e.new));
   }
   return out.join('');
 }

@@ -71,7 +71,7 @@ export const brokerCases: Case[] = [
       'laneChangesSubmit', 'laneManifestGet', 'laneMaterialize', 'lanePackGet', 'laneScopeRequest', 'laneWrapUp', 'meGet', 'receiptGet',
       'repositoriesList', 'taskGet', 'taskLog', 'tasksList',
     ]);
-    equal([...BOUND_EXCLUDED].sort(), ['delegationRenew', 'delegationRevoke', 'laneExecutionBegin', 'laneGenerationCreate']);
+    equal([...BOUND_EXCLUDED].sort(), ['claimAuthorize', 'delegationRenew', 'delegationRevoke', 'laneExecutionBegin', 'laneGenerationCreate', 'taskClaim']);
   }),
   test('an opaque redirect (status 0) is refused on every transport, never read as an answer', async () => {
     const opaque = { type: 'opaqueredirect', status: 0, headers: new Headers(), body: null, text: async () => '' } as unknown as Response;
