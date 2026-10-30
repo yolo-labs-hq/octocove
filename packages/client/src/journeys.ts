@@ -701,23 +701,24 @@ export function tenantJourneys(client: TenantClient) {
      */
     release(taskId: string, options: CommandOptions): Promise<SuccessBody<'taskMeritRelease'>> {
       requireHuman(client, 'merit.release');
-      return body(options, 'taskMeritRelease', { path: { id: taskId }, body: {} });
+      return body(options, 'taskMeritRelease', { path: { id: taskId } });
     },
-    /** Human only, `project:admin` with a recent sign-in: probe the configured decision models once (rate-limited per project). */
-    probe(projectId: string, options: CommandOptions): Promise<MeritProbe> {
+    /** Human only, `project:admin` with a recent sign-in: probe the configured decision models once (rate-limited per
+     * project, `429 merit-probe-rate-limited`). Takes no Idempotency-Key and is never resent by the library. */
+    probe(projectId: string, options: JourneyOptions): Promise<MeritProbe> {
       requireHuman(client, 'merit.probe');
       return body(options, 'meritProbe', { path: { project: projectId } });
     },
     /** A project admin, or a client token under `octocove:policies`: the usage counter's totals over a window (`since`, `until`). */
     usage: (projectId: string, query: Query<'meritUsageGet'>, options: JourneyOptions): Promise<MeritUsage> =>
-      body(options, 'meritUsageGet', { path: { project: projectId }, query } as never),
+      body(options, 'meritUsageGet', { path: { project: projectId }, query }),
     /** A project admin, or a client token under `octocove:policies`: the shadow comparison over a window (`since`, `until`, `limit`). */
     shadow: (projectId: string, query: Query<'meritShadowGet'>, options: JourneyOptions): Promise<MeritShadow> =>
-      body(options, 'meritShadowGet', { path: { project: projectId }, query } as never),
+      body(options, 'meritShadowGet', { path: { project: projectId }, query }),
     policies: {
       /** A project admin, or a client token under `octocove:policies`: the project's merit policy versions, newest first (`repositoryId`, `targetRef` filters). */
       list: (projectId: string, query: Query<'meritPolicyList'>, options: JourneyOptions): Promise<MeritPolicyList> =>
-        body(options, 'meritPolicyList', { path: { project: projectId }, query } as never),
+        body(options, 'meritPolicyList', { path: { project: projectId }, query }),
       /** One version with its standing. */
       get: (projectId: string, policyId: string, options: JourneyOptions): Promise<MeritPolicyVersionView> =>
         body(options, 'meritPolicyGet', { path: { project: projectId, id: policyId } }),

@@ -823,6 +823,59 @@ export const journeyCases: Case[] = [
     equal(calls.map((c) => `${c.method} ${c.url}`), [`GET ${BASE}/v1/orgs/${ORG}/projects/project-1/tree?path=src&ref=refs%2Fheads%2Fmain`,
       `GET ${BASE}/v1/orgs/${ORG}/projects/project-1/blob?path=src%2Fa.ts`]);
   }),
+  // ---- merit ----
+  test('merit.release sends the keyed command without a body and replays it under the same key after a lost answer', async () => {
+    const { fetch, calls } = scriptedFetch(offline(), json(200, { taskId: 't', meritState: 'none', attempts: 0, releasedAt: '2026-10-30T00:00:00Z' }));
+    const released = await journeys(client(fetch)).org(ORG).merit.release('t', { deadline: soon() });
+    equal(released.meritState, 'none');
+    equal(calls.length, 2, 'network-only: the lost answer is resent once');
+    equal(calls.map((c) => c.method), ['POST', 'POST']);
+    equal(calls[0]!.url, `${BASE}/v1/orgs/${ORG}/tasks/t/merit-release`);
+    equal(calls.map((c) => c.body), [undefined, undefined], 'taskMeritRelease takes no request body');
+    ok(typeof keys(calls)[0] === 'string' && keys(calls)[0] === keys(calls)[1], 'the same Idempotency-Key on the resend');
+  }),
+  test('merit.evaluate and merit.submitReview send JSON bodies to the candidate routes under one key per attempt', async () => {
+    const evaluation = scriptedFetch(offline(), json(202, { id: 'req-1', status: 'requested', evidenceSet: { count: 1, reviewIds: ['r-1'] } }));
+    const requested = await journeys(client(evaluation.fetch)).org(ORG).merit.evaluate('cand-1', { deadline: soon(), idempotencyKey: 'oc-merit-eval-00000000001' });
+    equal(requested.status, 'requested');
+    equal(evaluation.calls.map((c) => c.url), Array(2).fill(`${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit-evaluations`));
+    equal(evaluation.calls.map((c) => c.method), ['POST', 'POST']);
+    equal(evaluation.calls.map((c) => JSON.parse(c.body!)), [{}, {}]);
+    equal(keys(evaluation.calls), ['oc-merit-eval-00000000001', 'oc-merit-eval-00000000001']);
+    const review = {
+      candidateSha: A, baseSha: B, intentVersion: 1, diffDigest: `sha256:${'0'.repeat(64)}`, reviewer: { agent: 'runner-1' },
+      summary: 'Trims the parsed string.', behaviouralChange: 'parse returns the trimmed input.',
+      files: [{ path: 'src/lib.ts', blobSha: C, note: 'Trims the input.', concerns: [], callers: [], dependencies: [] }],
+      findings: [], tests: { present: false }, verdict: 'approve' as const, schemaVersion: 1 as const,
+    };
+    const submission = scriptedFetch(json(201, { id: 'r-1', candidateId: 'cand-1', meritState: 'scoring', reasons: [], seq: 1, attempt: 1, attemptsRemaining: 2, recordedAt: '2026-10-30T00:00:00Z' }));
+    const receipt = await journeys(client(submission.fetch)).org(ORG).merit.submitReview('cand-1', review, { deadline: soon() });
+    equal(receipt.meritState, 'scoring');
+    equal(submission.calls[0]!.method, 'POST');
+    equal(submission.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit-reviews`);
+    equal(JSON.parse(submission.calls[0]!.body!), review, 'the body is the review as given');
+    ok(typeof keys(submission.calls)[0] === 'string');
+  }),
+  test('merit.probe takes no key and is never resent; the merit reads carry their query and no key', async () => {
+    const probe = scriptedFetch(offline(), json(200, {}));
+    const failure = await rejects(() => journeys(client(probe.fetch)).org(ORG).merit.probe('p', { deadline: soon() }), TransportError);
+    equal(failure.code, 'network-error');
+    equal(probe.calls.length, 1, 'autoRetry never: one request');
+    equal(probe.calls[0]!.method, 'POST');
+    equal(probe.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/projects/p/merit-probe`);
+    equal(probe.calls[0]!.body, undefined);
+    equal(keys(probe.calls), [undefined]);
+    const reads = scriptedFetch(json(200, { projectId: 'p', items: [], truncated: false }), json(200, {}), json(200, {}));
+    const oc = journeys(client(reads.fetch)).org(ORG).merit;
+    await oc.policies.list('p', { repositoryId: 'repo-1', targetRef: 'refs/heads/main' }, { deadline: soon() });
+    await oc.usage('p', { since: '2026-10-01T00:00:00Z' }, { deadline: soon() });
+    await oc.status('cand-1', { deadline: soon() });
+    equal(reads.calls.map((c) => c.method), ['GET', 'GET', 'GET']);
+    equal(reads.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/projects/p/merit-policies?repositoryId=repo-1&targetRef=refs%2Fheads%2Fmain`);
+    equal(reads.calls[1]!.url, `${BASE}/v1/orgs/${ORG}/projects/p/merit-usage?since=2026-10-01T00%3A00%3A00Z`);
+    equal(reads.calls[2]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit`);
+    equal(keys(reads.calls), [undefined, undefined, undefined]);
+  }),
 ];
 
 function withRetryAfter(response: Response, seconds: string): Response {
