@@ -1,7 +1,7 @@
 {
   "name": "@yolo-labs/octocove",
   "license": "Apache-2.0",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "The octo command-line client for the Octocove API: login, projects, repositories, tasks, lanes and candidates.",
   "type": "module",
   "repository": {

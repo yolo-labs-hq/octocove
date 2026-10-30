@@ -1,5 +1,24 @@
 # Changelog
 
+## CLI 0.12.0 and client 0.18.0
+
+Release `@yolo-labs/octocove` 0.12.0 and `@yolo-labs/octocove-client` 0.18.0: create a project from a private GitHub
+repository in one command, and find your installations and repositories without the web app.
+
+- Client: `github.installations()` (`meGithubInstallationsList`) and `github.repositories({installationId?, q?, cursor?,
+  limit?})` (`meGithubRepositoriesList`), both human-session reads. `workspaces.connectGitHub({})` starts a GitHub
+  connection without naming a repository. The doc comments of `projects.create`, `repositories.create` and
+  `ProjectRepositoryInit` describe `mode: "github"` and `kind: "github-app"`.
+- CLI: `octo project create SLUG --name TEXT --github OWNER/NAME [--installation ID] [--repo-id ID] [--target-ref REF]
+  [--wait SECONDS]` creates the project and attaches the GitHub repository in one initialization: ready (exit 0),
+  pending at `--wait` (exit 75, printing the idempotency key, chosen for you when you pass none, and the command that
+  resumes it; a create that gets no answer reports the same), or action-required (exit 1, with the connect URL and what to
+  run next). `octo project init-status
+  OPERATION_ID` reads it. `octo github installations`, `octo github repos [--installation ID] [--q TEXT] [--limit N]`
+  and `octo github connect [OWNER/NAME [--repo-id ID]]` list what you connected, the repositories (with the ids the attach takes) and
+  start a connection. Specific guidance for a suspended installation, a read-only GitHub account, a stale connection
+  and a deployment without a GitHub App.
+
 ## CLI 0.11.0 and client 0.17.0
 
 Release `@yolo-labs/octocove` 0.11.0 and `@yolo-labs/octocove-client` 0.17.0: attach a private GitHub repository

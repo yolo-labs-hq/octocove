@@ -13,7 +13,7 @@ import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type TenantJourneys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -51,6 +51,8 @@ class CandidateIdRequiredError extends UsageError {
 }
 class HumanRequiredError extends Error {}
 class PendingError extends Error {}
+/** A project initialization that needs the human (`action-required`) or was refused (`failed`); already printed. */
+class ActionRequiredError extends Error { constructor(readonly code: "action-required" | "failed", message: string) { super(message); } }
 class CandidateFailedError extends Error {
   readonly code = "candidate-failed";
   constructor(conflict: boolean) {
@@ -74,7 +76,11 @@ Commands:
   org rename ORG --slug SLUG                  (org admin, recent sign-in: change the organization's slug; the old one is retired)
   project list                                (your projects in every org, each with its owner and the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
-  project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
+  project create SLUG --name TEXT [--org ORG_ID] [--github GITHUB_REPO [--installation ID] [--repo-id ID] [--target-ref REF] [--wait SECONDS]]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member; --github also attaches that GitHub repository through your connected GitHub App installation)
+  project init-status OPERATION_ID             (a project initialization you started: ready, pending or what it needs)
+  github installations                        (the GitHub App installations you connected, and pending approvals)
+  github repos [--installation ID] [--q TEXT] [--limit N]   (the GitHub repositories your installations cover, with their ids)
+  github connect [GITHUB_REPO] [--repo-id ID]   (the browser URL that connects GitHub for you; open it while signed in to Octocove)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
   repo add PROJECT [--provider artifacts|github|github-app] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL] | --owner OWNER --installation ID [--repo-id ID]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; github-app: a private GitHub repository through a GitHub App installation you connected; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
@@ -218,7 +224,66 @@ class Emitted extends Error {
   constructor(readonly inner: unknown) { super("already reported"); }
 }
 
+/** A numeric GitHub id flag (an installation or repository id). */
+function githubId(v: Record<string, any>, flag: string): string {
+  const value = need(v, flag);
+  if (!/^[1-9][0-9]{0,19}$/.test(value)) throw new UsageError(`--${flag} must be a numeric GitHub id`);
+  return value;
+}
+
+/** A project initialization's view, printed; pending, action-required and failed end the command with their exit codes.
+ * `resume` is the command that resumes it (create only: it carries the idempotency key, also printed and in --json). */
+function initializationOut(d: Deps, json: boolean | undefined, r: ProjectInitialization, repo?: { owner: string; name: string; providerRepoId?: string }, resume?: string, key?: string) {
+  const a = r.action as { reason?: string; code?: string; installUrl?: string } | undefined;
+  const repository = r.repository as { id?: string; name?: string; provider?: string; targetRef?: string; state?: string } | null | undefined;
+  const connect = connectCommand(a?.installUrl, repo);
+  const project = r.project?.id ?? "PROJECT";
+  const next = r.state === "ready" ? `pass --org ${r.project?.tenantId} (or set OCTOCOVE_ORG) to work in this project`
+    : r.state === "pending" ? (resume ? `still settling: run \`${resume}\` to resume it, or \`octo project init-status ${r.operationId}\` to read it`
+      : "still settling: the create command with its --idempotency-key resumes it; run this command again to read it")
+    : r.state === "action-required" ? (a?.code === "github-connection-required" || a?.installUrl ? `reconnect GitHub (\`${connect}\`), then attach the repository: \`octo repo add ${project} --provider github-app ...\``
+      : a?.code === "target-ref-not-found" ? `the branch does not exist on GitHub: attach the repository with another --target-ref (\`octo repo add ${project} --provider github-app ...\`)`
+      : `the project exists; set up its repository with \`octo repo add ${project}\` or \`octo repo create ${project}\``)
+    : "the project was not created";
+  out(d, !!json, { ...r, ...(key && r.state === "pending" ? { idempotencyKey: key } : {}) }, () => kv([["Operation", r.operationId], ["State", r.state],
+    ...(r.project ? [["Project", r.project.id], ["Slug", r.project.slug], ["Org", r.project.tenantId]] as [string, unknown][] : []),
+    ...(repository?.id && repository.name ? [["Repository", repository.id], [providerLabel(repository.provider), repository.name], ["Target ref", repository.targetRef]] as [string, unknown][] : []),
+    ...(r.state === "pending" ? [["Reason", r.reason], ["Retry after", `${r.retryAfter ?? 5} s`], ...(key ? [["Idempotency key", key]] : [])] as [string, unknown][] : []),
+    ...(a ? [["Action", a.reason], ...(a.code ? [["Code", a.code]] : []), ...(a.installUrl ? [["Connect URL", a.installUrl]] : [])] as [string, unknown][] : []),
+    ...(r.state === "failed" ? [["Problem", (r.problem as { code?: string } | undefined)?.code]] as [string, unknown][] : []),
+    ["Next", next]]));
+  if (r.state === "pending") throw new Emitted(new PendingError(`project initialization ${r.operationId} is still settling${key ? ` (resume with --idempotency-key ${key})` : ""}`));
+  if (r.state === "action-required") throw new Emitted(new ActionRequiredError("action-required", `project initialization ${r.operationId} needs you: ${a?.reason ?? "action-required"}${a?.code ? ` (${a.code})` : ""}`));
+  if (r.state === "failed") throw new Emitted(new ActionRequiredError("failed", `project initialization ${r.operationId} failed: ${(r.problem as { code?: string } | undefined)?.code ?? "refused"}`));
+}
+
 const EMPTY_REPOSITORY_GUIDE = "https://github.com/yolo-labs-hq/octocove/blob/main/packages/cli/README.md#starting-from-an-empty-repository";
+
+/** What to do about a `github-connection-required` refusal, by `details.installationState`. */
+/** `octo github connect` for a repository an answer names (its install URL's owner, name and repository id). */
+function connectCommand(installUrl?: unknown, fallback?: { owner: string; name: string; providerRepoId?: string }) {
+  let parts = fallback;
+  if (typeof installUrl === "string") {
+    try {
+      const q = new URL(installUrl).searchParams, owner = q.get("owner"), name = q.get("name"), id = q.get("providerRepoId");
+      if (owner && name) parts = { owner, name, ...(id ? { providerRepoId: id } : {}) };
+    } catch { /* not a URL: the fallback */ }
+  }
+  return parts ? `octo github connect ${parts.owner}/${parts.name}${parts.providerRepoId ? ` --repo-id ${parts.providerRepoId}` : ""}` : "octo github connect OWNER/NAME";
+}
+const GITHUB_STATE_GUIDANCE: Record<string, string> = {
+  suspended: "The GitHub App installation is suspended on GitHub: an owner of the account unsuspends it in the installation's settings on GitHub (`octo github installations` shows where), then run the same command again.",
+  "permission-required": "Your GitHub account can read this repository but not push to it: ask for write (or maintain/admin) access on GitHub, then reconnect GitHub (`CONNECT`) and run the same command again.",
+  "reconnect-required": "Your GitHub connection was proved more than a week ago: reconnect GitHub (`CONNECT`), then run the same command again.",
+  "repo-not-selected": "The installation does not include this repository for your GitHub account: add it to the installation on GitHub (or reconnect GitHub with `CONNECT`), then run the same command again.",
+  "pending-approval": "An owner of the GitHub organization must approve the Octocove app; once they do, reconnect GitHub (`CONNECT`).",
+  none: "No GitHub App installation you connected covers this repository: connect GitHub (`CONNECT`), then run the same command again.",
+};
+const githubConnectionGuidance = (err: ApiError) => {
+  const state = isRecord(err.details) && typeof err.details.installationState === "string" ? err.details.installationState as string : "";
+  const text = GITHUB_STATE_GUIDANCE[state] ?? "Your GitHub App installation does not cover this repository for your GitHub account now: add the repository to the installation on GitHub, or reconnect GitHub (`CONNECT`), then run the same command again.";
+  return `${text.replace("CONNECT", connectCommand(isRecord(err.details) ? err.details.installUrl : undefined))} Nothing was registered.`;
+};
 
 /** A refusal's `details.reason`, when it names one. */
 const reason = (err: ApiError) => isRecord(err.details) && typeof err.details.reason === "string" ? err.details.reason as string : undefined;
@@ -246,11 +311,17 @@ const RETENTION_PENDING: Record<string, string> = {
   "custody-unverified": "a submission of a lane claim is neither a recorded wrap-up nor in verified source custody",
 };
 
+/** A keyed operation the CLI chose the key for, whose request failed before an answer: the report names the key and the
+ * command that resumes it, since the server may have recorded the operation. */
+const RESUME = new WeakMap<object, { readonly idempotencyKey: string; readonly resume: string }>();
+
 function report(d: Deps, err: unknown, json: boolean): number {
   const quiet = err instanceof Emitted;
   if (err instanceof Emitted) err = err.inner;
+  const resume = typeof err === "object" && err !== null ? RESUME.get(err) : undefined;
   const emit = (code: string, message: string, extra: object = {}) =>
-    quiet ? undefined : d.stderr(json ? JSON.stringify({ error: { code, message, ...extra } }) + "\n" : `octo: ${message}\n`);
+    quiet ? undefined : d.stderr(json ? JSON.stringify({ error: { code, message, ...extra, ...(resume ?? {}) } }) + "\n"
+      : `octo: ${message}\n${resume ? `octo: the request may have been recorded; resume it with the same key: ${resume.resume}\n` : ""}`);
   if (err instanceof UsageError) {
     emit(err instanceof CandidateIdRequiredError ? err.code : "usage", err.message,
       err instanceof CandidateIdRequiredError ? { hint: err.hint } : {});
@@ -262,6 +333,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
   if (err instanceof CandidateFailedError) return emit(err.code, err.message), EXIT.candidateFailed;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
+  if (err instanceof ActionRequiredError) return emit(err.code, err.message), EXIT.failure;
   // No server answer: a client-side failure, reported in the CLI's own wording.
   if (err instanceof TransportError) return emit(err.code, `${err.code}: ${TRANSPORT_DETAIL[err.code] ?? err.message}`, { status: 0 }), EXIT.failure;
   if (err instanceof ApiError) {
@@ -319,9 +391,11 @@ function report(d: Deps, err: unknown, json: boolean): number {
       : err.code === "operator-required"
         ? "Registering a GitHub repository binds an operator-held credential, so only a deployment operator can do it; ask an operator to run the command."
       : err.code === "github-installation-not-linked"
-        ? "You have not connected that GitHub App installation. Connect GitHub in Octocove (Settings > Connected apps) and use one of your installations' IDs. Nothing was registered."
+        ? "You have not connected that GitHub App installation: `octo github installations` lists the ones you did (connect another with `octo github connect OWNER/NAME`). Nothing was registered."
       : err.code === "github-connection-required"
-        ? "Your GitHub App installation does not cover this repository for your GitHub account now (see details.installationState): add the repository to the installation on GitHub, or reconnect GitHub in Octocove, then run the same command again. Nothing was registered."
+        ? githubConnectionGuidance(err)
+      : err.code === "github-app-unavailable"
+        ? "This Octocove deployment has no GitHub App configured, so GitHub repositories cannot be connected or attached here. Ask the operator, or use an Artifacts repository (`octo repo create`). Nothing was registered."
       : err.code === "credential-unavailable"
         ? "The credential reference does not name a configured, unexpired GitHub credential; ask the operator for the right --credential-ref. Nothing was registered."
       : err.code === "tenant-not-found"
@@ -355,7 +429,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
   return EXIT.failure;
 }
 
-const GROUPS = new Set(["org", "project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane"]);
+const GROUPS = new Set(["org", "project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane", "github"]);
 
 async function dispatch(d: Deps) {
   const globals = globalOptions(d.argv);
@@ -1057,12 +1131,93 @@ const COMMANDS: Record<string, Handler> = {
   // With --org (or OCTOCOVE_ORG) the project is created in that organization; without, in the caller's own personal
   // org, provisioned on first use (the command waits out its provisioning under the same key).
   "project create": async (d, args) => {
-    const { v, pos } = opts(args, { name: { type: "string" } }, 1);
+    const { v, pos } = opts(args, { name: { type: "string" }, github: { type: "string" }, installation: { type: "string" }, "repo-id": { type: "string" },
+      "target-ref": { type: "string" }, wait: { type: "string" } }, 1);
+    if (v.github === undefined) for (const f of ["installation", "repo-id", "target-ref", "wait"]) if (v[f] !== undefined) throw new UsageError(`--${f} needs --github OWNER/NAME`);
+    const name = need(v, "name");
+    let repository: Record<string, string> | undefined;
+    if (v.github !== undefined) {
+      const m = /^([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,100})$/.exec(v.github);
+      if (!m || [m[1], m[2]].some((part) => part === "." || part === "..")) throw new UsageError("--github must be OWNER/NAME, for example acme/web");
+      repository = { mode: "github", owner: m[1]!, name: m[2]!, ...(v.installation === undefined ? {} : { installationId: githubId(v, "installation") }),
+        ...(v["repo-id"] === undefined ? {} : { providerRepoId: githubId(v, "repo-id") }), ...(v["target-ref"] === undefined ? {} : { targetRef: v["target-ref"] }) };
+    }
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("project create requires a human credential");
-    const r = await api.root.projects.create({ slug: pos[0]!, name: need(v, "name") }, { ...api.write(COMMAND_SECONDS, v["idempotency-key"]), ...(api.orgId ? { orgId: api.orgId } : {}) });
-    out(d, v.json, r, () => kv([["Project", r.id], ["Slug", r.slug], ["Name", r.name], ["Org", r.tenantId], ["Created", r.createdAt],
-      ["Next", `pass --org ${r.tenantId} (or set OCTOCOVE_ORG) to work in this project`]]));
+    // An initialization is resumed by the same key and body: the key is chosen here, so a pending answer can name it.
+    const key: string | undefined = repository ? v["idempotency-key"] ?? newIdempotencyKey() : v["idempotency-key"];
+    const options = { ...api.write(intFlag(v, "wait") ?? COMMAND_SECONDS, key), ...(api.orgId ? { orgId: api.orgId } : {}) };
+    if (!repository) {
+      const r = await api.root.projects.create({ slug: pos[0]!, name }, options) as Project;
+      out(d, v.json, r, () => kv([["Project", r.id], ["Slug", r.slug], ["Name", r.name], ["Org", r.tenantId], ["Created", r.createdAt],
+        ["Next", `pass --org ${r.tenantId} (or set OCTOCOVE_ORG) to work in this project`]]));
+      return;
+    }
+    // A project initialization: the project and the GitHub repository in one operation. The same command and
+    // --idempotency-key resume it; `project init-status` reads it.
+    const resume = ["octo project create", pos[0], "--name", JSON.stringify(name), "--github", v.github, ...(api.orgId ? ["--org", api.orgId] : []),
+      ...(v.installation ? ["--installation", v.installation] : []), ...(v["repo-id"] ? ["--repo-id", v["repo-id"]] : []),
+      ...(v["target-ref"] ? ["--target-ref", v["target-ref"]] : []), "--idempotency-key", key].join(" ");
+    let r: ProjectInitialization;
+    try { r = await api.root.projects.create({ slug: pos[0]!, name, repository } as never, options) as ProjectInitialization; }
+    catch (err) {
+      // No answer (a transport failure, a timeout, a 5xx or 429 after retries): the operation may be recorded under the key
+      // the CLI chose, so the report names it with the command that resumes it.
+      if (v["idempotency-key"] === undefined && typeof err === "object" && err !== null) RESUME.set(err, { idempotencyKey: key!, resume });
+      throw err;
+    }
+    initializationOut(d, v.json, r, { owner: repository.owner!, name: repository.name!, ...(repository.providerRepoId ? { providerRepoId: repository.providerRepoId } : {}) }, resume, key);
+  },
+
+  // GET /v1/me/project-initializations/{operationId}: the caller's own project initialization, as it stands now.
+  "project init-status": async (d, args) => {
+    const { v, pos } = opts(args, {}, 1);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("project init-status requires a human credential");
+    initializationOut(d, v.json, await api.root.projects.initialization(pos[0]!, api.until(Date.now() + READ_SECONDS * 1000)));
+  },
+
+  // The GitHub App installations you connected, and requests awaiting an organization owner's approval.
+  "github installations": async (d, args) => {
+    const { v } = opts(args, {}, 0);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("github installations requires a human credential");
+    const r = await api.root.github.installations(api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => !r.configured ? "This Octocove deployment has no GitHub App configured."
+      : [...r.items.map((i) => `${i.installationId}  ${i.account.login} (${i.account.type})  ${i.status}  ${i.repositoryCount} repositories (${i.repositorySelection})  connected by ${i.githubLogin}  ${i.manageUrl}`),
+        ...r.pending.map((p) => `pending approval  ${p.account}  requested ${p.requestedAt}`)].join("\n")
+        || "(no GitHub installations connected: run `octo github connect OWNER/NAME`)");
+  },
+
+  // The repositories your connected installations cover (as of each connection), every page unless --limit.
+  "github repos": async (d, args) => {
+    const { v } = opts(args, { installation: { type: "string" }, q: { type: "string" }, limit: { type: "string" } }, 0);
+    const limit = intFlag(v, "limit");
+    if (limit !== undefined && (limit < 1 || limit > 100)) throw new UsageError("--limit must be 1-100");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("github repos requires a human credential");
+    const deadline = Date.now() + READ_SECONDS * 1000, items: GitHubRepositoryList["items"][number][] = [];
+    let cursor: string | null | undefined, configured = true;
+    do {
+      const page = await api.root.github.repositories({ ...(v.installation === undefined ? {} : { installationId: githubId(v, "installation") }),
+        ...(v.q === undefined ? {} : { q: v.q }), ...(cursor ? { cursor } : {}), ...(limit === undefined ? {} : { limit }) }, api.until(deadline));
+      configured = page.configured; items.push(...page.items); cursor = page.nextCursor;
+    } while (cursor && limit === undefined);
+    out(d, v.json, { configured, items, ...(cursor ? { nextCursor: cursor } : {}) }, () => !configured ? "This Octocove deployment has no GitHub App configured."
+      : items.map((r) => `${r.owner}/${r.name}  repo-id ${r.providerRepoId}  installation ${r.installationId}  ${r.state}`).join("\n")
+        || "(no repositories: connect GitHub with `octo github connect OWNER/NAME`, or add repositories to the installation on GitHub)");
+  },
+
+  // GET /v1/github/connect: the browser URL that connects GitHub (installs or configures the app) for you.
+  "github connect": async (d, args) => {
+    const { v, pos } = opts(args, { "repo-id": { type: "string" } }, 1, 0);
+    const m = pos[0] === undefined ? null : /^([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,100})$/.exec(pos[0]);
+    if (pos[0] !== undefined && !m) throw new UsageError("OWNER/NAME must look like acme/web");
+    if (v["repo-id"] !== undefined && !m) throw new UsageError("--repo-id needs OWNER/NAME");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("github connect requires a human credential");
+    const r = await api.root.workspaces.connectGitHub(m ? { owner: m[1]!, name: m[2]!, ...(v["repo-id"] === undefined ? {} : { providerRepoId: githubId(v, "repo-id") }) } : {}, api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => kv([["Open", r.url], ["Expires", r.expiresAt], ["Next", "open the URL in a browser signed in to Octocove; then run `octo github repos`"]]));
   },
 
   // The organizations the caller belongs to (GET /me organizations), pending ones included.
