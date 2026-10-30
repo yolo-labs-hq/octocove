@@ -55,6 +55,14 @@ const FLAGS: Record<string,string> = {
   org: 'Org ID (org_<uuid>) the command acts in; `project list` shows each project\'s org. Also OCTOCOVE_ORG.',
   publication: 'How a submitted candidate becomes visible: repository-readers, or public-on-submit (required for a public repository).',
   visibility: 'The repository\'s declared visibility: private or public.',
+  merit: 'The repository\'s merit opt-in: enabled (its content may be sent to the decision model) or disabled (the default). Alone, it keeps the publication and visibility.',
+  file: 'JSON merit policy: the registration form, or a read (`merit policy get --json`) whose `...Seconds` durations and read-only fields are converted; - reads stdin.',
+  'from-project': 'Copy the live merit policy of this project (slug or ID) instead of a file.', 'from-org': 'Org ID (org_<uuid>) of --from-project, when it is in another org.',
+  'from-policy': 'Copy this version of --from-project instead of its one live version.',
+  evaluator: 'Decision model of the new version (evaluation.model): jev or clef.',
+  'policy-version': 'Version to append (default: the highest the project lists for the repository and target ref, plus one); to resume a create, the one it printed.',
+  since: 'Window start, RFC 3339 timestamp (default: from the beginning).', until: 'Window end, RFC 3339 timestamp (default: now).',
+  candidate: 'Candidate ID whose task is released (instead of TASK).',
   'token-stdin': 'Read workload proof from stdin instead of OCTOCOVE_WORKLOAD_TOKEN.', timeout: 'Machine command deadline in seconds, 1–300 (default 30).',
 };
 const POSITIONALS: Record<string,string> = {
@@ -64,7 +72,8 @@ const POSITIONALS: Record<string,string> = {
   ORG:'Organization ID (org_<uuid>), or its current or a retired slug (`org list` shows both).',
   CANDIDATE_ID:'Candidate ID to land (not a task ID).',
   GITHUB_REPO:'GitHub repository as OWNER/NAME, for example acme/web.', OPERATION_ID:'Project initialization operation ID (pinit_...), as `project create` printed it.',
-  TASK:'Task ID (lane materialize: of an active claim; lane reopen: a landed task; lane retire: a landed, rejected or superseded task).', PATH:'Repository-relative path of an unresolved conflict.',
+  POLICY_ID:'Merit policy version ID (`merit policy list` shows them).',
+  TASK:'Task ID (merit release: held needs-human; lane materialize: of an active claim; lane reopen: a landed task; lane retire: a landed, rejected or superseded task).', PATH:'Repository-relative path of an unresolved conflict.',
   FILE:'With --resolve PATH=FILE: a local file whose content resolves the conflict at PATH.', DELEGATION_ID:'Delegation ID to revoke; defaults to the active delegation.',
 };
 const MINIMUM_VERBS = `Minimum agent workflow permissions (pass all seven explicitly):
@@ -97,6 +106,10 @@ export function commandHelp(command: string, originalUsage: string, description 
     if (flag === 'wait' && command === 'login') detail = 'Browser-consent wait in seconds (default 600).';
     if (flag === 'wait' && command === 'org create') detail = 'How long to wait for a new organization to be provisioned, in seconds (default 120).';
     if (flag === 'wait' && ['lane refresh','lane wrap-up'].includes(command)) detail = 'Bounded wait in seconds (default 150), including any wait for another save, refresh or wrap-up settling on the lane.';
+    if (flag === 'expires-at' && command === 'merit policy create') detail = 'When the new version expires, RFC 3339 timestamp in the future (default: the source\'s expiry).';
+    if (flag === 'repository' && command.startsWith('merit policy')) detail = command === 'merit policy list' ? 'Only this repository\'s versions.' : 'Repository ID of this project the version governs (default: the source\'s; required to copy from another project).';
+    if (flag === 'target-ref' && command.startsWith('merit policy')) detail = command === 'merit policy list' ? 'Only versions for this full branch ref.' : 'Full branch ref the version governs (default: the source\'s), for example refs/heads/main.';
+    if (flag === 'limit' && command === 'merit shadow') detail = 'At most this many candidates listed (the summary counts the whole window).';
     if (!detail) throw new Error(`missing option help: ${command} --${flag}`);
     return `  ${label.padEnd(28)} ${detail}`;
   });

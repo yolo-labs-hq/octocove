@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -173,9 +173,17 @@ describe("project create", () => {
       { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
     expect(calls[0]!.body).toEqual({ slug: "first", name: "First project",
       repository: { mode: "github", owner: "acme", name: "web", installationId: "7", providerRepoId: "42", targetRef: "refs/heads/main" } });
-    expect(outText).toContain("GitHub:");
+    expect(outText).toMatch(/GitHub:\s+acme\/web\n/);
     expect(outText).toContain("refs/heads/main");
     routes[`GET /me/project-initializations/${ready.operationId}`] = () => json(200, ready);
+    // The read names the repository by name only: the owner comes from the project's repository list.
+    routes["GET /projects/0b5c6f1e-0000-4000-8000-000000000001/repositories"] = () => json(200, { items: [{ id: "r1", projectId: project.id, provider: "github", namespace: "acme", repoId: "42", name: "web", targetRef: "refs/heads/main" }], creations: [] });
+    expect(await cli(["project", "init-status", ready.operationId], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(outText).toMatch(/GitHub:\s+acme\/web\n/);
+    // Without it (a failed read) the bare name, never an error.
+    delete routes["GET /projects/0b5c6f1e-0000-4000-8000-000000000001/repositories"];
+    expect(await cli(["project", "init-status", ready.operationId], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(outText).toMatch(/GitHub:\s+web\n/);
     expect(await cli(["--json", "project", "init-status", ready.operationId], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
     expect(JSON.parse(outText)).toEqual(ready);
     // action-required: the project exists; the guidance names the reconnect and the attach. Exit 1.
@@ -1397,5 +1405,215 @@ describe("publication guidance", () => {
     routes["GET /tasks/T1"] = () => json(403,{code:"forbidden"});
     expect(await cli(["task","publish","T1"],{kind:"human"})).toBe(0);
     expect(outText).toContain("waiting on dependencies");expect(errText).toBe("");
+  });
+});
+
+describe("merit", () => {
+  const fixture = () => JSON.parse(readFileSync(new URL("./fixtures/merit/policy-get.json", import.meta.url), "utf8"));
+  const human = { kind: "human" } as const;
+  const problem = (status: number, code: string, extra: object = {}) =>
+    json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r", ...extra });
+  /** The registration the GET fixture converts to: ISO durations, no read-only fields, the version left to the CLI. */
+  const registration = (version: number, extra: object = {}) => {
+    const { body } = fixture();
+    const { approvalTtlSeconds: _ttl, evaluation: { deadlineSeconds: _deadline, ...evaluation }, ...rest } = body;
+    return { repositoryId: "R1", targetRef: "refs/heads/main", version, expiresAt: "2030-01-01T00:00:00.000Z", ...rest, approvalTtl: "P1D", evaluation: { ...evaluation, deadline: "PT10M" }, ...extra };
+  };
+  const listOf = (...items: object[]) => json(200, { projectId: "P1", items, truncated: false });
+  const registered = (version: number) => json(201, { id: `pol-${version}`, version, principalId: "merit-principal-1", expiresAt: "2030-01-01T00:00:00.000Z", body: fixture().body });
+
+  it("policy list and get print each version's standing; get prints the registration form; both are human-only reads", async () => {
+    routes["GET /projects/P1/merit-policies"] = () => listOf(fixture(), { ...fixture(), id: "pol-2", version: 2, latest: false, live: false });
+    expect(await cli(["merit", "policy", "list", "P1", "--repository", "R1", "--target-ref", "refs/heads/main"], human)).toBe(0);
+    expect(calls[0]!.url.search).toBe("?repositoryId=R1&targetRef=refs%2Fheads%2Fmain");
+    expect(calls[0]!.headers["idempotency-key"]).toBeUndefined();
+    expect(outText).toContain("pol-3  v3  R1 refs/heads/main  live  expires 2030-01-01T00:00:00.000Z");
+    expect(outText).toContain("pol-2  v2  R1 refs/heads/main  superseded");
+    routes["GET /projects/P1/merit-policies/pol-3"] = () => json(200, fixture());
+    expect(await cli(["merit", "policy", "get", "P1", "pol-3"], human)).toBe(0);
+    expect(outText).toMatch(/Standing:\s+live/);
+    expect(outText).toMatch(/Lands:\s+no \(approve only; a human lands\)/);
+    expect(JSON.parse(outText.slice(outText.indexOf("{")))).toEqual(registration(3, { version: undefined }));
+    expect(await cli(["--json", "merit", "policy", "get", "P1", "pol-3"], human)).toBe(0);
+    expect(JSON.parse(outText)).toEqual(fixture());
+    calls = [];
+    for (const argv of [["merit", "policy", "list", "P1"], ["merit", "policy", "get", "P1", "pol-3"], ["merit", "usage", "P1"], ["merit", "shadow", "P1"]]) {
+      expect(await cli(argv, { kind: "agent" })).toBe(EXIT.humanRequired);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("policy create --file takes the GET answer as is: a round trip to a valid registration under the next version, keyed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "octocove-merit-"));
+    const file = join(dir, "policy.json");
+    writeFileSync(file, JSON.stringify(fixture()));
+    routes["GET /projects/P1/merit-policies"] = () => listOf(fixture());
+    routes["POST /projects/P1/merit-policies"] = () => registered(4);
+    expect(await cli(["merit", "policy", "create", "P1", "--file", file], human)).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}${c.url.search}`)).toEqual([`GET /v1/orgs/${ORG}/projects/P1/merit-policies?repositoryId=R1&targetRef=refs%2Fheads%2Fmain`, `POST /v1/orgs/${ORG}/projects/P1/merit-policies`]);
+    expect(calls[1]!.body).toEqual(registration(4));
+    for (const k of ["id", "principalId", "registeredAt", "registeredBy", "paused", "revokedAt", "expired", "latest", "live", "body", "approvalTtlSeconds"]) expect(calls[1]!.body).not.toHaveProperty(k);
+    expect(calls[1]!.headers["idempotency-key"]).toMatch(/^oc-[0-9a-f]{32}$/);
+    expect(outText).toMatch(/Policy:\s+pol-4/);
+    expect(outText).toContain("octo repo lane-policy P1 R1 --merit enabled");
+    // The registration form (stdin), with the overrides: nothing to convert, the version given is kept and nothing is listed.
+    stdin = JSON.stringify(registration(1));
+    calls = [];
+    expect(await cli(["merit", "policy", "create", "P1", "--file", "-", "--evaluator", "clef", "--target-ref", "refs/heads/dev", "--policy-version", "2", "--idempotency-key", "k".repeat(20)], human)).toBe(0);
+    expect(calls.map((c) => c.method)).toEqual(["POST"]);
+    expect(calls[0]!.body).toEqual(registration(2, { targetRef: "refs/heads/dev", evaluation: { ...registration(2).evaluation, model: "clef" } }));
+    expect(calls[0]!.headers["idempotency-key"]).toBe("k".repeat(20));
+    // Usage: no source, two sources, a list, a file that is not JSON; nothing is sent.
+    calls = [];
+    writeFileSync(join(dir, "list.json"), JSON.stringify({ projectId: "P1", items: [fixture()], truncated: false }));
+    writeFileSync(join(dir, "bad.json"), "{");
+    for (const argv of [[], ["--file", file, "--from-project", "P2"], ["--file", join(dir, "list.json")], ["--file", join(dir, "bad.json")], ["--from-org", ORG, "--file", file]]) {
+      expect(await cli(["merit", "policy", "create", "P1", ...argv], human)).toBe(EXIT.usage);
+    }
+    expect(errText).toContain("--from-org needs --from-project");
+    expect(calls.filter((c) => c.method === "POST")).toEqual([]);
+    expect(await cli(["merit", "policy", "create", "P1", "--file", file], { kind: "agent" })).toBe(EXIT.humanRequired);
+  });
+
+  it("policy create --from-project copies the other org's live version here, with this project's repository", async () => {
+    const OTHER = "org_00000000-0000-4000-8000-000000000002";
+    routes[`GET /orgs/${OTHER}/projects/SRC/merit-policies`] = () => listOf(fixture(), { ...fixture(), id: "pol-2", version: 2, latest: false, live: false });
+    routes["GET /projects/P1/merit-policies"] = () => listOf();
+    routes["POST /projects/P1/merit-policies"] = () => registered(1);
+    expect(await cli(["merit", "policy", "create", "P1", "--from-project", "SRC", "--from-org", OTHER, "--repository", "R9", "--evaluator", "clef"], human)).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`GET /v1/orgs/${OTHER}/projects/SRC/merit-policies`, `GET /v1/orgs/${ORG}/projects/P1/merit-policies`, `POST /v1/orgs/${ORG}/projects/P1/merit-policies`]);
+    expect(calls[2]!.body).toEqual(registration(1, { repositoryId: "R9", evaluation: { ...registration(1).evaluation, model: "clef" } }));
+    // Another project's repository id is never assumed: --repository is required, before anything is read.
+    calls = [];
+    expect(await cli(["merit", "policy", "create", "P1", "--from-project", "SRC"], human)).toBe(EXIT.usage);
+    expect(errText).toContain("pass --repository ID");
+    expect(calls).toEqual([]);
+    // Several live versions: named, exit 1, nothing registered.
+    routes["GET /projects/SRC/merit-policies"] = () => listOf(fixture(), { ...fixture(), id: "pol-x", repositoryId: "R2" });
+    expect(await cli(["--json", "merit", "policy", "create", "P1", "--from-project", "SRC", "--repository", "R9"], human)).toBe(EXIT.failure);
+    expect(JSON.parse(errText).error).toMatchObject({ code: "ambiguous-live-policy", policyIds: ["pol-3", "pol-x"] });
+    expect(JSON.parse(errText).error.message).toContain("--from-policy ID");
+    // By id: no list.
+    routes["GET /projects/SRC/merit-policies/pol-3"] = () => json(200, fixture());
+    calls = [];
+    expect(await cli(["merit", "policy", "create", "P1", "--from-project", "SRC", "--from-policy", "pol-3", "--repository", "R9"], human)).toBe(0);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)[0]).toBe(`GET /v1/orgs/${ORG}/projects/SRC/merit-policies/pol-3`);
+  });
+
+  it("policy create refusals read clearly, and a create with no answer names its key and version to resume", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "octocove-merit-"));
+    const file = join(dir, "policy.json");
+    writeFileSync(file, JSON.stringify(fixture()));
+    routes["GET /projects/P1/merit-policies"] = () => listOf(fixture());
+    routes["POST /projects/P1/merit-policies"] = () => problem(409, "policy-version-conflict");
+    expect(await cli(["merit", "policy", "create", "P1", "--file", file], human)).toBe(EXIT.failure);
+    expect(errText).toContain("Another version of this repository and target ref was registered meanwhile");
+    routes["POST /projects/P1/merit-policies"] = () => problem(400, "invalid-policy-body", { details: { field: "evaluation.thresholds.score" } });
+    expect(await cli(["merit", "policy", "create", "P1", "--file", file], human)).toBe(EXIT.failure);
+    expect(errText).toContain("outside its domain (evaluation.thresholds.score)");
+    routes["POST /projects/P1/merit-policies"] = () => problem(400, "limits-exceed-state-bound");
+    expect(await cli(["merit", "policy", "create", "P1", "--file", file], human)).toBe(EXIT.failure);
+    expect(errText).toContain("lower them");
+    routes["POST /projects/P1/merit-policies"] = () => { throw new TypeError("fetch failed"); };
+    calls = [];
+    expect(await cli(["merit", "policy", "create", "P1", "--file", file], human)).toBe(EXIT.failure);
+    const key = calls.at(-1)!.headers["idempotency-key"]!;
+    expect(new Set(calls.filter((c) => c.method === "POST").map((c) => c.headers["idempotency-key"]))).toEqual(new Set([key]));
+    expect(errText).toContain(`resume it with the same key: octo merit policy create P1 --file ${file} --policy-version 4 --idempotency-key ${key}`);
+  });
+
+  it("policy pause, resume and disable are keyed commands without a body", async () => {
+    routes["POST /projects/P1/merit-policies/pol-3/pause"] = () => json(200, { id: "pol-3", paused: true });
+    routes["POST /projects/P1/merit-policies/pol-3/resume"] = () => json(200, { id: "pol-3", paused: false });
+    routes["POST /projects/P1/merit-policies/pol-3/disable"] = () => new Response(null, { status: 204 });
+    expect(await cli(["merit", "policy", "pause", "P1", "pol-3"], human)).toBe(0);
+    expect(outText).toMatch(/Paused:\s+yes/);
+    expect(await cli(["merit", "policy", "resume", "P1", "pol-3", "--idempotency-key", "r".repeat(20)], human)).toBe(0);
+    expect(outText).toMatch(/Paused:\s+no/);
+    expect(await cli(["--json", "merit", "policy", "disable", "P1", "pol-3"], human)).toBe(0);
+    expect(JSON.parse(outText)).toEqual({ id: "pol-3", disabled: true });
+    expect(calls.map((c) => [c.method, c.url.pathname.split("/").pop(), c.body])).toEqual([["POST", "pause", undefined], ["POST", "resume", undefined], ["POST", "disable", undefined]]);
+    expect(calls.every((c) => !!c.headers["idempotency-key"])).toBe(true);
+    expect(calls[1]!.headers["idempotency-key"]).toBe("r".repeat(20));
+    routes["POST /projects/P1/merit-policies/pol-3/pause"] = () => problem(409, "policy-revoked");
+    expect(await cli(["merit", "policy", "pause", "P1", "pol-3"], human)).toBe(EXIT.failure);
+    expect(errText).toContain("disabled for good");
+    calls = [];
+    for (const verb of ["pause", "resume", "disable"]) expect(await cli(["merit", "policy", verb, "P1", "pol-3"], { kind: "agent" })).toBe(EXIT.humanRequired);
+    expect(calls).toEqual([]);
+  });
+
+  it("usage and shadow print their reports and pass the window", async () => {
+    const totals = (n: number) => ({ evaluations: n, outcomes: { pass: n, fail: 0, "needs-human": 0, "needs-evidence": 0, pending: 0, failed: 0, superseded: 0 }, calls: 2 * n, unreportedCalls: 0, usage: { neurons: 10 * n }, models: [{ model: "jev", calls: 2 * n, unreportedCalls: 0, usage: { neurons: 10 * n } }] });
+    const usage = { projectId: "P1", window: { since: "2026-10-01T00:00:00Z", until: null }, project: totals(3), policyVersions: [{ ...totals(3), policyVersion: "pol-3" }], org: totals(5) };
+    routes["GET /projects/P1/merit-usage"] = () => json(200, usage);
+    expect(await cli(["merit", "usage", "P1", "--since", "2026-10-01T00:00:00Z"], human)).toBe(0);
+    expect(calls[0]!.url.search).toBe("?since=2026-10-01T00%3A00%3A00Z");
+    expect(outText).toContain("Project: 3 evaluation(s): pass 3, fail 0");
+    expect(outText).toContain("Policy pol-3: 3 evaluation(s)");
+    expect(outText).toContain("Org: 5 evaluation(s)");
+    expect(outText).toContain("jev: 6 call(s) (0 without usage); neurons 30");
+    expect(await cli(["--json", "merit", "usage", "P1"], human)).toBe(0);
+    expect(JSON.parse(outText)).toEqual(usage);
+    const shadow = { projectId: "P1", window: { since: null, until: null },
+      summary: { candidates: 2, truncated: false, decided: 2, agreement: { count: 1, rate: 0.5 }, evaluatorFailOnHumanApproved: 1, evaluatorPassOnHumanRejected: 0,
+        undecided: { evaluator: 0, human: 0, both: 0 }, evaluator: { pass: 1, fail: 1, undecided: 0 }, human: { approved: 2, rejected: 0, undecided: 0, superseded: 0 } },
+      cost: { evaluations: 2, calls: 4, reportedCalls: 4, unreportedCalls: 0, usage: { neurons: 20 }, perEvaluation: { calls: 2, usage: { neurons: 10 } } },
+      candidates: [{ candidateId: "CA1", taskId: "T1", policyVersion: "pol-3", evaluator: { outcome: "pass", reasons: [], signals: [], score: 0.9, attempt: 1, completedAt: "2026-10-02T00:00:00Z" }, human: { outcome: "approved", approvedAt: "2026-10-02T01:00:00Z", rejectedAt: null } }] };
+    routes["GET /projects/P1/merit-shadow"] = () => json(200, shadow);
+    calls = [];
+    expect(await cli(["merit", "shadow", "P1", "--limit", "10", "--until", "2026-10-30T00:00:00Z"], human)).toBe(0);
+    expect(calls[0]!.url.search).toBe("?limit=10&until=2026-10-30T00%3A00%3A00Z");
+    expect(outText).toMatch(/Agreement:\s+1 of 2 \(50%\)/);
+    expect(outText).toMatch(/Evaluator fail, human approved:\s+1/);
+    expect(outText).toContain("CA1  task T1  evaluator pass 0.9  human approved");
+    expect(await cli(["merit", "shadow", "P1", "--since", "yesterday"], human)).toBe(EXIT.usage);
+  });
+
+  it("release takes a task, or a candidate whose task it reads, and sends no body; agents and a task not held are refused", async () => {
+    const released = { taskId: "T1", meritState: "none", attempts: 0, releasedAt: "2026-10-30T00:00:00Z" };
+    routes["POST /tasks/T1/merit-release"] = () => json(200, released);
+    routes["GET /candidates/CA1/merit"] = () => json(200, { candidateId: "CA1", taskId: "T1", stage: "shadow", meritState: "needs-human", reasons: [] });
+    expect(await cli(["merit", "release", "T1"], human)).toBe(0);
+    expect(outText).toMatch(/Merit state:\s+none/);
+    expect(await cli(["--json", "merit", "release", "--candidate", "CA1"], human)).toBe(0);
+    expect(JSON.parse(outText)).toEqual(released);
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([`POST /v1/orgs/${ORG}/tasks/T1/merit-release`, `GET /v1/orgs/${ORG}/candidates/CA1/merit`, `POST /v1/orgs/${ORG}/tasks/T1/merit-release`]);
+    expect(calls.filter((c) => c.method === "POST").map((c) => c.body)).toEqual([undefined, undefined]);
+    expect(calls.filter((c) => c.method === "POST").every((c) => !!c.headers["idempotency-key"])).toBe(true);
+    calls = [];
+    expect(await cli(["merit", "release", "T1"], { kind: "agent" })).toBe(EXIT.humanRequired);
+    expect(await cli(["merit", "release"], human)).toBe(EXIT.usage);
+    expect(await cli(["merit", "release", "T1", "--candidate", "CA1"], human)).toBe(EXIT.usage);
+    expect(calls).toEqual([]);
+    routes["POST /tasks/T1/merit-release"] = () => problem(409, "merit-not-needs-human");
+    expect(await cli(["merit", "release", "T1"], human)).toBe(EXIT.failure);
+    expect(errText).toContain("nothing to release");
+  });
+});
+
+describe("repo lane-policy --merit", () => {
+  const declaration = (merit: string) => json(200, { repositoryId: "R1", lanePolicy: { candidatePublication: "public-on-submit", visibility: "public", merit }, declaredAt: "2026-10-30T00:00:00Z", declaredBy: "h" });
+  it("alone keeps the publication and visibility it reads; with them it is one declaration; agents are refused", async () => {
+    routes["GET /projects/P1/repositories/R1/lane-policy"] = () => declaration("disabled");
+    routes["POST /projects/P1/repositories/R1/lane-policy"] = () => declaration("enabled");
+    expect(await cli(["repo", "lane-policy", "P1", "R1", "--merit", "enabled"], { kind: "human" })).toBe(0);
+    expect(calls.map((c) => c.method)).toEqual(["GET", "POST"]);
+    expect(calls[1]!.body).toEqual({ candidatePublication: "public-on-submit", visibility: "public", merit: "enabled" });
+    expect(calls[1]!.headers["idempotency-key"]).toBeTruthy();
+    expect(outText).toMatch(/Merit:\s+enabled/);
+    calls = [];
+    expect(await cli(["repo", "lane-policy", "P1", "R1", "--publication", "repository-readers", "--visibility", "private", "--merit", "disabled"], { kind: "human" })).toBe(0);
+    expect(calls.map((c) => c.method)).toEqual(["POST"]);
+    expect(calls[0]!.body).toEqual({ candidatePublication: "repository-readers", visibility: "private", merit: "disabled" });
+    calls = [];
+    expect(await cli(["repo", "lane-policy", "P1", "R1", "--publication", "repository-readers", "--visibility", "private"], { kind: "human" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ candidatePublication: "repository-readers", visibility: "private" });
+    calls = [];
+    expect(await cli(["repo", "lane-policy", "P1", "R1", "--merit", "on"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "lane-policy", "P1", "R1", "--merit", "enabled", "--publication", "repository-readers"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "lane-policy", "P1", "R1"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "lane-policy", "P1", "R1", "--merit", "enabled"], { kind: "agent" })).toBe(EXIT.humanRequired);
+    expect(calls).toEqual([]);
   });
 });

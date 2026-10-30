@@ -260,10 +260,19 @@ Commands:
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
-  repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
+  repo lane-policy PROJECT REPOSITORY [--publication repository-readers|public-on-submit --visibility private|public] [--merit enabled|disabled]   (project admin, recent sign-in: declare the repository's lane policy; --merit alone keeps the rest)
   repo branches PROJECT REPOSITORY            (the provider's branches, default branch and heads; which ones tasks can target)
   repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]   (project admin, recent sign-in: make an existing branch a landing destination)
   repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA   (project admin, recent sign-in: create the branch from a source branch at a pinned SHA and make it a landing destination; never moves an existing branch)
+  merit policy list PROJECT [--repository ID] [--target-ref REF]   (project admin: the project's merit policy versions, newest first, with their standing)
+  merit policy get PROJECT POLICY_ID           (project admin: one version, and its body in the form merit policy create takes)
+  merit policy create PROJECT [--file FILE] [--from-project SOURCE [--from-org ORG_ID] [--from-policy ID]] [--repository ID] [--target-ref REF] [--evaluator MODEL] [--expires-at TIME] [--policy-version N]   (project admin, recent sign-in: append the next version, from a file or another project's live policy; the read form is converted)
+  merit policy pause PROJECT POLICY_ID         (project admin, recent sign-in: the evaluator stops reading the version until it is resumed)
+  merit policy resume PROJECT POLICY_ID        (project admin, recent sign-in: resume a paused version)
+  merit policy disable PROJECT POLICY_ID       (project admin, recent sign-in: revoke the version for good; register a new one to evaluate again)
+  merit usage PROJECT [--since TIME] [--until TIME]   (project admin: evaluations by outcome and model calls with their usage, per policy version, project and org)
+  merit shadow PROJECT [--since TIME] [--until TIME] [--limit N]   (project admin: the evaluator's verdicts beside the humans' per evaluated candidate)
+  merit release [TASK] [--candidate ID]        (human approver, recent sign-in: release a task from the needs-human merit hold without deciding its candidate)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -523,6 +532,41 @@ exports[`logout 1`] = `
 }
 `;
 
+exports[`merit policy create version conflict 1`] = `
+{
+  "code": 1,
+  "requests": [
+    "POST /projects/P1/merit-policies",
+  ],
+  "stderr": "octo: policy-version-conflict: version 4 is not the next Another version of this repository and target ref was registered meanwhile; nothing was appended. Run the same command again without --policy-version (it takes the next one), or read them with \`octo merit policy list PROJECT\`.
+",
+  "stdout": "",
+}
+`;
+
+exports[`merit policy pause 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "POST /projects/P1/merit-policies/pol-3/pause",
+  ],
+  "stderr": "",
+  "stdout": "Policy:           pol-3
+Paused:           yes (the evaluator admits nothing under it)
+",
+}
+`;
+
+exports[`merit release as agent 1`] = `
+{
+  "code": 77,
+  "requests": [],
+  "stderr": "octo: merit release requires a human credential (candidates:approve, with a recent sign-in)
+",
+  "stdout": "",
+}
+`;
+
 exports[`receipt show --wait timeout with changing pending metadata --json 1`] = `
 {
   "code": 75,
@@ -627,6 +671,23 @@ exports[`receipt show pending 1`] = `
   "stdout": "Receipt:          F1
 Landing:          pending
 Integrator run:   run1
+",
+}
+`;
+
+exports[`repo lane-policy --merit 1`] = `
+{
+  "code": 0,
+  "requests": [
+    "GET /projects/P1/repositories/R1/lane-policy",
+    "POST /projects/P1/repositories/R1/lane-policy",
+  ],
+  "stderr": "",
+  "stdout": "Repository:       R1
+Candidate publication: repository-readers
+Visibility:       private
+Merit:            enabled
+Declared:         2030-01-02T00:00:00Z by u1
 ",
 }
 `;

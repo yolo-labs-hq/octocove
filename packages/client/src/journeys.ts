@@ -43,6 +43,7 @@ import {
 import { bearer, type BearerTransport } from './transports.js';
 import { authJourneys, isPartialRead, tenantAuthJourneys, type UnavailableTenant } from './auth.js';
 import { follow, type FollowOptions } from './events.js';
+import { meritPolicyInputFromRead, MeritPolicySourceError, type MeritPolicyDraft, type MeritPolicyOverrides } from './merit-policy.js';
 
 type Schemas = components['schemas'];
 type Body<K extends CallableOperationId> = CallInput<K> extends { body: infer B } ? B : CallInput<K> extends { body?: infer B } ? B : never;
@@ -161,6 +162,15 @@ export type MeritPolicyRegistration = Schemas['MeritPolicyRegistration'];
 export type MeritPolicyVersion = OpenEnums<Schemas['MeritPolicyVersion']>;
 export type MeritPolicyVersionView = OpenEnums<Schemas['MeritPolicyVersionView']>;
 export type MeritPolicyList = OpenEnums<Schemas['MeritPolicyList']>;
+/** The policy `merit.policies.copySource` reads: one project (in `orgId`, default the bound org), by `policyId` or its
+ * one live version (narrowed by `repositoryId` and `targetRef`). */
+export interface MeritPolicyCopySource {
+  readonly projectId: string;
+  readonly orgId?: string;
+  readonly policyId?: string;
+  readonly repositoryId?: string;
+  readonly targetRef?: string;
+}
 /** `repositoryBranchesList`'s answer: provider branches, the default branch, heads, and the registered destinations. */
 export type RepositoryBranchList = OpenEnums<Schemas['RepositoryBranchList']>;
 /** `repositoryTargetRefRegister`'s body: register an existing branch, or create one from a pinned source. */
@@ -361,6 +371,17 @@ export function tenantJourneys(client: TenantClient) {
      */
     lanePolicy: (projectId: string, repositoryId: string, options: JourneyOptions): Promise<RepositoryLanePolicyDeclaration> =>
       body(options, 'repositoryLanePolicyGet', { path: { project: projectId, repository: repositoryId } }),
+    /**
+     * Human only, `project:admin` with a recent sign-in: opt the repository in to merit evaluation (`enabled`, its
+     * content may be sent to the decision model) or out (`disabled`), keeping its `candidatePublication` and
+     * `visibility`. Reads the current policy, then declares it whole with the new `merit` (a concurrent declaration
+     * between the two is overwritten). Declaring the value it already has answers it unchanged. `stored-result` replay.
+     */
+    async setMerit(projectId: string, repositoryId: string, merit: 'enabled' | 'disabled', options: CommandOptions): Promise<RepositoryLanePolicyDeclaration> {
+      requireHuman(client, 'repositories.setMerit');
+      const current = (await body(options, 'repositoryLanePolicyGet', { path: { project: projectId, repository: repositoryId } })).lanePolicy;
+      return repositories.declareLanePolicy(projectId, repositoryId, { candidatePublication: current.candidatePublication, visibility: current.visibility, merit } as RepositoryLanePolicy, options);
+    },
     /**
      * Human only, `tasks:create`: the canonical repository's branches as the provider advertises them now (no clone),
      * the default branch as a full ref (or null), each branch's head, and which ones are registered landing
@@ -715,6 +736,12 @@ export function tenantJourneys(client: TenantClient) {
       requireHuman(client, 'merit.release');
       return body(options, 'taskMeritRelease', { path: { id: taskId } });
     },
+    /** `release` for the task of a candidate: reads the candidate's merit state (`candidates:read`) for its `taskId`. */
+    async releaseCandidate(candidateId: string, options: CommandOptions): Promise<SuccessBody<'taskMeritRelease'>> {
+      requireHuman(client, 'merit.releaseCandidate');
+      const state = await body(options, 'candidateMeritGet', { path: { id: candidateId } });
+      return merit.release(state.taskId, options);
+    },
     /** Human only, `project:admin` with a recent sign-in: probe the configured decision models once (rate-limited per
      * project, `429 merit-probe-rate-limited`). Takes no Idempotency-Key and is never resent by the library. */
     probe(projectId: string, options: JourneyOptions): Promise<MeritProbe> {
@@ -739,14 +766,60 @@ export function tenantJourneys(client: TenantClient) {
        * for a repository and target ref (`version` = the current maximum + 1, else `409 policy-version-conflict`).
        * `stored-result` replay.
        */
-      register: (projectId: string, input: MeritPolicyRegistration, options: CommandOptions): Promise<MeritPolicyVersion> =>
-        body(options, 'meritPolicyRegister', { path: { project: projectId }, body: input }),
-      pause: (projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyPause'>> =>
-        body(options, 'meritPolicyPause', { path: { project: projectId, id: policyId } }),
-      resume: (projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyResume'>> =>
-        body(options, 'meritPolicyResume', { path: { project: projectId, id: policyId } }),
-      disable: (projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyDisable'>> =>
-        body(options, 'meritPolicyDisable', { path: { project: projectId, id: policyId } }),
+      register(projectId: string, input: MeritPolicyRegistration, options: CommandOptions): Promise<MeritPolicyVersion> {
+        requireHuman(client, 'merit.policies.register');
+        return body(options, 'meritPolicyRegister', { path: { project: projectId }, body: input });
+      },
+      /** Pause the version: the evaluator stops reading it until `resume` (a pause in effect answers the current state). */
+      pause(projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyPause'>> {
+        requireHuman(client, 'merit.policies.pause');
+        return body(options, 'meritPolicyPause', { path: { project: projectId, id: policyId } });
+      },
+      resume(projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyResume'>> {
+        requireHuman(client, 'merit.policies.resume');
+        return body(options, 'meritPolicyResume', { path: { project: projectId, id: policyId } });
+      },
+      /** Revoke the version for good (`204`); register a new version to evaluate again. */
+      disable(projectId: string, policyId: string, options: CommandOptions): Promise<SuccessBody<'meritPolicyDisable'>> {
+        requireHuman(client, 'merit.policies.disable');
+        return body(options, 'meritPolicyDisable', { path: { project: projectId, id: policyId } });
+      },
+      /**
+       * A registration for this project from a policy in either form (`meritPolicyInputFromRead`: a read, a stored
+       * body or a registration, with `overrides`). Without a `version` (a read's own is dropped) it takes the next one
+       * for its repository and target ref: one more than the highest this project lists (1 for the first). Reads only;
+       * `register` appends it. Throws `TypeError` for a source that is no merit policy.
+       */
+      async prepare(projectId: string, source: unknown, overrides: MeritPolicyOverrides, options: JourneyOptions): Promise<MeritPolicyRegistration> {
+        const draft: MeritPolicyDraft = meritPolicyInputFromRead(source, overrides);
+        if (draft.version !== undefined) return draft as MeritPolicyRegistration;
+        const listed = await body(options, 'meritPolicyList', { path: { project: projectId }, query: { repositoryId: draft.repositoryId, targetRef: draft.targetRef } });
+        const highest = listed.items.filter((p) => p.repositoryId === draft.repositoryId && p.targetRef === draft.targetRef).reduce((max, p) => Math.max(max, p.version), 0);
+        const { repositoryId, targetRef, expiresAt, ...rest } = draft;
+        return { repositoryId, targetRef, version: highest + 1, expiresAt, ...rest } as MeritPolicyRegistration;
+      },
+      /**
+       * The version to copy from another project (`orgId`: in another org): `policyId`'s, else the one live version
+       * (narrowed by `repositoryId` and `targetRef`). Throws `MeritPolicySourceError` when none or several are live.
+       */
+      async copySource(from: MeritPolicyCopySource, options: JourneyOptions): Promise<MeritPolicyVersionView> {
+        const source = from.orgId === undefined || from.orgId === client.tenantId ? merit : tenantJourneys(tenantClient(client.client, from.orgId)).merit;
+        if (from.policyId !== undefined) return source.policies.get(from.projectId, from.policyId, options);
+        const query = { ...(from.repositoryId === undefined ? {} : { repositoryId: from.repositoryId }), ...(from.targetRef === undefined ? {} : { targetRef: from.targetRef }) };
+        const live = (await source.policies.list(from.projectId, query, options)).items.filter((p) => p.live);
+        if (live.length !== 1) throw new MeritPolicySourceError(live.length ? 'ambiguous-live-policy' : 'no-live-policy', from.projectId, live.map((p) => p.id));
+        return live[0]!;
+      },
+      /**
+       * Copy another project's policy here: `copySource`, `prepare` (with `overrides`; a copy across projects names
+       * this project's `repositoryId`), then `register` under `options.idempotencyKey`. To resume a lost answer, keep
+       * the key and pass the `version` the first attempt prepared.
+       */
+      async copy(projectId: string, from: MeritPolicyCopySource, overrides: MeritPolicyOverrides, options: CommandOptions): Promise<MeritPolicyVersion> {
+        requireHuman(client, 'merit.policies.copy');
+        const input = await merit.policies.prepare(projectId, await merit.policies.copySource(from, options), overrides, options);
+        return merit.policies.register(projectId, input, options);
+      },
     },
   };
 

@@ -13,7 +13,7 @@ import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, meritPolicyInputFromRead, MeritPolicySourceError, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -86,10 +86,19 @@ Commands:
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
-  repo lane-policy PROJECT REPOSITORY --publication repository-readers|public-on-submit --visibility private|public   (project admin, recent sign-in: declare the repository's lane policy)
+  repo lane-policy PROJECT REPOSITORY [--publication repository-readers|public-on-submit --visibility private|public] [--merit enabled|disabled]   (project admin, recent sign-in: declare the repository's lane policy; --merit alone keeps the rest)
   repo branches PROJECT REPOSITORY            (the provider's branches, default branch and heads; which ones tasks can target)
   repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]   (project admin, recent sign-in: make an existing branch a landing destination)
   repo target-create PROJECT REPOSITORY --target-ref REF --from-ref REF --at SHA   (project admin, recent sign-in: create the branch from a source branch at a pinned SHA and make it a landing destination; never moves an existing branch)
+  merit policy list PROJECT [--repository ID] [--target-ref REF]   (project admin: the project's merit policy versions, newest first, with their standing)
+  merit policy get PROJECT POLICY_ID           (project admin: one version, and its body in the form merit policy create takes)
+  merit policy create PROJECT [--file FILE] [--from-project SOURCE [--from-org ORG_ID] [--from-policy ID]] [--repository ID] [--target-ref REF] [--evaluator MODEL] [--expires-at TIME] [--policy-version N]   (project admin, recent sign-in: append the next version, from a file or another project's live policy; the read form is converted)
+  merit policy pause PROJECT POLICY_ID         (project admin, recent sign-in: the evaluator stops reading the version until it is resumed)
+  merit policy resume PROJECT POLICY_ID        (project admin, recent sign-in: resume a paused version)
+  merit policy disable PROJECT POLICY_ID       (project admin, recent sign-in: revoke the version for good; register a new one to evaluate again)
+  merit usage PROJECT [--since TIME] [--until TIME]   (project admin: evaluations by outcome and model calls with their usage, per policy version, project and org)
+  merit shadow PROJECT [--since TIME] [--until TIME] [--limit N]   (project admin: the evaluator's verdicts beside the humans' per evaluated candidate)
+  merit release [TASK] [--candidate ID]        (human approver, recent sign-in: release a task from the needs-human merit hold without deciding its candidate)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
@@ -247,7 +256,7 @@ function initializationOut(d: Deps, json: boolean | undefined, r: ProjectInitial
     : "the project was not created";
   out(d, !!json, { ...r, ...(key && r.state === "pending" ? { idempotencyKey: key } : {}) }, () => kv([["Operation", r.operationId], ["State", r.state],
     ...(r.project ? [["Project", r.project.id], ["Slug", r.project.slug], ["Org", r.project.tenantId]] as [string, unknown][] : []),
-    ...(repository?.id && repository.name ? [["Repository", repository.id], [providerLabel(repository.provider), repository.name], ["Target ref", repository.targetRef]] as [string, unknown][] : []),
+    ...(repository?.id && repository.name ? [["Repository", repository.id], [providerLabel(repository.provider), repository.provider === "github" && repo ? `${repo.owner}/${repository.name}` : repository.name], ["Target ref", repository.targetRef]] as [string, unknown][] : []),
     ...(r.state === "pending" ? [["Reason", r.reason], ["Retry after", `${r.retryAfter ?? 5} s`], ...(key ? [["Idempotency key", key]] : [])] as [string, unknown][] : []),
     ...(a ? [["Action", a.reason], ...(a.code ? [["Code", a.code]] : []), ...(a.installUrl ? [["Connect URL", a.installUrl]] : [])] as [string, unknown][] : []),
     ...(r.state === "failed" ? [["Problem", (r.problem as { code?: string } | undefined)?.code]] as [string, unknown][] : []),
@@ -334,6 +343,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof CandidateFailedError) return emit(err.code, err.message), EXIT.candidateFailed;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
   if (err instanceof ActionRequiredError) return emit(err.code, err.message), EXIT.failure;
+  if (err instanceof MeritPolicySourceError) return emit(err.code, `${err.message}. ${err.code === "no-live-policy" ? "Copy a version by its ID with --from-policy ID" : "Name one with --from-policy ID"} (\`octo merit policy list ${err.projectId}\`${err.code === "no-live-policy" ? ", or write the policy to a file and pass --file" : ""}). Nothing was registered.`, { policyIds: err.policyIds }), EXIT.failure;
   // No server answer: a client-side failure, reported in the CLI's own wording.
   if (err instanceof TransportError) return emit(err.code, `${err.code}: ${TRANSPORT_DETAIL[err.code] ?? err.message}`, { status: 0 }), EXIT.failure;
   if (err instanceof ApiError) {
@@ -414,6 +424,18 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "That slug is already taken; choose another. An organization slug is unique across every organization and user handle, current or retired, case-insensitively; a project slug across projects. Nothing was changed."
       : err.code === "owner-not-found"
         ? "No organization you can see has that slug. Check it against `octo org list`, or pass the org ID (org_<uuid>)."
+      : err.code === "policy-version-conflict"
+        ? "Another version of this repository and target ref was registered meanwhile; nothing was appended. Run the same command again without --policy-version (it takes the next one), or read them with `octo merit policy list PROJECT`."
+      : err.code === "invalid-policy-body"
+        ? `The policy has a value outside its domain${isRecord(err.details) && typeof err.details.field === "string" ? ` (${err.details.field})` : ""}; nothing was appended. Fix it and run the command again.`
+      : err.code === "limits-exceed-state-bound"
+        ? "The policy's diff limits (maxFileBytes, maxChangedLines) would admit a candidate the decision model could see only in part; lower them. Nothing was appended."
+      : err.code === "policy-revoked"
+        ? "This merit policy version was disabled for good; register a new version (`octo merit policy create`) instead."
+      : err.code === "merit-not-needs-human"
+        ? "The task is not held for a human (its merit state is not needs-human), so there is nothing to release. `octo task show TASK_ID` shows it."
+      : err.code === "merit-probe-rate-limited"
+        ? `The decision models were probed recently; run it again${err.retryAfter ? ` after ${err.retryAfter} s` : " later"}.`
       : err.code === "already-claimed"
           ? "Run `octo task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octo task release TASK_ID --claim ID`)."
           : undefined;
@@ -429,7 +451,9 @@ function report(d: Deps, err: unknown, json: boolean): number {
   return EXIT.failure;
 }
 
-const GROUPS = new Set(["org", "project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane", "github"]);
+const GROUPS = new Set(["org", "project", "repo", "task", "candidate", "receipt", "events", "webhook", "auth", "approval", "lane", "github", "merit"]);
+/** The three-word commands: `project member VERB` and `merit policy VERB`. */
+const threeWord = (a: string | undefined, b: string | undefined) => (a === "project" && b === "member") || (a === "merit" && b === "policy");
 
 async function dispatch(d: Deps) {
   const globals = globalOptions(d.argv);
@@ -438,7 +462,7 @@ async function dispatch(d: Deps) {
     const words = globals.argv;
     const first = words[0] === "--version" || words[0] === "-v" ? "version" : words[0];
     const command = first && GROUPS.has(first) && first !== "events"
-      ? first === "project" && words[1] === "member" ? `project member ${words[2] ?? ""}` : `${first} ${words[1] ?? ""}`
+      ? threeWord(first, words[1]) ? `${first} ${words[1]} ${words[2] ?? ""}` : `${first} ${words[1] ?? ""}`
       : first === "events" && words[1] === "replay" ? "events replay" : first;
     if (command && COMMAND_NAMES.includes(command)) {
       const commandWords = command.split(" ");
@@ -468,8 +492,8 @@ async function dispatch(d: Deps) {
     return;
   }
   const grouped = GROUPS.has(a);
-  const memberCommand = a === "project" && b === "member";
-  const command = memberCommand ? `project member ${tail[0] ?? ""}` : a === "--version" || a === "-v" ? "version" : grouped ? `${a} ${b}` : a;
+  const memberCommand = threeWord(a, b);
+  const command = memberCommand ? `${a} ${b} ${tail[0] ?? ""}` : a === "--version" || a === "-v" ? "version" : grouped ? `${a} ${b}` : a;
   const machineArgs = memberCommand ? tail.slice(1) : grouped ? tail : b === undefined ? [] : [b, ...tail];
   if (await machineCommand(d, command, [...lead, ...machineArgs])) return;
   const handler = COMMANDS[a === "claim" ? "task claim" : command];
@@ -1174,7 +1198,17 @@ const COMMANDS: Record<string, Handler> = {
     const { v, pos } = opts(args, {}, 1);
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("project init-status requires a human credential");
-    initializationOut(d, v.json, await api.root.projects.initialization(pos[0]!, api.until(Date.now() + READ_SECONDS * 1000)));
+    const r = await api.root.projects.initialization(pos[0]!, api.until(Date.now() + READ_SECONDS * 1000));
+    // The answer names a GitHub repository by its name only; its owner comes from the project's repository list (best effort).
+    let repo: { owner: string; name: string } | undefined;
+    const attached = r.repository as { id?: string; provider?: string } | null | undefined;
+    if (!v.json && attached?.provider === "github" && attached.id && r.project?.id && isTenantId(r.project.tenantId)) {
+      try {
+        const listed = (await connect(d, creds, r.project.tenantId).j.repositories.list(r.project.id, api.until(Date.now() + READ_SECONDS * 1000))).find((x) => x.id === attached.id);
+        if (listed) repo = { owner: listed.namespace, name: listed.name };
+      } catch { /* display only: the bare name is printed */ }
+    }
+    initializationOut(d, v.json, r, repo);
   },
 
   // The GitHub App installations you connected, and requests awaiting an organization owner's approval.
@@ -1353,17 +1387,107 @@ const COMMANDS: Record<string, Handler> = {
       ["Verified", r.verifiedAt ? `${r.verifiedAt} by ${r.verifiedBy}` : "trusted (created by a trusted path)"], ["Next steps", nextSteps]]));
   },
 
-  // The repository's lane policy (project admin, recent sign-in): the whole policy is declared each time.
+  // The repository's lane policy (project admin, recent sign-in): the whole policy is declared each time; --merit
+  // alone keeps the publication and visibility the repository has (`repositories.setMerit`).
   "repo lane-policy": async (d, args) => {
-    const { v, pos } = opts(args, { publication: { type: "string" }, visibility: { type: "string" } }, 2);
-    const candidatePublication = need(v, "publication"), visibility = need(v, "visibility");
-    if (!["repository-readers", "public-on-submit"].includes(candidatePublication)) throw new UsageError("--publication must be repository-readers or public-on-submit");
-    if (!["private", "public"].includes(visibility)) throw new UsageError("--visibility must be private or public");
+    const { v, pos } = opts(args, { publication: { type: "string" }, visibility: { type: "string" }, merit: { type: "string" } }, 2);
+    if (v.merit !== undefined && !["enabled", "disabled"].includes(v.merit)) throw new UsageError("--merit must be enabled or disabled");
+    const whole = v.publication !== undefined || v.visibility !== undefined || v.merit === undefined;
+    const candidatePublication = whole ? need(v, "publication") : undefined, visibility = whole ? need(v, "visibility") : undefined;
+    if (whole && !["repository-readers", "public-on-submit"].includes(candidatePublication!)) throw new UsageError("--publication must be repository-readers or public-on-submit");
+    if (whole && !["private", "public"].includes(visibility!)) throw new UsageError("--visibility must be private or public");
     const { api, creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("repo lane-policy requires a human credential (project:admin, with a recent sign-in)");
-    const r = await api.j.repositories.declareLanePolicy(pos[0]!, pos[1]!, { candidatePublication, visibility } as never, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    const options = api.write(COMMAND_SECONDS, v["idempotency-key"]);
+    const r = whole
+      ? await api.j.repositories.declareLanePolicy(pos[0]!, pos[1]!, { candidatePublication, visibility, ...(v.merit === undefined ? {} : { merit: v.merit }) } as never, options)
+      : await api.j.repositories.setMerit(pos[0]!, pos[1]!, v.merit, options);
     out(d, v.json, r, () => kv([["Repository", r.repositoryId], ["Candidate publication", r.lanePolicy?.candidatePublication], ["Visibility", r.lanePolicy?.visibility],
-      ["Declared", `${r.declaredAt} by ${r.declaredBy}`]]));
+      ["Merit", r.lanePolicy?.merit ?? "disabled"], ["Declared", `${r.declaredAt} by ${r.declaredBy}`]]));
+  },
+
+  // Merit (ADR 0040): a project admin's policy versions, the usage counter and the shadow comparison, and a human's
+  // release of a needs-human hold. Each is one client journey (`org(tenantId).merit`); the CLI parses and prints.
+  "merit policy list": async (d, args) => {
+    const { v, pos } = opts(args, { repository: { type: "string" }, "target-ref": { type: "string" } }, 1);
+    const query = destinationFlags(v);
+    const { api } = await meritAdmin(d, "merit policy list");
+    const r = await api.j.merit.policies.list(pos[0]!, query, api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => policyListText(r));
+  },
+  "merit policy get": async (d, args) => {
+    const { v, pos } = opts(args, {}, 2);
+    const { api } = await meritAdmin(d, "merit policy get");
+    const r = await api.j.merit.policies.get(pos[0]!, pos[1]!, api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => `${kv(policyRows(r))}\n\nRegistration form (\`octo merit policy create PROJECT --file FILE\` takes it, or this answer as is):\n${JSON.stringify(meritPolicyInputFromRead(r), null, 2)}`);
+  },
+  "merit policy create": async (d, args) => {
+    const { v, pos } = opts(args, { file: { type: "string" }, "from-project": { type: "string" }, "from-org": { type: "string" }, "from-policy": { type: "string" },
+      repository: { type: "string" }, "target-ref": { type: "string" }, evaluator: { type: "string" }, "expires-at": { type: "string" }, "policy-version": { type: "string" } }, 1);
+    if ((v.file === undefined) === (v["from-project"] === undefined)) throw new UsageError("pass exactly one of --file FILE and --from-project SOURCE");
+    for (const flag of ["from-org", "from-policy"]) if (v[flag] !== undefined && v["from-project"] === undefined) throw new UsageError(`--${flag} needs --from-project`);
+    if (v["from-org"] !== undefined && !isTenantId(v["from-org"])) throw new UsageError("--from-org must be an org id (org_ followed by a UUID)");
+    const { repositoryId, targetRef } = destinationFlags(v);
+    const version = intFlag(v, "policy-version");
+    const overrides: MeritPolicyOverrides = { ...(repositoryId ? { repositoryId } : {}), ...(targetRef ? { targetRef } : {}), ...(v.evaluator ? { evaluator: v.evaluator } : {}),
+      ...(v["expires-at"] ? { expiresAt: v["expires-at"] } : {}), ...(version ? { version } : {}) };
+    // A file is read before any credential: a malformed one is a usage error.
+    let source: unknown;
+    if (v.file !== undefined) {
+      const text = v.file === "-" ? await d.stdin() : await readFile(resolve(d.cwd ?? process.cwd(), v.file), "utf8").catch((err: NodeJS.ErrnoException) => { throw new UsageError(`--file ${v.file}: ${err.code ?? err.message}`); });
+      try { source = JSON.parse(text); } catch { throw new UsageError(`--file ${v.file} is not JSON`); }
+    }
+    const sameProject = v["from-project"] === pos[0] && (v["from-org"] === undefined || v["from-org"] === (d.org ?? (d.env.OCTOCOVE_ORG || undefined)));
+    if (v["from-project"] !== undefined && !repositoryId && !sameProject) throw new UsageError("a copy from another project names this project's repository: pass --repository ID (`octo repo list PROJECT`)");
+    const { api } = await meritAdmin(d, "merit policy create");
+    const policies = api.j.merit.policies, project = pos[0]!;
+    const options = api.write(COMMAND_SECONDS, v["idempotency-key"]);
+    if (source === undefined) {
+      source = await policies.copySource({ projectId: v["from-project"], ...(v["from-org"] ? { orgId: v["from-org"] } : {}), ...(v["from-policy"] ? { policyId: v["from-policy"] } : {}) }, options);
+    }
+    let input;
+    try { input = await policies.prepare(project, source, overrides, options); }
+    catch (err) { throw err instanceof TypeError ? new UsageError(err.message) : err; }
+    // The key is chosen here, so a create that gets no answer can name it with the version it prepared.
+    const key: string = v["idempotency-key"] ?? newIdempotencyKey();
+    const resume = ["octo merit policy create", project, ...(v.file !== undefined ? ["--file", v.file] : ["--from-project", v["from-project"], ...(v["from-org"] ? ["--from-org", v["from-org"]] : []), "--from-policy", (source as { id?: string }).id ?? v["from-policy"]]),
+      ...(repositoryId ? ["--repository", repositoryId] : []), ...(targetRef ? ["--target-ref", targetRef] : []), ...(v.evaluator ? ["--evaluator", v.evaluator] : []),
+      ...(v["expires-at"] ? ["--expires-at", v["expires-at"]] : []), "--policy-version", String(input.version), "--idempotency-key", key].join(" ");
+    let r;
+    try { r = await policies.register(project, input, { ...options, idempotencyKey: key }); }
+    catch (err) {
+      if (!(err instanceof ApiError) && typeof err === "object" && err !== null) RESUME.set(err, { idempotencyKey: key, resume });
+      throw err;
+    }
+    out(d, v.json, r, () => kv([["Policy", r.id], ["Version", r.version], ["Repository", input.repositoryId], ["Target ref", input.targetRef], ["Expires", r.expiresAt],
+      ["Evaluator principal", r.principalId], ["Decision model", (r.body as { evaluation?: { model?: string } }).evaluation?.model],
+      ["Next", `octo merit policy list ${project} shows its standing; the repository must be opted in (octo repo lane-policy ${project} ${input.repositoryId} --merit enabled)`]]));
+  },
+  "merit policy pause": meritPolicyWrite("pause"),
+  "merit policy resume": meritPolicyWrite("resume"),
+  "merit policy disable": meritPolicyWrite("disable"),
+  "merit usage": async (d, args) => {
+    const { v, pos } = opts(args, { since: { type: "string" }, until: { type: "string" } }, 1);
+    const { api } = await meritAdmin(d, "merit usage");
+    const r = await api.j.merit.usage(pos[0]!, windowFlags(v), api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => usageText(r));
+  },
+  "merit shadow": async (d, args) => {
+    const { v, pos } = opts(args, { since: { type: "string" }, until: { type: "string" }, limit: { type: "string" } }, 1);
+    const limit = intFlag(v, "limit");
+    const { api } = await meritAdmin(d, "merit shadow");
+    const r = await api.j.merit.shadow(pos[0]!, { ...windowFlags(v), ...(limit ? { limit } : {}) }, api.until(Date.now() + READ_SECONDS * 1000));
+    out(d, v.json, r, () => shadowText(r));
+  },
+  "merit release": async (d, args) => {
+    const { v, pos } = opts(args, { candidate: { type: "string" } }, 1, 0);
+    if ((pos[0] === undefined) === (v.candidate === undefined)) throw new UsageError("pass the TASK, or --candidate ID");
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("merit release requires a human credential (candidates:approve, with a recent sign-in)");
+    const options = api.write(COMMAND_SECONDS, v["idempotency-key"]);
+    const r = pos[0] !== undefined ? await api.j.merit.release(pos[0], options) : await api.j.merit.releaseCandidate(v.candidate, options);
+    out(d, v.json, r, () => kv([["Task", r.taskId], ["Merit state", r.meritState], ["Attempts", r.attempts], ["Released", r.releasedAt],
+      ["Next", "nothing re-evaluates until a new merit review arrives; a human may also approve, reject or land the candidate"]]));
   },
 
   // Landing destinations: the provider's branches, and a project admin's registration of one (existing or created).
@@ -1637,6 +1761,62 @@ const COMMANDS: Record<string, Handler> = {
     out(d, v.json, body, () => kv([["Webhook", body.id], ["Status", body.status]]));
   },
 };
+
+// ---- merit ----
+
+/** Every merit administration command is a human's (a project admin's; the server checks the membership). */
+async function meritAdmin(d: Deps, command: string) {
+  const c = await client(d);
+  if (c.creds.kind !== "human") throw new HumanRequiredError(`${command} requires a human credential (project:admin${command.endsWith("list") || command.endsWith("get") || command === "merit usage" || command === "merit shadow" ? "" : ", with a recent sign-in"})`);
+  return c;
+}
+function meritPolicyWrite(verb: "pause" | "resume" | "disable"): Handler {
+  return async (d, args) => {
+    const { v, pos } = opts(args, {}, 2);
+    const { api } = await meritAdmin(d, `merit policy ${verb}`);
+    const r = await api.j.merit.policies[verb](pos[0]!, pos[1]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    const body = verb === "disable" ? { id: pos[1], disabled: true } : r;
+    out(d, v.json, body, () => kv(verb === "disable" ? [["Policy", pos[1]], ["Status", "disabled (revoked for good; register a new version to evaluate again)"]]
+      : [["Policy", (r as { id: string }).id], ["Paused", (r as { paused: boolean }).paused ? "yes (the evaluator admits nothing under it)" : "no (live again when it is the latest, unexpired version)"]]));
+  };
+}
+function windowFlags(v: Record<string, any>) {
+  for (const flag of ["since", "until"]) if (v[flag] !== undefined && !Number.isFinite(Date.parse(v[flag]))) throw new UsageError(`--${flag} must be an RFC 3339 timestamp`);
+  return { ...(v.since ? { since: v.since } : {}), ...(v.until ? { until: v.until } : {}) };
+}
+const standing = (p: MeritPolicyVersionView) => p.live ? "live" : p.revokedAt ? `revoked ${p.revokedAt}` : p.expired ? "expired" : p.paused ? "paused" : !p.latest ? "superseded" : "not live";
+function policyRows(p: MeritPolicyVersionView): [string, unknown][] {
+  const b = p.body as Record<string, any>;
+  return [["Policy", p.id], ["Version", p.version], ["Repository", p.repositoryId], ["Target ref", p.targetRef], ["Standing", standing(p)], ["Expires", p.expiresAt],
+    ["Registered", `${p.registeredAt} by ${p.registeredBy}`], ["Evaluator principal", p.principalId], ["Decision model", b.evaluation?.model],
+    ["Lands", b.land === false ? "no (approve only; a human lands)" : b.land === true ? "yes" : undefined]];
+}
+function policyListText(r: MeritPolicyList) {
+  const rows = r.items.map((p) => `${p.id}  v${p.version}  ${p.repositoryId} ${p.targetRef}  ${standing(p)}  expires ${p.expiresAt}`);
+  return [...(rows.length ? rows : ["(no merit policies)"]), ...(r.truncated ? ["(more than 200 versions: narrow with --repository and --target-ref)"] : [])].join("\n");
+}
+const usageSums = (u: Record<string, number>) => Object.entries(u).map(([k, n]) => `${k} ${n}`).join(", ") || "none reported";
+function totalsLines(label: string, t: MeritUsage["project"]) {
+  const o = t.outcomes;
+  return [`${label}: ${t.evaluations} evaluation(s): pass ${o.pass}, fail ${o.fail}, needs-human ${o["needs-human"]}, needs-evidence ${o["needs-evidence"]}, pending ${o.pending}, failed ${o.failed}, superseded ${o.superseded}`,
+    `  calls ${t.calls} (${t.unreportedCalls} without usage); usage: ${usageSums(t.usage)}`,
+    ...t.models.map((m) => `  ${m.model ?? "(unknown model)"}: ${m.calls} call(s) (${m.unreportedCalls} without usage); ${usageSums(m.usage)}`)];
+}
+function usageText(r: MeritUsage) {
+  return [`Window: ${r.window.since ?? "(start)"} to ${r.window.until ?? "(now)"}`, ...totalsLines("Project", r.project),
+    ...r.policyVersions.flatMap((v) => totalsLines(`Policy ${v.policyVersion}`, v)), ...totalsLines("Org", r.org)].join("\n");
+}
+function shadowText(r: MeritShadow) {
+  const s = r.summary, rate = s.agreement.rate === null ? "n/a" : `${Math.round(s.agreement.rate * 1000) / 10}%`;
+  return [kv([["Window", `${r.window.since ?? "(start)"} to ${r.window.until ?? "(now)"}`], ["Candidates", `${s.candidates}${s.truncated ? " (more in the window: narrow it)" : ""}`],
+    ["Decided by both", s.decided], ["Agreement", `${s.agreement.count} of ${s.decided} (${rate})`],
+    ["Evaluator fail, human approved", s.evaluatorFailOnHumanApproved], ["Evaluator pass, human rejected", s.evaluatorPassOnHumanRejected],
+    ["Evaluator", `pass ${s.evaluator.pass}, fail ${s.evaluator.fail}, undecided ${s.evaluator.undecided}${s.evaluatorFailed ? ` (${s.evaluatorFailed} failed)` : ""}`],
+    ["Humans", `approved ${s.human.approved}, rejected ${s.human.rejected}, undecided ${s.human.undecided}, superseded ${s.human.superseded}`],
+    ["Undecided", `evaluator ${s.undecided.evaluator}, human ${s.undecided.human}, both ${s.undecided.both}`],
+    ["Cost", `${r.cost.evaluations} evaluation(s), ${r.cost.calls} call(s) (${r.cost.unreportedCalls} without usage); ${usageSums(r.cost.usage)}`]]),
+    "", ...(r.candidates.length ? r.candidates.map((c) => `${c.candidateId}  task ${c.taskId}  evaluator ${c.evaluator.outcome}${c.evaluator.score === null ? "" : ` ${c.evaluator.score}`}  human ${c.human.outcome}`) : ["(no evaluated candidates)"])].join("\n");
+}
 
 /** Commands handled by the dispatcher, including the machine path and shorthand aliases. */
 export const COMMAND_NAMES: readonly string[] = Object.freeze([

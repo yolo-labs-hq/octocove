@@ -24,8 +24,8 @@ import {
 import { ConfigError, type CredentialKind } from "./config.js";
 
 export { ApiError, TransportError, ProtectedStoreError, newIdempotencyKey } from "../../client/src/node.js";
-export { isTenantId } from "../../client/src/node.js";
-export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike, Project, ProjectInitialization, GitHubRepositoryList } from "../../client/src/node.js";
+export { isTenantId, meritPolicyInputFromRead, MeritPolicySourceError } from "../../client/src/node.js";
+export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike, Project, ProjectInitialization, GitHubRepositoryList, MeritPolicyList, MeritPolicyVersionView, MeritPolicyOverrides, MeritUsage, MeritShadow } from "../../client/src/node.js";
 
 /** Why a tenant-scoped command could not run: no org was given. */
 export const ORG_REQUIRED = "this command acts in one organization: pass --org ORG_ID or set OCTOCOVE_ORG (`octo projects` lists each project's org)";
