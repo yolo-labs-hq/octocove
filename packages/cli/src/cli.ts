@@ -76,7 +76,7 @@ Commands:
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
   project create SLUG --name TEXT [--org ORG_ID]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
-  repo add PROJECT [--provider artifacts|github] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; canonical repository)
+  repo add PROJECT [--provider artifacts|github|github-app] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL] | --owner OWNER --installation ID [--repo-id ID]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; github-app: a private GitHub repository through a GitHub App installation you connected; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
@@ -318,6 +318,10 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "Run `octo lane status`, then `octo lane resolve PATH --keep local|incoming` for each conflict."
       : err.code === "operator-required"
         ? "Registering a GitHub repository binds an operator-held credential, so only a deployment operator can do it; ask an operator to run the command."
+      : err.code === "github-installation-not-linked"
+        ? "You have not connected that GitHub App installation. Connect GitHub in Octocove (Settings > Connected apps) and use one of your installations' IDs. Nothing was registered."
+      : err.code === "github-connection-required"
+        ? "Your GitHub App installation does not cover this repository for your GitHub account now (see details.installationState): add the repository to the installation on GitHub, or reconnect GitHub in Octocove, then run the same command again. Nothing was registered."
       : err.code === "credential-unavailable"
         ? "The credential reference does not name a configured, unexpired GitHub credential; ask the operator for the right --credential-ref. Nothing was registered."
       : err.code === "tenant-not-found"
@@ -1134,13 +1138,21 @@ const COMMANDS: Record<string, Handler> = {
 
   "repo add": async (d, args) => {
     const { v, pos } = opts(args, { provider: { type: "string" }, namespace: { type: "string" }, repo: { type: "string" }, name: { type: "string" }, "target-ref": { type: "string" }, head: { type: "string" },
-      owner: { type: "string" }, "credential-ref": { type: "string" }, "api-base-url": { type: "string" }, "clone-base-url": { type: "string" } }, 1);
+      owner: { type: "string" }, "credential-ref": { type: "string" }, "api-base-url": { type: "string" }, "clone-base-url": { type: "string" },
+      installation: { type: "string" }, "repo-id": { type: "string" } }, 1);
     const provider = v.provider ?? "artifacts";
-    if (provider !== "artifacts" && provider !== "github") throw new UsageError("--provider must be artifacts or github");
+    if (provider !== "artifacts" && provider !== "github" && provider !== "github-app") throw new UsageError("--provider must be artifacts, github or github-app");
     const only = (flags: string[], what: string) => { for (const f of flags) if (v[f] !== undefined) throw new UsageError(`--${f} applies to ${what} only`); };
+    if (provider !== "github-app") only(["installation", "repo-id"], "a GitHub App repository (--provider github-app)");
     const targetRef = v["target-ref"] === undefined ? {} : { targetRef: v["target-ref"] };
     let input;
-    if (provider === "github") {
+    if (provider === "github-app") {
+      only(["namespace", "repo", "head", "credential-ref", "api-base-url", "clone-base-url"], "another provider");
+      // RepositoryAttachGitHubApp: the installation is the credential; no token is sent or answered.
+      const numeric = (flag: string) => { const value = need(v, flag); if (!/^[1-9][0-9]{0,19}$/.test(value)) throw new UsageError(`--${flag} must be a numeric GitHub id`); return value; };
+      input = { kind: "github-app" as const, installationId: numeric("installation"), owner: need(v, "owner"), name: need(v, "name"),
+        ...(v["repo-id"] === undefined ? {} : { providerRepoId: numeric("repo-id") }), ...targetRef };
+    } else if (provider === "github") {
       only(["namespace", "repo", "head"], "an Artifacts repository");
       // RepositoryRegisterGitHub: the credential reference names an operator-held credential; it is sent, never printed.
       input = { provider: "github" as const, owner: need(v, "owner"), name: need(v, "name"), credentialRef: need(v, "credential-ref"), ...targetRef,
@@ -1155,7 +1167,8 @@ const COMMANDS: Record<string, Handler> = {
     const r = await api.j.repositories.create(pos[0]!, input, api.write(COMMAND_SECONDS, v["idempotency-key"]));
     out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], [providerLabel(r.provider), r.provider === "github" ? `${r.namespace}/${r.name}` : `${r.namespace}/${r.repoId}`], ["Name", r.name],
       ["Target ref", r.targetRef], ["Head", r.knownHeadSha ?? "unavailable (not observed yet)"],
-      ...(r.provider === "github" ? [["Next", `verify it against GitHub: octo repo verify ${pos[0]} ${r.id}`]] as [string, unknown][] : [])]));
+      ...(provider === "github" ? [["Next", `verify it against GitHub: octo repo verify ${pos[0]} ${r.id}`]] as [string, unknown][] : []),
+      ...(provider === "github-app" ? [["Next", "verified through the GitHub App; the head appears once observed"]] as [string, unknown][] : [])]));
   },
 
   "repo create": async (d, args) => {

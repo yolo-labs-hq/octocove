@@ -5352,6 +5352,69 @@ export const routing = {
       "replay": null
     }
   },
+  "meGithubRepositoriesList": {
+    "operationId": "meGithubRepositoriesList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/me/github/repositories",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "name": "installationId",
+          "required": false
+        },
+        {
+          "name": "limit",
+          "required": false
+        },
+        {
+          "name": "q",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "meLive": {
     "operationId": "meLive",
     "kind": "path",

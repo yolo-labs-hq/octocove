@@ -368,6 +368,32 @@ describe("repo add / verify / list", () => {
     expect(calls).toEqual([]);
   });
 
+  it("--provider github-app attaches a GitHub repository through a connected installation, sending no credential", async () => {
+    const attached = { ...repository, provider: "github", namespace: "acme", repoId: "424242", name: "widgets", cloneUrl: "https://github.com/acme/widgets.git" };
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, attached);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github-app", "--installation", "777", "--owner", "acme", "--name", "widgets"], { kind: "human" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ kind: "github-app", installationId: "777", owner: "acme", name: "widgets" });
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(outText).toContain("GitHub:");
+    expect(outText).toContain("acme/widgets");
+    expect(outText).not.toContain("repo verify");
+    expect(await cli(["--json", "repo", "add", PROJECT, "--provider", "github-app", "--installation", "777", "--owner", "acme", "--name", "widgets",
+      "--repo-id", "424242", "--target-ref", "refs/heads/dev"], { kind: "human" })).toBe(0);
+    expect(calls[1]!.body).toEqual({ kind: "github-app", installationId: "777", owner: "acme", name: "widgets", providerRepoId: "424242", targetRef: "refs/heads/dev" });
+    for (const [status, code] of [[403, "github-installation-not-linked"], [409, "github-connection-required"], [409, "target-ref-not-found"]] as const) {
+      routes[`POST /projects/${PROJECT}/repositories`] = () => problem(status, code);
+      expect(await cli(["--json", "repo", "add", PROJECT, "--provider", "github-app", "--installation", "777", "--owner", "acme", "--name", "widgets"], { kind: "human" })).toBe(EXIT.failure);
+      expect(JSON.parse(errText).error).toMatchObject({ code, ...(code === "target-ref-not-found" ? {} : { nextSteps: expect.stringContaining("Nothing was registered") }) });
+    }
+    calls = [];
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github-app", "--owner", "acme", "--name", "widgets"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github-app", "--installation", "acme", "--owner", "acme", "--name", "w"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github-app", "--installation", "7", "--owner", "acme", "--name", "w", "--credential-ref", "x"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github", "--owner", "acme", "--name", "w", "--credential-ref", "x", "--installation", "7"], { kind: "human" })).toBe(EXIT.usage);
+    expect(await cli(["repo", "add", PROJECT, "--provider", "github-app", "--installation", "7", "--owner", "acme", "--name", "w"], { kind: "agent" })).toBe(EXIT.humanRequired);
+    expect(calls).toEqual([]);
+  });
+
   it("maps refusals: canonical-exists, repository-taken and forbidden exit 1 with the code, a delegation exits 77, missing flags exit 2", async () => {
     for (const [status, code] of [[409, "canonical-exists"], [409, "repository-taken"], [403, "forbidden"]] as const) {
       routes[`POST /projects/${PROJECT}/repositories`] = () => problem(status, code);
