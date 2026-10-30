@@ -278,6 +278,8 @@ export interface paths {
          *     **Registration (no `mode`, or `mode` `register`)** - registers an existing Artifacts repository as the project's canonical repository with one target ref (default `refs/heads/main`). The repository must live in the project's own Artifacts namespace (`Project.artifactsNamespace`) - an omitted `namespace` defaults to it, and any other is 409 `repository-namespace-mismatch` before anything is written (after the replay of a committed key). Nothing is fetched from the provider - without `knownHeadSha` the ref is unpinned and readers report the head as unavailable; with it the head is recorded as a `seed` observation. One D1 batch inserts the `repositories` row (role `canonical`), the `target_refs` row, the `repository.registered` and `target_ref.registered` audit rows and the idempotency ledger row, and rechecks the session, its family and the `project:admin` membership (401 `credential-revoked` or 403 `forbidden` when one was lost meanwhile). One canonical repository per project - a second is 409 `canonical-exists`; an Artifacts namespace and name (the address every downstream path uses), or a `(provider, namespace, repoId)`, already registered (for example by a task fork in the same namespace) is 409 `repository-taken`; an address an open repository creation reserves is 409 `repository-creation-pending`; an off-shape body is 400 `invalid-request`. The registered repository is unverified - claims and provisioning refuse it with 409 `repository-unverified` until it is verified (`repositoryVerify`). A replay with the same Idempotency-Key and body returns the committed 201 before any refusal; the same key with another body is 409 `idempotency-conflict`.
          *
          *     **GitHub registration (`provider` `github`, no `mode` or `register`; `RepositoryRegisterGitHub`)** - registers an existing GitHub repository (`owner`/`name`) as the project's canonical repository with one target ref (default `refs/heads/main`), bound to `credentialRef`, an operator-held provider credential the credential authority resolves. The credential is the operator's, so the caller must also be on the deployment's operator allow-list (403 `operator-required` otherwise, before the rest of the body is checked), and `credentialRef` must name a configured, unexpired GitHub credential (409 `credential-unavailable` otherwise, after the replay of a committed key; the reference is never answered or audited). `apiBaseUrl` and `cloneBaseUrl` default to GitHub.com and must be plain `https:` URLs. Nothing is fetched from GitHub. One batch inserts the `repositories` row (role `canonical`, `namespace` the owner, `repoId` `owner/name`), its provider binding, the `target_refs` row, the unverified verification row, the `repository.registered` and `target_ref.registered` audit rows and the idempotency ledger row, behind the same recheck. The answer's `knownHeadSha` is null and its `cloneUrl` is the binding's. The repository is unverified until `repositoryVerify` proves the binding against GitHub; the remote sweep then records the target ref's head. Its lane policy is the default (`private`, `repository-readers`) until a project admin declares another (`repositoryLanePolicyDeclare`). Refusals as for an Artifacts registration (409 `canonical-exists`; 409 `repository-taken` when that GitHub repository is already recorded); an Artifacts-only field (`namespace`, `repoId`, `knownHeadSha`) or an off-shape body is 400 `invalid-request`.
+         *
+         *     **GitHub App attach** - attaches an existing (private) GitHub repository through a GitHub App installation the caller connected (`meGithubInstallationsList`; the picker lists what each covers, `meGithubRepositoriesList`). Any `project:admin`, no operator - the credential source is the installation, and Octocove never receives or answers a GitHub token. In order, after the replay of a committed key (the same key and body answer the committed 201 before GitHub is asked, even after a rename or an unlink) - 503 `github-app-unavailable` without a configured app; 403 `github-installation-not-linked` when the caller holds no link to `installationId` (whether or not it exists); 409 `github-connection-required` with `details.installationState` (`suspended` - GitHub suspended the named installation; `repo-not-selected` - the installation does not include the repository for the caller's GitHub user, or GitHub refuses a token for it; `permission-required` - that user may only read it; `reconnect-required` - the link was proved more than seven days ago) and `details.installUrl` (`githubConnect`, carrying the repository); 503 `github-unavailable` while GitHub cannot be read. Then, as for a workspace binding's creation, a write installation token for exactly that repository, the repository read with it (409 `repository-remote-not-found`), the requested `targetRef` (409 `target-ref-not-found` when GitHub has no such branch, before anything is written) and the default branch registered as destinations, behind the same recheck. `providerRepoId`, when given, is authoritative (a repository that took a renamed one's name never matches); otherwise GitHub's current owner and name must be the ones asked for. The answer's `repoId` is GitHub's numeric id, `namespace` and `name` the current owner and name, `targetRef` the requested one (else the default branch), `knownHeadSha` null (the remote sweep observes the heads). The repository is born trusted (verified; nothing to verify) with the default lane policy. One registration of a GitHub repository per tenant, whichever its credential source - another live one (through the app by GitHub's id, or under an operator credential by owner and name) is 409 `repository-taken`; a second canonical is 409 `canonical-exists`. An unknown field is 400 `invalid-request` with `details.field`.
          */
         post: operations["repositoryCreate"];
         delete?: never;
@@ -1333,7 +1335,7 @@ export interface paths {
         put?: never;
         /**
          * Release a task from the sticky needs-human merit state
-         * @description Human with `candidates:approve` only (agent credentials get 403 `human-required`). The task's merit attempts reset to zero and its merit state returns to `none`; the sampling draw stays. Nothing re-evaluates until a new merit review arrives. 409 `merit-not-needs-human` when the task is not with a human. Audited (`candidate.check_recorded` with `refs.milestone` `merit_release.recorded` and `refs.via` until the widened vocabulary lands). A human's approval, rejection or landing ends the hold the same way in its own batch (operator decision, 2026-10-30, `refs.via` `approve`, `reject` or `land`); this route hands the task back without deciding the candidate. The recent sign-in (`x-recent-sign-in`) applies to human sessions only; a client token under `octocove:review` carries no step-up. A release does not reset the head's `needs-evidence` round count, which is per evidence set.
+         * @description Human with `candidates:approve` only (agent credentials get 403 `human-required`). The task's merit attempts reset to zero and its merit state returns to `none`; the sampling draw stays. Nothing re-evaluates until a new merit review arrives. 409 `merit-not-needs-human` when the task is not with a human. Audited (`candidate.check_recorded` with `refs.milestone` `merit_release.recorded` and `refs.via` until the widened vocabulary lands). A human's approval, rejection or landing ends the hold the same way in its own batch (with `refs.via` `approve`, `reject` or `land`); this route hands the task back without deciding the candidate. The recent sign-in (`x-recent-sign-in`) applies to human sessions only; a client token under `octocove:review` carries no step-up. A release does not reset the head's `needs-evidence` round count, which is per evidence set.
          */
         post: operations["taskMeritRelease"];
         delete?: never;
@@ -2116,6 +2118,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/github/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the GitHub repositories the caller's connected installations cover
+         * @description Amendment (2026-10-30). Human session only (an OAuth client token gets 403 `forbidden`). The repositories the caller's GitHub user could reach in each connected installation when the link was last proved (the link's snapshot): the picker for `repositoryCreate` `kind: github-app` and a project initialization's `mode: github`. Read from Octocove's record only - no GitHub call, never a token. Ordered by owner, name, installation and repository id (case-insensitive); at most `limit` per page, `nextCursor` for the next page (null on the last). Each item's `state` is a hint the attach checks again with GitHub: `available`, `permission-required` (the GitHub user may only read it), `reconnect-required` (the link's proof is more than seven days old - connect again, `githubConnect`, to refresh it), `suspended` (the installation). A repository missing here was not reachable when the caller last connected: connecting again refreshes the snapshot. Read-only. 400 `invalid-request` with `details.field` for an unknown, repeated or off-shape parameter.
+         */
+        get: operations["meGithubRepositoriesList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/github/installations/{installationId}/unlink": {
         parameters: {
             query?: never;
@@ -2609,7 +2631,7 @@ export interface paths {
         };
         /**
          * The merit usage counter's totals
-         * @description Current human project admin, or a client token under `octocove:policies`. Read-only, no cap is enforced anywhere (operator decision, 2026-10-29). Every evaluation by outcome (a recorded score's outcome, or the status of one that never recorded) and every model call with its model and the usage the model reported (tokens or neurons, where available), per policy version of the project, for the project, and for the whole org record (an aggregate only, no other project is named), over a window on the evaluation's dispatch time (`since` inclusive, `until` exclusive; 400 `invalid-request` with `details.field` when malformed or out of order).
+         * @description Current human project admin, or a client token under `octocove:policies`. Read-only, no cap is enforced anywhere. Every evaluation by outcome (a recorded score's outcome, or the status of one that never recorded) and every model call with its model and the usage the model reported (tokens or neurons, where available), per policy version of the project, for the project, and for the whole org record (an aggregate only, no other project is named), over a window on the evaluation's dispatch time (`since` inclusive, `until` exclusive; 400 `invalid-request` with `details.field` when malformed or out of order).
          */
         get: operations["meritUsageGet"];
         put?: never;
@@ -3494,7 +3516,7 @@ export interface components {
                 failure: components["schemas"]["MeritCallFailure"] | null;
             }[];
         };
-        /** @description A candidate's merit state (`GET /orgs/{orgId}/candidates/{id}/merit`). The task's `needs-human` hold (operator decision, 2026-10-30) is sticky across heads until a human acts while any sticky reason stands (the attempt bailout, the evidence rounds exhausted, a hard limit, an instruction present, a sampling hand-off); a hold made only of head-scoped reasons (a low-confidence answer, an evaluator failure) clears on a genuinely new head. A human's approval, rejection or landing ends any hold, as `merit-release` does. A fresh candidate shows a sticky hold as inherited (`inheritedHold`), a head-scoped one as cleared (`hold.cleared`). Any other task state belongs to the head that recorded it; a head with no review and no score of its own is `none`. */
+        /** @description A candidate's merit state (`GET /orgs/{orgId}/candidates/{id}/merit`). The task's `needs-human` hold is sticky across heads until a human acts while any sticky reason stands (the attempt bailout, the evidence rounds exhausted, a hard limit, an instruction present, a sampling hand-off); a hold made only of head-scoped reasons (a low-confidence answer, an evaluator failure) clears on a genuinely new head. A human's approval, rejection or landing ends any hold, as `merit-release` does. A fresh candidate shows a sticky hold as inherited (`inheritedHold`), a head-scoped one as cleared (`hold.cleared`). Any other task state belongs to the head that recorded it; a head with no review and no score of its own is `none`. */
         MeritState: {
             candidateId: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
@@ -3928,7 +3950,7 @@ export interface components {
             };
             /** @description On an evaluator approval, the decision model identifier the score was recorded by. */
             evaluatorModel?: string;
-            /** @description On an evaluator approval, the human who registered the policy version the authority was issued under (the policy author may be the human the lane agent works for; operator decision, 2026-10-29). */
+            /** @description On an evaluator approval, the human who registered the policy version the authority was issued under (the policy author may be the human the lane agent works for). */
             policyRegisteredBy?: string;
             meritScoreId?: components["schemas"]["Id"];
             meritReviewId?: components["schemas"]["Id"];
@@ -4506,6 +4528,33 @@ export interface components {
                 requestedAt: string;
             }[];
         };
+        GitHubRepositoryList: {
+            /** @description Whether this deployment has a GitHub App (attaching is possible). */
+            configured: boolean;
+            items: {
+                installationId: string;
+                /** @description GitHub's numeric repository id. */
+                providerRepoId: string;
+                /** @description The owner as of the link's last proof. */
+                owner: string;
+                /** @description The name as of the link's last proof. */
+                name: string;
+                /** @description The installation's account. */
+                account: {
+                    login: string;
+                    /** @enum {string} */
+                    type: "User" | "Organization";
+                };
+                /** @description Whether the caller's GitHub user could push to it (push, maintain or admin). */
+                canPush: boolean;
+                /**
+                 * @description A hint; the attach asks GitHub again.
+                 * @enum {string}
+                 */
+                state: "available" | "permission-required" | "reconnect-required" | "suspended";
+            }[];
+            nextCursor: string | null;
+        };
         /**
          * @description An OAuth client scope; see the `OAuthClientToken` security scheme.
          * @enum {string}
@@ -4576,7 +4625,7 @@ export interface components {
             name: string;
             repository?: components["schemas"]["ProjectRepositoryInit"];
         };
-        /** @description The repository a project initialization sets up with the project. Present, the create is an initialization and answers a `ProjectInitialization`; omitted, it is the plain create and answers the `Project`. `seed` creates an Artifacts repository named after the slug in the project's namespace, with a README commit on `targetRef` (default `refs/heads/main`); `import` imports a public HTTPS remote under the repository import rules (target ref `refs/heads/<branch>`, else `refs/heads/main`; an off-shape URL is 400 `repository-import-url-invalid` before anything is written); `none` defers repository setup. */
+        /** @description The repository a project initialization sets up with the project. Present, the create is an initialization and answers a `ProjectInitialization`; omitted, it is the plain create and answers the `Project`. `seed` creates an Artifacts repository named after the slug in the project's namespace, with a README commit on `targetRef` (default `refs/heads/main`); `import` imports a public HTTPS remote under the repository import rules (target ref `refs/heads/<branch>`, else `refs/heads/main`; an off-shape URL is 400 `repository-import-url-invalid` before anything is written); `github` registers an existing GitHub repository through the creator's GitHub App installation (target ref `targetRef`, else GitHub's default branch); `none` defers repository setup. */
         ProjectRepositoryInit: {
             /** @constant */
             mode: "seed";
@@ -4587,6 +4636,14 @@ export interface components {
             /** Format: uri */
             url: string;
             branch?: string;
+        } | {
+            /** @constant */
+            mode: "github";
+            owner: string;
+            name: string;
+            installationId?: string | number;
+            providerRepoId?: string | number;
+            targetRef?: string;
         } | {
             /** @constant */
             mode: "none";
@@ -4626,6 +4683,11 @@ export interface components {
                 reason: "repository-creation-failed" | "repository-needs-operator" | "repository-import-failed" | "repository-ineligible" | "project-admin-required" | "repository-unavailable" | "access-lost";
                 /** @description The refusal of the repository step, the import's failure reason, or why the repository is ineligible. */
                 code?: string;
+                /**
+                 * Format: uri
+                 * @description For a `github` repository step refused `github-connection-required`: the install-start URL (`githubConnect`, carrying the repository), an Octocove URL without any credential.
+                 */
+                installUrl?: string;
             };
             /** @description The refusal of the project step (`failed`). */
             problem?: {
@@ -4643,8 +4705,8 @@ export interface components {
             readonly artifactsNamespace: string;
             tenantId: components["schemas"]["TenantId"];
         };
-        /** @description One of three modes - register an existing repository (no `mode`, or `register`; an Artifacts one in the project's namespace, or a GitHub one), create an empty one (`create`) or import one (`import`) in the project's own Artifacts namespace. */
-        RepositoryCreate: components["schemas"]["RepositoryRegister"] | components["schemas"]["RepositoryRegisterGitHub"] | components["schemas"]["RepositoryCreateEmpty"] | components["schemas"]["RepositoryImport"];
+        /** @description One of three modes - register an existing repository (no `mode`, or `register`; an Artifacts one in the project's namespace, or a GitHub one under an operator credential), create an empty one (`create`) or import one (`import`) in the project's own Artifacts namespace - or attach an existing GitHub repository through the caller's GitHub App installation (`kind` `github-app`). */
+        RepositoryCreate: components["schemas"]["RepositoryRegister"] | components["schemas"]["RepositoryRegisterGitHub"] | components["schemas"]["RepositoryAttachGitHubApp"] | components["schemas"]["RepositoryCreateEmpty"] | components["schemas"]["RepositoryImport"];
         /** @description Octocove creates an empty Artifacts repository in the project's namespace. */
         RepositoryCreateEmpty: {
             /** @enum {string} */
@@ -4713,6 +4775,21 @@ export interface components {
             apiBaseUrl?: string;
             /** @description The Git clone base, `https://github.com` when omitted. Plain `https:`, like `apiBaseUrl`. */
             cloneBaseUrl?: string;
+        };
+        /** @description Amendment: attach an existing GitHub repository through a GitHub App installation the caller connected. Any `project:admin`; the installation is the credential source and no field carries a credential. Born trusted (verified). */
+        RepositoryAttachGitHubApp: {
+            /** @constant */
+            kind: "github-app";
+            /** @description One of the caller's connected installations (`GitHubInstallationList.items[].installationId`). */
+            installationId: string | number;
+            /** @description The repository owner as GitHub names it now; not `.` or `..`. */
+            owner: string;
+            /** @description The repository name as GitHub names it now. */
+            name: string;
+            /** @description GitHub's numeric repository id (`GitHubRepositoryList.items[].providerRepoId`); when given it decides which repository is meant, whatever its current name. */
+            providerRepoId?: string | number;
+            /** @description The branch tasks land onto; it must exist on GitHub (409 `target-ref-not-found`). Omitted - the repository's default branch. The default branch is registered as a destination either way. */
+            targetRef?: string;
         };
         Repository: {
             /** @description Credential-free canonical clone URL, absent when unknown. */
@@ -10359,6 +10436,39 @@ export interface operations {
                     "application/json": components["schemas"]["GitHubInstallationList"];
                 };
             };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    meGithubRepositoriesList: {
+        parameters: {
+            query?: {
+                /** @description One of the caller's installations (another answers an empty page). */
+                installationId?: string;
+                /** @description Keeps the repositories whose `owner/name` contains it (case-insensitive). */
+                q?: string;
+                /** @description The previous page's `nextCursor`, opaque. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's covered repositories. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubRepositoryList"];
+                };
+            };
+            400: components["responses"]["Problem"];
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
             503: components["responses"]["Problem"];

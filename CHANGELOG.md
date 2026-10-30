@@ -1,5 +1,22 @@
 # Changelog
 
+## CLI 0.11.0 and client 0.17.0
+
+Release `@yolo-labs/octocove` 0.11.0 and `@yolo-labs/octocove-client` 0.17.0: attach a private GitHub repository
+through a GitHub App installation you connected.
+
+- Client: regenerated from the current API contract. `repositoryCreate` accepts `RepositoryAttachGitHubApp`
+  (`{kind: "github-app", installationId, owner, name, providerRepoId?, targetRef?}`), and a project initialization's
+  `repository` accepts `mode: "github"` (`{owner, name, installationId?, providerRepoId?, targetRef?}`); its
+  `action-required` answer may carry `action.installUrl`. New operation `meGithubRepositoriesList` (`GET
+  /v1/me/github/repositories?installationId=&q=&cursor=&limit=`, `network-only` / `null`): the repositories your
+  connected installations cover, from their last connection, paginated. 151 operation ids.
+- CLI: `octo repo add PROJECT --provider github-app --installation ID --owner OWNER --name NAME [--repo-id ID]
+  [--target-ref REF]` attaches an existing (private) GitHub repository as the project's canonical repository through
+  your installation. No token is sent or printed; the repository is verified at once, with the named branch (it must
+  exist) or GitHub's default branch as its target ref. New guidance for `github-installation-not-linked` and
+  `github-connection-required`.
+
 ## Client 0.16.0
 
 Release `@yolo-labs/octocove-client` 0.16.0: Merit, the agent approval and landing on reviewed evidence. The CLI is

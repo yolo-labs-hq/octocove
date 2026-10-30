@@ -726,5 +726,10 @@
     "callable": true,
     "autoRetry": "never",
     "replay": "none"
+  },
+  "meGithubRepositoriesList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
   }
 }
