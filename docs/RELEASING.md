@@ -4,8 +4,10 @@ Two packages are prepared for npm under the `@yolo-labs` scope: `@yolo-labs/octo
 (`packages/cli`, the `octo` command, one bundled ESM file that inlines the client and
 shared sources and has no runtime dependencies) and `@yolo-labs/octocove-client`
 (`packages/client`). Both are Apache-2.0 and ship the root `LICENSE` and `NOTICE`, which
-`prepack` copies in. Each is versioned on its own and released by its own tag:
-`cli-vX.Y.Z` or `client-vX.Y.Z`.
+`prepack` copies in. Since 0.19.0 the two share one version line (lockstep): every release
+bumps both to the same version, and the CLI's `devDependencies` pin the client to exactly that
+version (`workspace:X.Y.Z`; the client is bundled, so it is no runtime dependency). Each is
+still released by its own tag, `cli-vX.Y.Z` and `client-vX.Y.Z`, both naming that version.
 
 **`"private": true` blocks publishing.** The workflow never
 edits the manifest. It **refuses** to publish while the tagged commit's `package.json`

@@ -1,5 +1,41 @@
 # Changelog
 
+## CLI 0.19.0 and client 0.19.0
+
+Release `@yolo-labs/octocove` 0.19.0 and `@yolo-labs/octocove-client` 0.19.0: administer Merit from the `octo` CLI,
+with every command a thin layer over a typed client method.
+
+- Versioning: the client and the CLI now share one version line (lockstep), so the CLI goes from 0.12.0 to 0.19.0.
+  Every release bumps both to the same version; the CLI's `devDependencies` pin the client to exactly that version
+  (`workspace:0.19.0`; the client stays bundled into the CLI, which has no runtime dependencies). The tags stay
+  separate (`cli-v0.19.0`, `client-v0.19.0`).
+- Client: `meritPolicyInputFromRead(source, overrides?)` (pure) turns a merit policy read (`merit.policies.get`, a
+  `list` item, a `register` answer), a stored body or a registration into a registration body: `approvalTtlSeconds`
+  and `evaluation.deadlineSeconds` become ISO-8601 durations (`isoDuration`), the read-only fields (`id`, a read's
+  `version`, `principalId`, `registeredAt`, `registeredBy`, the standing) are dropped, and `overrides` replace
+  `repositoryId`, `targetRef`, `expiresAt`, `version` and `evaluation.model` (`evaluator`). New journeys:
+  `merit.policies.prepare` (the registration, with the next version from the project list unless one is named),
+  `merit.policies.copySource` (another project's version by id, or its one live version, in this or another org;
+  `MeritPolicySourceError` with `no-live-policy` / `ambiguous-live-policy`), `merit.policies.prepareCopy` (both;
+  a source in another project or org needs `overrides.repositoryId`, else `MeritPolicySourceError`
+  `repository-required` before anything is read), `merit.policies.copy` (`prepareCopy`, then `register`), `merit.releaseCandidate` (the release for a candidate's task) and `repositories.setMerit` (the merit
+  opt-in, keeping the publication and visibility it reads). `merit.policies.register`, `pause`, `resume` and
+  `disable` now refuse a delegation, bootstrap or grant before sending, as `merit.release` does; `disable` resolves to
+  `{id, disabled: true}` (the route answers `204`). `meritPolicyStanding(view)` (pure) names a version's standing:
+  `live`, `revoked`, `expired`, `paused`, `superseded` or `not-live`. Exported types `MeritPolicyDraft`,
+  `MeritPolicyOverrides`, `MeritPolicyCopySource`, `MeritPolicyDisabled`, `MeritPolicyStanding`.
+- CLI: `octo merit policy list|get|create|pause|resume|disable`, `octo merit usage`, `octo merit shadow` and
+  `octo merit release (TASK | --candidate ID)`, human-only, each with text output and `--json`. `merit policy create`
+  takes `--file FILE` (`-` for stdin) in the registration form or the read form (`merit policy get --json` as is), or
+  `--from-project SOURCE [--from-org ORG_ID] [--from-policy ID]`, with `--repository`, `--target-ref`, `--evaluator`,
+  `--expires-at` and `--policy-version` overrides; a create that gets no answer prints the key and version that resume
+  it. `merit policy get` also prints the registration form. `octo repo lane-policy PROJECT REPOSITORY --merit
+  enabled|disabled` opts a repository in or out (alone it keeps the publication and visibility). Specific guidance for
+  `policy-version-conflict`, `invalid-policy-body`, `limits-exceed-state-bound`, `policy-revoked`,
+  `merit-not-needs-human`.
+- CLI: `project create --github` and `project init-status` print an attached GitHub repository as `owner/name`
+  (init-status reads the owner from the project's repository list), not the bare name.
+
 ## CLI 0.12.0 and client 0.18.0
 
 Release `@yolo-labs/octocove` 0.12.0 and `@yolo-labs/octocove-client` 0.18.0: create a project from a private GitHub

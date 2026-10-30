@@ -1,0 +1,34 @@
+{
+  "id": "pol-3",
+  "repositoryId": "R1",
+  "targetRef": "refs/heads/main",
+  "version": 3,
+  "principalId": "merit-principal-1",
+  "body": {
+    "checkPolicyDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "requireCheckRun": false,
+    "land": false,
+    "approvalTtlSeconds": 86400,
+    "diff": { "maxFiles": 20, "maxChangedLines": 400, "maxFileBytes": 16384, "allowBinary": false, "allowDeletes": 3 },
+    "paths": { "allow": ["src/"], "deny": [] },
+    "reviewer": { "models": [] },
+    "evaluation": {
+      "model": "jev",
+      "questionSet": "merit-v1",
+      "weights": { "intent": 0.25, "depth": 0.2, "specific": 0.2, "tests": 0.15, "scope": 0.1, "fileNotes": 0.1 },
+      "thresholds": { "score": 0.8, "riskMax": "low", "minConfidence": 0.6 },
+      "deadlineSeconds": 600
+    },
+    "attempts": { "max": 3 },
+    "evidence": { "maxRounds": 3 },
+    "humanSampleRate": 0.1
+  },
+  "expiresAt": "2030-01-01T00:00:00.000Z",
+  "registeredAt": "2026-10-20T00:00:00.000Z",
+  "registeredBy": "https://issuer.example.invalid|human-1",
+  "paused": false,
+  "revokedAt": null,
+  "expired": false,
+  "latest": true,
+  "live": true
+}

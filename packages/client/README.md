@@ -260,6 +260,32 @@ await merit.release(taskId, { deadline });                                      
 const versions = await merit.policies.list(projectId, { repositoryId }, { deadline });
 ```
 
+Policy administration (a project admin, or a client token under `octocove:policies`; writes need a recent sign-in
+and refuse a delegation, bootstrap or grant before sending). A read answers the stored body, durations in seconds;
+`meritPolicyInputFromRead(read, overrides?)` turns it (or a registration, or a stored body) back into a registration:
+`approvalTtlSeconds` and `evaluation.deadlineSeconds` become ISO-8601 (`isoDuration`), the read-only fields are dropped,
+and `overrides` replace `repositoryId`, `targetRef`, `expiresAt`, `version` and `evaluation.model` (`evaluator`). It is
+pure, so a web app can use it to prefill a form.
+
+```ts
+const read = await merit.policies.get(projectId, policyId, { deadline });
+const input = await merit.policies.prepare(projectId, read, { evaluator: 'clef' }, { deadline }); // next version
+await merit.policies.register(projectId, input, { deadline, idempotencyKey });
+// Copy another project's live version (in another org with orgId) to this project's repository:
+await merit.policies.copy(projectId, { projectId: sourceProject, orgId: sourceOrg }, { repositoryId }, { deadline, idempotencyKey });
+await merit.policies.pause(projectId, policyId, { deadline });                                 // resume, disable
+await oc.org(tenantId).repositories.setMerit(projectId, repositoryId, 'enabled', { deadline }); // the opt-in
+await merit.releaseCandidate(candidateId, { deadline });                                        // release by candidate
+```
+
+`copySource` throws `MeritPolicySourceError` (`no-live-policy`, `ambiguous-live-policy` with the `policyIds`) when
+the source project has no single live version; name one with `policyId`. `prepareCopy` (`copySource`, then `prepare`;
+what `copy` registers) refuses a source in another project or org without `overrides.repositoryId` as
+`repository-required`, before anything is read. `meritPolicyStanding(view)` names a version's standing (`live`,
+`revoked`, `expired`, `paused`, `superseded`, `not-live`). `prepare` takes the next version (one more
+than the highest the project lists for the repository and target ref) unless the draft names one: to resume a
+register whose answer was lost, pass the same key and that version.
+
 `state.stage` is the deployment's evaluator stage: `shadow` records what the evaluator would have decided and issues
 nothing; `approve` and `land` issue authority on a pass. `state.evaluation.enabled` says whether evaluations run at
 all. `state.score.answers` is typed per question (`MeritAnswers`).

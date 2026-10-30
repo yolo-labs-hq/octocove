@@ -104,6 +104,8 @@ export type {
   MeritPolicyVersion,
   MeritPolicyVersionView,
   MeritPolicyList,
+  MeritPolicyCopySource,
+  MeritPolicyDisabled,
   RepositoryBranchList,
   TargetRefRegister,
   TargetRefRegistration,
@@ -138,6 +140,8 @@ export type {
   ProjectInitialization,
   ProjectRepositoryInit,
 } from './journeys.js';
+export { meritPolicyInputFromRead, meritPolicyStanding, isoDuration, MeritPolicySourceError } from './merit-policy.js';
+export type { MeritPolicyDraft, MeritPolicyOverrides, MeritPolicyStanding } from './merit-policy.js';
 export { MAX_JOURNEY_REPLAYS } from './journey-core.js';
 export type { CommandOptions, JourneyOptions, WaitOptions, WaitStop } from './journey-core.js';
 export { authJourneys, tenantAuthJourneys, cliVerifier, credentialSlot, CLI_PENDING } from './auth.js';
