@@ -641,5 +641,90 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
+  },
+  "candidateMeritDiffGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritReviewGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritReviewsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meritPolicyGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meritPolicyList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meritShadowGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meritUsageGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "repositoryLanePolicyGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritReviewCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "candidateMeritEvaluationRequest": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "taskMeritRelease": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritPolicyRegister": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritPolicyDisable": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritPolicyPause": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritPolicyResume": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritProbe": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "none"
   }
 }

@@ -1632,6 +1632,422 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "candidateMeritDiffGet": {
+    "operationId": "candidateMeritDiffGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/candidates/{id}/merit-diff",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "candidateMeritEvaluationRequest": {
+    "operationId": "candidateMeritEvaluationRequest",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/candidates/{id}/merit-evaluations",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "201": [
+        "application/json"
+      ],
+      "202": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "408": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      201,
+      202
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "candidateMeritGet": {
+    "operationId": "candidateMeritGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/candidates/{id}/merit",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "candidateMeritReviewCreate": {
+    "operationId": "candidateMeritReviewCreate",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/candidates/{id}/merit-reviews",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "408": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "413": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "candidateMeritReviewGet": {
+    "operationId": "candidateMeritReviewGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/candidates/{id}/merit-reviews/{reviewId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "reviewId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "candidateMeritReviewsList": {
+    "operationId": "candidateMeritReviewsList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/candidates/{id}/merit-reviews",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "429": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "candidateReject": {
     "operationId": "candidateReject",
     "kind": "path",
@@ -5741,6 +6157,634 @@ export const routing = {
       "replay": null
     }
   },
+  "meritPolicyDisable": {
+    "operationId": "meritPolicyDisable",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/merit-policies/{id}/disable",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": null,
+    "responses": {
+      "204": [],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      204
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "meritPolicyGet": {
+    "operationId": "meritPolicyGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/projects/{project}/merit-policies/{id}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "meritPolicyList": {
+    "operationId": "meritPolicyList",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/projects/{project}/merit-policies",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "repositoryId",
+          "required": false
+        },
+        {
+          "name": "targetRef",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "meritPolicyPause": {
+    "operationId": "meritPolicyPause",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/merit-policies/{id}/pause",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "meritPolicyRegister": {
+    "operationId": "meritPolicyRegister",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/merit-policies",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "201": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      201
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "meritPolicyResume": {
+    "operationId": "meritPolicyResume",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/merit-policies/{id}/resume",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
+    }
+  },
+  "meritProbe": {
+    "operationId": "meritProbe",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/projects/{project}/merit-probe",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "never",
+      "replay": "none"
+    }
+  },
+  "meritShadowGet": {
+    "operationId": "meritShadowGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/projects/{project}/merit-shadow",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "limit",
+          "required": false
+        },
+        {
+          "name": "since",
+          "required": false
+        },
+        {
+          "name": "until",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "meritUsageGet": {
+    "operationId": "meritUsageGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/projects/{project}/merit-usage",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        }
+      ],
+      "query": [
+        {
+          "name": "since",
+          "required": false
+        },
+        {
+          "name": "until",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "oauthAuthorize": {
     "operationId": "oauthAuthorize",
     "kind": "path",
@@ -7266,6 +8310,66 @@ export const routing = {
       "replay": "stored-result"
     }
   },
+  "repositoryLanePolicyGet": {
+    "operationId": "repositoryLanePolicyGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/projects/{project}/repositories/{repository}/lane-policy",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "project",
+          "required": true
+        },
+        {
+          "name": "repository",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "repositoryTargetRefRegister": {
     "operationId": "repositoryTargetRefRegister",
     "kind": "path",
@@ -8054,6 +9158,80 @@ export const routing = {
       "callable": true,
       "autoRetry": "network-only",
       "replay": null
+    }
+  },
+  "taskMeritRelease": {
+    "operationId": "taskMeritRelease",
+    "kind": "path",
+    "method": "POST",
+    "path": "/orgs/{orgId}/tasks/{id}/merit-release",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        },
+        {
+          "name": "X-CSRF-Token",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": true,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ],
+      "default": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": "stored-result"
     }
   },
   "taskPublish": {
