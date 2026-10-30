@@ -3,6 +3,8 @@
  * the caller and never inferred. A transport only decides which credential headers a request
  * carries; the client owns retries, deadlines and errors.
  */
+import { BoundTransportError } from './errors.js';
+import { isCredentialProvider, type CredentialContext, type CredentialProvider } from './credential-provider.js';
 
 export const SESSION_COOKIE = '__Host-octocove_session';
 export const CSRF_COOKIE = '__Host-octocove_csrf';
@@ -17,10 +19,16 @@ export type BearerKind = 'session' | 'bootstrap' | 'delegation' | 'approval-gran
    */
   | 'client';
 
+/**
+ * Where a bearer comes from: a fixed token; a function read before every attempt (it may return a promise); or a
+ * {@link CredentialProvider}, which also renews after the server refuses an expired credential.
+ */
+export type BearerToken = string | (() => string | Promise<string>) | CredentialProvider;
+
 export interface BearerTransport {
   readonly type: 'bearer';
-  /** The token, or a function read per request so a renewed credential is picked up. */
-  readonly token: string | (() => string);
+  /** The token, or a function or provider read before every attempt so a renewed credential is picked up. */
+  readonly token: BearerToken;
   readonly kind: BearerKind;
 }
 
@@ -55,10 +63,26 @@ export interface UnauthenticatedTransport {
   readonly type: 'unauthenticated';
 }
 
-export type Transport = BearerTransport | BrowserCookieTransport | ForwardedSessionTransport | UnauthenticatedTransport;
+/**
+ * The bound transport: the client sends no credential of its own and the injected `fetch` (a credential broker
+ * that holds the real credential) authorizes every request it forwards. Bound to one authority, it refuses what
+ * would let a call escape that binding: a per-call credential, the sign-in, session, OAuth and delegation-renewal
+ * routes, a missing injected fetch, and any redirect (never followed). Renewal belongs to the broker.
+ */
+export interface BoundTransport {
+  readonly type: 'bound';
+  /** The credential kind the broker presents upstream, as the caller states it (journeys check it, e.g. human-only ones). */
+  readonly kind: BearerKind;
+}
 
-export function bearer(options: { token: string | (() => string); kind?: BearerKind }): BearerTransport {
-  if (typeof options.token !== 'function' && (typeof options.token !== 'string' || !options.token)) {
+export type Transport = BearerTransport | BrowserCookieTransport | ForwardedSessionTransport | UnauthenticatedTransport | BoundTransport;
+
+export function bound(options: { kind?: BearerKind } = {}): BoundTransport {
+  return Object.freeze({ type: 'bound', kind: options.kind ?? 'delegation' });
+}
+
+export function bearer(options: { token: BearerToken; kind?: BearerKind }): BearerTransport {
+  if (typeof options.token !== 'function' && !isCredentialProvider(options.token) && (typeof options.token !== 'string' || !options.token)) {
     throw new TypeError('bearer transport needs a token');
   }
   return Object.freeze({ type: 'bearer', token: options.token, kind: options.kind ?? 'session' });
@@ -124,13 +148,17 @@ export interface CredentialHeaders {
 /** Credential headers for one request; cookie and bearer are never sent together. */
 export function credentialHeaders(transport: Transport, method: string, override?: BearerTransport): CredentialHeaders {
   const post = method !== 'GET' && method !== 'HEAD';
+  if (override && transport.type === 'bound') throw new BoundTransportError(undefined, 'the bound transport takes no per-call credential: the injected fetch authorizes every request');
   if (override && transport.type !== 'bearer' && transport.type !== 'unauthenticated') {
     throw new TypeError('a per-call bearer credential cannot be combined with a cookie transport');
   }
   const active = override ?? transport;
   switch (active.type) {
+    case 'bound':
+      return { headers: {}, secrets: [], credentials: 'omit' };
     case 'bearer': {
-      const token = typeof active.token === 'function' ? active.token() : active.token;
+      const token = syncToken(active);
+      if (token === undefined) throw new TypeError('this bearer is read asynchronously (a provider or an async function): resolve it with bearerToken()');
       if (!token) throw new TypeError('bearer transport token is empty');
       return { headers: { [AUTH_HEADER]: `Bearer ${token}` }, secrets: [token], credentials: 'omit' };
     }
@@ -159,6 +187,26 @@ export function credentialHeaders(transport: Transport, method: string, override
       return { headers, secrets, credentials: 'omit' };
     }
   }
+}
+
+/** The token of a bearer whose token is a string or a synchronous function; undefined for a provider or a promise. */
+export function syncToken(transport: BearerTransport): string | undefined {
+  const { token } = transport;
+  if (typeof token === 'string') return token;
+  if (isCredentialProvider(token)) return undefined;
+  const value = token();
+  if (typeof value === 'string') return value;
+  // An async function's promise is dropped here; bearerToken() reads it properly.
+  (value as Promise<string>)?.then?.(undefined, () => {});
+  return undefined;
+}
+
+/** Reads the token of any bearer: fixed, a function (sync or async) or a provider. Never logged. */
+export async function bearerToken(transport: BearerTransport, context: CredentialContext): Promise<string> {
+  const { token } = transport;
+  const value = typeof token === 'string' ? token : isCredentialProvider(token) ? await token.token(context) : await token();
+  if (typeof value !== 'string' || !value) throw new TypeError('bearer transport token is empty');
+  return value;
 }
 
 function cookieValues(cookie: string): string[] {

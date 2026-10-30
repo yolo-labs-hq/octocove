@@ -6,14 +6,14 @@ import { canonicalReadUrl } from "./human-git.js";
 import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
-import { humanSessionFetch, renewHuman, agentSessionFetch, renewAgent } from "./session.js";
+import { humanSessionFetch, cliCredential } from "./session.js";
 import { machineCommand } from "./machine.js";
 import { handover as handoverLane, hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
 import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, newIdempotencyKey, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -32,6 +32,8 @@ export interface Deps {
   signal?: AbortSignal;
   /** Overrides credential loading (tests). */
   credentials?: Credentials;
+  /** `--log-json`: the client's request, response and retry events, redacted, as JSON lines on stderr. */
+  hooks?: ClientHooks;
   /** Working directory and human Git helper overrides for isolated clone tests. */
   cwd?: string;
   /** The org a tenant-scoped command acts in (`--org`); set by the dispatcher from the global options. */
@@ -163,9 +165,10 @@ Global options:
   --verbose               show full permissions and verification details
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
+  --log-json              print each API request, response and retry as a JSON line on stderr (redacted)
   --help
   --version, -v          print the installed package version
-  --json, --verbose, --idempotency-key, --org and --help may precede or follow command words.
+  --json, --verbose, --idempotency-key, --org, --log-json and --help may precede or follow command words.
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_ORG, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else ${DEFAULT_API_ORIGIN}; other commands use the origin stored with their credential.
@@ -340,6 +343,8 @@ function report(d: Deps, err: unknown, json: boolean): number {
   if (err instanceof CloneError) return emit(err.code, err.message, { status: err.status }), err.exitCode;
   if (err instanceof HumanRequiredError) return emit("human-required", err.message), EXIT.humanRequired;
   if (err instanceof ConfigError || err instanceof ProtectedStoreError) return emit("config", err.message), EXIT.config;
+  // A stored credential that cannot be used or renewed: nothing was sent for the request that hit it.
+  if (err instanceof CredentialUnavailableError) return emit(err.code, `${err.code}: ${err.message}`, { status: 401 }), EXIT.failure;
   if (err instanceof CandidateFailedError) return emit(err.code, err.message), EXIT.candidateFailed;
   if (err instanceof PendingError) return emit("pending", err.message), EXIT.pending;
   if (err instanceof ActionRequiredError) return emit(err.code, err.message), EXIT.failure;
@@ -481,10 +486,7 @@ async function dispatch(d: Deps) {
   const argv = globals.argv;
   if (globals.org !== undefined) d = { ...d, org: globals.org };
   const [a = "", b, ...tail] = argv;
-  if (!d.credentials && !["version", "--version", "-v", "login"].includes(a)) {
-    const stored = await activeCredentials(d.env);
-    if (stored?.kind === "human" || stored?.kind === "agent") d = { ...d, fetch: (stored.kind === "human" ? humanSessionFetch : agentSessionFetch)(d.env, stored, d.fetch) };
-  }
+  if (globals.logJson) d = { ...d, hooks: logHooks(d) };
   if (a === "events" && b?.startsWith("--")) {
     await eventsFollow(d, [...lead,b,...tail]);
     return;
@@ -503,8 +505,19 @@ async function dispatch(d: Deps) {
 const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
   d.stdout(json ? JSON.stringify(body, null, 2) + "\n" : text() + "\n");
 
-const credentialFetch = (d: Deps, creds: Credentials) => !d.credentials && (creds.kind === "human" || creds.kind === "agent")
-  ? (creds.kind === "human" ? humanSessionFetch : agentSessionFetch)(d.env, creds, d.fetch) : d.fetch;
+/**
+ * The credential a connection presents: a stored human session or agent delegation is the client's renewing provider
+ * (session.ts), renewed ahead of expiry and once after an expiry refusal; anything else is sent as it is.
+ */
+const credentialOf = (d: Deps, creds: Credentials): NonNullable<ConstructorParameters<typeof Api>[0]["credential"]> =>
+  !d.credentials && (creds.kind === "human" || creds.kind === "agent") ? { token: cliCredential(d.env, creds, d.fetch), kind: creds.kind } : creds;
+
+/** `--log-json`: one JSON line per client event on stderr. Events are redacted by the client: no token, cookie or body. */
+const logHooks = (d: Deps): ClientHooks => ({
+  onRequest: (e) => d.stderr(JSON.stringify({ event: "request", ...e }) + "\n"),
+  onResponse: (e) => d.stderr(JSON.stringify({ event: "response", ...e }) + "\n"),
+  onRetry: (e) => d.stderr(JSON.stringify({ event: "retry", ...e }) + "\n"),
+});
 /**
  * The org a command acts in. An agent delegation or claim bootstrap belongs to the org it was issued in, so that org
  * is used and a different --org is refused. A human (or machine) names it per command: --org, else OCTOCOVE_ORG.
@@ -519,7 +532,7 @@ function orgOf(d: Deps, creds: Credentials): string | undefined {
   return named;
 }
 const connect = (d: Deps, creds: Credentials, orgId = orgOf(d, creds)) =>
-  new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), orgId, credential: creds, fetch: credentialFetch(d, creds), sleep: d.sleep, signal: d.signal });
+  new Api({ apiUrl: resolveApiOrigin(d.env, creds, "credential"), orgId, credential: credentialOf(d, creds), fetch: d.fetch, hooks: d.hooks, sleep: d.sleep, signal: d.signal });
 async function client(d: Deps) {
   const creds = d.credentials ?? (await loadCredentials(d.env));
   return { creds, api: connect(d, creds) };
@@ -697,7 +710,7 @@ const eventsFollow: Handler = async (d,args) => {
   process.on('SIGINT',abort);
   d.signal?.addEventListener('abort',abort,{once:true});
   if (d.signal?.aborted) abort();
-  try { await followEvents({ creds,env:d.env,orgId:api.orgId,projectId,taskId:v.task,from:v.from,checkpoint:v.checkpoint,limit,signal:controller.signal,fetch:credentialFetch(d,creds),stdout:d.stdout,sleep:d.sleep }); }
+  try { await followEvents({ creds,env:d.env,orgId:api.orgId,projectId,taskId:v.task,from:v.from,checkpoint:v.checkpoint,limit,signal:controller.signal,fetch:d.fetch,credential:credentialOf(d,creds),hooks:d.hooks,stdout:d.stdout,sleep:d.sleep }); }
   finally { process.removeListener('SIGINT',abort); d.signal?.removeEventListener('abort',abort); }
 };
 
@@ -1046,7 +1059,9 @@ const COMMANDS: Record<string, Handler> = {
     // committed (predecessor revoked, replacement issued) is recovered within the server's window, never
     // renewed afresh under a new key. The replacement is saved before anything else happens.
     if (!d.credentials) {
-      const renewed = await (creds.kind === "human" ? renewHuman : renewAgent)(d.env, creds, d.fetch, { signal: d.signal, idempotencyKey: v["idempotency-key"] });
+      const renewed = await cliCredential(d.env, creds, d.fetch).renew({ signal: d.signal, idempotencyKey: v["idempotency-key"] }).catch((error) => {
+        throw error instanceof CredentialUnavailableError ? new ConfigError(error.message) : error;
+      });
       out(d, v.json, { renewed: true, kind: creds.kind, ...(creds.kind === "agent" ? { delegationId: creds.delegationId } : {}), expiresAt: renewed.expiresAt, credentialsFile: join(configDir(d.env), "credentials", "cli.json") }, () => "Credential renewed and saved privately.");
       return;
     }

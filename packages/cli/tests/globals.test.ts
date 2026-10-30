@@ -13,10 +13,10 @@ it.each([
  expect(await run(deps),output).toBe(0);expect(key).toBe('global-key');expect(JSON.parse(output)).toMatchObject({id:'P1'});
 });
 it('preserves command argument values and the positional separator',()=>{
- expect(globalOptions(['repo','clone','--','--json','--help'])).toEqual({argv:['repo','clone','--','--json','--help'],flags:[],help:false,org:undefined});
- expect(globalOptions(['task','create','--description=--json','--verbose'])).toEqual({argv:['task','create','--description=--json'],flags:['--verbose'],help:false,org:undefined});
+ expect(globalOptions(['repo','clone','--','--json','--help'])).toEqual({argv:['repo','clone','--','--json','--help'],flags:[],help:false,org:undefined,logJson:false});
+ expect(globalOptions(['task','create','--description=--json','--verbose'])).toEqual({argv:['task','create','--description=--json'],flags:['--verbose'],help:false,org:undefined,logJson:false});
  const org='org_00000000-0000-4000-8000-000000000001';
- expect(globalOptions(['task','--org',org,'show','T1'])).toEqual({argv:['task','show','T1'],flags:['--org',org],help:false,org});
+ expect(globalOptions(['task','--org',org,'show','T1'])).toEqual({argv:['task','show','T1'],flags:['--org',org],help:false,org,logJson:false});
  expect(globalOptions(['--org=x','task','show','T1','--org',org])).toMatchObject({argv:['task','show','T1'],org});
  expect(globalOptions(['task','show','--','--org',org])).toMatchObject({argv:['task','show','--','--org',org],org:undefined});
 });
@@ -24,4 +24,8 @@ it('help with a leading idempotency key does not execute anything',async()=>{
  let output='';const unexpected=async()=>{throw new Error('unexpected side effect');};
  expect(await run({argv:['--idempotency-key','K','task','--verbose','authorize','--help'],env:{},stdout:s=>output+=s,stderr:s=>output+=s,fetch:unexpected,git:unexpected,stdin:unexpected})).toBe(0);
  expect(output).toContain('Usage: octo task authorize');expect(output).toContain('--bootstrap-out PATH');
+});
+it('--log-json is a global flag anywhere before the positional separator, never passed to the command', () => {
+ expect(globalOptions(['--log-json','task','show','T1'])).toMatchObject({argv:['task','show','T1'],flags:[],logJson:true});
+ expect(globalOptions(['task','show','--','--log-json'])).toMatchObject({argv:['task','show','--','--log-json'],logJson:false});
 });

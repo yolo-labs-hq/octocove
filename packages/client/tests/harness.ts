@@ -37,40 +37,8 @@ export async function rejects<E>(work: () => Promise<unknown>, kind: abstract ne
   throw new AssertionError(`${message ? `${message}: ` : ''}expected ${kind.name}, but the call resolved`);
 }
 
-export interface Recorded {
-  readonly url: string;
-  readonly method: string;
-  readonly headers: Record<string, string>;
-  readonly body: string | undefined;
-  readonly signal: AbortSignal | undefined;
-  readonly credentials: RequestCredentials | undefined;
-}
-
-type Step = Response | Error | ((request: Recorded) => Response | Promise<Response>);
-
-/** A scripted fetch: each request consumes one step (a Response, a thrown Error, or a handler). */
-export function scriptedFetch(...steps: Step[]) {
-  const calls: Recorded[] = [];
-  const fetch = async (url: string, init: RequestInit = {}): Promise<Response> => {
-    const headers: Record<string, string> = {};
-    new Headers(init.headers).forEach((value, key) => { headers[key] = value; });
-    const request: Recorded = { url, method: init.method ?? 'GET', headers, body: init.body as string | undefined, signal: init.signal ?? undefined, credentials: init.credentials };
-    calls.push(request);
-    const step = steps.shift();
-    if (!step) throw new AssertionError(`unexpected request ${request.method} ${url}`);
-    if (step instanceof Error) throw step;
-    return typeof step === 'function' ? step(request) : step;
-  };
-  return { fetch, calls };
-}
-
-export function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'content-type': status >= 400 ? 'application/problem+json' : 'application/json', ...headers } });
-}
-
-export function problem(status: number, code: string, extra: Record<string, unknown> = {}): Response {
-  return json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: `${code} detail`, requestId: 'req-1', ...extra });
-}
+// The scripted fetch and answer builders are the package's own testing module (`@yolo-labs/octocove-client/testing`).
+export { scriptedFetch, json, problem, type Recorded } from '../src/testing.js';
 
 /** Never settles and ignores abort, like a stuck socket. */
 export const hang = () => new Promise<Response>(() => {});

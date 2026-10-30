@@ -5,7 +5,7 @@
  * ledger makes an identical resend a replay. Every server refusal is surfaced as the ApiError it is,
  * never answered by issuing the command again under a new key.
  */
-import { newIdempotencyKey, retryClassFor, type ApiResponse, type CallableOperationId, type OctocoveClient, type SuccessBody, type TenantCallInput, type TenantClient } from './client.js';
+import { clientHooks, newIdempotencyKey, retryClassFor, type ApiResponse, type CallableOperationId, type OctocoveClient, type SuccessBody, type TenantCallInput, type TenantClient } from './client.js';
 
 /** The client a journey sends through: unbound for the global routes, bound to one tenant for the rest. */
 export type JourneyClient = OctocoveClient | TenantClient;
@@ -14,7 +14,9 @@ import { REDACTED, redact, sanitizeCause, secretValues } from './redact.js';
 import { routing } from './generated/routing.js';
 import type { Replay, RouteEntry } from './routing-types.js';
 import { CallScope } from './scope.js';
-import { bearer, credentialHeaders, type BearerTransport } from './transports.js';
+import { bearer, bearerToken, credentialHeaders, type BearerTransport } from './transports.js';
+import { isCredentialProvider } from './credential-provider.js';
+import { emit, jittered } from './hooks.js';
 
 export interface JourneyOptions {
   /** Absolute epoch-ms deadline bounding every request, poll, body read, retry, refresh and sleep. */
@@ -55,27 +57,36 @@ function routeOf(operationId: CallableOperationId): RouteEntry {
   return (routing as Record<string, RouteEntry>)[operationId]!;
 }
 
+/** Operations whose same-key resend must carry the credential sent the first time (the server scopes recovery by it). */
+const RECOVERY_AUTHENTICATED = new Set<string>(['sessionRenew', 'delegationRenew', 'authLogout']);
+
 /**
- * The credential a resend must carry: the one sent the first time. A bearer whose token is read per
- * request (so renewal is picked up) is pinned to the token current at the first attempt, which is what
- * the recovery-authenticated operations require (`sessionRenew`, `delegationRenew`, `authLogout`).
+ * The credential a resend must carry: the one sent the first time. A bearer read per request (a function) is pinned
+ * to the token current at the first attempt, which is what the recovery-authenticated operations require
+ * (`sessionRenew`, `delegationRenew`, `authLogout`). A credential provider is pinned only for those: every other
+ * operation reads it per attempt, so a renewal or refresh it makes is picked up by the journey's own resends.
  */
-export function pinnedCredential(client: JourneyClient, credential?: BearerTransport): BearerTransport | undefined {
+export async function pinnedCredential(client: JourneyClient, credential?: BearerTransport, operationId?: string): Promise<BearerTransport | undefined> {
   const active = credential ?? (client.transport.type === 'bearer' ? client.transport : undefined);
   if (!active) return undefined;
-  const token = typeof active.token === 'function' ? active.token() : active.token;
+  if (isCredentialProvider(active.token) && !(operationId && RECOVERY_AUTHENTICATED.has(operationId))) return credential;
+  const token = await bearerToken(active, { operationId, attempt: 1 });
   return bearer({ token, kind: active.kind });
 }
 
 /**
  * Every value a journey must keep out of what it surfaces: the pinned credential's secrets, the client
- * transport's own (when a per-call credential overrides it), and the secret-named request body values.
+ * transport's own (when a per-call credential overrides it), and the secret-named request body values. A provider's
+ * tokens are read per attempt and scrubbed by `client.call` itself.
  */
 export function journeySecrets(client: JourneyClient, method: string, credential: BearerTransport | undefined, body?: unknown): string[] {
-  const secrets = credentialHeaders(client.transport, method, credential).secrets;
-  if (credential && client.transport.type === 'bearer') {
-    try { secrets.push(...credentialHeaders(client.transport, method).secrets); } catch { /* an empty transport token has nothing to scrub */ }
-  }
+  const secrets: string[] = [];
+  const add = (transport: Parameters<typeof credentialHeaders>[0], override?: BearerTransport) => {
+    try { secrets.push(...credentialHeaders(transport, method, override).secrets); } catch { /* an empty or provider token: nothing to read here */ }
+  };
+  if (credential && isCredentialProvider(credential.token)) add(client.transport);
+  else add(client.transport, credential);
+  if (credential && client.transport.type === 'bearer') add(client.transport);
   return [...secrets, ...secretValues(body)];
 }
 
@@ -86,7 +97,7 @@ export function journeySecrets(client: JourneyClient, method: string, credential
  */
 export function scopeError(error: unknown, scope: CallScope, secrets: readonly string[]): unknown {
   if (!(error instanceof TransportError) || error !== scope.ended) return error;
-  return new TransportError(error.code, error.message, { cause: sanitizeCause(error.cause, secrets), attempts: error.attempts, responseStatus: error.responseStatus });
+  return new TransportError(error.code, error.message, { cause: sanitizeCause(error.cause, secrets), attempts: error.attempts, responseStatus: error.responseStatus, idempotencyKey: error.idempotencyKey });
 }
 
 export interface SendOptions {
@@ -111,11 +122,12 @@ export function withoutLocal(error: unknown, local: readonly string[]): unknown 
   if (!local.length) return error;
   const strip = (text: string | undefined) => (text === undefined ? text : local.reduce((out, secret) => out.split(secret).join(REDACTED), text));
   if (error instanceof TransportError) {
-    return new TransportError(error.code, strip(error.message)!, { cause: sanitizeCause(error.cause, local), attempts: error.attempts, responseStatus: error.responseStatus });
+    return new TransportError(error.code, strip(error.message)!, { cause: sanitizeCause(error.cause, local), attempts: error.attempts, responseStatus: error.responseStatus, idempotencyKey: error.idempotencyKey });
   }
   if (error instanceof ApiError) {
     return new ApiError({ status: error.status, code: strip(error.code)!, title: strip(error.title), detail: strip(error.detail), requestId: strip(error.requestId),
-      details: redact(error.details, local), type: strip(error.type), retryAfter: error.retryAfter, incomplete: error.incomplete, rawBody: strip(error.rawBody), operationId: error.operationId });
+      details: redact(error.details, local), type: strip(error.type), retryAfter: error.retryAfter, incomplete: error.incomplete, rawBody: strip(error.rawBody), operationId: error.operationId,
+      headers: redact(error.headers, local), idempotencyKey: error.idempotencyKey });
   }
   return error;
 }
@@ -156,7 +168,8 @@ export async function send<K extends CallableOperationId>(
   sendOptions: SendOptions = {},
 ): Promise<ApiResponse<SuccessBody<K>>> {
   const route = routeOf(operationId);
-  const credential = pinnedCredential(client, sendOptions.credential);
+  const credential = await pinnedCredential(client, sendOptions.credential, operationId);
+  const hooks = clientHooks(client);
   const retry = retryClassFor(route);
   const local = (sendOptions.localSecrets ?? []).filter((secret) => typeof secret === 'string' && secret.length > 0);
   const secrets = [...journeySecrets(client, route.method, credential, (input as { body?: unknown }).body), ...local];
@@ -164,6 +177,7 @@ export async function send<K extends CallableOperationId>(
   const keyed = idempotencyKey !== undefined && retry.autoRetry === 'network-only';
   const ambientRotation = rotatesAmbientCredential(client, operationId, credential);
   let replays = 0;
+  let round = 1;
   for (;;) {
     try { scope.throwIfEnded(); } catch (error) { throw scopeError(error, scope, secrets); }
     try {
@@ -179,16 +193,18 @@ export async function send<K extends CallableOperationId>(
       const error = withoutLocal(raw, local);
       if (ambientRotation && error instanceof TransportError && error.responseStatus !== undefined) {
         throw new TransportError(error.code, 'the session renewal answered but its body could not be read; the browser may already hold the '
-          + 'rotated session, so it is not renewed again: re-read the session state', { cause: error, attempts: error.attempts, responseStatus: error.responseStatus });
+          + 'rotated session, so it is not renewed again: re-read the session state', { cause: error, attempts: error.attempts, responseStatus: error.responseStatus, idempotencyKey: error.idempotencyKey });
       }
       let wait: number | undefined;
       if (keyed && !sendOptions.busyIsFinal && error instanceof ApiError && (error.status === 429 || (error.status === 408 && error.code === 'request-body-timeout') || error.code === 'operation-in-progress')) {
         wait = (error.retryAfter ?? BUSY_DEFAULT_MS / 1000) * 1000;
       } else if (keyed && LEDGERED.has(retry.replay) && error instanceof TransportError && error.code === 'network-error' && replays < MAX_JOURNEY_REPLAYS) {
         replays++;
-        wait = 250 * 2 ** (replays - 1);
+        wait = jittered(250 * 2 ** (replays - 1));
       }
       if (wait === undefined || wait >= scope.remaining()) throw error;
+      emit(hooks?.onRetry, { clientRequestId: undefined, operationId, reason: error instanceof ApiError ? 'busy' : 'lost-answer', attempt: ++round, delayMs: wait,
+        idempotencyKey, status: error instanceof ApiError ? error.status : undefined, code: error instanceof ApiError ? error.code : undefined });
       try { await scope.sleep(wait); } catch (sleepError) { throw scopeError(sleepError, scope, secrets); }
     }
   }

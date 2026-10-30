@@ -337,9 +337,10 @@ Global options:
   --verbose               show full permissions and verification details
   --json                  print the API response as JSON
   --idempotency-key KEY   reuse a key to recover a write (default: random per action)
+  --log-json              print each API request, response and retry as a JSON line on stderr (redacted)
   --help
   --version, -v          print the installed package version
-  --json, --verbose, --idempotency-key, --org and --help may precede or follow command words.
+  --json, --verbose, --idempotency-key, --org, --log-json and --help may precede or follow command words.
 
 Environment: OCTOCOVE_API_URL, OCTOCOVE_ORG, OCTOCOVE_CONFIG_DIR, OCTOCOVE_BOOTSTRAP_FILE (protected import).
 API origin: login and exchange use OCTOCOVE_API_URL if set, else the stored credential's origin, else https://api.octocove.com; other commands use the origin stored with their credential.

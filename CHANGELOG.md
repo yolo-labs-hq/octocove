@@ -1,5 +1,56 @@
 # Changelog
 
+## CLI 0.20.0 and client 0.20.0
+
+Release `@yolo-labs/octocove` 0.20.0 and `@yolo-labs/octocove-client` 0.20.0: the foundation for agent runners. The
+CLI pins exactly this client and keeps no logic the client lacks; a CI gate now checks that.
+
+- Client: the bound transport, `bound({kind?})`, for a runner behind a credential broker. The client sends no
+  credential, and the injected fetch authorizes every attempt. It sends only an allow list (`boundAllows`): the
+  delegation operations of the generated security, less those that issue a credential or change the authority
+  (`BOUND_EXCLUDED`). Anything else, and a per-call credential, is a `BoundTransportError` before sending. It never
+  follows a redirect (a 3xx is `redirect-refused`; an opaque redirect is refused on every transport) and never renews.
+- Client: credential providers. `bearer({token})` takes a `CredentialProvider` or an async function.
+  - The provider is read before every attempt. After a 401 `credential-expired` or `credential-revoked` it is
+    refreshed at most once per call, and the call is resent under the same key and body.
+  - `renewingCredential({store, renew, renewAheadMs, schedule, check, reauthorize})` is the renew-ahead helper. It
+    renews before expiry (never past the ceiling) and after a refusal, single-flighted within the process.
+    Concurrent holders are serialized by the store's lock and arbitrated by compare-and-set.
+  - The renewal key is derived from the predecessor (`renew-` + its SHA-256). A revoked token is only adopted, never
+    renewed. `reauthorize` is the seam for re-authorization.
+  - Credential stores: `memoryCredentialStore()`, and `fileCredentialStore()` under `/node`. `authorizedFetch()`
+    applies a provider to requests sent outside the client. `CredentialUnavailableError` reports a provider or store
+    refusal.
+- Client: `onRequest`, `onResponse` and `onRetry` hooks receive redacted events. Each event carries a per-call
+  `clientRequestId` and the server's `X-Request-Id`. Responses add their headers; refusals add the code,
+  disposition and outcome; retries add the reason. The client request id stays local: it is not sent as a request
+  header.
+- Client: typed failures. `ApiError` and `TransportError` carry:
+  - `disposition`: `terminal`, `retryable` or `reauth`;
+  - `outcome`: `not-sent`, `refused` or `unknown`; an unknown outcome is recovered only under the same key;
+  - `idempotencyKey`.
+
+  An `ApiError` also carries `endsAuthority`, `reason` and every response header, a 401 included. `PROBLEM_CODES` and
+  `problemClass()` classify each documented claim, lane, credential, candidate, task, request and tenant code; any
+  other code is classified by its status. Guards: `isRetryable`, `isTerminal`, `needsReauth`, `outcomeUnknown` and
+  `endsAuthority`.
+- Client: transport resends and a journey's lost-answer replays use jittered backoff (half fixed, half random).
+- Client: `lanePackGet` takes `stream: true` to return a `ReadableStream` that keeps the call's deadline and signal. A
+  binary body that does not match its `content-length` is an error, never a clean end.
+- Client: a new entry, `@yolo-labs/octocove-client/testing`, for Node and workerd.
+  - `fakeServer()` routes by the generated table. It authenticates the bearers it issued, replays keyed POSTs under
+    the same key, rotates sessions and delegations, and implements the focused-lane routes.
+  - Faults can be injected: a lost answer, a truncated body, or any response or error.
+  - `fakeBroker()` grants handles scoped to a task, its operations, write paths and expiry.
+  - Also exported: `scriptedFetch`, `json` and `problem`.
+- CLI: session and delegation auto-renewal now runs on the client's renew-ahead helper over its file store, with the
+  same behaviour, lock and messages. A stored credential that cannot be used or renewed exits 1 with its code
+  (`session-sign-in-required`, `delegation-renewal-required`).
+- CLI: the global `--log-json` flag prints the client's events as JSON lines on stderr.
+- Repository: `tools/check-parity.mjs` runs in CI. It checks the shared version and the exact client pin. It also
+  checks the parity manifest, `packages/cli/parity.json`: every CLI command, the client calls its handler makes, and
+  a reason for every generic `command`/`call`.
+
 ## CLI 0.19.0 and client 0.19.0
 
 Release `@yolo-labs/octocove` 0.19.0 and `@yolo-labs/octocove-client` 0.19.0: administer Merit from the `octo` CLI,

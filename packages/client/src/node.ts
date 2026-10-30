@@ -5,6 +5,8 @@
  */
 export * from './index.js';
 export { credentialStore, createDarwinStore, ProtectedStoreError, STORE_PLATFORMS } from './store/index.js';
+export { fileCredentialStore } from './store/file.js';
+export type { FileCredentialStoreOptions } from './store/file.js';
 export type { DarwinPhase, DarwinStoreOptions, ProtectedStore, StorePlatform } from './store/index.js';
 
 /** True when this process's platform has a protected credential store (Linux or macOS). */

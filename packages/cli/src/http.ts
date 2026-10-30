@@ -20,11 +20,14 @@ import {
   type JourneyOptions,
   type Journeys,
   type TenantJourneys,
+  type BearerToken,
+  type ClientHooks,
 } from "../../client/src/node.js";
 import { ConfigError, type CredentialKind } from "./config.js";
 
-export { ApiError, TransportError, ProtectedStoreError, newIdempotencyKey } from "../../client/src/node.js";
+export { ApiError, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey } from "../../client/src/node.js";
 export { isTenantId, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError } from "../../client/src/node.js";
+export type { ClientHooks, RequestEvent, ResponseEvent, RetryEvent } from "../../client/src/node.js";
 export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike, Project, ProjectInitialization, GitHubRepositoryList, MeritPolicyList, MeritPolicyVersionView, MeritPolicyOverrides, MeritUsage, MeritShadow } from "../../client/src/node.js";
 
 /** Why a tenant-scoped command could not run: no org was given. */
@@ -38,8 +41,13 @@ export const baseUrlOf = (apiUrl: string) => apiUrl.replace(/\/+$/, "").replace(
 
 export interface ConnectOptions {
   apiUrl: string;
-  /** Omitted for the public login routes and for journeys that carry their own credential (grants). */
-  credential?: { token: string; kind: CredentialKind };
+  /**
+   * Omitted for the public login routes and for journeys that carry their own credential (grants). A stored human
+   * session or agent delegation is a renewing provider (session.ts), read before every attempt.
+   */
+  credential?: { token: BearerToken; kind: CredentialKind };
+  /** `--log-json`: the client's request, response and retry events (redacted). */
+  hooks?: ClientHooks;
   fetch: FetchLike;
   sleep?: (ms: number) => Promise<void>;
   /** Absolute epoch-ms deadline for every call, body read and resend. */
@@ -65,11 +73,11 @@ export class Api {
 
   /** The global routes: sign-in, `/me`, the caller's projects across every org, project creation. */
   get root(): Journeys {
-    const { apiUrl, credential, fetch, sleep, deadline, signal } = this.options;
+    const { apiUrl, credential, fetch, sleep, deadline, signal, hooks } = this.options;
     return this.#journeys ??= journeys(createClient({
       baseUrl: baseUrlOf(apiUrl),
       transport: credential ? bearer({ token: credential.token, kind: BEARER[credential.kind] }) : unauthenticated(),
-      fetch, deadline, signal,
+      fetch, deadline, signal, ...hooks,
       ...(sleep ? { sleep: (ms: number) => sleep(ms) } : {}),
     }));
   }

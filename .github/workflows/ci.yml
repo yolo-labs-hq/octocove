@@ -40,6 +40,8 @@ jobs:
         run: python3 -B tools/release-scan/scan.py
       - name: Test the scan's detectors and dispositions
         run: python3 -B tools/release-scan/test_scan.py
+      - name: CLI and client parity (one version, the exact client pin, the parity manifest)
+        run: node tools/check-parity.mjs
   check-shards:
     name: check (${{ matrix.suite }})
     runs-on: ubuntu-latest

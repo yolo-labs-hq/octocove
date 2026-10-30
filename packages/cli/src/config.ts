@@ -30,9 +30,9 @@ export const ORG_ID = /^org_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{
 export function configDir(env: NodeJS.ProcessEnv): string {
   return env.OCTOCOVE_CONFIG_DIR ?? join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "octocove");
 }
-const activeFile = (env: NodeJS.ProcessEnv) => join(configDir(env), "credentials", "cli.json");
+export const activeFile = (env: NodeJS.ProcessEnv) => join(configDir(env), "credentials", "cli.json");
 
-function parseCredentials(raw: string): Credentials {
+export function parseCredentials(raw: string): Credentials {
   try {
     const file = JSON.parse(raw);
     if (!file || typeof file.apiUrl !== "string" || !file.apiUrl || typeof file.token !== "string" || !file.token || !KINDS.has(file.kind)) throw new Error();

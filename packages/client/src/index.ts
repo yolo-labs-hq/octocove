@@ -1,9 +1,38 @@
-export { createClient, newIdempotencyKey, buildUrl, retryClassFor, tenantClient, isTenantId, isTenantScoped, MAX_RESENDS, TENANT_ID } from './client.js';
+export { createClient, newIdempotencyKey, buildUrl, retryClassFor, tenantClient, isTenantId, isTenantScoped, boundAllows, BOUND_EXCLUDED, MAX_RESENDS, TENANT_ID } from './client.js';
 export type { ApiResponse, CallableOperationId, OpenEnums, CallInput, CallOptions, ClientOptions, FetchLike, OctocoveClient, SuccessBody, TenantCallInput, TenantClient, TenantScopedOperationId } from './client.js';
-export { ApiError, TransportError, TenantNotFoundError, ProjectNotFoundError, OrgCreationPendingError, RouteUnavailableError, InsufficientScopeError, StepUpRequiredError, ConnectionRevokedError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
+export { isRetryable, isTerminal, needsReauth, outcomeUnknown, endsAuthority } from './errors.js';
+export { PROBLEM_CODES, problemClass } from './dispositions.js';
+export type { Disposition, Outcome, ProblemArea, ProblemClass } from './dispositions.js';
+export {
+  CredentialUnavailableError,
+  CREDENTIAL_REFUSALS,
+  isCredentialProvider,
+  memoryCredentialStore,
+  renewalKey,
+  renewingCredential,
+} from './credential-provider.js';
+export type {
+  CredentialContext,
+  CredentialProvider,
+  CredentialRefreshContext,
+  CredentialRefusal,
+  CredentialStore,
+  MemoryCredentialStore,
+  ReauthorizeContext,
+  RenewContext,
+  RenewingCredential,
+  RenewingCredentialOptions,
+  StoreContext,
+  StoredCredential,
+} from './credential-provider.js';
+export { authorizedFetch, scrubbedResponse, tokenScrubber } from './authorized-fetch.js';
+export type { AuthorizedFetchOptions } from './authorized-fetch.js';
+export { jittered } from './hooks.js';
+export type { ClientHooks, CredentialLabel, RequestEvent, ResponseEvent, RetryEvent, RetryReason } from './hooks.js';
+export { ApiError, TransportError, BoundTransportError, TenantNotFoundError, ProjectNotFoundError, OrgCreationPendingError, RouteUnavailableError, InsufficientScopeError, StepUpRequiredError, ConnectionRevokedError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
 export type { ApiErrorInit, PendingOrganization, ProblemDetailsView, ReauthRequiredView, StaleFenceView, TransportErrorCode } from './errors.js';
-export { bearer, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
-export type { BearerKind, BearerTransport, BrowserCookieTransport, ForwardedSessionTransport, Transport, UnauthenticatedTransport } from './transports.js';
+export { bearer, bearerToken, bound, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
+export type { BearerKind, BearerToken, BearerTransport, BoundTransport, BrowserCookieTransport, ForwardedSessionTransport, Transport, UnauthenticatedTransport } from './transports.js';
 export {
   approvalGrantAudience,
   approvalGrantFromExchange,

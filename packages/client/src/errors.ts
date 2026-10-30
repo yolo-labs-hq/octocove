@@ -1,3 +1,4 @@
+import { problemClass, type Disposition, type Outcome } from './dispositions.js';
 import type { components } from './generated/openapi.js';
 
 type BoundTo = components['schemas']['BoundTo'];
@@ -13,12 +14,37 @@ export class TransportError extends Error {
   readonly responseStatus: number | undefined;
   /** Requests sent for this logical call, including resends. */
   readonly attempts: number;
+  /** The call's Idempotency-Key: resend under it (with the same body) to recover an `unknown` outcome. */
+  readonly idempotencyKey: string | undefined;
+  /** `retryable` for a lost answer or a deadline (same key and body), `terminal` for an abort or an insecure URL. */
+  readonly disposition: Disposition;
+  /** `not-sent` when nothing left the client; otherwise `unknown`: the request may have been applied. */
+  readonly outcome: Outcome;
 
-  constructor(code: TransportErrorCode, message: string, options: { cause?: unknown; responseStatus?: number; attempts?: number } = {}) {
+  constructor(code: TransportErrorCode, message: string, options: { cause?: unknown; responseStatus?: number; attempts?: number; idempotencyKey?: string } = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause });
     this.code = code;
     this.responseStatus = options.responseStatus;
     this.attempts = options.attempts ?? 0;
+    this.idempotencyKey = options.idempotencyKey;
+    this.disposition = code === 'network-error' || code === 'deadline-exceeded' ? 'retryable' : 'terminal';
+    this.outcome = code === 'insecure-api-url' || this.attempts === 0 ? 'not-sent' : 'unknown';
+  }
+}
+
+/**
+ * A call the bound transport refused before sending: a per-call credential, or an operation outside its allow list
+ * (`boundAllows`). Nothing was sent.
+ */
+export class BoundTransportError extends Error {
+  override readonly name = 'BoundTransportError';
+  readonly code = 'bound-transport-refused' as const;
+  readonly disposition: Disposition = 'terminal';
+  readonly outcome: Outcome = 'not-sent';
+  readonly operationId: string | undefined;
+  constructor(operationId: string | undefined, message: string) {
+    super(message);
+    this.operationId = operationId;
   }
 }
 
@@ -34,6 +60,9 @@ export interface ApiErrorInit {
   incomplete?: boolean;
   rawBody?: string;
   operationId?: string;
+  /** Response headers, redacted (credential-bearing headers dropped; see `headerRecord`). */
+  headers?: Readonly<Record<string, string>>;
+  idempotencyKey?: string;
 }
 
 /**
@@ -54,6 +83,16 @@ export class ApiError extends Error {
   readonly incomplete: boolean;
   readonly rawBody: string | undefined;
   readonly operationId: string | undefined;
+  /** Every response header but the credential-bearing ones, redacted, on refusals as on successes (revision headers included). */
+  readonly headers: Readonly<Record<string, string>>;
+  /** The call's Idempotency-Key (absent for operations that take none). */
+  readonly idempotencyKey: string | undefined;
+  /** What to do next: `terminal`, `retryable` (same key and body) or `reauth`. See {@link problemClass}. */
+  readonly disposition: Disposition;
+  /** `refused` (nothing recorded) or `unknown` (may have been applied: resend only with the same key and body). */
+  readonly outcome: Outcome;
+  /** The claim, execution or delegation this credential acts under is over. */
+  readonly endsAuthority: boolean;
 
   constructor(init: ApiErrorInit) {
     super(`${init.code}: ${init.detail ?? init.title ?? `HTTP ${init.status}`}`);
@@ -68,8 +107,33 @@ export class ApiError extends Error {
     this.incomplete = init.incomplete === true;
     this.rawBody = init.rawBody;
     this.operationId = init.operationId;
+    this.headers = Object.freeze({ ...(init.headers ?? {}) });
+    this.idempotencyKey = init.idempotencyKey;
+    const c = problemClass(init.code, init.status, init.details);
+    this.disposition = c.disposition;
+    this.outcome = c.outcome;
+    this.endsAuthority = c.endsAuthority;
+  }
+
+  /** `details.reason`, when the server sent one. */
+  get reason(): string | undefined {
+    const d = this.details;
+    return isObject(d) && typeof d.reason === 'string' ? d.reason : undefined;
   }
 }
+
+type Classified = { readonly disposition?: unknown; readonly outcome?: unknown; readonly endsAuthority?: unknown };
+const classified = (error: unknown): Classified => (error && typeof error === 'object' ? (error as Classified) : {});
+/** The same request (same key and body) may succeed later. */
+export const isRetryable = (error: unknown): boolean => classified(error).disposition === 'retryable';
+/** Sending this request again will not help. */
+export const isTerminal = (error: unknown): boolean => classified(error).disposition === 'terminal';
+/** A new credential is needed first (renew, refresh or a new authorization). */
+export const needsReauth = (error: unknown): boolean => classified(error).disposition === 'reauth';
+/** The request may have been applied: recover only with the same Idempotency-Key and body. */
+export const outcomeUnknown = (error: unknown): boolean => classified(error).outcome === 'unknown';
+/** The claim, execution or delegation behind the credential is over: stop that work. */
+export const endsAuthority = (error: unknown): boolean => classified(error).endsAuthority === true;
 
 /** The organization a `409 org-creation-pending` names (`details.organization`), as far as its guards hold. */
 export interface PendingOrganization {
@@ -191,7 +255,7 @@ export function isServerCode(value: unknown): value is string {
 export function problemFromBody(
   status: number,
   text: string,
-  headers: { requestId?: string; retryAfter?: number; operationId?: string },
+  headers: { requestId?: string; retryAfter?: number; operationId?: string; headers?: Readonly<Record<string, string>>; idempotencyKey?: string },
   redactValue: <T>(value: T) => T,
   redactRaw: (text: string, limit: number) => string,
 ): ApiError {
@@ -215,6 +279,8 @@ export function problemFromBody(
     incomplete,
     rawBody: incomplete && text ? redactRaw(text, MAX_RAW) : undefined,
     operationId: headers.operationId,
+    headers: headers.headers,
+    idempotencyKey: headers.idempotencyKey,
   });
 }
 
