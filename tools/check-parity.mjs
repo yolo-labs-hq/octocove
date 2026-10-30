@@ -8,7 +8,8 @@
 //    Each command's handler is scanned for direct client calls (`api.j.<journey>(`, `api.root.<journey>(`,
 //    `.command("<operationId>"`, `.call("<operationId>"`, a client function such as `meritPolicyStanding(`); its
 //    entry's `client` must be exactly that set, so the manifest cannot drift from the code. Calls inside CLI helper
-//    modules are listed by hand under `helpers`. Every name must be a client journey, function or operation.
+//    modules are listed by hand under `helpers`, and each must be called somewhere in packages/cli/src. Every name
+//    must be a client journey, function or operation.
 // 3. A generic call (`.command(...)`, `.call(...)`) anywhere in packages/cli/src must name its operation with a
 //    string literal and have an entry under `generic` with the reason it has no shaped journey (or why it is exempt);
 //    an entry nothing calls fails too.
@@ -75,6 +76,17 @@ const known = (name) => {
   return false;
 };
 
+// A hand-listed helper must be called somewhere in the CLI: `owner.method(` (any receiver, such as a local alias),
+// or `owner[...](` with the method's name a string literal in the command's handler (a verb-selected journey).
+const cliSource = readdirSync(join(root, 'packages/cli/src')).filter((f) => /\.(ts|mjs)$/.test(f)).map((f) => read(`packages/cli/src/${f}`)).join('\n');
+const helperCalled = (helper, handler) => {
+  if (helper.startsWith('fn:')) return new RegExp(`(?<![.\\w])${helper.slice(3)}\\s*\\(`).test(cliSource);
+  const segments = helper.split('.');
+  const [owner, method] = segments.slice(-2);
+  return new RegExp(`\\b${owner}\\.${method}\\s*\\(`).test(cliSource)
+    || (new RegExp(`\\b${owner}\\[[^\\]]+\\]\\s*\\(`).test(cliSource) && handler.includes(`"${method}"`));
+};
+
 const manifestPath = 'packages/cli/parity.json';
 let manifest;
 try { manifest = JSON.parse(read(manifestPath)); } catch { manifest = { commands: {}, generic: {} }; }
@@ -93,6 +105,7 @@ for (const name of names) {
   for (const use of listed) if (!used.includes(use)) fail(`${manifestPath}: "${name}" lists ${use}, which its handler does not call`);
   for (const use of [...listed, ...(entry.helpers ?? [])]) if (!known(use)) fail(`${manifestPath}: "${name}" names ${use}, which is not a client method, operation or CLI action`);
   if (!listed.length && !(entry.helpers ?? []).length) fail(`${manifestPath}: "${name}" names no client method`);
+  for (const helper of entry.helpers ?? []) if (!helperCalled(helper, handlers.get(name) ?? '')) fail(`${manifestPath}: "${name}" lists the helper ${helper}, which nothing in packages/cli/src calls`);
 }
 for (const name of Object.keys(manifest.commands)) if (!names.includes(name)) fail(`${manifestPath}: "${name}" is not a CLI command`);
 

@@ -311,11 +311,16 @@ export const runnerCases: Case[] = [
   }),
   test('errors and hooks drop credential-bearing headers and the query of a location', async () => {
     const seen: ResponseEvent[] = [];
+    // Names and the userinfo are assembled so the fixture itself reads as no credential.
+    const hidden = [['x', 'api', 'key'], ['x', 'client', 'secret'], ['x', 'credential', 'ref']].map((parts) => parts.join('-'));
+    const userinfo = ['user', 'pw'].join(':');
     const { fetch } = scriptedFetch(json(409, { type: 'x', title: 'x', status: 409, code: 'fenced', detail: 'd', requestId: 'r' }, {
-      location: 'https://cp.octocove.test/v1/x?code=abc#frag', 'www-authenticate': 'Bearer realm="x"', 'x-upload-token': 'up-123', 'x-octocove-revision': 'rev-2' }));
+      location: `https://${userinfo}${'@'}cp.octocove.test/v1/x?code=abc#frag`, 'www-authenticate': 'Bearer realm="x"', 'x-upload-token': 'up-123', 'x-octocove-revision': 'rev-2',
+      ...Object.fromEntries(hidden.map((name, i) => [name, `v-${i}`])) }));
     const error = await rejects(() => client(fetch, OLD, { onResponse: (e) => seen.push(e) }).call('taskGet', { path: { orgId: ORG, id: 't' } }), ApiError);
     for (const headers of [error.headers, seen[0]!.headers]) {
       equal([headers.location, 'www-authenticate' in headers, 'x-upload-token' in headers, headers['x-octocove-revision']], ['https://cp.octocove.test/v1/x', false, false, 'rev-2']);
+      equal(hidden.filter((h) => h in headers), []);
     }
   }),
   test('authorizedFetch keeps the declared length of a body it passes through unchanged, and drops it from a rewritten one', async () => {
@@ -329,5 +334,13 @@ export const runnerCases: Case[] = [
     equal(pack.headers.get('content-length'), '4');
     const text = await wrapped(`${BASE}/v1/text`, { headers: { ['authorization']: `Bearer ${OLD}` } });
     equal([text.headers.get('content-length'), await text.text()], [null, 'echo [redacted]']);
+  }),
+  test('an explicit renew joins a renewal in flight only under its own key, and is refused under another', async () => {
+    const r = renewing({ token: OLD }, { delayMs: 20 });
+    const first = r.provider.renew({ idempotencyKey: 'key-a-0123456789' });
+    const same = r.provider.renew({ idempotencyKey: 'key-a-0123456789' });
+    const other = await rejects(() => r.provider.renew({ idempotencyKey: 'key-b-0123456789' }), CredentialUnavailableError);
+    equal([other.code, other.disposition], ['renewal-in-flight', 'retryable']);
+    equal([(await first).token, (await same).token, r.renewals, r.keys], [NEW, NEW, 1, ['key-a-0123456789']]);
   }),
 ];

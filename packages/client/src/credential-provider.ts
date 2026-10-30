@@ -179,7 +179,9 @@ export interface RenewingCredential<R extends { readonly token: string }> extend
   refresh(context: CredentialRefreshContext): Promise<string>;
   /**
    * Renews now (an explicit renew command) and returns the stored replacement. When another holder already replaced
-   * the record this call loaded, that replacement is adopted instead of renewing twice.
+   * the record this call loaded, that replacement is adopted instead of renewing twice. Without `idempotencyKey` it
+   * joins a renewal of the same credential already in flight; with one, it joins only a flight under that same key,
+   * and a flight under another key is refused (`renewal-in-flight`, retryable) rather than answered for.
    */
   renew(options?: { readonly idempotencyKey?: string; readonly signal?: AbortSignal }): Promise<R>;
   /** The stored record, checked (it holds the token: never log it). */
@@ -230,6 +232,8 @@ export function renewingCredential<R extends { readonly token: string }>(options
     if (known.length > MAX_KNOWN) known.shift();
   };
   const flights = new Map<string, Promise<R>>();
+  /** The caller-named key a flight renews under (absent: the derived key). */
+  const flightKeys = new Map<string, string | undefined>();
 
   const due = (record: R) => {
     const { expiresAt, ceilingAt } = schedule(record);
@@ -267,6 +271,11 @@ export function renewingCredential<R extends { readonly token: string }>(options
   function rotate(expected: string, mode: 'renew' | 'adopt', signal?: AbortSignal, idempotencyKey?: string): Promise<R> {
     const flightKey = `${mode}\0${expected}`;
     let flight = flights.get(flightKey);
+    // An explicit key names one renewal: joining a flight under another key would answer for a request never sent.
+    if (flight && idempotencyKey !== undefined && flightKeys.get(flightKey) !== idempotencyKey) {
+      return Promise.reject(new CredentialUnavailableError('renewal-in-flight',
+        'a renewal of this credential is already in flight under another idempotency key; retry once it settles', { disposition: 'retryable' }));
+    }
     if (!flight) {
       const own = new AbortController();
       const work = async (lockSignal: AbortSignal | undefined): Promise<R> => {
@@ -288,7 +297,8 @@ export function renewingCredential<R extends { readonly token: string }>(options
         // Another holder wrote first; under the same key it holds the same replacement, so adopt what is stored.
         return loaded(live);
       };
-      flight = (store.lock ? store.lock(work, {}) : work(undefined)).finally(() => flights.delete(flightKey));
+      flight = (store.lock ? store.lock(work, {}) : work(undefined)).finally(() => { flights.delete(flightKey); flightKeys.delete(flightKey); });
+      flightKeys.set(flightKey, idempotencyKey);
       flight.catch(() => {});
       flights.set(flightKey, flight);
     }

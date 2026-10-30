@@ -87,12 +87,12 @@ export function jittered(baseMs: number, random: () => number = Math.random): nu
 }
 
 /** Response headers never shown: they carry credentials or challenges. */
-const HIDDEN_HEADER = /^(set-cookie|cookie|authorization|proxy-authorization|www-authenticate|proxy-authenticate)$|token/i;
+const HIDDEN_HEADER = /^(set-cookie|cookie|authorization|proxy-authorization|www-authenticate|proxy-authenticate|x-api-key)$|token|secret|credential/i;
 
 /**
  * Headers as a plain record for errors and hooks: credential-bearing headers dropped (`set-cookie`, `authorization`,
- * `www-authenticate`, `proxy-authenticate`, any `*token*` header), `location` and `content-location` without their
- * query and fragment, and each value through `scrub`.
+ * `www-authenticate`, `proxy-authenticate`, `x-api-key`, any `*token*`, `*secret*` or `*credential*` header),
+ * `location` and `content-location` without their userinfo, query and fragment, and each value through `scrub`.
  */
 export function headerRecord(headers: Headers, scrub: (value: string) => string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -105,5 +105,7 @@ export function headerRecord(headers: Headers, scrub: (value: string) => string)
 
 function withoutQuery(value: string): string {
   const cut = value.search(/[?#]/);
-  return cut < 0 ? value : value.slice(0, cut);
+  const bare = cut < 0 ? value : value.slice(0, cut);
+  // `scheme://user:password@host/...` or `//user@host/...`: the userinfo goes.
+  return bare.replace(/^((?:[a-z][a-z0-9+.-]*:)?\/\/)[^/@]*@/i, '$1');
 }
