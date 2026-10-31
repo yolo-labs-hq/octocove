@@ -24,7 +24,10 @@ if (specFlag !== -1 && !process.argv[specFlag + 1]) {
 const SPEC = specFlag === -1 ? null : process.argv[specFlag + 1];
 const POLICY = here('../retry-policy.json');
 const MANIFEST = here('../package.json');
+const contractFlag = process.argv.indexOf('--contract');
+const CONTRACT = contractFlag === -1 ? null : process.argv[contractFlag + 1];
 const OUT = {
+  contract: here('../src/generated/contract.ts'),
   openapi: here('../src/generated/openapi.ts'),
   routing: here('../src/generated/routing.ts'),
   meta: here('../src/generated/meta.ts'),
@@ -273,6 +276,19 @@ const outputs = {
     + 'export type OperationId = keyof typeof routing;\n',
 };
 meta.outputSha256 = outputDigest(outputs[OUT.openapi], outputs[OUT.routing]);
+if (!CONTRACT) fail('--contract PATH is required with --spec: the build embeds the contract table');
+const contractTable = JSON.parse(readFileSync(CONTRACT, 'utf8'));
+meta.contractAlgorithm = contractTable.algorithm;
+meta.metaDigest = contractTable.metaDigest;
+outputs[OUT.contract] = HEADER + `interface ContractTable {
+  readonly metaVersion: number;
+  readonly algorithm: string;
+  readonly metaDigest: string;
+  readonly epochFamilies: readonly string[];
+  readonly operations: Readonly<Record<string, { readonly supported: readonly string[]; readonly epochs: Readonly<Record<string, number>> }>>;
+  readonly capabilities: Readonly<Record<string, { readonly version: number; readonly operations: readonly string[]; readonly supported: readonly { readonly id: string; readonly members: Readonly<Record<string, string>> }[] }>>;
+}
+export const CONTRACT_TABLE: ContractTable = ${JSON.stringify(contractTable, null, 2)};\n`;
 outputs[OUT.meta] = HEADER + `export const BUILD_INFO = ${JSON.stringify(meta, null, 2)} as const;\n`;
 
 if (process.argv.includes('--check')) {

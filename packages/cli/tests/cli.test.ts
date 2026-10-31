@@ -106,6 +106,7 @@ describe("whoami", () => {
     expect(outText).not.toContain("tasks:list,tasks:read");
     expect(await cli(["--verbose", "whoami"], { kind: "human" })).toBe(0);
     expect(outText).toContain("P1  tasks:list,tasks:read");
+    expect(errText).toContain("meGet HTTP 200: contract none");
     expect(outText).not.toContain("tok");
     expect(outText).not.toContain("tok");
   });

@@ -3,6 +3,7 @@
  * request body ever reaches a hook, and strings the client shows pass the same scrubbing as errors. A hook that
  * throws is ignored; hooks cannot change or stop a call.
  */
+import type { ResponseContract } from './contract.js';
 import type { Disposition, Outcome } from './dispositions.js';
 
 /** Which credential a request presented (never the credential). */
@@ -38,6 +39,8 @@ export interface ResponseEvent extends RequestEvent {
   readonly code: string | undefined;
   readonly disposition: Disposition | undefined;
   readonly outcome: Outcome | undefined;
+  /** The contract that answered, from the response headers. */
+  readonly contract: ResponseContract | null;
 }
 
 export type RetryReason =
@@ -45,6 +48,8 @@ export type RetryReason =
   | 'network-error'
   /** 401 `credential-expired`/`credential-revoked`; the provider supplied a replacement. */
   | 'credential-refresh'
+  /** 503 `contract-skew` during a rollout; the client resends under the same key (`network-only` operations). */
+  | 'contract-skew'
   /** A journey waits out `429`, `request-body-timeout` or `operation-in-progress` under the same key. */
   | 'busy'
   /** A journey resends a ledgered operation after a lost answer, under the same key. */

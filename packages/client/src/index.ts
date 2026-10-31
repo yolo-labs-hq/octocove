@@ -29,6 +29,9 @@ export { authorizedFetch, scrubbedResponse, tokenScrubber } from './authorized-f
 export type { AuthorizedFetchOptions } from './authorized-fetch.js';
 export { jittered } from './hooks.js';
 export type { ClientHooks, CredentialLabel, RequestEvent, ResponseEvent, RetryEvent, RetryReason } from './hooks.js';
+export { ContractMismatchError, ContractRefusedError } from './errors.js';
+export { contractOf, type ContractLock, type ContractRequirement, type ResponseContract } from './contract.js';
+export { CONTRACT_TABLE } from './generated/contract.js';
 export { ApiError, TransportError, BoundTransportError, TenantNotFoundError, ProjectNotFoundError, OrgCreationPendingError, RouteUnavailableError, InsufficientScopeError, StepUpRequiredError, ConnectionRevokedError, isServerCode, problemDetails, reauthRequiredDetails, staleFenceDetails } from './errors.js';
 export type { ApiErrorInit, PendingOrganization, ProblemDetailsView, ReauthRequiredView, StaleFenceView, TransportErrorCode } from './errors.js';
 export { bearer, bearerToken, bound, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
