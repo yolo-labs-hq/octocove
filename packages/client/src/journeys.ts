@@ -11,6 +11,7 @@ import {
   eventAuthorityAudience,
   bearerFor,
   delegationFromWire,
+  withInstants,
   type AgentDelegation,
   type ApprovalGrant,
   type ApprovalGrantExchangeResult,
@@ -470,10 +471,8 @@ export function tenantJourneys(client: TenantClient) {
       const response = await command(options, 'claimAuthorize', { path: { id: taskId },
         body: { claimAttemptId: input.claimAttemptId, agentId: input.agentId, verbs: [...input.verbs], expiresAt: input.expiresAt } });
       const bootstrap = bootstrapOf(response.body);
-      if (!bootstrap || bootstrap.claimAttemptId !== input.claimAttemptId || !isString(bootstrap.claimExpiresAt) || typeof bootstrap.redelegations !== 'number') {
-        throw offShape(response, 'the re-arm response is not a re-arm of this claim');
-      }
-      return bootstrap as RearmedBootstrap;
+      if (!bootstrap || bootstrap.claimAttemptId !== input.claimAttemptId) throw offShape(response, 'the re-arm response is not a re-arm of this claim');
+      return bootstrap;
     },
     /**
      * Redeems a re-arm's bootstrap (`taskClaim`, the switch): in one step the server mints the delegation's new token,
@@ -483,17 +482,26 @@ export function tenantJourneys(client: TenantClient) {
      * `409 switch-conflict` (retryable) means a renewal or handover committed in between: redeem again with the same
      * bootstrap and `options.idempotencyKey`. The same bootstrap and key replay the credential while it authenticates
      * (`409 idempotency-result-expired` after); another key on a redeemed bootstrap is `409 bootstrap-consumed`.
-     * `intentVersion` is not re-checked by a switch (default 1). An answer other than a switch (a first claim) is
-     * refused as off-shape.
+     * `intentVersion` is the task's (the server does not re-check it on a switch, but keep it with the key: a replay must
+     * send the same body). The answer must be a switch (`200`) of this task's claim: `claimAttemptId` and
+     * `delegationId`, when given, must match it, else it is refused as off-shape before the token is handed out. A
+     * credential that leaves out `ceilingAt` takes the claim's new expiry, which a switch moves to the ceiling.
      */
-    async switch(taskId: string, input: { readonly bootstrapToken: string; readonly intentVersion?: number }, options: CommandOptions): Promise<AgentDelegation> {
+    async switch(taskId: string, input: { readonly bootstrapToken: string; readonly intentVersion: number; readonly claimAttemptId?: string; readonly delegationId?: string }, options: CommandOptions): Promise<AgentDelegation> {
       if (client.transport.type === 'bound') throw new BoundTransportError('taskClaim', 'a switch redeems a bootstrap: the bound transport never sends it');
       if (!isString(input.bootstrapToken)) throw new TypeError('claims.switch needs the re-arm bootstrap token');
-      const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { intentVersion: input.intentVersion ?? 1 } },
+      if (!Number.isInteger(input.intentVersion) || input.intentVersion < 1) throw new TypeError('claims.switch needs the task\'s intentVersion');
+      const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { intentVersion: input.intentVersion } },
         { credential: bearer({ token: input.bootstrapToken, kind: 'bootstrap' }) });
       const r: unknown = response.body;
       if (response.status !== 200 || !isObject(r) || !isObject(r.claim)) throw offShape(response, 'the answer is not a re-delegation switch');
-      return delegationOf(response, r.delegation);
+      const c = r.claim;
+      if ((c.taskId !== undefined && c.taskId !== taskId) || (input.claimAttemptId !== undefined && c.id !== input.claimAttemptId)) {
+        throw offShape(response, 'the switch answered for another claim');
+      }
+      const delegation = delegationOf(response, r.delegation);
+      if (input.delegationId !== undefined && delegation.delegationId !== input.delegationId) throw offShape(response, 'the switch answered another delegation');
+      return withInstants(delegation, { ceilingAt: isString(c.expiresAt) ? c.expiresAt : undefined });
     },
     /**
      * Bootstrap → delegation. A lost answer is recovered under the same key and bootstrap within the
@@ -505,7 +513,9 @@ export function tenantJourneys(client: TenantClient) {
       const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { intentVersion: input.intentVersion, ...(input.scope ? { scope: input.scope } : {}) } }, { credential: bearerFor(bootstrap) });
       const r: unknown = response.body;
       if (!isObject(r) || !isObject(r.claim) || !isString(r.claim.id)) throw offShape(response, 'the claim response carries no claim');
-      return { claim: r.claim as Claim, delegation: delegationOf(response, r.delegation) };
+      // A first claim's expiry is its authorization's ceiling: the fallback when the credential leaves it out.
+      const delegation = withInstants(delegationOf(response, r.delegation), { ceilingAt: isString(r.claim.expiresAt) ? r.claim.expiresAt : undefined });
+      return { claim: r.claim as Claim, delegation };
     },
     status: (claimId: string, options: JourneyOptions & { readonly credential?: BearerTransport }) =>
       body(options, 'claimGet', { path: { id: claimId } }, { credential: options.credential }),

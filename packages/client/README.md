@@ -521,6 +521,11 @@ another:
 | `ceilingAt` | the authorization's ceiling: no renewal reaches past it | only at a re-delegation switch |
 | `claimExpiresAt` | the claim's cap, 72 hours from the start of its chain | never |
 
+`ceilingAt` and `claimExpiresAt` are optional on `AgentDelegation`: a credential that leaves them out (an older
+server, a recovered answer sealed before they existed) is used all the same, never refused, since the write behind it
+was already applied. The journeys fill them where they can: a renewal carries over those of the credential it
+replaces, and a first claim or a switch takes the claim's expiry as the ceiling.
+
 `auth.delegations.list()` shows the same for each grant a human authorized: `ceilingAt`, `claimExpiresAt` (`null`
 until the claim is granted) and `redelegations` (switches so far).
 
@@ -532,7 +537,9 @@ Only a re-delegation gets a new ceiling, `min(now + 8 h, the cap, the authorizer
    {deadline, idempotencyKey})`. `verbs` are those in force or a subset, in their order. It answers a
    `RearmedBootstrap`: a five-minute, one-use bootstrap with the armed ceiling (`authorizationExpiresAt`), the cap
    and the re-delegation's sequence number. Nothing changes for the running token yet.
-2. **Switch**: `claims.switch(taskId, {bootstrapToken}, {deadline, idempotencyKey})` redeems it. In one step the
+2. **Switch**: `claims.switch(taskId, {bootstrapToken, intentVersion, claimAttemptId?, delegationId?}, {deadline,
+   idempotencyKey})` redeems it. `intentVersion` is the task's (not re-checked by a switch, but part of the body a
+   replay must repeat). An answer for another claim or delegation is refused before its token is handed out. In one step the
    server mints the delegation's new token, refuses the old one from then on, and moves the claim's expiry to the new
    ceiling. It answers the new `AgentDelegation`: hand it to whoever holds the old token at once.
 
@@ -559,21 +566,24 @@ renews or re-delegates by itself; whoever holds the credential decides when.
 **The plan.** `redelegationPlan(credential, now, {renewAheadMs = 60 s, redelegateAheadMs = 10 min})` is pure: from a
 credential's instants (ISO strings or epoch ms) and the clock it answers `{action, at}`:
 
-- `redelegate`, due since `at = ceilingAt - redelegateAheadMs`, while `ceilingAt < claimExpiresAt`;
-- `cap-reached`, `at = ceilingAt` (when the authorization ends), once the ceiling is near and already at the cap;
+- `expired`, `at = ceilingAt`, once the ceiling has passed: nothing resurrects the authorization;
+- `redelegate`, due since `at = ceilingAt - redelegateAheadMs`, while a re-delegation still gains at least the
+  bootstrap's five minutes plus `redelegateAheadMs` before the cap;
+- `cap-reached`, `at = ceilingAt` (when the authorization ends), once the ceiling is near and at, or too close to, the
+  cap;
 - `renew`, due since `at = expiresAt - renewAheadMs`, only while `expiresAt < ceilingAt` (a renewal can still extend
   the token). When both are due, `redelegate` wins: the switch issues a new token too;
 - `none`: nothing is due before `at`.
 
 Without `ceilingAt` only renewal is planned; without `claimExpiresAt` the server decides the cap. Ten minutes covers
-the five-minute bootstrap plus clock skew.
+the five-minute bootstrap plus clock skew; `redelegateAheadMs` must be less than the eight-hour maximum ceiling.
 
 **The session.** `runnerSession({claim, store, journal, redelegate, renew?, ...})` sequences the plan for one claim
 through functions you supply, and does nothing until you call `step()`:
 
 ```ts
 const session = runnerSession<AgentDelegation>({
-  claim: { taskId, claimAttemptId, agentId, verbs },
+  claim: { taskId, claimAttemptId, agentId, verbs, intentVersion },
   store,                                     // the delegation's CredentialStore (shared with its renewing provider)
   journal: fileRedelegationJournal(dir),     // /node; memoryRedelegationJournal() anywhere
   redelegate: clientRedelegation(humanJourneys),   // claims.rearm and claims.switch through the authorizer's client
@@ -584,7 +594,7 @@ const step = await session.step();           // then call again at step.at (or o
 ```
 
 `step()` continues a journaled re-delegation first, else does what the plan says is due (`step({redelegate: true})`
-re-delegates now). It answers `none` / `renew` (no `renew` given) / `cap-reached` with `at`; `renewed` or
+re-delegates now). It answers `none` / `renew` (no `renew` given) / `cap-reached` / `expired` (nothing sent) with `at`; `renewed` or
 `redelegated` with the stored record; or, for a re-delegation that did not finish:
 
 - `kept` (`outcome` `unknown`, `not-sent`, or a retryable refusal): the step stays journaled; call again from `at`
@@ -592,12 +602,18 @@ re-delegates now). It answers `none` / `renew` (no `renew` given) / `cap-reached
 - `restart`: the server holds nothing more under that key (`idempotency-result-expired`, or a bootstrap that expired
   before its switch): the next step re-arms under a new key (an equal ceiling is accepted as a recovery);
 - `refused`: refused for good, kept as a record and never resent, while renewals go on; `discard()` it once handled.
+  A success answer off its shape (for another claim or delegation) is refused too: resending would replay it.
+
+A switched credential without `ceilingAt` or `claimExpiresAt` is stored with the armed ceiling and the cap the
+re-arm named (or the record's own cap).
 
 The journal entry is written before anything is sent: a new random re-arm key and the exact re-arm body; then the
 bootstrap and a new switch key before the switch; it is dropped only after the switched credential is in the store
 (`compareAndSet`). A crash or a lost answer anywhere resumes with the same keys, so the server answers the same
 bootstrap and the same credential, never a second switch. The entry holds the bootstrap token: keep the journal as
-private as the credential store. Run one session per claim and journal.
+private as the credential store. The re-arm and the switch run inside the store's `lock` when it has one (the
+renewing provider takes the same lock), so a second holder waits instead of racing the switch or orphaning a
+bootstrap; within a process `step()` is single-flighted.
 
 The testing fake models it: `server.claim(taskId, {ceilingInMs, capInMs, verbs, authorizer})` seeds a live claim and
 its delegation; the fake answers the re-arm and the switch with their refusals and replay rules, keeps the ceiling and

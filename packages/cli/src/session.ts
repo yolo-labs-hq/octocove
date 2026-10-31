@@ -38,12 +38,21 @@ export function cliStore(env: NodeJS.ProcessEnv): CredentialStore<Credentials> {
 }
 
 const ms = (value: string | undefined) => (value ? Date.parse(value) : undefined);
+
+/**
+ * An agent credential's authorization ceiling and claim cap. A file written before the server named them has no
+ * `ceilingAt`, and its `claimExpiresAt` is the claim's expiry, which is the ceiling: read it as that.
+ */
+export function agentInstants(c: Credentials): { ceilingAt?: string; claimExpiresAt?: string } {
+  if (c.ceilingAt) return { ceilingAt: c.ceilingAt, ...(c.claimExpiresAt ? { claimExpiresAt: c.claimExpiresAt } : {}) };
+  return c.claimExpiresAt ? { ceilingAt: c.claimExpiresAt } : {};
+}
 /** The stored expiry is only a scheduling hint (from the issue time when absent: 30 min for a session, 15 for a delegation); the server checks all authority. */
 function schedule(c: Credentials) {
   const lifetime = c.kind === 'human' ? 1_800_000 : 900_000;
   const expiresAt = ms(c.expiresAt) ?? (c.issuedAt ? Date.parse(c.issuedAt) + lifetime : undefined);
   // An agent's renewals stop at its authorization ceiling (the claim cap only bounds a re-delegation).
-  const ceilings = [c.absoluteExpiresAt, ...(c.kind === 'agent' ? [c.ceilingAt] : [])].map(ms).filter((v): v is number => v !== undefined);
+  const ceilings = [c.absoluteExpiresAt, ...(c.kind === 'agent' ? [agentInstants(c).ceilingAt] : [])].map(ms).filter((v): v is number => v !== undefined);
   return { expiresAt, ceilingAt: ceilings.length ? Math.min(...ceilings) : undefined };
 }
 
@@ -66,7 +75,7 @@ export function cliCredential(env: NodeJS.ProcessEnv, initial: Credentials, fetc
         throw new CredentialUnavailableError('config', human ? 'Active credential changed; retry using this config directory.'
           : "Active agent credential changed; use this agent's config directory.", { disposition: 'terminal' });
       }
-      const limits = human ? [c.absoluteExpiresAt, c.idleExpiresAt] : [c.absoluteExpiresAt, c.ceilingAt];
+      const limits = human ? [c.absoluteExpiresAt, c.idleExpiresAt] : [c.absoluteExpiresAt, agentInstants(c).ceilingAt];
       if (limits.some((limit) => limit && Date.parse(limit) <= Date.now())) throw refuse();
     },
     // No re-authorization source in the CLI: a human signs in again, an agent gets a new authorization.
@@ -96,7 +105,8 @@ async function renewSession(current: Credentials, context: RenewContext, fetch: 
 async function renewDelegation(current: Credentials, context: RenewContext, fetch: FetchLike): Promise<Credentials> {
   if (!current.delegationId) throw authorizeAgain();
   const api = new Api({ apiUrl: current.apiUrl, orgId: current.orgId, credential: current, signal: context.signal, fetch });
-  const issued = await api.j.auth.delegation.renew({ token: current.token, delegationId: current.delegationId },
+  const instants = agentInstants(current);
+  const issued = await api.j.auth.delegation.renew({ token: current.token, delegationId: current.delegationId, ...instants },
     { deadline: context.deadline, signal: context.signal, idempotencyKey: context.idempotencyKey }).catch((error) => {
       if (error instanceof ApiError && [401, 403].includes(error.status)) throw authorizeAgain(error);
       throw error;
@@ -104,7 +114,10 @@ async function renewDelegation(current: Credentials, context: RenewContext, fetc
   if (issued.delegationId !== current.delegationId) {
     throw new CredentialUnavailableError('config', 'Renewal returned a different delegation; request a new authorization.', { disposition: 'terminal' });
   }
-  return { ...current, token: issued.token, expiresAt: issued.expiresAt, ceilingAt: issued.ceilingAt, claimExpiresAt: issued.claimExpiresAt, issuedAt: new Date().toISOString() };
+  // A renewal carries the ceiling and the cap over (an older file's claim expiry is rewritten as its ceiling).
+  const { ceilingAt: _ceiling, claimExpiresAt: _cap, ...rest } = current;
+  return { ...rest, token: issued.token, expiresAt: issued.expiresAt, issuedAt: new Date().toISOString(),
+    ...(issued.ceilingAt ? { ceilingAt: issued.ceilingAt } : {}), ...(issued.claimExpiresAt ? { claimExpiresAt: issued.claimExpiresAt } : {}) };
 }
 
 // ---- raw fetches outside the typed client (Git preflight, credential helper, wrapped connections) ----

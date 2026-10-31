@@ -135,7 +135,8 @@ export const runnerCases: Case[] = [
   test('a token that is not due is returned as stored, and a ceiling stops renewal ahead', async () => {
     const fresh = renewing({ token: OLD, expiresAt: iso(10 * 60_000) });
     equal(await fresh.provider.token(), OLD);
-    const capped = renewing({ token: OLD, expiresAt: iso(30_000), ceilingAt: iso(30_000) });
+    const edge = iso(30_000);
+    const capped = renewing({ token: OLD, expiresAt: edge, ceilingAt: edge });
     equal(await capped.provider.token(), OLD);
     equal(fresh.renewals + capped.renewals, 0);
   }),

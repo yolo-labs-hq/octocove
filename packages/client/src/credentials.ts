@@ -31,17 +31,19 @@ export interface ClaimBootstrap {
   readonly redelegations?: number;
 }
 
-/** A re-arm's bootstrap (`claims.rearm`): redeem it at `claims.switch` within its five minutes. */
-export interface RearmedBootstrap extends ClaimBootstrap {
-  readonly claimExpiresAt: string;
-  readonly redelegations: number;
-}
+/**
+ * A re-arm's bootstrap (`claims.rearm`): redeem it at `claims.switch` within its five minutes. `authorizationExpiresAt`
+ * is the ceiling its switch moves the claim to; `claimExpiresAt` and `redelegations` are there when the server names them.
+ */
+export type RearmedBootstrap = ClaimBootstrap;
 
 /**
  * Agent delegation access token returned by a bootstrap `taskClaim`, a renewal or a switch; renewable, never
  * approves. Three instants, never substituted for one another: `expiresAt` (the token's own, about fifteen minutes,
  * moved by every renewal), `ceilingAt` (the authorization's ceiling, moved only by a re-delegation switch) and
- * `claimExpiresAt` (the claim's 72-hour cap, never moved).
+ * `claimExpiresAt` (the claim's 72-hour cap, never moved). The last two are optional: a server or a sealed credential
+ * that predates them leaves them out, and the credential is used all the same (carry them over from the record it
+ * replaces).
  */
 export interface AgentDelegation {
   readonly kind: 'agent-delegation';
@@ -49,8 +51,8 @@ export interface AgentDelegation {
   readonly delegationId: string;
   readonly revocationId: string;
   readonly expiresAt: string;
-  readonly ceilingAt: string;
-  readonly claimExpiresAt: string;
+  readonly ceilingAt?: string;
+  readonly claimExpiresAt?: string;
 }
 
 export interface ApprovalGrantScope {
@@ -257,13 +259,21 @@ export function assertionAudience(assertion: string): string | readonly string[]
 const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 
 /**
- * A `DelegationCredential` wire body as an {@link AgentDelegation}; undefined when it is off that shape (every field,
- * the ceiling and the claim cap included, must be there).
+ * A `DelegationCredential` wire body as an {@link AgentDelegation}; undefined when it is off that shape. `ceilingAt` and
+ * `claimExpiresAt` are kept when present and never required: the answer arrives after the write was applied (the
+ * predecessor revoked, the bootstrap redeemed), so refusing it would lose the credential.
  */
 export function delegationFromWire(value: unknown): AgentDelegation | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const d = value as Record<string, unknown>;
-  if (!isText(d.accessToken) || !isText(d.delegationId) || !isText(d.revocationId) || !isText(d.expiresAt) || !isText(d.ceilingAt) || !isText(d.claimExpiresAt)) return undefined;
+  if (!isText(d.accessToken) || !isText(d.delegationId) || !isText(d.revocationId) || !isText(d.expiresAt)) return undefined;
   return Object.freeze({ kind: 'agent-delegation', token: d.accessToken, delegationId: d.delegationId, revocationId: d.revocationId, expiresAt: d.expiresAt,
-    ceilingAt: d.ceilingAt, claimExpiresAt: d.claimExpiresAt });
+    ...(isText(d.ceilingAt) ? { ceilingAt: d.ceilingAt } : {}), ...(isText(d.claimExpiresAt) ? { claimExpiresAt: d.claimExpiresAt } : {}) });
+}
+
+/** `delegation` with `ceilingAt` and `claimExpiresAt` filled from `fallback` where the answer left them out. */
+export function withInstants(delegation: AgentDelegation, fallback: { readonly ceilingAt?: string; readonly claimExpiresAt?: string }): AgentDelegation {
+  const ceilingAt = delegation.ceilingAt ?? fallback.ceilingAt, claimExpiresAt = delegation.claimExpiresAt ?? fallback.claimExpiresAt;
+  if (ceilingAt === delegation.ceilingAt && claimExpiresAt === delegation.claimExpiresAt) return delegation;
+  return Object.freeze({ ...delegation, ...(ceilingAt !== undefined ? { ceilingAt } : {}), ...(claimExpiresAt !== undefined ? { claimExpiresAt } : {}) });
 }

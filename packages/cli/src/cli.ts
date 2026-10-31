@@ -6,7 +6,8 @@ import { canonicalReadUrl } from "./human-git.js";
 import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
-import { humanSessionFetch, cliCredential, cliStore } from "./session.js";
+import { realpath } from "node:fs/promises";
+import { humanSessionFetch, cliCredential, cliStore, agentInstants } from "./session.js";
 import { machineCommand } from "./machine.js";
 import { handover as handoverLane, hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
 import { followEvents } from './event-follow.js';
@@ -893,7 +894,8 @@ async function claimTask(d: Deps, taskId: string, v: Record<string, any>) {
   // A successful claim consumes the bootstrap: its replacement is saved before anything else happens.
   // The delegation names its own ceiling (moved only by a re-delegation) and the claim's cap.
   const credentialsFile = await saveCredentials(d.env, { apiUrl: creds.apiUrl, orgId: creds.orgId, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt,
-    issuedAt: new Date().toISOString(), ceilingAt: delegation.ceilingAt, claimExpiresAt: delegation.claimExpiresAt, ...(creds.agentId ? { agentId: creds.agentId } : {}) });
+    issuedAt: new Date().toISOString(), ...(delegation.ceilingAt ? { ceilingAt: delegation.ceilingAt } : {}), ...(delegation.claimExpiresAt ? { claimExpiresAt: delegation.claimExpiresAt } : {}),
+    ...(creds.agentId ? { agentId: creds.agentId } : {}) });
   const lane = isRecord(claim.lane) ? claim.lane : undefined;
   const granted = isRecord(lane?.scope) ? lane!.scope as { read?: string[]; write?: string[] } : { read, write };
   // Never expose the access token, even in JSON output.
@@ -1072,13 +1074,15 @@ const COMMANDS: Record<string, Handler> = {
       return;
     }
     const options = api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]);
-    const current = { token: creds.token, delegationId: creds.delegationId! };
+    const current = { token: creds.token, delegationId: creds.delegationId!, ...agentInstants(creds) };
     const renewed = await (creds.kind === "human" ? api.root.auth.session.renew(options) : api.j.auth.delegation.renew(current, options))
       .catch(offShapeAs("renewal did not return a credential"));
     const token = renewed.kind === "agent-delegation" ? renewed.token : renewed.transport === "bearer" ? renewed.token : undefined;
     if (typeof token !== "string" || !token) throw new ConfigError("renewal did not return a credential");
-    const instants = renewed.kind === "agent-delegation" ? { ceilingAt: renewed.ceilingAt, claimExpiresAt: renewed.claimExpiresAt } : {};
-    const credentialsFile = await saveCredentials(d.env, { ...creds, token, expiresAt: renewed.expiresAt, ...instants, issuedAt: new Date().toISOString() });
+    const { ceilingAt: _ceiling, claimExpiresAt: _cap, ...base } = creds;
+    const instants = renewed.kind === "agent-delegation" ? { ...(renewed.ceilingAt ? { ceilingAt: renewed.ceilingAt } : {}), ...(renewed.claimExpiresAt ? { claimExpiresAt: renewed.claimExpiresAt } : {}) }
+      : { ...(creds.ceilingAt ? { ceilingAt: creds.ceilingAt } : {}), ...(creds.claimExpiresAt ? { claimExpiresAt: creds.claimExpiresAt } : {}) };
+    const credentialsFile = await saveCredentials(d.env, { ...base, token, expiresAt: renewed.expiresAt, ...instants, issuedAt: new Date().toISOString() });
     out(d, v.json, { renewed: true, kind: creds.kind, delegationId: creds.delegationId, expiresAt: renewed.expiresAt, credentialsFile }, () => "Credential renewed and saved privately.");
   },
 
@@ -1105,7 +1109,11 @@ const COMMANDS: Record<string, Handler> = {
     const { creds } = await client(d);
     if (creds.kind !== "human") throw new HumanRequiredError("auth redelegate requires a human credential: only the claim's original authorizer re-arms it");
     // The agent's config directory holds the delegation the switch replaces; the new credential is written there.
+    // Same host and OS user only: the human writes the agent's credential file directly. A remote or brokered agent is
+    // re-delegated by its credential broker (the client's runnerSession), not by this command.
     const agentEnv: NodeJS.ProcessEnv = { ...d.env, OCTOCOVE_CONFIG_DIR: resolve(need(v, "agent-config")) };
+    const real = (path: string) => realpath(path).catch(() => resolve(path));
+    if (await real(configDir(agentEnv)) === await real(configDir(d.env))) throw new UsageError("--agent-config must be the agent's own config directory, not yours");
     const agent = await activeCredentials(agentEnv);
     if (!agent || agent.kind !== "agent" || !agent.delegationId || !agent.orgId) throw new ConfigError("--agent-config must be the config directory holding the claim's agent delegation (claim the task there first)");
     if (new URL(agent.apiUrl).origin !== new URL(creds.apiUrl).origin) throw new ConfigError("the agent delegation belongs to another API origin");
@@ -1115,6 +1123,8 @@ const COMMANDS: Record<string, Handler> = {
     const task = (await api.call("taskGet", { path: { id: taskId }, deadline: Date.now() + READ_SECONDS * 1000 })).body;
     const claimAttemptId = isRecord(task?.lane) && typeof task.lane.claimAttemptId === "string" ? task.lane.claimAttemptId : undefined;
     if (!claimAttemptId) throw new ConfigError(`task ${taskId} has no live claim to re-delegate`);
+    const intentVersion = Number.isInteger(task?.intentVersion) && task.intentVersion >= 1 ? task.intentVersion as number : undefined;
+    if (intentVersion === undefined) throw new ConfigError(`task ${taskId} did not report its intent version`);
     let grant;
     for (let cursor: string | undefined, pages = 0; !grant && pages < 20; pages++) {
       const page = await api.root.auth.delegations.list({ ...api.until(Date.now() + READ_SECONDS * 1000), limit: 200, cursor }).catch(offShapeAs("delegations did not return a page"));
@@ -1125,25 +1135,30 @@ const COMMANDS: Record<string, Handler> = {
     if (!grant || grant.taskId !== taskId) throw new ConfigError(`delegation ${agent.delegationId} is not one you authorized on task ${taskId}; only its original authorizer re-delegates it`);
     const verbs = v.verbs ? String(v.verbs).split(",").map((x: string) => x.trim()).filter(Boolean) : grant.verbs;
     const session = runnerSession({
-      claim: { taskId, claimAttemptId, agentId: grant.agent, verbs },
+      claim: { taskId, claimAttemptId, agentId: grant.agent, verbs, intentVersion },
       store: cliStore(agentEnv),
       journal: fileRedelegationJournal(join(configDir(d.env), "redelegations")),
       // The re-arm as you, then the switch with its bootstrap; the session keeps both keys and the bootstrap.
       redelegate: {
         rearm: (r, c) => api.j.claims.rearm(r.taskId, { ...r.body, verbs: r.body.verbs as never }, { ...api.write(AUTHORIZE_SECONDS, c.idempotencyKey), signal: c.signal ?? d.signal }),
-        switch: (r, c) => api.j.claims.switch(r.taskId, { bootstrapToken: r.bootstrapToken }, { ...api.write(BOOTSTRAP_CLAIM_SECONDS, c.idempotencyKey), signal: c.signal ?? d.signal }),
+        switch: (r, c) => api.j.claims.switch(r.taskId, { bootstrapToken: r.bootstrapToken, intentVersion: r.intentVersion, claimAttemptId: r.claimAttemptId, delegationId: r.delegationId }, { ...api.write(BOOTSTRAP_CLAIM_SECONDS, c.idempotencyKey), signal: c.signal ?? d.signal }),
       },
-      instants: (c) => ({ expiresAt: c.expiresAt ?? new Date(0).toISOString(), ceilingAt: c.ceilingAt ?? c.absoluteExpiresAt, claimExpiresAt: c.claimExpiresAt }),
+      instants: (c) => { const i = agentInstants(c); return { expiresAt: c.expiresAt ?? new Date(0).toISOString(), ceilingAt: i.ceilingAt ?? c.absoluteExpiresAt, claimExpiresAt: i.claimExpiresAt }; },
       adopt: (current, next) => {
         if (!current || current.kind !== "agent" || current.delegationId !== next.delegationId) throw new ConfigError("the agent config directory now holds another credential; nothing was overwritten");
-        return { ...current, token: next.token, expiresAt: next.expiresAt, ceilingAt: next.ceilingAt, claimExpiresAt: next.claimExpiresAt, issuedAt: new Date().toISOString(),
-          ...(current.absoluteExpiresAt ? { absoluteExpiresAt: next.ceilingAt } : {}) };
+        const ceilingAt = next.ceilingAt ?? agentInstants(current).ceilingAt, claimExpiresAt = next.claimExpiresAt ?? agentInstants(current).claimExpiresAt;
+        const { ceilingAt: _ceiling, claimExpiresAt: _cap, ...base } = current;
+        return { ...base, token: next.token, expiresAt: next.expiresAt, issuedAt: new Date().toISOString(), ...(ceilingAt ? { ceilingAt } : {}), ...(claimExpiresAt ? { claimExpiresAt } : {}),
+          ...(current.absoluteExpiresAt && ceilingAt ? { absoluteExpiresAt: ceilingAt } : {}) };
       },
       ...(expiresAt ? { ceiling: () => new Date(expiresAt).toISOString() } : {}),
     });
     const pending = await session.pending();
     // A refusal recorded by an earlier run was already reported; this run asks again under a new key.
-    if (pending?.step === "refused") await session.discard();
+    if (pending?.step === "refused") {
+      d.stderr(`An earlier re-delegation of ${taskId} was refused (${pending.refusal?.code ?? "refused"}); asking again under a new key.\n`);
+      await session.discard();
+    }
     else if (pending) d.stderr(`Resuming the interrupted re-delegation of ${taskId} (its original expiry ${pending.rearm.body.expiresAt} and verbs).\n`);
     let step = await session.step({ redelegate: true, signal: d.signal });
     // A retryable conflict (a renewal raced the switch) or a restart is stepped again at once, a few times.
@@ -1160,6 +1175,7 @@ const COMMANDS: Record<string, Handler> = {
       if (step.action !== "restart" && step.error) throw step.error;
       throw new PendingError(`re-delegation of ${taskId} is still in progress; run the same command again${step.action === "kept" ? ` after ${new Date(step.at).toISOString()}` : ""} to resume it`);
     }
+    if (step.action === "expired") throw new ConfigError(`the claim's authorization ended at ${new Date(step.at).toISOString()}; nothing can extend it: authorize the agent again`);
     if (step.action !== "redelegated") throw new ConfigError(`re-delegation did not run (${step.action})`);
     const result = { redelegated: true, taskId, claimAttemptId, delegationId: step.delegation.delegationId, redelegations: step.redelegations, expiresAt: step.delegation.expiresAt,
       ceilingAt: step.delegation.ceilingAt, claimExpiresAt: step.delegation.claimExpiresAt, credentialsFile: join(configDir(agentEnv), "credentials", "cli.json") };

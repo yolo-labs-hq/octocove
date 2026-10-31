@@ -12,22 +12,25 @@ holds the credential. The client never renews or re-delegates by itself.
   `MeDelegation` items carry `ceilingAt`, `claimExpiresAt` and `redelegations`. The operation count stays 151.
 - Client: `claims.rearm(taskId, {claimAttemptId, agentId, verbs, expiresAt}, opts)` (the claim's original human
   authorizer, a session or a connected app's grant) answers a `RearmedBootstrap`; `claims.switch(taskId,
-  {bootstrapToken}, opts)` redeems it and answers the new `AgentDelegation`. Both keep their key and body on a lost
+  {bootstrapToken, intentVersion, claimAttemptId?, delegationId?}, opts)` redeems it and answers the new
+  `AgentDelegation`, refusing an answer for another claim or delegation. Both keep their key and body on a lost
   answer; the server replays the same bootstrap and the same credential.
-- Client: `AgentDelegation` now has `ceilingAt` and `claimExpiresAt` (required: a delegation answer without them is
-  off-shape), from a claim, a renewal (`auth.delegation.renew`, which now takes `{token, delegationId}`), a handover
-  (optional there) or a switch. `delegationFromWire` parses one.
+- Client: `AgentDelegation` gains optional `ceilingAt` and `claimExpiresAt`. An answer without them is adopted, never
+  refused; a renewal carries them over from the credential it replaces, a first claim or a switch takes the claim's
+  expiry as the ceiling. `delegationFromWire` and `withInstants` are exported. **BREAKING**: `auth.delegation.renew`
+  takes `{token, delegationId, ceilingAt?, claimExpiresAt?}` rather than a whole `AgentDelegation`.
 - Client: `PROBLEM_CODES` adds `claim-cap-reached` and `ceiling-not-extended` (terminal), `redelegation-pending` and
   `switch-conflict` (retryable). `reauth-required` stays `reauth`, `human-required` terminal, `claim-inactive`
   terminal with `endsAttempt`.
 - Client: `redelegationPlan(credential, now, {renewAheadMs, redelegateAheadMs})`, a pure planner answering `none`,
-  `renew` (inside the ceiling only), `redelegate` (ahead of the ceiling while it is before the cap) or `cap-reached`,
-  each with its instant.
+  `renew` (inside the ceiling only), `redelegate` (ahead of the ceiling while it still gains the bootstrap's five
+  minutes plus the margin before the cap), `cap-reached` or `expired` (past the ceiling), each with its instant.
 - Client: `runnerSession({claim, store, journal, redelegate, renew?})`, an opt-in sequencer driven by `step()`: renew
   ahead through `renewingCredential`, re-arm then switch through caller-supplied functions (`clientRedelegation`
   builds them from the journeys). The re-arm key and body, then the bootstrap and the switch key, are journaled
   before each is sent, and the entry is dropped only once the switched credential is stored, so a crash or a lost
-  answer resumes under the same keys and never switches twice. Answers distinguish `kept` (unknown outcome, not
+  answer resumes under the same keys and never switches twice. The re-arm and switch run inside the store's lock, and
+  the switch's body (the task's intent version) is journaled with its key. Answers distinguish `kept` (unknown outcome, not
   sent, or retryable), `restart` (nothing more under that key) and `refused` (kept as a record, never resent).
   Journals: `memoryRedelegationJournal()` and, under `/node`, `fileRedelegationJournal(dir)` (0600).
 - Client: the bound transport refuses both steps before sending (`claims.rearm`, `claims.switch`, and
@@ -37,14 +40,15 @@ holds the credential. The client never renews or re-delegates by itself.
   renewals, and serves `meDelegationsList`.
 - CLI: `octo auth redelegate TASK --agent-config DIR [--expires-at TIME] [--verbs a,b]` (human, the claim's
   authorizer): re-arm, then switch, through the client's session; the agent's stored delegation in `DIR` is
-  replaced, its previous token refused. An interrupted run resumes when run again (journaled under the config
+  replaced, its previous token refused. Same host and OS user only (your own config directory is refused); a remote
+  or brokered agent is re-delegated by its broker with `runnerSession`. An interrupted run resumes when run again (journaled under the config
   directory's `redelegations/`); a `switch-conflict` is redeemed again at once.
 - CLI: `octo auth delegations [--limit N] [--cursor C]` lists your grants with the ceiling, the cap and the
   re-delegation count.
 - CLI: a claimed, renewed or handed-over agent delegation stores `ceilingAt` and `claimExpiresAt` as the server names
   them. **Changed**: `claimExpiresAt` in the agent's credentials file is now the claim's 72-hour cap (it was the
-  claim's expiry); renewals stop at `ceilingAt`. Claim again to refresh a credentials file written by an earlier
-  version.
+  claim's expiry); renewals stop at `ceilingAt`. A file written by an earlier version (no `ceilingAt`) is read with
+  its `claimExpiresAt` as the ceiling, and rewritten in the new form by its next renewal or re-delegation.
 
 ## CLI 0.21.0 and client 0.21.0
 

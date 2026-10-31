@@ -24,7 +24,7 @@ beforeEach(() => { root = mkdtempSync(join(tmpdir(), "octocove-redelegate-")); }
 async function world(o: { ceilingInMs?: number; capInMs?: number } = {}) {
   const server = fakeServer({ baseUrl: "https://api.example.invalid" });
   const { claim, delegation } = server.claim("T1", { ceilingInMs: o.ceilingInMs ?? 2 * HOUR, capInMs: o.capInMs });
-  server.on("taskGet", () => ({ id: "T1", status: "claimed", lane: { kind: "materialized", claimAttemptId: claim.claimAttemptId } }));
+  server.on("taskGet", () => ({ id: "T1", status: "claimed", intentVersion: 3, lane: { kind: "materialized", claimAttemptId: claim.claimAttemptId } }));
   const human = server.issue({ kind: "session", expiresInMs: 24 * HOUR });
   const agentDir = join(root, "agent"), humanDir = join(root, "human");
   const agent: Credentials = { apiUrl: API, token: delegation.token, kind: "agent", orgId: ORG, delegationId: claim.delegationId, agentId: claim.agentId,
@@ -59,6 +59,7 @@ describe("auth redelegate", () => {
     // The agent's previous token is refused; the request body carried the claim attempt, its agent and its verbs.
     const rearm = w.server.requests.find((r) => r.operationId === "claimAuthorize")!;
     expect(rearm.body).toMatchObject({ claimAttemptId: w.claim.claimAttemptId, agentId: w.claim.agentId, verbs: w.claim.verbs });
+    expect(w.server.requests.find((r) => r.operationId === "taskClaim")!.body).toEqual({ intentVersion: 3 });
     expect(readdirSync(join(w.humanDir, "redelegations")).filter((n) => n.endsWith(".json"))).toEqual([]);
   });
 
@@ -93,15 +94,31 @@ describe("auth redelegate", () => {
     stale.server.fail("claimAuthorize", problem(403, "reauth-required"));
     expect(await cli(stale, ["--json", "auth", "redelegate", "T1", "--agent-config", stale.agentDir])).not.toBe(EXIT.ok);
     expect(JSON.parse(errText).error.code).toBe("reauth-required");
+    // The next run names the earlier refusal, then asks again under a new key.
+    expect(await cli(stale, ["auth", "redelegate", "T1", "--agent-config", stale.agentDir])).toBe(EXIT.ok);
+    expect(new Set(keysOf(stale.server, "claimAuthorize")).size).toBe(2);
   });
 
-  it("is refused before sending for an agent credential, a missing agent directory and an explicit idempotency key", async () => {
+  it("is refused before sending for an agent credential, a missing agent directory, your own config directory and an explicit idempotency key", async () => {
     const w = await world();
     expect(await cli(w, ["auth", "redelegate", "T1", "--agent-config", w.agentDir], { kind: "agent", orgId: ORG, token: w.agent.token })).toBe(EXIT.humanRequired);
     expect(await cli(w, ["auth", "redelegate", "T1", "--agent-config", join(root, "nowhere")])).toBe(EXIT.config);
     expect(await cli(w, ["--idempotency-key", "k1", "auth", "redelegate", "T1", "--agent-config", w.agentDir])).toBe(EXIT.usage);
+    expect(await cli(w, ["auth", "redelegate", "T1", "--agent-config", w.humanDir])).toBe(EXIT.usage);
     expect(w.server.requests).toHaveLength(0);
     expect(existsSync(join(w.humanDir, "redelegations"))).toBe(false);
+  });
+});
+
+describe("an agent credentials file written before the ceiling was stored", () => {
+  it("reads its claimExpiresAt as the ceiling, and a redelegation rewrites both fields", async () => {
+    const w = await world();
+    const { ceilingAt, claimExpiresAt: _cap, ...older } = w.agent;
+    await saveCredentials({ OCTOCOVE_CONFIG_DIR: w.agentDir }, { ...older, claimExpiresAt: ceilingAt });
+    expect(await cli(w, ["--json", "auth", "redelegate", "T1", "--agent-config", w.agentDir])).toBe(EXIT.ok);
+    const stored = (await agentNow(w))!;
+    expect(Date.parse(stored.ceilingAt!)).toBeGreaterThan(Date.parse(ceilingAt!));
+    expect(stored.claimExpiresAt).toBe(w.agent.claimExpiresAt);
   });
 });
 

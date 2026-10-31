@@ -4,7 +4,7 @@
  * character Idempotency-Key (the client's `oc-` + 32 hex = 35 characters).
  */
 import { isTenantId, newIdempotencyKey, type OctocoveClient, type OpenEnums, type TenantClient } from './client.js';
-import { delegationFromWire, type AgentDelegation, type HumanSession } from './credentials.js';
+import { delegationFromWire, withInstants, type AgentDelegation, type HumanSession } from './credentials.js';
 import { ApiError, TransportError } from './errors.js';
 import type { components } from './generated/openapi.js';
 import {
@@ -427,15 +427,17 @@ export function tenantAuthJourneys(client: TenantClient) {
   const delegation = {
     /**
      * `delegationRenew` with the same predecessor-credential recovery; the replacement is adopted into `slot`. A renewal
-     * rotates the token inside the ceiling: it never moves `ceilingAt` or `claimExpiresAt` (only a re-delegation does).
+     * rotates the token inside the ceiling: it never moves `ceilingAt` or `claimExpiresAt` (only a re-delegation does),
+     * so an answer without them carries over those of `current`.
      */
-    async renew(current: Pick<AgentDelegation, 'token' | 'delegationId'>, options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<AgentDelegation> {
+    async renew(current: Pick<AgentDelegation, 'token' | 'delegationId' | 'ceilingAt' | 'claimExpiresAt'>, options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<AgentDelegation> {
       const scope = journeyScope(options);
       try {
         const response = await send(client, scope, options, 'delegationRenew', { path: { id: current.delegationId } },
           { idempotencyKey: authKey(options.idempotencyKey), credential: bearer({ token: options.slot?.token ?? current.token, kind: 'delegation' }) });
-        const renewed = delegationFromWire(response.body);
-        if (!renewed) throw offShape(response, 'the renewal response is not a delegation credential');
+        const wire = delegationFromWire(response.body);
+        if (!wire) throw offShape(response, 'the renewal response is not a delegation credential');
+        const renewed = withInstants(wire, current);
         options.slot?.adopt(renewed.token);
         return renewed;
       } finally { scope.dispose(); }

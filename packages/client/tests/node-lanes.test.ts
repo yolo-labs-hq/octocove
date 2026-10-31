@@ -106,7 +106,7 @@ describe('fileRedelegationJournal', () => {
     const at = new Date().toISOString();
     const entry = { version: 1 as const, id: 'T1:cla_1', taskId: 'T1', claimAttemptId: 'cla_1', step: 'switch' as const,
       rearm: { idempotencyKey: 'k1', body: { claimAttemptId: 'cla_1', agentId: 'agent-1', verbs: ['tasks:read'], expiresAt: at } },
-      bootstrap: { token: 'bootstrap-fixture', expiresAt: at, ceilingAt: at, redelegations: 1 }, switchKey: 'k2', createdAt: at, updatedAt: at };
+      bootstrap: { token: 'bootstrap-fixture', expiresAt: at, ceilingAt: at, delegationId: 'del-1', redelegations: 1 }, switchKey: 'k2', createdAt: at, updatedAt: at };
     await journal.put(entry);
     expect(await journal.get('T1:cla_1')).toEqual(entry);
     expect(statSync(join(dir, 'r', 'T1%3acla_1.json')).mode & 0o777).toBe(0o600);

@@ -22,7 +22,7 @@ import {
   type RedelegationJournal,
 } from '../../src/index.js';
 import { fakeServer, problem, type FakeServer } from '../../src/testing.js';
-import { equal, ok, rejects, scriptedFetch, test, type Case } from '../harness.js';
+import { equal, json, ok, rejects, scriptedFetch, test, type Case } from '../harness.js';
 
 const ORG = 'org_00000000-0000-4000-8000-000000000001';
 const MIN = 60_000;
@@ -43,7 +43,7 @@ function world(o: { ceilingInMs?: number; capInMs?: number } = {}) {
     expiresAt: new Date(delegation.expiresAt).toISOString(), ceilingAt: new Date(claim.ceilingAt).toISOString(), claimExpiresAt: new Date(claim.claimExpiresAt).toISOString() };
   const store = memoryCredentialStore<AgentDelegation>(credential);
   const journal = memoryRedelegationJournal();
-  const target = { taskId: 'T1', claimAttemptId: claim.claimAttemptId, agentId: claim.agentId, verbs: claim.verbs };
+  const target = { taskId: 'T1', claimAttemptId: claim.claimAttemptId, agentId: claim.agentId, verbs: claim.verbs, intentVersion: 3 };
   return { server, claim, human, credential, store, journal, target };
 }
 
@@ -75,15 +75,19 @@ export const redelegationCases: Case[] = [
     const capped = { expiresAt: at(72 * HOUR), ceilingAt: at(72 * HOUR), claimExpiresAt: at(72 * HOUR) };
     equal(redelegationPlan(capped, T0 + 72 * HOUR - 11 * MIN, o).action, 'none');
     equal(redelegationPlan(capped, T0 + 72 * HOUR - 10 * MIN, o), { action: 'cap-reached', at: T0 + 72 * HOUR });
-    // One millisecond before the cap is still extendable.
-    equal(redelegationPlan({ ...capped, ceilingAt: T0 + 72 * HOUR - 1 }, T0 + 72 * HOUR - 10 * MIN, o).action, 'redelegate');
+    // A re-delegation must gain at least the bootstrap's five minutes plus the margin before the cap.
+    const near = (gain: number) => redelegationPlan({ ...capped, ceilingAt: T0 + 72 * HOUR - gain }, T0 + 72 * HOUR - gain - 10 * MIN, o).action;
+    equal([near(15 * MIN), near(15 * MIN - 1), near(1)], ['redelegate', 'cap-reached', 'cap-reached']);
+    // Past the ceiling: expired, whatever the cap.
+    equal(redelegationPlan(last, T0 + 8 * HOUR, o), { action: 'expired', at: T0 + 8 * HOUR });
+    equal(redelegationPlan(capped, T0 + 73 * HOUR, o), { action: 'expired', at: T0 + 72 * HOUR });
     // Unknown cap: the server decides; unknown ceiling: renewal only.
     equal(redelegationPlan({ ...last, claimExpiresAt: null }, T0 + 8 * HOUR - 5 * MIN, o).action, 'redelegate');
     equal(redelegationPlan({ expiresAt: T0 + 15 * MIN }, T0 + 20 * HOUR, o), { action: 'renew', at: T0 + 14 * MIN });
     // Defaults: 60 s and 10 min.
     equal(redelegationPlan(c, T0 + 14 * MIN), { action: 'renew', at: T0 + 14 * MIN });
     equal(redelegationPlan(last, T0 + 8 * HOUR - 10 * MIN).action, 'redelegate');
-    for (const bad of [() => redelegationPlan({ expiresAt: 'soon' }, T0), () => redelegationPlan(c, NaN), () => redelegationPlan(c, T0, { renewAheadMs: -1 })]) {
+    for (const bad of [() => redelegationPlan({ expiresAt: 'soon' }, T0), () => redelegationPlan(c, NaN), () => redelegationPlan(c, T0, { renewAheadMs: -1 }), () => redelegationPlan(c, T0, { redelegateAheadMs: 8 * HOUR })]) {
       let threw = false;
       try { bad(); } catch (error) { threw = error instanceof TypeError; }
       ok(threw, 'invalid input is a TypeError');
@@ -113,9 +117,9 @@ export const redelegationCases: Case[] = [
       ['claim-bootstrap', w.target.claimAttemptId, w.claim.delegationId, 1, new Date(w.claim.claimExpiresAt).toISOString(), ['tasks:read']]);
     ok(Date.parse(armed.authorizationExpiresAt) > before, 'a later ceiling is armed');
     equal(await agentCall(w, w.credential.token), 'ok', 'nothing changes for the running token before the switch');
-    const next = await w.human.claims.switch('T1', { bootstrapToken: armed.token }, opts());
+    const next = await w.human.claims.switch('T1', { bootstrapToken: armed.token, intentVersion: 3 }, opts());
     equal([next.kind, next.delegationId, next.ceilingAt, next.claimExpiresAt], ['agent-delegation', w.claim.delegationId, armed.authorizationExpiresAt, armed.claimExpiresAt]);
-    ok(Date.parse(next.expiresAt) <= Date.parse(next.ceilingAt));
+    ok(Date.parse(next.expiresAt) <= Date.parse(next.ceilingAt!));
     equal([await agentCall(w, w.credential.token), await agentCall(w, next.token)], ['credential-revoked', 'ok']);
     equal([w.claim.ceilingAt, w.claim.redelegations, w.claim.verbs], [Date.parse(armed.authorizationExpiresAt), 1, ['tasks:read']]);
     const page = await journeys(createClient({ baseUrl: w.server.baseUrl, transport: bearer({ token: w.server.issue({ kind: 'session' }).token }), fetch: w.server.fetch })).auth.delegations.list(opts());
@@ -133,13 +137,13 @@ export const redelegationCases: Case[] = [
     w.server.fail('taskClaim', problem(409, 'switch-conflict', { details: { retryable: true } }));
     const armed = await w.human.claims.rearm('T1', { ...w.target, verbs: [...w.target.verbs] as never, expiresAt: new Date(Date.now() + 8 * HOUR).toISOString() }, opts());
     const key = 'switch-key-fixture-0001';
-    const error = await rejects(() => w.human.claims.switch('T1', { bootstrapToken: armed.token }, opts({ idempotencyKey: key })), ApiError);
+    const error = await rejects(() => w.human.claims.switch('T1', { bootstrapToken: armed.token, intentVersion: 3 }, opts({ idempotencyKey: key })), ApiError);
     equal([error.code, error.disposition, error.outcome], ['switch-conflict', 'retryable', 'refused']);
-    const next = await w.human.claims.switch('T1', { bootstrapToken: armed.token }, opts({ idempotencyKey: key }));
+    const next = await w.human.claims.switch('T1', { bootstrapToken: armed.token, intentVersion: 3 }, opts({ idempotencyKey: key }));
     equal([w.claim.redelegations, w.claim.token], [1, next.token]);
     equal(keysOf(w.server, 'taskClaim'), [key, key]);
     // Another key on the redeemed bootstrap is refused, never a second switch.
-    const other = await rejects(() => w.human.claims.switch('T1', { bootstrapToken: armed.token }, opts({ idempotencyKey: 'another-key-fixture' })), ApiError);
+    const other = await rejects(() => w.human.claims.switch('T1', { bootstrapToken: armed.token, intentVersion: 3 }, opts({ idempotencyKey: 'another-key-fixture' })), ApiError);
     equal(other.code, 'bootstrap-consumed');
     equal(w.claim.token, next.token);
   }),
@@ -149,7 +153,7 @@ export const redelegationCases: Case[] = [
     w.server.fail('taskClaim', 'lost-answer');
     const armed = await w.human.claims.rearm('T1', { ...w.target, verbs: [...w.target.verbs] as never, expiresAt: new Date(Date.now() + 8 * HOUR).toISOString() }, opts());
     equal(armed.token, w.claim.rearm!.bootstrap, 'the replay answered the one bootstrap issued');
-    const next = await w.human.claims.switch('T1', { bootstrapToken: armed.token }, opts());
+    const next = await w.human.claims.switch('T1', { bootstrapToken: armed.token, intentVersion: 3 }, opts());
     equal([next.token, w.claim.redelegations], [w.claim.token, 1], 'one switch');
     const [a, b] = keysOf(w.server, 'claimAuthorize');
     ok(a === b && keysOf(w.server, 'claimAuthorize').length === 2);
@@ -193,11 +197,11 @@ export const redelegationCases: Case[] = [
     now = Date.parse(w.credential.expiresAt) - 30_000;
     const renewed = await session.step();
     equal([renewed.action, renewals, w.store.current!.ceilingAt], ['renewed', 1, w.credential.ceilingAt]);
-    now = Date.parse(w.credential.ceilingAt) - 5 * MIN;
+    now = Date.parse(w.credential.ceilingAt!) - 5 * MIN;
     const moved = await session.step();
     if (moved.action !== 'redelegated') throw new Error(`expected redelegated, got ${moved.action}`);
     equal([moved.redelegations, w.store.current!.token, w.server.count('claimAuthorize'), w.server.count('taskClaim')], [1, w.claim.token, 1, 1]);
-    ok(Date.parse(w.store.current!.ceilingAt) > Date.parse(w.credential.ceilingAt));
+    ok(Date.parse(w.store.current!.ceilingAt!) > Date.parse(w.credential.ceilingAt!));
     equal(await session.pending(), undefined, 'the entry is dropped once the credential is stored');
   }),
   test('session: switch-conflict and lost answers keep the entry; the next steps resend the same keys and switch once', async () => {
@@ -286,6 +290,74 @@ export const redelegationCases: Case[] = [
     equal(await agentCall(w, w.store.current!.token), 'ok');
   }),
 
+  test('an answer without ceilingAt and claimExpiresAt is adopted, never refused: renew, first claim and switch carry them over', async () => {
+    const bare = { accessToken: 'bare-replacement-0123456789', delegationId: 'del-1', revocationId: 'rev-1', tokenType: 'Bearer', expiresAt: at(15 * MIN) };
+    const human = (fetch: Parameters<typeof createClient>[0]['fetch'], token = 'session-fixture-0123456789') =>
+      journeys(createClient({ baseUrl: 'https://cp.test', transport: bearer({ token }), fetch, retryDelayMs: () => 1 })).org(ORG);
+    const renewed = await human(scriptedFetch(json(200, bare)).fetch, 'delegation-fixture-0123').auth.delegation.renew(
+      { token: 'delegation-fixture-0123', delegationId: 'del-1', ceilingAt: at(8 * HOUR), claimExpiresAt: at(72 * HOUR) }, opts());
+    equal([renewed.token, renewed.ceilingAt, renewed.claimExpiresAt], [bare.accessToken, at(8 * HOUR), at(72 * HOUR)], 'a renewal never moves them');
+    const bootstrap = { kind: 'claim-bootstrap' as const, token: 'bootstrap-fixture-0123', authorizationId: 'a', projectId: 'p', taskId: 'T1', claimAttemptId: 'cla_1',
+      delegationId: 'del-1', expiresAt: at(5 * MIN), authorizationExpiresAt: at(8 * HOUR), verbs: ['tasks:read'] };
+    const first = await human(scriptedFetch(json(201, { claim: { id: 'cla_1', taskId: 'T1', expiresAt: at(8 * HOUR) }, delegation: bare })).fetch)
+      .claims.claim(bootstrap, 'T1', { intentVersion: 3 }, opts());
+    equal([first.delegation.token, first.delegation.ceilingAt, first.delegation.claimExpiresAt], [bare.accessToken, at(8 * HOUR), undefined], 'a first claim\'s expiry is its ceiling');
+    const switched = await human(scriptedFetch(json(200, { claim: { id: 'cla_1', taskId: 'T1', expiresAt: at(16 * HOUR) }, delegation: bare })).fetch)
+      .claims.switch('T1', { bootstrapToken: 'bootstrap-fixture-0123', intentVersion: 3, claimAttemptId: 'cla_1', delegationId: 'del-1' }, opts());
+    equal([switched.token, switched.ceilingAt], [bare.accessToken, at(16 * HOUR)], 'a switch moves the claim\'s expiry to the new ceiling');
+    // The session stores a field-less switch with the armed ceiling and the cap, once.
+    const w = world();
+    const real = clientRedelegation(w.human);
+    const session = runnerSession<AgentDelegation>({ claim: w.target, store: w.store, journal: w.journal, redelegate: {
+      rearm: real.rearm,
+      switch: async (request, context) => { const { ceilingAt: _c, claimExpiresAt: _k, ...rest } = await real.switch(request, context); return rest as AgentDelegation; },
+    } });
+    const step = await session.step();
+    equal([step.action, w.store.current!.token, w.store.current!.ceilingAt, w.store.current!.claimExpiresAt],
+      ['redelegated', w.claim.token, new Date(w.claim.ceilingAt).toISOString(), w.credential.claimExpiresAt]);
+    equal(w.server.count('taskClaim'), 1, 'never replayed in a loop');
+  }),
+  test('a switch answer for another claim or delegation is refused before its token is used, and never resent', async () => {
+    const answer = (claimId: string, delegationId: string) => json(200, { claim: { id: claimId, taskId: 'T1', expiresAt: at(16 * HOUR) },
+      delegation: { accessToken: 'other-delegation-fixture-0123', delegationId, revocationId: 'r', tokenType: 'Bearer', expiresAt: at(15 * MIN) } });
+    for (const [claimId, delegationId] of [['cla_2', 'del-1'], ['cla_1', 'del-2']] as const) {
+      const j = journeys(createClient({ baseUrl: 'https://cp.test', transport: bearer({ token: 'session-fixture-0123456789' }), fetch: scriptedFetch(answer(claimId, delegationId)).fetch })).org(ORG);
+      const error = await rejects(() => j.claims.switch('T1', { bootstrapToken: 'bootstrap-fixture-0123', intentVersion: 3, claimAttemptId: 'cla_1', delegationId: 'del-1' }, opts()), ApiError);
+      ok(error.incomplete && !error.message.includes('other-delegation-fixture'), `${claimId} ${delegationId}`);
+    }
+    const w = world();
+    const real = clientRedelegation(w.human);
+    let switches = 0;
+    const session = runnerSession<AgentDelegation>({ claim: w.target, store: w.store, journal: w.journal, redelegate: {
+      rearm: real.rearm,
+      switch: async () => { switches++; throw new ApiError({ status: 200, code: 'http-200', incomplete: true, detail: 'the switch answered for another claim' }); },
+    } });
+    equal((await session.step()).action, 'refused');
+    equal((await session.step()).action, 'refused');
+    equal([switches, w.store.current!.token], [1, w.credential.token]);
+  }),
+  test('session: the re-arm and the switch run inside the store\'s lock, and the switch body keeps the journaled intent version', async () => {
+    const w = world();
+    let held = false;
+    const seen: boolean[] = [];
+    const store: CredentialStore<AgentDelegation> = {
+      load: (c) => w.store.load(c), save: (r, c) => w.store.save(r, c), compareAndSet: (e, n, c) => w.store.compareAndSet(e, n, c),
+      async lock(work) { held = true; try { return await work(undefined); } finally { held = false; } },
+    };
+    const real = clientRedelegation(w.human);
+    const session = runnerSession<AgentDelegation>({ claim: w.target, store, journal: w.journal, redelegate: {
+      rearm: (r, c) => { seen.push(held); return real.rearm(r, c); },
+      switch: (r, c) => { seen.push(held); return real.switch(r, c); },
+    } });
+    equal((await session.step()).action, 'redelegated');
+    equal(seen, [true, true]);
+    equal(w.server.requests.find((r) => r.operationId === 'taskClaim')!.body, { intentVersion: 3 });
+    // An expired claim sends nothing.
+    const gone = world({ ceilingInMs: 5 * MIN });
+    const late = runnerSession<AgentDelegation>({ claim: gone.target, store: gone.store, journal: gone.journal, redelegate: clientRedelegation(gone.human), now: () => Date.now() + 6 * MIN });
+    equal([(await late.step({ redelegate: true })).action, gone.server.requests.length], ['expired', 0]);
+  }),
+
   // ---- the bound transport ----
   test('bound transport: the re-arm and the switch are refused before sending, by the journeys and by the client', async () => {
     const { fetch, calls } = scriptedFetch();
@@ -293,7 +365,7 @@ export const redelegationCases: Case[] = [
     const input = { claimAttemptId: 'cla_1', agentId: 'agent-1', verbs: ['tasks:read'] as never, expiresAt: new Date(Date.now() + HOUR).toISOString() };
     for (const [operationId, work] of [
       ['claimAuthorize', () => runner.claims.rearm('T1', input, opts())],
-      ['taskClaim', () => runner.claims.switch('T1', { bootstrapToken: 'rearm-bootstrap-fixture-0123' }, opts())],
+      ['taskClaim', () => runner.claims.switch('T1', { bootstrapToken: 'rearm-bootstrap-fixture-0123', intentVersion: 3 }, opts())],
       ['claimAuthorize', () => runner.client.call('claimAuthorize', { path: { id: 'T1' }, body: input })],
       ['taskClaim', () => runner.client.call('taskClaim', { path: { id: 'T1' }, body: { intentVersion: 1 } })],
     ] as const) {

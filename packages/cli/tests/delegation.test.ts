@@ -52,7 +52,8 @@ it('without a stored expiry, renewal is scheduled from the issue time, never fro
   const opaque=await fixture({token});opaque.deps.fetch=async(url,init)=>new URL(url).pathname.endsWith('/renew')?Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),ceilingAt:future(8*3600000),claimExpiresAt:future(72*3600000),tokenType:'Bearer'}):Response.json({items:[]});
   expect(await run(opaque.deps),opaque.output).toBe(0);expect(opaque.rotations).toBe(0);
 });
-it.each(['absoluteExpiresAt','ceilingAt'] as const)('never renews beyond %s',async(field)=>{
+// A file written before the server named the ceiling keeps the claim's expiry (the ceiling) in claimExpiresAt.
+it.each(['absoluteExpiresAt','ceilingAt','claimExpiresAt'] as const)('never renews beyond %s',async(field)=>{
   const f=await fixture({[field]:future(-1000)});expect(await run(f.deps)).not.toBe(0);expect(f.calls).toEqual([]);expect(f.output).toContain('new task authorization');expect(f.output).not.toContain('octo login');
 });
 it('concurrent commands adopt one renewal',async()=>{
