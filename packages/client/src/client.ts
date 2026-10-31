@@ -9,6 +9,18 @@ import type { RetryClass, RouteEntry } from './routing-types.js';
 import { CallScope } from './scope.js';
 import { bearerToken, credentialHeaders, type BearerTransport, type Transport } from './transports.js';
 
+/** The contract headers as surfaced: scrubbed like every other surfaced value. Verification reads the raw header. */
+function shownContract(headers: Headers, secrets: readonly string[]): ResponseContract | null {
+  const contract = contractOf(headers);
+  return contract && Object.freeze({ id: redact(contract.id, secrets), meta: redact(contract.meta, secrets), revision: redact(contract.revision, secrets) });
+}
+/** The server's own contract refusal, by its top-level code and status: a code nested in details is not one. */
+function serverContractRefusal(status: number, text: string) {
+  let code: unknown;
+  try { code = (JSON.parse(text) as { code?: unknown })?.code; } catch { return false; }
+  return (status === 412 && code === 'contract-mismatch') || (status === 503 && (code === 'contract-skew' || code === 'contract-skew-after-write'));
+}
+
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 /** Resends after a no-response network failure (`network-only`): at most two, same Idempotency-Key. */
@@ -408,7 +420,9 @@ export function createClient(options: ClientOptions): OctocoveClient {
           continue;
         }
         // A 401 the provider can answer: one replacement per call, the same key and body.
-        if (response.status === 401 && provider?.refresh && !refreshed && token !== undefined) {
+        // An answer outside the lock is verified below, never acted on: no replacement credential for it.
+        const onLock = !accepted || accepted.includes(response.headers.get('x-octocove-contract') ?? '');
+        if (response.status === 401 && provider?.refresh && !refreshed && token !== undefined && onLock) {
           let text: string;
           try { text = await scope.guard(response.text()); } catch (error) {
             if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
@@ -420,7 +434,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
             refreshed = true;
             emit(hooks.onResponse, { ...event(attempts), status: 401, requestId: redact(response.headers.get('x-request-id') ?? undefined, secrets),
               durationMs: Date.now() - started, retryAfter: undefined, headers: headerRecord(response.headers, (v) => redact(v, secrets)),
-              code: code as string, disposition: 'reauth', outcome: 'refused', contract: contractOf(response.headers) });
+              code: code as string, disposition: 'reauth', outcome: 'refused', contract: shownContract(response.headers, secrets) });
             emit(hooks.onRetry, { clientRequestId: requestId, operationId, reason: 'credential-refresh', attempt: attempts + 1, delayMs: 0, idempotencyKey, status: 401, code: code as string });
             const rejected = token;
             try {
@@ -469,7 +483,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
       const requestId2 = scrub(response.headers.get('x-request-id') ?? undefined);
       const retryAfter = retryAfterOf(response.headers);
       const shownHeaders = headerRecord(response.headers, (v) => scrub(v));
-      const contract = contractOf(response.headers);
+      const contract = shownContract(response.headers, secrets);
       const answered = (status: number, error?: ApiError) => emit(hooks.onResponse, { ...event(attempts), status, requestId: requestId2,
         durationMs: Date.now() - started, retryAfter, headers: shownHeaders, code: error?.code, disposition: error?.disposition, outcome: error?.outcome, contract });
       const fail = (error: ApiError): never => { answered(error.status, error); throw error; };
@@ -483,7 +497,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
       const success = route.successStatuses.includes(response.status);
       // An answer outside the lock is never a success or an ordinary refusal; the server's own contract refusals surface
       // as themselves below.
-      const offLock = !!accepted && !(contract?.id !== undefined && accepted.includes(contract.id));
+      const offLock = !!accepted && !accepted.includes(response.headers.get('x-octocove-contract') ?? '');
       const mismatch = () => {
         response.body?.cancel().catch(() => {});
         return new ContractMismatchError({ status: response.status, operationId, headers: shownHeaders, idempotencyKey, accepted: accepted! });
@@ -544,7 +558,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
         throw truncated((raw as ArrayBuffer).byteLength, expected, attempts, response.status, idempotencyKey);
       }
       if (!success) {
-        if (offLock && !/"code"\s*:\s*"contract-(mismatch|skew|skew-after-write)"/.test(raw as string)) throw mismatch();
+        if (offLock && !serverContractRefusal(response.status, raw as string)) throw mismatch();
         fail(problemFromBody(response.status, raw as string, { requestId: requestId2, retryAfter, operationId, headers: shownHeaders, idempotencyKey, contract }, scrub, scrubRaw));
       }
       let parsed: unknown = raw;

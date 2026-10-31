@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createClient, CONTRACT_TABLE, ContractMismatchError, ContractRefusedError, ApiError, contractOf, problemClass, BUILD } from '../src/index.js';
+import { bearer, createClient, CONTRACT_TABLE, ContractMismatchError, ContractRefusedError, ApiError, contractOf, problemClass, BUILD } from '../src/index.js';
 
 const op = 'taskGet', task = CONTRACT_TABLE.operations[op]!.supported[0]!;
 const capability = 'lane.agent-write';
@@ -82,6 +82,27 @@ describe('a locked client', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ code: 'contract-mismatch', outcome: 'refused', disposition: 'terminal' });
     expect(error.contract.id).toBe(`oc1:${'0'.repeat(64)}`);
+  });
+  it('never reads a code nested in details, or the wrong status, as the server\'s own refusal', async () => {
+    const nested = new Response(JSON.stringify({ code: 'forbidden', details: { code: 'contract-skew' } }), { status: 403, headers: { 'content-type': 'application/problem+json', ...named(`oc1:${'0'.repeat(64)}`) } });
+    expect(await (await locked(async () => nested)).call('taskGet', taskCall as never).catch((e) => e)).toBeInstanceOf(ContractMismatchError);
+    expect(await (await locked(async () => problem('contract-skew', 403, named(undefined)))).call('taskGet', taskCall as never).catch((e) => e)).toBeInstanceOf(ContractMismatchError);
+  });
+  it('asks for no replacement credential on an answer outside the lock', async () => {
+    const refresh = vi.fn(async () => 'second');
+    const fetch = vi.fn(async () => problem('credential-expired', 401, named(undefined)));
+    const contract = await clientOf(async () => new Response(meta())).requireCapabilities({ operations: { [op]: [task] } });
+    const client = createClient({ baseUrl: 'https://api.test', transport: bearer({ token: { token: () => 'first', refresh } as never, kind: 'bootstrap' }), fetch, contract });
+    expect(await client.call('taskGet', taskCall as never).catch((e) => e)).toBeInstanceOf(ContractMismatchError);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('scrubs the surfaced contract: a header echoing a credential does not leak through it', async () => {
+    const secret = 'ocs_'.concat('z'.repeat(24));
+    const seen: unknown[] = [];
+    const client = createClient({ baseUrl: 'https://api.test', transport: bearer({ token: secret }), fetch: async () => json({ id: 't1' }, 200, { 'x-octocove-revision': secret }), onResponse: (e) => seen.push(e.contract) });
+    const response = await client.call('taskGet', taskCall as never);
+    expect(JSON.stringify([response.contract, seen])).not.toContain(secret);
   });
   it('resends a skew inside its budget, the same key and body, and stops at the budget', async () => {
     const fetch = vi.fn(async () => problem('contract-skew', 503, named(task)));
