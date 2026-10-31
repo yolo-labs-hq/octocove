@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## CLI 0.23.0 and client 0.23.0
+
+Release `@yolo-labs/octocove` 0.23.0 and `@yolo-labs/octocove-client` 0.23.0: contract locks.
 
 - Client: contract locks. `client.requireCapabilities(requirement)` verifies the published contract (`GET /v1/meta`)
   and this build's own table, and fails closed with `ContractRefusedError`; `createClient({ contract })` then refuses
