@@ -272,6 +272,8 @@ Commands:
   merit policy disable PROJECT POLICY_ID       (project admin, recent sign-in: revoke the version for good; register a new one to evaluate again)
   merit usage PROJECT [--since TIME] [--until TIME]   (project admin: evaluations by outcome and model calls with their usage, per policy version, project and org)
   merit shadow PROJECT [--since TIME] [--until TIME] [--limit N]   (project admin: the evaluator's verdicts beside the humans' per evaluated candidate)
+  merit review CANDIDATE --file FILE           (the lane's agent: submit the structured review of a candidate head; FILE is JSON, - reads stdin)
+  merit evaluate CANDIDATE                     (the lane's agent: request the evaluation of the head's evidence set)
   merit release [TASK] [--candidate ID]        (human approver, recent sign-in: release a task from the needs-human merit hold without deciding its candidate)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)

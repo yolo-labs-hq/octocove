@@ -1,4 +1,4 @@
-import type { ResponseContract } from "../../client/src/node.js";
+import type { MeritReviewInput, ResponseContract } from "../../client/src/node.js";
 import { reserveBootstrap } from './bootstrap-output.js';
 import { globalOptions } from './globals.js';
 import { commandHelp } from "./command-help.js";
@@ -102,6 +102,8 @@ Commands:
   merit policy disable PROJECT POLICY_ID       (project admin, recent sign-in: revoke the version for good; register a new one to evaluate again)
   merit usage PROJECT [--since TIME] [--until TIME]   (project admin: evaluations by outcome and model calls with their usage, per policy version, project and org)
   merit shadow PROJECT [--since TIME] [--until TIME] [--limit N]   (project admin: the evaluator's verdicts beside the humans' per evaluated candidate)
+  merit review CANDIDATE --file FILE           (the lane's agent: submit the structured review of a candidate head; FILE is JSON, - reads stdin)
+  merit evaluate CANDIDATE                     (the lane's agent: request the evaluation of the head's evidence set)
   merit release [TASK] [--candidate ID]        (human approver, recent sign-in: release a task from the needs-human merit hold without deciding its candidate)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
@@ -442,6 +444,8 @@ function report(d: Deps, err: unknown, json: boolean): number {
         ? "The policy's diff limits (maxFileBytes, maxChangedLines) would admit a candidate the decision model could see only in part; lower them. Nothing was appended."
       : err.code === "policy-revoked"
         ? "This merit policy version was disabled for good; register a new version (`octo merit policy create`) instead."
+      : err.code === "self-review"
+        ? "The review names the agent that wrote the change. An independent reviewer has to review it, under its own name."
       : err.code === "merit-not-needs-human"
         ? "The task is not held for a human (its merit state is not needs-human), so there is nothing to release. `octo task show TASK_ID` shows it."
       : err.code === "already-claimed"
@@ -1609,6 +1613,27 @@ const COMMANDS: Record<string, Handler> = {
     const { api } = await meritAdmin(d, "merit shadow");
     const r = await api.j.merit.shadow(pos[0]!, { ...windowFlags(v), ...(limit ? { limit } : {}) }, api.until(Date.now() + READ_SECONDS * 1000));
     out(d, v.json, r, () => shadowText(r));
+  },
+  // The lane's agent: its review of a candidate head, then the evaluation of the evidence set. One journey each.
+  "merit review": async (d, args) => {
+    const { v, pos } = opts(args, { file: { type: "string" } }, 1);
+    if (v.file === undefined) throw new UsageError("--file FILE is required: the review as JSON, or - for stdin");
+    // A file is read before any credential: a malformed one is a usage error.
+    const text = v.file === "-" ? await d.stdin() : await readFile(resolve(d.cwd ?? process.cwd(), v.file), "utf8").catch((err: NodeJS.ErrnoException) => { throw new UsageError(`--file ${v.file} cannot be read: ${err.code ?? "unreadable"}`); });
+    let review: MeritReviewInput;
+    try { review = JSON.parse(text); } catch { throw new UsageError(`--file ${v.file} is not JSON`); }
+    const { api, creds } = await client(d);
+    if (creds.kind !== "agent") throw new ConfigError("merit review requires the agent delegation of the lane's claim");
+    const r = await api.j.merit.submitReview(pos[0]!, review, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    out(d, v.json, r, () => kv([["Review", r.id], ["Candidate", r.candidateId], ["Attempt", r.attemptsRemaining === null ? r.attempt : `${r.attempt} (${r.attemptsRemaining} left)`],
+      ["Merit state", r.meritState], ...(r.reasons.length ? [["Reasons", r.reasons.join(", ")] as [string, unknown]] : []), ["Next", `octo merit evaluate ${r.candidateId}`]]));
+  },
+  "merit evaluate": async (d, args) => {
+    const { v, pos } = opts(args, {}, 1);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "agent") throw new ConfigError("merit evaluate requires the agent delegation of the lane's claim");
+    const r = await api.j.merit.evaluate(pos[0]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    out(d, v.json, r, () => kv([["Evaluation", r.id], ["Candidate", r.candidateId], ["Status", r.status], ["Reviews", r.evidenceSet.count]]));
   },
   "merit release": async (d, args) => {
     const { v, pos } = opts(args, { candidate: { type: "string" } }, 1, 0);

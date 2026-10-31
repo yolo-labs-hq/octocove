@@ -1,5 +1,12 @@
 # Changelog
 
+## CLI 0.24.0 and client 0.24.0
+
+Release `@yolo-labs/octocove` 0.24.0 and `@yolo-labs/octocove-client` 0.24.0: Merit from the CLI.
+
+- CLI: `merit review CANDIDATE --file FILE` submits the lane agent's structured review, and `merit evaluate CANDIDATE`
+  requests the evaluation of the head's evidence set. Each is one client journey (`merit.submitReview`, `merit.evaluate`).
+
 ## CLI 0.23.1 and client 0.23.1
 
 Release `@yolo-labs/octocove` 0.23.1 and `@yolo-labs/octocove-client` 0.23.1.

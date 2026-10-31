@@ -434,6 +434,16 @@
       "client": [
         "org.webhooks.rotateSecret"
       ]
+    },
+    "merit review": {
+      "client": [
+        "org.merit.submitReview"
+      ]
+    },
+    "merit evaluate": {
+      "client": [
+        "org.merit.evaluate"
+      ]
     }
   },
   "generic": {
