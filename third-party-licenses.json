@@ -2,7 +2,7 @@
   "schema_version": 1,
   "scope": "locked npm package/version pairs; source-only publication",
   "lockfiles": {
-    "pnpm-lock.yaml": "56cd8dca6518eb45c9edf04e2bd6800afa20c048763b4ec7bf68cdef55a1ea5d"
+    "pnpm-lock.yaml": "99c042de2191d492f86a1cecaac15b91ef22b367983ec166ec00c3691aa37c54"
   },
   "packages": [
     {

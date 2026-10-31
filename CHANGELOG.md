@@ -1,5 +1,51 @@
 # Changelog
 
+## CLI 0.22.0 and client 0.22.0
+
+Release `@yolo-labs/octocove` 0.22.0 and `@yolo-labs/octocove-client` 0.22.0: long-running runs. A live claim is
+re-delegated past its eight-hour authorization ceiling, up to its 72-hour cap, without a second claim, by whoever
+holds the credential. The client never renews or re-delegates by itself.
+
+- Client: regenerated from the current API contract. `DelegationCredential` carries `ceilingAt` (the authorization's
+  ceiling in force) and `claimExpiresAt` (the claim's cap) beside the token's own `expiresAt`; `claimAuthorize` takes
+  `claimAttemptId` (a re-arm) and answers `claimExpiresAt` and `redelegations`; `taskClaim` answers `200` for a switch;
+  `MeDelegation` items carry `ceilingAt`, `claimExpiresAt` and `redelegations`. The operation count stays 151.
+- Client: `claims.rearm(taskId, {claimAttemptId, agentId, verbs, expiresAt}, opts)` (the claim's original human
+  authorizer, a session or a connected app's grant) answers a `RearmedBootstrap`; `claims.switch(taskId,
+  {bootstrapToken}, opts)` redeems it and answers the new `AgentDelegation`. Both keep their key and body on a lost
+  answer; the server replays the same bootstrap and the same credential.
+- Client: `AgentDelegation` now has `ceilingAt` and `claimExpiresAt` (required: a delegation answer without them is
+  off-shape), from a claim, a renewal (`auth.delegation.renew`, which now takes `{token, delegationId}`), a handover
+  (optional there) or a switch. `delegationFromWire` parses one.
+- Client: `PROBLEM_CODES` adds `claim-cap-reached` and `ceiling-not-extended` (terminal), `redelegation-pending` and
+  `switch-conflict` (retryable). `reauth-required` stays `reauth`, `human-required` terminal, `claim-inactive`
+  terminal with `endsAttempt`.
+- Client: `redelegationPlan(credential, now, {renewAheadMs, redelegateAheadMs})`, a pure planner answering `none`,
+  `renew` (inside the ceiling only), `redelegate` (ahead of the ceiling while it is before the cap) or `cap-reached`,
+  each with its instant.
+- Client: `runnerSession({claim, store, journal, redelegate, renew?})`, an opt-in sequencer driven by `step()`: renew
+  ahead through `renewingCredential`, re-arm then switch through caller-supplied functions (`clientRedelegation`
+  builds them from the journeys). The re-arm key and body, then the bootstrap and the switch key, are journaled
+  before each is sent, and the entry is dropped only once the switched credential is stored, so a crash or a lost
+  answer resumes under the same keys and never switches twice. Answers distinguish `kept` (unknown outcome, not
+  sent, or retryable), `restart` (nothing more under that key) and `refused` (kept as a record, never resent).
+  Journals: `memoryRedelegationJournal()` and, under `/node`, `fileRedelegationJournal(dir)` (0600).
+- Client: the bound transport refuses both steps before sending (`claims.rearm`, `claims.switch`, and
+  `claimAuthorize` / `taskClaim` through `call`); `clientRedelegation` refuses a bound client.
+- Client testing: `fakeServer().claim(taskId, {ceilingInMs, capInMs, verbs, authorizer})` seeds a live claim; the
+  fake answers the re-arm and the switch with their refusals and replay rules, keeps the ceiling and the cap across
+  renewals, and serves `meDelegationsList`.
+- CLI: `octo auth redelegate TASK --agent-config DIR [--expires-at TIME] [--verbs a,b]` (human, the claim's
+  authorizer): re-arm, then switch, through the client's session; the agent's stored delegation in `DIR` is
+  replaced, its previous token refused. An interrupted run resumes when run again (journaled under the config
+  directory's `redelegations/`); a `switch-conflict` is redeemed again at once.
+- CLI: `octo auth delegations [--limit N] [--cursor C]` lists your grants with the ceiling, the cap and the
+  re-delegation count.
+- CLI: a claimed, renewed or handed-over agent delegation stores `ceilingAt` and `claimExpiresAt` as the server names
+  them. **Changed**: `claimExpiresAt` in the agent's credentials file is now the claim's 72-hour cap (it was the
+  claim's expiry); renewals stop at `ceilingAt`. Claim again to refresh a credentials file written by an earlier
+  version.
+
 ## CLI 0.21.0 and client 0.21.0
 
 Release `@yolo-labs/octocove` 0.21.0 and `@yolo-labs/octocove-client` 0.21.0: the lane engine moves from the CLI into

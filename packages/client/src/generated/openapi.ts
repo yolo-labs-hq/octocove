@@ -807,7 +807,7 @@ export interface paths {
         put?: never;
         /**
          * Claim an authorized task
-         * @description An agent's one-use claim bootstrap only (any other credential is 401 unauthenticated). Every claim is materialized - a scoped lane with an execution and a generation at the target's pinned head, never a Git remote or a provider credential. Admission and dependency receipts are checked atomically; authenticated refusals are persisted. A body property other than intentVersion and scope (laneKind included) is refused 400 invalid-request.
+         * @description An agent's one-use claim bootstrap only (any other credential is 401 unauthenticated). Every claim is materialized - a scoped lane with an execution and a generation at the target's pinned head, never a Git remote or a provider credential. Admission and dependency receipts are checked atomically; authenticated refusals are persisted. A body property other than intentVersion and scope (laneKind included) is refused 400 invalid-request. (the switch) - a re-arm's bootstrap (claimAuthorize with claimAttemptId) redeems onto the claim it already holds instead of claiming - in one batch the authorization takes the armed ceiling, verbs and family, the claim's expiry moves to that ceiling, the previous token is denylisted and the delegation rotates to the credential returned as delegation (bound to the claim's open execution; the body's intentVersion and scope are not re-checked). 200 with the claim and the credential; 409 claim-inactive (the authorization's ceiling passed or the claim ended; nothing resurrects a dead authorization), 409 execution-inactive without an open execution, 409 switch-conflict (details.retryable) when a renewal or handover committed in between - redeem again with the same bootstrap and key, 401 unauthenticated for an unknown or expired bootstrap or a closed armed family, 403 forbidden when the authorizer lost a verb. The same bootstrap and key replay the credential for the token's life (409 idempotency-result-expired after); another key on a consumed bootstrap is 409 bootstrap-consumed. The audit row is claim.granted with refs.milestone delegation.redelegated, not a new grant.
          */
         post: operations["taskClaim"];
         delete?: never;
@@ -1642,8 +1642,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Pre-authorize one agent claim attempt
-         * @description Human contributor with every granted right; cannot delegate approval. Reserves attempt/delegation IDs and returns five-minute one-use bootstrap. Authorization ceiling max eight hours and subject to logout/revocation.
+         * Pre-authorize one agent claim attempt, or re-arm a live claim's authorization
+         * @description Human contributor with every granted right; cannot delegate approval. Reserves attempt/delegation IDs and returns five-minute one-use bootstrap. Authorization ceiling max eight hours and subject to logout/revocation. The 72-hour claim cap is keyed on the chain (task, human) - a client-token authorization continues the caller's most recent chain on the task and its ceiling is clamped to the chain's cap (409 claim-cap-reached past it); only a human session with a fresh identity-provider sign-in starts a new chain on a spent one (403 reauth-required for a stale session, whatever the recent-sign-in flag says). With claimAttemptId - re-arms that live claim's existing authorization by its original authorizer (403 forbidden otherwise, from any live sign-in of theirs, a client grant included) - same agentId, verbs equal to or a subset of those in force in the original order (400 invalid-request, details.field), a ceiling not before the one in force (409 ceiling-not-extended; equal is admitted) and never past the cap (409 claim-cap-reached); 409 claim-inactive when the claim or the authorization is over; 409 redelegation-pending (details.bootstrapExpiresAt) while an unredeemed re-arm is pending. Nothing changes for the running token until the new bootstrap is redeemed at taskClaim (the switch). A replay under the same key answers the stored bootstrap while its re-arm is the latest, unconsumed and unexpired, else 409 idempotency-result-expired (nothing changed).
          */
         post: operations["claimAuthorize"];
         delete?: never;
@@ -3169,8 +3169,21 @@ export interface components {
             accessToken: string;
             /** @enum {string} */
             tokenType: "Bearer";
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description The token's own expiry (at most fifteen minutes); renew before it.
+             */
             expiresAt: string;
+            /**
+             * Format: date-time
+             * @description The authorization's ceiling in force - the last instant a renewal can reach, the instant to re-delegate before (claimAuthorize with claimAttemptId, then taskClaim). Moved by a re-delegation switch.
+             */
+            ceilingAt: string;
+            /**
+             * Format: date-time
+             * @description The claim's cap, 72 hours from the start of its chain - the last instant any re-delegation can extend the claim to. Fixed at the first grant.
+             */
+            claimExpiresAt: string;
             revocationId: string;
         };
         /** @description Every claim is materialized; its surface is the generation manifest, never a Git workspace. blockedReason is non-null iff blocked. */
@@ -4118,8 +4131,18 @@ export interface components {
             bootstrapToken: string;
             /** Format: date-time */
             bootstrapExpiresAt: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description The authorization's ceiling.
+             */
             authorizationExpiresAt: string;
+            /**
+             * Format: date-time
+             * @description The claim's cap, 72 hours from the start of its chain; no re-delegation extends past it.
+             */
+            claimExpiresAt?: string;
+            /** @description - 0 for a first authorization; the sequence number of the re-arm this answer armed otherwise. */
+            redelegations?: number;
             verbs: components["schemas"]["AgentVerb"][];
         };
         LoginRequest: {
@@ -4283,9 +4306,21 @@ export interface components {
             createdAt: string;
             /**
              * Format: date-time
-             * @description The grant's ceiling; no delegation token of it outlives this.
+             * @description The grant's ceiling; no delegation token of it outlives this. The ceiling in force (moved by a re-delegation).
              */
             expiresAt: string;
+            /**
+             * Format: date-time
+             * @description The authorization's ceiling in force, the same instant as expiresAt.
+             */
+            ceilingAt?: string;
+            /**
+             * Format: date-time
+             * @description The claim's cap (72 hours from the start of its chain); null until the claim is granted.
+             */
+            claimExpiresAt?: string | null;
+            /** @description The sequence number of the last re-delegation switch (0 before any). */
+            redelegations?: number;
             /**
              * @description Derived at read time; see `meDelegationsList`.
              * @enum {string}
@@ -7706,6 +7741,17 @@ export interface operations {
             };
         };
         responses: {
+            /** @description The switch; the same claim, its expiry at the armed ceiling, with the rotated credential. */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimResponse"];
+                };
+            };
             /** @description Claim granted; its lane is ready. */
             201: {
                 headers: {
@@ -9503,6 +9549,8 @@ export interface operations {
                     verbs: components["schemas"]["AgentVerb"][];
                     /** Format: date-time */
                     expiresAt: string;
+                    /** @description The live claim whose authorization to re-arm (the agent's claimAttemptId); absent for a new authorization. */
+                    claimAttemptId?: components["schemas"]["Id"];
                 };
             };
         };

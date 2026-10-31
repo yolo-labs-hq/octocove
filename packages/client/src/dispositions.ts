@@ -67,6 +67,15 @@ export const PROBLEM_CODES: Readonly<Record<string, ProblemClass>> = Object.free
   'repository-importing': r('claim'),
   'repository-import-failed': t('claim'),
   'repository-unverified': t('claim'),
+  // re-delegation onto a live claim (a re-arm, then its switch)
+  // The claim's 72-hour cap is spent: no re-delegation extends it. The claim itself runs on to its ceiling.
+  'claim-cap-reached': t('claim'),
+  // The re-arm would end before the ceiling in force (an earlier `expiresAt` or sign-in expiry).
+  'ceiling-not-extended': t('claim'),
+  // An earlier re-arm's bootstrap is still unredeemed (`details.bootstrapExpiresAt`): redeem it, or wait it out.
+  'redelegation-pending': r('claim'),
+  // A renewal or handover committed during the switch: redeem again with the same bootstrap and key.
+  'switch-conflict': r('claim'),
   // lanes
   'execution-superseded': t('lane', SUPERSEDED),
   'execution-inactive': t('lane', ATTEMPT),

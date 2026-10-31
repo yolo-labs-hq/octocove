@@ -10,13 +10,15 @@ import {
   assertionAudience,
   eventAuthorityAudience,
   bearerFor,
+  delegationFromWire,
   type AgentDelegation,
   type ApprovalGrant,
   type ApprovalGrantExchangeResult,
   type ApprovalGrantScope,
   type ClaimBootstrap,
+  type RearmedBootstrap,
 } from './credentials.js';
-import { ApiError, isBoundTo, OrgCreationPendingError, staleFenceDetails } from './errors.js';
+import { ApiError, BoundTransportError, isBoundTo, OrgCreationPendingError, staleFenceDetails } from './errors.js';
 import type { components } from './generated/openapi.js';
 import {
   isObject,
@@ -275,10 +277,23 @@ function requireHuman(client: JourneyClient, what: string): void {
 }
 
 function delegationOf(response: { status: number; requestId?: string; operationId: string }, value: unknown): AgentDelegation {
-  if (!isObject(value) || !isString(value.accessToken) || !isString(value.delegationId) || !isString(value.expiresAt) || !isString(value.revocationId)) {
-    throw offShape(response, 'the response does not carry a delegation credential');
-  }
-  return Object.freeze({ kind: 'agent-delegation', token: value.accessToken, delegationId: value.delegationId, revocationId: value.revocationId, expiresAt: value.expiresAt });
+  const delegation = delegationFromWire(value);
+  if (!delegation) throw offShape(response, 'the response does not carry a delegation credential');
+  return delegation;
+}
+
+/** A claim-authorization answer as a bootstrap; undefined when it is off that shape. */
+function bootstrapOf(a: unknown): ClaimBootstrap | undefined {
+  if (!isObject(a) || !isString(a.bootstrapToken) || !isString(a.id) || !isString(a.projectId) || !isString(a.taskId) || !isString(a.claimAttemptId)
+    || !isString(a.delegationId) || !isString(a.bootstrapExpiresAt) || !isString(a.authorizationExpiresAt) || !Array.isArray(a.verbs)) return undefined;
+  if ((a.claimExpiresAt !== undefined && !isString(a.claimExpiresAt)) || (a.redelegations !== undefined && typeof a.redelegations !== 'number')) return undefined;
+  return Object.freeze({
+    kind: 'claim-bootstrap', token: a.bootstrapToken, authorizationId: a.id, projectId: a.projectId, taskId: a.taskId,
+    claimAttemptId: a.claimAttemptId, delegationId: a.delegationId, expiresAt: a.bootstrapExpiresAt,
+    authorizationExpiresAt: a.authorizationExpiresAt, verbs: Object.freeze(a.verbs.map(String)),
+    ...(a.claimExpiresAt !== undefined ? { claimExpiresAt: a.claimExpiresAt } : {}),
+    ...(a.redelegations !== undefined ? { redelegations: a.redelegations } : {}),
+  });
 }
 
 /** Waits out `409 org-creation-pending` before retrying when the answer names no Retry-After. */
@@ -430,16 +445,55 @@ export function tenantJourneys(client: TenantClient) {
       const expiresAt = input.expiresAt ?? (input.ttl !== undefined ? new Date(Date.now() + input.ttl * 1000).toISOString() : undefined);
       if (!expiresAt) throw new TypeError('claims.authorize needs ttl (seconds) or expiresAt');
       const response = await command(options, 'claimAuthorize', { path: { id: taskId }, body: { agentId: input.agentId, verbs: [...input.verbs], expiresAt } });
-      const a: unknown = response.body;
-      if (!isObject(a) || !isString(a.bootstrapToken) || !isString(a.id) || !isString(a.projectId) || !isString(a.taskId) || !isString(a.claimAttemptId)
-        || !isString(a.delegationId) || !isString(a.bootstrapExpiresAt) || !isString(a.authorizationExpiresAt) || !Array.isArray(a.verbs)) {
-        throw offShape(response, 'the authorization response is not a claim bootstrap');
+      const bootstrap = bootstrapOf(response.body);
+      if (!bootstrap) throw offShape(response, 'the authorization response is not a claim bootstrap');
+      return bootstrap;
+    },
+    /**
+     * Re-arms a live claim's authorization (`claimAuthorize` with `claimAttemptId`): the claim's original authorizer
+     * only, from a human session or a connected app's grant, never an agent delegation (the bound transport refuses it
+     * before sending). `agentId` is the claim's; `verbs` equal or a subset of those in force, in their order;
+     * `expiresAt` the ceiling asked for (the server arms `min(expiresAt, now + 8 h, the sign-in's expiry, the claim's
+     * cap)`). Nothing changes for the running token until the bootstrap is redeemed at {@link claims.switch}.
+     *
+     * Keep `options.idempotencyKey` and this exact input until the switch: a replay answers the same bootstrap while it
+     * is unredeemed and unexpired (`409 idempotency-result-expired` after: nothing changed). Refusals: `409
+     * claim-cap-reached`, `ceiling-not-extended`, `redelegation-pending` (retryable), `claim-inactive`; `403
+     * reauth-required` (a fresh sign-in starts a new chain), `human-required`, `forbidden` (not the authorizer); `400
+     * invalid-request` (`details.field`).
+     */
+    async rearm(taskId: string, input: { readonly claimAttemptId: string; readonly agentId: string; readonly verbs: readonly Schemas['AgentVerb'][]; readonly expiresAt: string }, options: CommandOptions): Promise<RearmedBootstrap> {
+      if (client.transport.type === 'bound') throw new BoundTransportError('claimAuthorize', 'a re-arm is a human authorization, which the bound transport never sends');
+      requireHuman(client, 'claims.rearm');
+      if (!isString(input.claimAttemptId)) throw new TypeError('claims.rearm needs the claim attempt id');
+      if (!isString(input.expiresAt) || !Number.isFinite(Date.parse(input.expiresAt))) throw new TypeError('claims.rearm needs expiresAt (ISO 8601)');
+      const response = await command(options, 'claimAuthorize', { path: { id: taskId },
+        body: { claimAttemptId: input.claimAttemptId, agentId: input.agentId, verbs: [...input.verbs], expiresAt: input.expiresAt } });
+      const bootstrap = bootstrapOf(response.body);
+      if (!bootstrap || bootstrap.claimAttemptId !== input.claimAttemptId || !isString(bootstrap.claimExpiresAt) || typeof bootstrap.redelegations !== 'number') {
+        throw offShape(response, 'the re-arm response is not a re-arm of this claim');
       }
-      return Object.freeze({
-        kind: 'claim-bootstrap', token: a.bootstrapToken, authorizationId: a.id, projectId: a.projectId, taskId: a.taskId,
-        claimAttemptId: a.claimAttemptId, delegationId: a.delegationId, expiresAt: a.bootstrapExpiresAt,
-        authorizationExpiresAt: a.authorizationExpiresAt, verbs: Object.freeze(a.verbs.map(String)),
-      });
+      return bootstrap as RearmedBootstrap;
+    },
+    /**
+     * Redeems a re-arm's bootstrap (`taskClaim`, the switch): in one step the server mints the delegation's new token,
+     * refuses the old one from then on and moves the claim's expiry to the armed ceiling. Returns the new credential;
+     * hand it to whoever holds the old one at once. Never sent on the bound transport.
+     *
+     * `409 switch-conflict` (retryable) means a renewal or handover committed in between: redeem again with the same
+     * bootstrap and `options.idempotencyKey`. The same bootstrap and key replay the credential while it authenticates
+     * (`409 idempotency-result-expired` after); another key on a redeemed bootstrap is `409 bootstrap-consumed`.
+     * `intentVersion` is not re-checked by a switch (default 1). An answer other than a switch (a first claim) is
+     * refused as off-shape.
+     */
+    async switch(taskId: string, input: { readonly bootstrapToken: string; readonly intentVersion?: number }, options: CommandOptions): Promise<AgentDelegation> {
+      if (client.transport.type === 'bound') throw new BoundTransportError('taskClaim', 'a switch redeems a bootstrap: the bound transport never sends it');
+      if (!isString(input.bootstrapToken)) throw new TypeError('claims.switch needs the re-arm bootstrap token');
+      const response = await command(options, 'taskClaim', { path: { id: taskId }, body: { intentVersion: input.intentVersion ?? 1 } },
+        { credential: bearer({ token: input.bootstrapToken, kind: 'bootstrap' }) });
+      const r: unknown = response.body;
+      if (response.status !== 200 || !isObject(r) || !isObject(r.claim)) throw offShape(response, 'the answer is not a re-delegation switch');
+      return delegationOf(response, r.delegation);
     },
     /**
      * Bootstrap → delegation. A lost answer is recovered under the same key and bootstrap within the

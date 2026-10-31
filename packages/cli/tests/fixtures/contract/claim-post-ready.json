@@ -46,7 +46,9 @@
       "revocationId": "zAafpbVHOhHxoeKWVhERmh1fGEH-BRzSu_OUJZa3wRY",
       "tokenType": "Bearer",
       "delegationId": "01M5KHQFKWKSP6SKB2PRS5ZSBC",
-      "expiresAt": "2026-10-23T05:08:53.000Z"
+      "expiresAt": "2026-10-23T05:08:53.000Z",
+      "ceilingAt": "2026-10-23T05:53:53.000Z",
+      "claimExpiresAt": "2026-10-26T04:53:53.000Z"
     }
   }
 }

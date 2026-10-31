@@ -63,6 +63,7 @@ const FLAGS: Record<string,string> = {
   'policy-version': 'Version to append (default: the highest the project lists for the repository and target ref, plus one); to resume a create, the one it printed.',
   since: 'Window start, RFC 3339 timestamp (default: from the beginning).', until: 'Window end, RFC 3339 timestamp (default: now).',
   candidate: 'Candidate ID whose task is released (instead of TASK).',
+  'agent-config': 'Config directory of the agent whose delegation is re-delegated (its OCTOCOVE_CONFIG_DIR, holding the claim\'s delegation); the switched credential replaces the one stored there.',
   'token-stdin': 'Read workload proof from stdin instead of OCTOCOVE_WORKLOAD_TOKEN.', timeout: 'Machine command deadline in seconds, 1–300 (default 30).',
 };
 const POSITIONALS: Record<string,string> = {
@@ -99,6 +100,8 @@ export function commandHelp(command: string, originalUsage: string, description 
   if (command === 'auth approve') usage = 'auth approve --grant ID [--as ID] [--timeout SECONDS]';
   if (command === 'auth revoke') description = 'Revoke a delegation (defaults to the active one); --grant revokes an approval grant as a human administrator.';
   if (command === 'events') usage += ' [--limit N]';
+  if (command === 'auth redelegate') description = 'Extend a live claim past its authorization ceiling (at most 8 hours), up to the claim\'s 72-hour cap, without a new claim: re-arm the authorization as its original authorizer, then switch the agent to the new credential. The agent\'s previous token is refused from then on. An interrupted run resumes when run again: its keys and bootstrap are kept privately under this config directory. Past the cap, a new chain needs a fresh sign-in (reauth-required).';
+  if (command === 'auth delegations') description = 'List the agent grants you authorized, newest first, with each authorization ceiling, the claim\'s 72-hour cap and the re-delegations so far. Renewals never move the ceiling; auth redelegate does.';
   const optionMatches = [...usage.matchAll(/--([a-z][a-z-]*)(?: ([A-Z][A-Z_]*|[a-z]+(?:\|[a-z]+)+|a,b))?/g)];
   const options = [...new Map(optionMatches.map(m=>[m[1]!,m[0]])).entries()].map(([flag,label])=> {
     let detail = FLAGS[flag];
@@ -109,6 +112,8 @@ export function commandHelp(command: string, originalUsage: string, description 
     if (flag === 'expires-at' && command === 'merit policy create') detail = 'When the new version expires, RFC 3339 timestamp in the future (default: the source\'s expiry).';
     if (flag === 'repository' && command.startsWith('merit policy')) detail = command === 'merit policy list' ? 'Only this repository\'s versions.' : 'Repository ID of this project the version governs (default: the source\'s; required to copy from another project).';
     if (flag === 'target-ref' && command.startsWith('merit policy')) detail = command === 'merit policy list' ? 'Only versions for this full branch ref.' : 'Full branch ref the version governs (default: the source\'s), for example refs/heads/main.';
+    if (flag === 'expires-at' && command === 'auth redelegate') detail = 'The ceiling asked for, RFC 3339 (default 8 hours from now); the server arms at most 8 hours ahead, never past the claim\'s cap or your sign-in\'s expiry.';
+    if (flag === 'verbs' && command === 'auth redelegate') detail = 'Comma-separated verbs to keep: those in force or a subset, in their order (default: those in force).';
     if (flag === 'limit' && command === 'merit shadow') detail = 'At most this many candidates listed (the summary counts the whole window).';
     if (!detail) throw new Error(`missing option help: ${command} --${flag}`);
     return `  ${label.padEnd(28)} ${detail}`;

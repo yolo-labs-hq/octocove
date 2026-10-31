@@ -257,7 +257,7 @@ describe("octo lane (materialized)", () => {
 
   it("claims the lane with its scope and no clone", async () => {
     routes["POST /tasks/T1/claim"] = () => json(201, { claim: { id: "C1", taskId: "T1", status: "active", provisioningState: "ready", lane: { kind: "materialized", claimAttemptId: "C1", generation: 1, baseSha: base1, scopeVersion: 1, scope } },
-      delegation: { delegationId: "D1", accessToken: "claimed-delegation", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1" } });
+      delegation: { delegationId: "D1", accessToken: "claimed-delegation", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" } });
     const bootstrap = { credentials: { apiUrl: API, token: "boot", kind: "bootstrap" as const, orgId: ORG } };
     expect(await cli(["task", "claim", "T1", "--intent-version", "3", "--read", "src/,README.md", "--write", "src/"], bootstrap)).toBe(EXIT.ok);
     const claim = calls.find((c) => c.method === "POST" && c.url.pathname.endsWith("/claim"))!;

@@ -459,7 +459,7 @@ describe("octo lane with a lane repository", () => {
     const claimArgs = ["task", "claim", "T1", "--intent-version", "3"];
     const reopenedClaim = (provisioningState: string) => () => json(provisioningState === "pending" ? 202 : 201, {
       claim: { id: "C3", taskId: "T1", status: "active", provisioningState, lane: { kind: "materialized", executionId: "X2", generation: 1, baseSha, scopeVersion: 1, scope, laneHead: SHA("landed"), reopenId: "RO1" } },
-      delegation: { delegationId: "D3", accessToken: "reopenedAgentCredential", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" } });
+      delegation: { delegationId: "D3", accessToken: "reopenedAgentCredential", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" } });
 
     it("claims with the reopen bootstrap without a scope, and points at lane materialize", async () => {
       const file = await saveCredentials({ OCTOCOVE_CONFIG_DIR: join(work, "boot") }, { apiUrl: API, orgId: ORG, token: "reopen-boot", kind: "bootstrap", agentId: "agent-1" });

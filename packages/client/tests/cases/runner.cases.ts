@@ -60,6 +60,8 @@ const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', 'attempt' | 
   'unauthorized': ['terminal', 'refused', false], 'task-closed': ['terminal', 'refused', false], 'bootstrap-consumed': ['reauth', 'refused', false],
   'lane-reopen-required': ['reauth', 'refused', false], 'dependency-unlanded': ['terminal', 'refused', false], 'write-scope-claimed': ['terminal', 'refused', false],
   'repository-importing': ['retryable', 'refused', false], 'repository-import-failed': ['terminal', 'refused', false], 'repository-unverified': ['terminal', 'refused', false],
+  'claim-cap-reached': ['terminal', 'refused', false], 'ceiling-not-extended': ['terminal', 'refused', false], 'redelegation-pending': ['retryable', 'refused', false],
+  'switch-conflict': ['retryable', 'refused', false],
   'execution-superseded': ['terminal', 'refused', 'both'], 'execution-inactive': ['terminal', 'refused', 'attempt'], 'authority-lost': ['terminal', 'refused', 'attempt'],
   'generation-superseded': ['terminal', 'refused', false], 'lane-not-materialized': ['terminal', 'refused', false], 'lane-head-moved': ['terminal', 'refused', false],
   'refresh-conflict': ['terminal', 'refused', false], 'scope-overlap': ['terminal', 'refused', false], 'scope-refused': ['terminal', 'refused', false],

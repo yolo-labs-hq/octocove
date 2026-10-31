@@ -44,7 +44,7 @@ const bootstrap: ClaimBootstrap = Object.freeze({
   kind: 'claim-bootstrap', token: 'bootstrap-fixture-0123456789', authorizationId: 'auth-1', projectId: 'p', taskId: 't',
   claimAttemptId: 'attempt-1', delegationId: 'del-1', expiresAt: '2026-10-09T00:05:00Z', authorizationExpiresAt: '2026-10-09T01:00:00Z', verbs: ['tasks:read'],
 });
-const delegationWire = { delegationId: 'del-1', accessToken: 'delegation-access-fixture-0123', tokenType: 'Bearer', expiresAt: '2026-10-09T00:15:00Z', revocationId: 'rev-1' };
+const delegationWire = { delegationId: 'del-1', accessToken: 'delegation-access-fixture-0123', tokenType: 'Bearer', expiresAt: '2026-10-09T00:15:00Z', ceilingAt: '2026-10-09T08:00:00Z', claimExpiresAt: '2026-10-12T00:00:00Z', revocationId: 'rev-1' };
 const claimSnapshot = { id: 'attempt-1', taskId: 't', intentVersion: 1, status: 'active', expiresAt: '2026-10-09T01:00:00Z', dependencyResults: [], provisioningState: 'pending', blockedReason: null, lane: { kind: 'materialized', executionId: 'exec-1', generation: 1, baseSha: 'b'.repeat(40), scopeVersion: 1, scope: { read: ['src/'], write: ['src/'] } } };
 const candidate = (outcome: string) => ({ id: 'cand-1', taskId: 't', submissionId: 'sub-1', outcome, status: 'active', candidateSha: A, candidateRef: 'refs/x', baseSha: B, reviewBoundTo: { candidateSha: A, baseSha: B, intentVersion: 1 } });
 const receipt = (outcome: string) => ({ id: 'fence-1', fenceId: 'fence-1', taskId: 't', candidateId: 'cand-1', outcome, landedSha: outcome === 'landed' ? C : null, baseShaBefore: B, baseShaAfter: C });
@@ -104,7 +104,7 @@ export const journeyCases: Case[] = [
     const { fetch, calls } = scriptedFetch(lost(201), json(201, { claim: claimSnapshot, delegation: delegationWire }));
     const result = await journeys(client(fetch)).org(ORG).claims.claim(bootstrap, 't', { intentVersion: 1 }, { deadline: soon() });
     equal(result.claim.provisioningState, 'pending', 'the snapshot, not current readiness');
-    equal(result.delegation, { kind: 'agent-delegation', token: delegationWire.accessToken, delegationId: 'del-1', revocationId: 'rev-1', expiresAt: delegationWire.expiresAt });
+    equal(result.delegation, { kind: 'agent-delegation', token: delegationWire.accessToken, delegationId: 'del-1', revocationId: 'rev-1', expiresAt: delegationWire.expiresAt, ceilingAt: delegationWire.ceilingAt, claimExpiresAt: delegationWire.claimExpiresAt });
     equal(auths(calls), [`Bearer ${bootstrap.token}`, `Bearer ${bootstrap.token}`]);
     equal(keys(calls)[0], keys(calls)[1]);
     const missing = scriptedFetch(json(201, { claim: claimSnapshot }));

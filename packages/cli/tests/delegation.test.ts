@@ -26,7 +26,7 @@ async function fixture(extra: Partial<Credentials> = {}) {
       calls.push({path,token:headers.get('authorization'),key:headers.get('idempotency-key')});
       if(path.endsWith('/delegations/D1/renew')) {
         rotations++; await new Promise(r=>setTimeout(r,30));
-        return Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),tokenType:'Bearer'});
+        return Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),ceilingAt:future(8*3600000),claimExpiresAt:future(72*3600000),tokenType:'Bearer'});
       }
       if(headers.get('authorization') === 'Bearer old-delegation') return Response.json({code:'credential-expired'},{status:401});
       return Response.json({items:[]});
@@ -49,10 +49,10 @@ it('without a stored expiry, renewal is scheduled from the issue time, never fro
   expect(issued.calls[0]?.path).toBe(`/v1/orgs/${ORG}/delegations/D1/renew`);expect(issued.rotations).toBe(1);
   // A token that looks like a JWT about to expire is opaque: it renews only on the server's expiry answer.
   const token='x.'+Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+60})).toString('base64url')+'.x';
-  const opaque=await fixture({token});opaque.deps.fetch=async(url,init)=>new URL(url).pathname.endsWith('/renew')?Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),tokenType:'Bearer'}):Response.json({items:[]});
+  const opaque=await fixture({token});opaque.deps.fetch=async(url,init)=>new URL(url).pathname.endsWith('/renew')?Response.json({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),ceilingAt:future(8*3600000),claimExpiresAt:future(72*3600000),tokenType:'Bearer'}):Response.json({items:[]});
   expect(await run(opaque.deps),opaque.output).toBe(0);expect(opaque.rotations).toBe(0);
 });
-it.each(['absoluteExpiresAt','claimExpiresAt'] as const)('never renews beyond %s',async(field)=>{
+it.each(['absoluteExpiresAt','ceilingAt'] as const)('never renews beyond %s',async(field)=>{
   const f=await fixture({[field]:future(-1000)});expect(await run(f.deps)).not.toBe(0);expect(f.calls).toEqual([]);expect(f.output).toContain('new task authorization');expect(f.output).not.toContain('octo login');
 });
 it('concurrent commands adopt one renewal',async()=>{
@@ -95,7 +95,7 @@ it('separate agent CLI processes serialize proactive renewal',async()=>{
     if(request.url?.endsWith('/delegations/D1/renew')) {
       rotations++;if(request.headers.authorization!=='Bearer old-delegation')wrongIdentity=true;
       await new Promise(r=>setTimeout(r,100));
-      response.end(JSON.stringify({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),tokenType:'Bearer'}));
+      response.end(JSON.stringify({accessToken:'new-delegation',delegationId:'D1',revocationId:'R1',expiresAt:future(900000),ceilingAt:future(8*3600000),claimExpiresAt:future(72*3600000),tokenType:'Bearer'}));
     } else {
       if(request.headers.authorization!=='Bearer new-delegation')wrongIdentity=true;
       response.end(JSON.stringify({items:[]}));

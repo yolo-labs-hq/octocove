@@ -47,10 +47,11 @@ try {
   const node = await import(pathToFileURL(join(pkg, manifest.exports['./node'].import)).href);
   const testing = await import(pathToFileURL(join(pkg, manifest.exports['./testing'].import)).href);
   for (const name of ['createClient', 'ApiError', 'TransportError', 'bearer', 'browserCookie', 'forwardedSession', 'unauthenticated', 'approvalGrantFromExchange', 'routing', 'BUILD', 'journeys', 'follow', 'authJourneys', 'tenantClient', 'tenantJourneys', 'verifyWebhook', 'eventKey', 'approvalGrantAudience', 'eventAuthorityAudience', 'TenantNotFoundError', 'ProjectNotFoundError', 'OrgCreationPendingError', 'RouteUnavailableError', 'InsufficientScopeError', 'StepUpRequiredError', 'ConnectionRevokedError', 'authorizationUrl', 'parseAuthorizationResponse', 'createPkce', 'exchangeCode', 'refreshGrant', 'revokeGrant', 'privateKeyJwt', 'clientSecretBasic', 'createGrantSession', 'bound', 'renewingCredential', 'memoryCredentialStore', 'authorizedFetch', 'CredentialUnavailableError', 'PROBLEM_CODES', 'problemClass', 'isRetryable', 'outcomeUnknown', 'endsAttempt', 'endsAuthority',
-    'createLanes', 'memoryLaneFiles', 'memoryJournal', 'laneFilesJournal', 'LaneError', 'LaneActionRequiredError', 'LANE_LIMITS', 'saveKey', 'wrapUpKey']) {
+    'createLanes', 'memoryLaneFiles', 'memoryJournal', 'laneFilesJournal', 'LaneError', 'LaneActionRequiredError', 'LANE_LIMITS', 'saveKey', 'wrapUpKey',
+    'redelegationPlan', 'runnerSession', 'clientRedelegation', 'memoryRedelegationJournal', 'delegationFromWire']) {
     if (!(name in core)) throw new Error(`packed root entry does not export ${name}`);
   }
-  for (const name of ['credentialStore', 'ProtectedStoreError', 'fileCredentialStore', 'nodeLaneFiles', 'fileJournal', 'nodePackPrimitives']) {
+  for (const name of ['credentialStore', 'ProtectedStoreError', 'fileCredentialStore', 'nodeLaneFiles', 'fileJournal', 'fileRedelegationJournal', 'nodePackPrimitives']) {
     if (!(name in node)) throw new Error(`packed /node entry does not export ${name}`);
   }
   for (const name of ['fakeServer', 'fakeBroker', 'scriptedFetch', 'json', 'problem', 'matchOperation']) {

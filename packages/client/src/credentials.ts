@@ -22,17 +22,35 @@ export interface ClaimBootstrap {
   readonly claimAttemptId: string;
   readonly delegationId: string;
   readonly expiresAt: string;
+  /** The authorization's ceiling (for a re-arm: the ceiling its switch moves the claim to). */
   readonly authorizationExpiresAt: string;
   readonly verbs: readonly string[];
+  /** The claim's cap, 72 hours from the start of its chain, when the server names it. */
+  readonly claimExpiresAt?: string;
+  /** 0 for a first authorization; for a re-arm, the sequence number of the re-delegation it armed. */
+  readonly redelegations?: number;
 }
 
-/** Agent delegation access token returned by a bootstrap `taskClaim`; renewable, never approves. */
+/** A re-arm's bootstrap (`claims.rearm`): redeem it at `claims.switch` within its five minutes. */
+export interface RearmedBootstrap extends ClaimBootstrap {
+  readonly claimExpiresAt: string;
+  readonly redelegations: number;
+}
+
+/**
+ * Agent delegation access token returned by a bootstrap `taskClaim`, a renewal or a switch; renewable, never
+ * approves. Three instants, never substituted for one another: `expiresAt` (the token's own, about fifteen minutes,
+ * moved by every renewal), `ceilingAt` (the authorization's ceiling, moved only by a re-delegation switch) and
+ * `claimExpiresAt` (the claim's 72-hour cap, never moved).
+ */
 export interface AgentDelegation {
   readonly kind: 'agent-delegation';
   readonly token: string;
   readonly delegationId: string;
   readonly revocationId: string;
   readonly expiresAt: string;
+  readonly ceilingAt: string;
+  readonly claimExpiresAt: string;
 }
 
 export interface ApprovalGrantScope {
@@ -234,4 +252,18 @@ export function assertionAudience(assertion: string): string | readonly string[]
     const aud = (JSON.parse(text) as { aud?: unknown }).aud;
     return typeof aud === 'string' || (Array.isArray(aud) && aud.every((a) => typeof a === 'string')) ? aud as string | string[] : undefined;
   } catch { return undefined; }
+}
+
+const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/**
+ * A `DelegationCredential` wire body as an {@link AgentDelegation}; undefined when it is off that shape (every field,
+ * the ceiling and the claim cap included, must be there).
+ */
+export function delegationFromWire(value: unknown): AgentDelegation | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const d = value as Record<string, unknown>;
+  if (!isText(d.accessToken) || !isText(d.delegationId) || !isText(d.revocationId) || !isText(d.expiresAt) || !isText(d.ceilingAt) || !isText(d.claimExpiresAt)) return undefined;
+  return Object.freeze({ kind: 'agent-delegation', token: d.accessToken, delegationId: d.delegationId, revocationId: d.revocationId, expiresAt: d.expiresAt,
+    ceilingAt: d.ceilingAt, claimExpiresAt: d.claimExpiresAt });
 }

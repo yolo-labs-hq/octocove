@@ -210,7 +210,7 @@ then thrown as `OrgCreationPendingError`; with `repository` it also sets up the 
 (`GET /v1/me/project-initializations/{operationId}`), `workspaces.bind(input)` and `workspaces.get(bindingId)` (an OAuth client's
 workspace bindings, [below](#workspace-bindings)), `org(tenantId)`, `forProject(project)` and `command` for a global
 operation. `org(tenantId)` (`tenantJourneys`) holds the rest, all under `/v1/orgs/{tenantId}`: `tasks.*`,
-`repositories.*` (including `declareLanePolicy`, `branches` and `registerTargetRef`), `claims.authorize/claim/status/waitForProvisioning/release`,
+`repositories.*` (including `declareLanePolicy`, `branches` and `registerTargetRef`), `claims.authorize/claim/rearm/switch/status/waitForProvisioning/release`,
 `candidates.get/waitFor/withdraw/reject`, `approvals.approve/approveWithGrant/withdraw`,
 `grants.exchangeApproval`, `landings.land/waitForReceipt`, `receipts.get`, `lanes.retire`, `webhooks.*`, `log.task`,
 `audit.list`, `events.follow`, `owner()`, `auth.delegation.renew`, `auth.notifications.*` and
@@ -507,6 +507,101 @@ const handle = broker.grant({ orgId, taskId: 'T1', operations: ['laneMaterialize
 const lane = tenantClient(createClient({ baseUrl: server.baseUrl, transport: bound(), fetch: broker.fetch(handle) }), orgId);
 server.fail('laneChangesSubmit', 'lost-answer');   // the save point is recovered under the same key
 ```
+
+## Long-running runs (re-delegation)
+
+A claim's authorization has a **ceiling** of at most eight hours. A run that must go past it is re-delegated onto the
+claim it already holds, up to the claim's **72-hour cap**, with no second claim and no new lane. Every
+`AgentDelegation` (from a claim, a renewal, a handover or a switch) names three instants, never substituted for one
+another:
+
+| Field | What it is | Moves when |
+| --- | --- | --- |
+| `expiresAt` | the token's own expiry (about 15 minutes) | every renewal, handover and switch |
+| `ceilingAt` | the authorization's ceiling: no renewal reaches past it | only at a re-delegation switch |
+| `claimExpiresAt` | the claim's cap, 72 hours from the start of its chain | never |
+
+`auth.delegations.list()` shows the same for each grant a human authorized: `ceilingAt`, `claimExpiresAt` (`null`
+until the claim is granted) and `redelegations` (switches so far).
+
+A renewal (`auth.delegation.renew`) rotates the token inside the ceiling and moves neither the ceiling nor the cap.
+Only a re-delegation gets a new ceiling, `min(now + 8 h, the cap, the authorizer's sign-in expiry)`, in two steps:
+
+1. **Re-arm**, as the claim's original human authorizer (a human session, or a connected app's grant under
+   `octocove:agents`; never an agent delegation): `claims.rearm(taskId, {claimAttemptId, agentId, verbs, expiresAt},
+   {deadline, idempotencyKey})`. `verbs` are those in force or a subset, in their order. It answers a
+   `RearmedBootstrap`: a five-minute, one-use bootstrap with the armed ceiling (`authorizationExpiresAt`), the cap
+   and the re-delegation's sequence number. Nothing changes for the running token yet.
+2. **Switch**: `claims.switch(taskId, {bootstrapToken}, {deadline, idempotencyKey})` redeems it. In one step the
+   server mints the delegation's new token, refuses the old one from then on, and moves the claim's expiry to the new
+   ceiling. It answers the new `AgentDelegation`: hand it to whoever holds the old token at once.
+
+Both steps keep their Idempotency-Key and body until they succeed. A lost answer is resent under the same key: the
+re-arm answers the same bootstrap while it is unredeemed and unexpired, the switch the same credential while it
+authenticates; after that the server answers `409 idempotency-result-expired` (nothing more to recover under that
+key). How each refusal is classified:
+
+| Code | Step | `disposition` | What to do |
+| --- | --- | --- | --- |
+| `switch-conflict` | switch | `retryable` | a renewal or handover committed meanwhile: redeem again with the same bootstrap and key |
+| `redelegation-pending` | re-arm | `retryable` | an earlier re-arm is unredeemed: redeem it, or wait for `details.bootstrapExpiresAt` |
+| `claim-cap-reached` | re-arm | `terminal` | the cap is spent: wrap up before the ceiling; a new chain needs a human |
+| `ceiling-not-extended` | re-arm | `terminal` | the new ceiling would be earlier than the one in force (an earlier `expiresAt` or sign-in expiry) |
+| `claim-inactive` | both | `terminal` (`endsAttempt`) | the claim ended or its ceiling passed: nothing resurrects it |
+| `reauth-required` | re-arm | `reauth` | a stale human session cannot start a new chain on a spent one: sign in again |
+| `human-required`, `forbidden` | re-arm | `terminal` | not a human, or not the claim's authorizer |
+| `invalid-request` | re-arm | `terminal` | `details.field` names the input (`expiresAt` in the past, `verbs`, `agentId`) |
+
+Neither step is ever sent on the bound transport: `claims.rearm` and `claims.switch` on a bound client, and
+`claimAuthorize` / `taskClaim` through `call`, throw `BoundTransportError` before anything is sent. The client never
+renews or re-delegates by itself; whoever holds the credential decides when.
+
+**The plan.** `redelegationPlan(credential, now, {renewAheadMs = 60 s, redelegateAheadMs = 10 min})` is pure: from a
+credential's instants (ISO strings or epoch ms) and the clock it answers `{action, at}`:
+
+- `redelegate`, due since `at = ceilingAt - redelegateAheadMs`, while `ceilingAt < claimExpiresAt`;
+- `cap-reached`, `at = ceilingAt` (when the authorization ends), once the ceiling is near and already at the cap;
+- `renew`, due since `at = expiresAt - renewAheadMs`, only while `expiresAt < ceilingAt` (a renewal can still extend
+  the token). When both are due, `redelegate` wins: the switch issues a new token too;
+- `none`: nothing is due before `at`.
+
+Without `ceilingAt` only renewal is planned; without `claimExpiresAt` the server decides the cap. Ten minutes covers
+the five-minute bootstrap plus clock skew.
+
+**The session.** `runnerSession({claim, store, journal, redelegate, renew?, ...})` sequences the plan for one claim
+through functions you supply, and does nothing until you call `step()`:
+
+```ts
+const session = runnerSession<AgentDelegation>({
+  claim: { taskId, claimAttemptId, agentId, verbs },
+  store,                                     // the delegation's CredentialStore (shared with its renewing provider)
+  journal: fileRedelegationJournal(dir),     // /node; memoryRedelegationJournal() anywhere
+  redelegate: clientRedelegation(humanJourneys),   // claims.rearm and claims.switch through the authorizer's client
+  renew: (current, { idempotencyKey, deadline, signal }) =>
+    agentJourneys.auth.delegation.renew(current, { idempotencyKey, deadline, signal }),
+});
+const step = await session.step();           // then call again at step.at (or on your own schedule)
+```
+
+`step()` continues a journaled re-delegation first, else does what the plan says is due (`step({redelegate: true})`
+re-delegates now). It answers `none` / `renew` (no `renew` given) / `cap-reached` with `at`; `renewed` or
+`redelegated` with the stored record; or, for a re-delegation that did not finish:
+
+- `kept` (`outcome` `unknown`, `not-sent`, or a retryable refusal): the step stays journaled; call again from `at`
+  and it resends the same key and body;
+- `restart`: the server holds nothing more under that key (`idempotency-result-expired`, or a bootstrap that expired
+  before its switch): the next step re-arms under a new key (an equal ceiling is accepted as a recovery);
+- `refused`: refused for good, kept as a record and never resent, while renewals go on; `discard()` it once handled.
+
+The journal entry is written before anything is sent: a new random re-arm key and the exact re-arm body; then the
+bootstrap and a new switch key before the switch; it is dropped only after the switched credential is in the store
+(`compareAndSet`). A crash or a lost answer anywhere resumes with the same keys, so the server answers the same
+bootstrap and the same credential, never a second switch. The entry holds the bootstrap token: keep the journal as
+private as the credential store. Run one session per claim and journal.
+
+The testing fake models it: `server.claim(taskId, {ceilingInMs, capInMs, verbs, authorizer})` seeds a live claim and
+its delegation; the fake answers the re-arm and the switch with their refusals and replay rules, keeps the ceiling and
+the cap on renewals, and lists the claim in `meDelegationsList`.
 
 ## Lanes
 

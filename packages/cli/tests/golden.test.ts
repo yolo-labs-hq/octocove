@@ -101,7 +101,7 @@ const claim = {
   lane: { kind: "materialized", executionId: "E1", generation: 1, baseSha: SHA_B, scopeVersion: 1, scope: { read: ["src/"], write: ["src/app/"] } },
 };
 const pendingClaim = { ...claim, provisioningState: "pending", lane: { ...claim.lane, reopenId: "RO1", laneHead: SHA_A } };
-const delegation = { delegationId: "D1", accessToken: "golden-delegation-secret", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1" };
+const delegation = { delegationId: "D1", accessToken: "golden-delegation-secret", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" };
 const bootstrap = { kind: "bootstrap" as const, orgId: ORG, agentId: "worker-one" };
 const claimArgs = ["task", "claim", "T1", "--intent-version", "3", "--read", "src/", "--write", "src/app/"];
 const candidate = { id: "CA1", outcome: "computed", status: "active", candidateSha: SHA_A, baseSha: SHA_B, latestCheck: { result: "passed" }, conflictFiles: [], reviewBoundTo: { candidateSha: SHA_A, baseSha: SHA_B, intentVersion: 3 } };

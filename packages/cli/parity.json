@@ -13,10 +13,25 @@
         "org.grants.exchangeApproval"
       ]
     },
+    "auth delegations": {
+      "client": [
+        "root.auth.delegations.list"
+      ]
+    },
     "auth exchange": {
       "client": [],
       "helpers": [
         "org.grants.exchangeApproval"
+      ]
+    },
+    "auth redelegate": {
+      "client": [
+        "call:taskGet",
+        "fn:fileRedelegationJournal",
+        "fn:runnerSession",
+        "org.claims.rearm",
+        "org.claims.switch",
+        "root.auth.delegations.list"
       ]
     },
     "auth renew": {

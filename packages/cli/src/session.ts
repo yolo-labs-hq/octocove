@@ -42,7 +42,8 @@ const ms = (value: string | undefined) => (value ? Date.parse(value) : undefined
 function schedule(c: Credentials) {
   const lifetime = c.kind === 'human' ? 1_800_000 : 900_000;
   const expiresAt = ms(c.expiresAt) ?? (c.issuedAt ? Date.parse(c.issuedAt) + lifetime : undefined);
-  const ceilings = [c.absoluteExpiresAt, ...(c.kind === 'agent' ? [c.claimExpiresAt] : [])].map(ms).filter((v): v is number => v !== undefined);
+  // An agent's renewals stop at its authorization ceiling (the claim cap only bounds a re-delegation).
+  const ceilings = [c.absoluteExpiresAt, ...(c.kind === 'agent' ? [c.ceilingAt] : [])].map(ms).filter((v): v is number => v !== undefined);
   return { expiresAt, ceilingAt: ceilings.length ? Math.min(...ceilings) : undefined };
 }
 
@@ -65,7 +66,7 @@ export function cliCredential(env: NodeJS.ProcessEnv, initial: Credentials, fetc
         throw new CredentialUnavailableError('config', human ? 'Active credential changed; retry using this config directory.'
           : "Active agent credential changed; use this agent's config directory.", { disposition: 'terminal' });
       }
-      const limits = human ? [c.absoluteExpiresAt, c.idleExpiresAt] : [c.absoluteExpiresAt, c.claimExpiresAt];
+      const limits = human ? [c.absoluteExpiresAt, c.idleExpiresAt] : [c.absoluteExpiresAt, c.ceilingAt];
       if (limits.some((limit) => limit && Date.parse(limit) <= Date.now())) throw refuse();
     },
     // No re-authorization source in the CLI: a human signs in again, an agent gets a new authorization.
@@ -95,7 +96,7 @@ async function renewSession(current: Credentials, context: RenewContext, fetch: 
 async function renewDelegation(current: Credentials, context: RenewContext, fetch: FetchLike): Promise<Credentials> {
   if (!current.delegationId) throw authorizeAgain();
   const api = new Api({ apiUrl: current.apiUrl, orgId: current.orgId, credential: current, signal: context.signal, fetch });
-  const issued = await api.j.auth.delegation.renew({ kind: 'agent-delegation', token: current.token, delegationId: current.delegationId, revocationId: '', expiresAt: current.expiresAt ?? '' },
+  const issued = await api.j.auth.delegation.renew({ token: current.token, delegationId: current.delegationId },
     { deadline: context.deadline, signal: context.signal, idempotencyKey: context.idempotencyKey }).catch((error) => {
       if (error instanceof ApiError && [401, 403].includes(error.status)) throw authorizeAgain(error);
       throw error;
@@ -103,7 +104,7 @@ async function renewDelegation(current: Credentials, context: RenewContext, fetc
   if (issued.delegationId !== current.delegationId) {
     throw new CredentialUnavailableError('config', 'Renewal returned a different delegation; request a new authorization.', { disposition: 'terminal' });
   }
-  return { ...current, token: issued.token, expiresAt: issued.expiresAt, issuedAt: new Date().toISOString() };
+  return { ...current, token: issued.token, expiresAt: issued.expiresAt, ceilingAt: issued.ceilingAt, claimExpiresAt: issued.claimExpiresAt, issuedAt: new Date().toISOString() };
 }
 
 // ---- raw fetches outside the typed client (Git preflight, credential helper, wrapped connections) ----

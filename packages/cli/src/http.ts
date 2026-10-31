@@ -27,6 +27,8 @@ import { ConfigError, type CredentialKind } from "./config.js";
 
 export { ApiError, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey } from "../../client/src/node.js";
 export { isTenantId, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError } from "../../client/src/node.js";
+export { runnerSession, fileRedelegationJournal } from "../../client/src/node.js";
+export type { RunnerSessionStep } from "../../client/src/node.js";
 export type { ClientHooks, RequestEvent, ResponseEvent, RetryEvent } from "../../client/src/node.js";
 export type { AgentDelegation, ApprovalGrant, ClaimBootstrap, CommandOptions, Journeys, TenantJourneys, ApprovalGrantScope, CandidateWaitResult, FetchLike, Project, ProjectInitialization, GitHubRepositoryList, MeritPolicyList, MeritPolicyVersionView, MeritPolicyOverrides, MeritUsage, MeritShadow } from "../../client/src/node.js";
 
