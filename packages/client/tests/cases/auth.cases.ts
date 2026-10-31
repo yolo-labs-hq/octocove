@@ -181,9 +181,8 @@ export const authCases: Case[] = [
   test('auth.cli.start keeps the prepared verifier out of fetch, body-read and refusal diagnostics', async () => {
     const prepared = await journeys(createClient({ baseUrl: BASE, fetch: scriptedFetch().fetch, transport: unauthenticated() })).auth.cli.prepare();
     const start = (fetch: ClientOptions['fetch']) => journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: unauthenticated() }))
-      // 240 ms: the journey's first replay (250 ms) does not fit, so the transport's failure is surfaced; a slow runner
-      // gets the rest of the margin.
-      .auth.cli.start(prepared, { deadline: Date.now() + 240 });
+      // 100 ms: the journey's first replay never fits (it is jittered, 125 to 250 ms), so the transport's failure is surfaced.
+      .auth.cli.start(prepared, { deadline: Date.now() + 100 });
     const failing = async () => { throw Object.assign(new TypeError(`fetch failed for ${prepared.verifier}`), { cause: new Error(`socket closed near ${prepared.verifier}`) }); };
     const network = await rejects(() => start(failing), TransportError);
     equal([network.code, network.responseStatus], ['network-error', undefined]);
