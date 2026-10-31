@@ -613,7 +613,10 @@ bootstrap and a new switch key before the switch; it is dropped only after the s
 bootstrap and the same credential, never a second switch. The entry holds the bootstrap token: keep the journal as
 private as the credential store. The re-arm and the switch run inside the store's `lock` when it has one (the
 renewing provider takes the same lock), so a second holder waits instead of racing the switch or orphaning a
-bootstrap; within a process `step()` is single-flighted.
+bootstrap; within a process `step()` is single-flighted. Unless forced, the plan is read again inside the lock, so a holder that waited out another's
+re-delegation starts no second re-arm. While a re-delegation holds the lock (up to two network calls), a renewal
+from the agent's own process can time out waiting for it with a retryable `credential-store-busy`; its token stays
+usable until it expires, and the next renewal adopts the switched credential.
 
 The testing fake models it: `server.claim(taskId, {ceilingInMs, capInMs, verbs, authorizer})` seeds a live claim and
 its delegation; the fake answers the re-arm and the switch with their refusals and replay rules, keeps the ceiling and

@@ -413,15 +413,20 @@ export function runnerSession<R extends { readonly token: string }>(options: Run
   /**
    * The re-delegation path under the store's lock, when it has one, so a second holder (another process renewing or
    * re-delegating the same credential) waits instead of racing the switch or orphaning a bootstrap. The entry is
-   * read again inside the lock: another holder may have advanced it.
+   * read again inside the lock: another holder may have advanced it. Unless forced, the plan is read again too: a
+   * holder that waited out another's re-delegation finds the moved ceiling and starts no second re-arm.
    */
-  function locked(signal: AbortSignal | undefined, start: boolean): Promise<RunnerSessionStep<R>> {
+  function locked(signal: AbortSignal | undefined, start: boolean, force = false): Promise<RunnerSessionStep<R>> {
     const work = async (lockSignal: AbortSignal | undefined) => {
       const live = lockSignal ?? signal;
       const entry = await journal.get(id);
       if (entry?.step === 'refused') return refusedOf(entry);
       if (entry) return advance(entry, live);
       if (!start) return planned(await record(live));
+      if (!force) {
+        const current = await record(live);
+        if (planOf(current).action !== 'redelegate') return planned(current);
+      }
       return advance(await fresh(), live);
     };
     return store.lock ? store.lock(work, { signal }) : work(undefined);
@@ -444,7 +449,7 @@ export function runnerSession<R extends { readonly token: string }>(options: Run
     if (plan.action === 'expired') return { action: 'expired', at: plan.at };
     if (force || plan.action === 'redelegate') {
       if (entry) return refusedOf(entry);
-      return locked(signal, true);
+      return locked(signal, true, force);
     }
     if (plan.action === 'renew') {
       if (!renewer) return { action: 'renew', at: plan.at };
