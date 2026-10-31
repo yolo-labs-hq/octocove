@@ -1,7 +1,19 @@
 # Changelog
 
-## Unreleased
+## CLI 0.23.0 and client 0.23.0
 
+Release `@yolo-labs/octocove` 0.23.0 and `@yolo-labs/octocove-client` 0.23.0: contract locks.
+
+- Client: contract locks. `client.requireCapabilities(requirement)` verifies the published contract (`GET /v1/meta`)
+  and this build's own table, and fails closed with `ContractRefusedError`; `createClient({ contract })` then refuses
+  any operation outside the lock before sending, sends `X-Octocove-Expect-Contract` on every call and turns an answer
+  naming no accepted id into `ContractMismatchError`. An unlocked client sends nothing new.
+- Client: every result, `ApiError`, `onResponse` event and stream handle carries `contract` (`{ id, meta, revision }`).
+  `BUILD` gains `contractAlgorithm` and `metaDigest`, and `CONTRACT_TABLE` is exported. `problemClass` knows
+  `contract-mismatch`, `contract-skew` (refused, so a 5xx is no longer always unknown) and `contract-skew-after-write`,
+  and a `network-only` operation resends the two skew answers inside its budget. The operation count is now 152
+  (`metaGet`).
+- CLI: `--verbose` prints the contract that answered each call on stderr, and `--log-json` events carry it.
 - Client: `runnerSession` reads the plan again inside the store's lock before a re-arm it was not forced to make, so
   a second holder that waited out another's re-delegation starts no redundant re-arm.
 - Client docs: while a re-delegation holds the store's lock, an agent-process renewal can time out with a retryable

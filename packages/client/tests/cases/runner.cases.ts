@@ -91,11 +91,12 @@ const EXPECTED: Record<string, [Disposition, 'refused' | 'unknown', 'attempt' | 
   'temporarily-unavailable': ['retryable', 'unknown', false], 'audit-unavailable': ['retryable', 'unknown', false],
   'tenant-not-found': ['terminal', 'refused', false], 'project-not-found': ['terminal', 'refused', false], 'tenant-mismatch': ['terminal', 'refused', false],
   'org-creation-pending': ['retryable', 'refused', false], 'route-unavailable': ['retryable', 'unknown', false],
+  'contract-mismatch': ['terminal', 'refused', false], 'contract-skew': ['retryable', 'refused', false], 'contract-skew-after-write': ['retryable', 'unknown', false],
 };
 /** A status each code is answered with (the classification does not depend on it for listed codes, except 5xx outcomes). */
 const STATUS: Record<string, number> = {
   'credential-expired': 401, 'credential-revoked': 401, 'connection-revoked': 401, 'unauthenticated': 401, 'invalid-id-token': 401, 'bootstrap-consumed': 401,
-  'lane-repository-unavailable': 503, 'temporarily-unavailable': 503, 'audit-unavailable': 503, 'route-unavailable': 503, 'rate-limited': 429, 'slow-down': 429,
+  'contract-mismatch': 412, 'contract-skew': 503, 'contract-skew-after-write': 503, 'lane-repository-unavailable': 503, 'temporarily-unavailable': 503, 'audit-unavailable': 503, 'route-unavailable': 503, 'rate-limited': 429, 'slow-down': 429,
   'request-body-busy': 429, 'request-body-timeout': 408, 'blob-too-large': 413, 'request-body-too-large': 413, 'invalid-request': 400, 'blob-digest-mismatch': 400,
   'forbidden': 403, 'scope-refused': 403, 'human-required': 403, 'reauth-required': 403, 'step-up-required': 403, 'insufficient-scope': 403, 'not-found': 404,
   'tenant-not-found': 404, 'project-not-found': 404, 'login-expired': 410,

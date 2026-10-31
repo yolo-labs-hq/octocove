@@ -1,3 +1,4 @@
+import type { ResponseContract } from './contract.js';
 import { problemClass, type Disposition, type Outcome } from './dispositions.js';
 import type { components } from './generated/openapi.js';
 
@@ -63,6 +64,8 @@ export interface ApiErrorInit {
   /** Response headers, redacted (credential-bearing headers dropped; see `headerRecord`). */
   headers?: Readonly<Record<string, string>>;
   idempotencyKey?: string;
+  /** The contract headers of the answer. */
+  contract?: ResponseContract | null;
 }
 
 /**
@@ -87,6 +90,8 @@ export class ApiError extends Error {
   readonly headers: Readonly<Record<string, string>>;
   /** The call's Idempotency-Key (absent for operations that take none). */
   readonly idempotencyKey: string | undefined;
+  /** The contract that answered, from the response headers; null when it named none. */
+  readonly contract: ResponseContract | null;
   /** What to do next: `terminal`, `retryable` (same key and body) or `reauth`. See {@link problemClass}. */
   readonly disposition: Disposition;
   /** `refused` (nothing recorded) or `unknown` (may have been applied: resend only with the same key and body). */
@@ -100,6 +105,7 @@ export class ApiError extends Error {
     super(`${init.code}: ${init.detail ?? init.title ?? `HTTP ${init.status}`}`);
     this.status = init.status;
     this.code = init.code;
+    this.contract = init.contract ?? null;
     this.title = init.title;
     this.detail = init.detail;
     this.requestId = init.requestId;
@@ -152,6 +158,46 @@ export interface PendingOrganization {
  * `404 tenant-not-found`: the selected tenant is unknown, malformed, or one the caller may not see (the same answer
  * conceals which). Refresh discovery (`GET /me/projects`) or obtain access; never retry against another tenant.
  */
+/** A contract lock refused the call before anything was sent, or `requireCapabilities` refused the requirement. */
+export class ContractRefusedError extends Error {
+  override readonly name: string = 'ContractRefusedError';
+  readonly code = 'contract-refused';
+  readonly disposition = 'terminal' as const;
+  readonly outcome = 'not-sent' as const;
+  /** The operation or capability concerned, when there is one. */
+  readonly subject: string | undefined;
+  constructor(reason: string, subject?: string) {
+    super(subject === undefined ? reason : `${reason}: ${subject}`);
+    this.subject = subject;
+  }
+}
+
+/**
+ * A locked call's answer named no accepted contract. Never returned as a success or an ordinary refusal: the server may
+ * have acted, so reconcile under `idempotencyKey`.
+ */
+export class ContractMismatchError extends Error {
+  override readonly name: string = 'ContractMismatchError';
+  readonly code = 'contract-mismatch';
+  readonly disposition = 'terminal' as const;
+  readonly outcome = 'unknown' as const;
+  readonly status: number;
+  readonly operationId: string;
+  /** Redacted response headers, as on `ApiError`. */
+  readonly headers: Readonly<Record<string, string>>;
+  readonly idempotencyKey: string | undefined;
+  /** The ids accepted for this call. */
+  readonly accepted: readonly string[];
+  constructor(init: { status: number; operationId: string; headers: Readonly<Record<string, string>>; idempotencyKey: string | undefined; accepted: readonly string[] }) {
+    super(`${init.operationId}: the answer names no accepted contract (HTTP ${init.status})`);
+    this.status = init.status;
+    this.operationId = init.operationId;
+    this.headers = init.headers;
+    this.idempotencyKey = init.idempotencyKey;
+    this.accepted = init.accepted;
+  }
+}
+
 export class TenantNotFoundError extends ApiError {
   override readonly name = 'TenantNotFoundError';
 }
@@ -260,7 +306,7 @@ export function isServerCode(value: unknown): value is string {
 export function problemFromBody(
   status: number,
   text: string,
-  headers: { requestId?: string; retryAfter?: number; operationId?: string; headers?: Readonly<Record<string, string>>; idempotencyKey?: string },
+  headers: { requestId?: string; retryAfter?: number; operationId?: string; headers?: Readonly<Record<string, string>>; idempotencyKey?: string; contract?: ResponseContract | null },
   redactValue: <T>(value: T) => T,
   redactRaw: (text: string, limit: number) => string,
 ): ApiError {
@@ -286,6 +332,7 @@ export function problemFromBody(
     operationId: headers.operationId,
     headers: headers.headers,
     idempotencyKey: headers.idempotencyKey,
+    contract: headers.contract,
   });
 }
 

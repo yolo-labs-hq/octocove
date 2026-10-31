@@ -6848,6 +6848,45 @@ export const routing = {
       "replay": null
     }
   },
+  "metaGet": {
+    "operationId": "metaGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/meta",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [
+        {
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "304": []
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [
+      304
+    ],
+    "security": [],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "oauthAuthorize": {
     "operationId": "oauthAuthorize",
     "kind": "path",

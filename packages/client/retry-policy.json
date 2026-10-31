@@ -112,6 +112,36 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
+  "candidateMeritDiffGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritEvaluationRequest": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "candidateMeritGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritReviewCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "candidateMeritReviewGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "candidateMeritReviewsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "candidateReject": {
     "callable": true,
     "autoRetry": "network-only",
@@ -181,7 +211,141 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "eventsStream": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "githubCallback": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "githubConnect": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "githubInstall": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "githubWebhook": {
+    "callable": false,
+    "reason": "excluded"
+  },
   "landingsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneBlobGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneBlobPut": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "laneBlobUpload": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneChangesSubmit": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneExecutionBegin": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "laneGenerationCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneGenerationManifestGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneManifestGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneMaterialize": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "lanePackGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneReopen": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "bounded-recovery"
+  },
+  "laneRetire": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "laneSavePointDiff": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneSavePointGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneSavePointsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneScopeGrant": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneScopeRequest": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "laneScopeRequestsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "laneWrapUp": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "liveTenant": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "machineReadGrantExchange": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "meConnectionRevoke": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "meConnectionsList": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
@@ -195,6 +359,25 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
+  },
+  "meGithubInstallationUnlink": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "state"
+  },
+  "meGithubInstallationsList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meGithubRepositoriesList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meLive": {
+    "callable": false,
+    "reason": "excluded"
   },
   "meNotificationPreferencesGet": {
     "callable": true,
@@ -217,6 +400,11 @@
     "replay": "state"
   },
   "meProfileUpdate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meProjectCreate": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
@@ -251,20 +439,100 @@
     "autoRetry": "network-only",
     "replay": null
   },
-  "peopleGet": {
+  "meritPolicyDisable": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritPolicyGet": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
   },
-  "projectCreate": {
+  "meritPolicyList": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meritPolicyPause": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
-  "meProjectCreate": {
+  "meritPolicyRegister": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
+  },
+  "meritPolicyResume": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "meritProbe": {
+    "callable": true,
+    "autoRetry": "never",
+    "replay": "none"
+  },
+  "meritShadowGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "meritUsageGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "metaGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "oauthAuthorize": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "oauthConsent": {
+    "callable": false,
+    "reason": "navigation"
+  },
+  "oauthMetadata": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "oauthRevoke": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "oauthToken": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordExportChunk": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordExportSchema": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordInspect": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordRestore": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordRestoreAbort": {
+    "callable": false,
+    "reason": "excluded"
+  },
+  "orgRecordRestoreStatus": {
+    "callable": false,
+    "reason": "excluded"
   },
   "organizationCreate": {
     "callable": true,
@@ -281,35 +549,26 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "peopleGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "projectCreate": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "projectInitializationGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "projectRepositoryGitRefsGet": {
     "callable": false,
     "reason": "excluded"
   },
   "projectRepositoryGitUploadPack": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "orgRecordInspect": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "orgRecordExportSchema": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "orgRecordExportChunk": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "orgRecordRestore": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "orgRecordRestoreStatus": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "orgRecordRestoreAbort": {
     "callable": false,
     "reason": "excluded"
   },
@@ -323,12 +582,12 @@
     "autoRetry": "network-only",
     "replay": null
   },
-  "repositoryCreate": {
+  "repositoryBranchesList": {
     "callable": true,
     "autoRetry": "network-only",
-    "replay": "stored-result"
+    "replay": null
   },
-  "repositoryVerify": {
+  "repositoryCreate": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
@@ -338,12 +597,17 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
-  "repositoryBranchesList": {
+  "repositoryLanePolicyGet": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
   },
   "repositoryTargetRefRegister": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
+  },
+  "repositoryVerify": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
@@ -387,6 +651,11 @@
     "callable": true,
     "autoRetry": "network-only",
     "replay": null
+  },
+  "taskMeritRelease": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": "stored-result"
   },
   "taskPublish": {
     "callable": true,
@@ -458,276 +727,12 @@
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
-  "laneExecutionBegin": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "bounded-recovery"
-  },
-  "laneGenerationCreate": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneManifestGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneGenerationManifestGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneBlobGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "lanePackGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneSavePointsList": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneSavePointGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneSavePointDiff": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneScopeRequest": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneScopeRequestsList": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "laneScopeGrant": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneBlobPut": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "state"
-  },
-  "laneBlobUpload": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneChangesSubmit": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneMaterialize": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneWrapUp": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "laneReopen": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "bounded-recovery"
-  },
-  "laneRetire": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "state"
-  },
-  "eventsStream": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "liveTenant": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "meLive": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "machineReadGrantExchange": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "oauthAuthorize": {
-    "callable": false,
-    "reason": "navigation"
-  },
-  "oauthConsent": {
-    "callable": false,
-    "reason": "navigation"
-  },
-  "oauthToken": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "oauthRevoke": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "oauthMetadata": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meConnectionsList": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meConnectionRevoke": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "state"
-  },
   "workspaceBindingCreate": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": "stored-result"
   },
   "workspaceBindingGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "githubConnect": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "githubInstall": {
-    "callable": false,
-    "reason": "navigation"
-  },
-  "githubCallback": {
-    "callable": false,
-    "reason": "navigation"
-  },
-  "githubWebhook": {
-    "callable": false,
-    "reason": "excluded"
-  },
-  "meGithubInstallationsList": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meGithubInstallationUnlink": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "state"
-  },
-  "projectInitializationGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "candidateMeritDiffGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "candidateMeritGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "candidateMeritReviewGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "candidateMeritReviewsList": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meritPolicyGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meritPolicyList": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meritShadowGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "meritUsageGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "repositoryLanePolicyGet": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": null
-  },
-  "candidateMeritReviewCreate": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "candidateMeritEvaluationRequest": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "taskMeritRelease": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "meritPolicyRegister": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "meritPolicyDisable": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "meritPolicyPause": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "meritPolicyResume": {
-    "callable": true,
-    "autoRetry": "network-only",
-    "replay": "stored-result"
-  },
-  "meritProbe": {
-    "callable": true,
-    "autoRetry": "never",
-    "replay": "none"
-  },
-  "meGithubRepositoriesList": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null

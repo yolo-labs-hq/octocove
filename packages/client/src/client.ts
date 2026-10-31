@@ -1,5 +1,6 @@
 import { CREDENTIAL_REFUSALS, isCredentialProvider, type CredentialRefusal } from './credential-provider.js';
-import { ApiError, BoundTransportError, MAX_RAW, problemFromBody, TransportError } from './errors.js';
+import { contractOf, isContractLock, lockFrom, type ContractLock, type ContractRequirement, type ResponseContract } from './contract.js';
+import { ApiError, BoundTransportError, ContractMismatchError, ContractRefusedError, MAX_RAW, problemFromBody, TransportError } from './errors.js';
 import type { operations } from './generated/openapi.js';
 import { routing, type OperationId } from './generated/routing.js';
 import { clientRequestId, emit, headerRecord, jittered, type ClientHooks, type CredentialLabel, type RequestEvent } from './hooks.js';
@@ -7,6 +8,18 @@ import { REDACTED, redact, redactBody, sanitizeCause, secretValues } from './red
 import type { RetryClass, RouteEntry } from './routing-types.js';
 import { CallScope } from './scope.js';
 import { bearerToken, credentialHeaders, type BearerTransport, type Transport } from './transports.js';
+
+/** The contract headers as surfaced: scrubbed like every other surfaced value. Verification reads the raw header. */
+function shownContract(headers: Headers, secrets: readonly string[]): ResponseContract | null {
+  const contract = contractOf(headers);
+  return contract && Object.freeze({ id: redact(contract.id, secrets), meta: redact(contract.meta, secrets), revision: redact(contract.revision, secrets) });
+}
+/** The server's own contract refusal, by its top-level code and status: a code nested in details is not one. */
+function serverContractRefusal(status: number, text: string) {
+  let code: unknown;
+  try { code = (JSON.parse(text) as { code?: unknown })?.code; } catch { return false; }
+  return (status === 412 && code === 'contract-mismatch') || (status === 503 && (code === 'contract-skew' || code === 'contract-skew-after-write'));
+}
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -27,6 +40,11 @@ export interface ClientOptions extends ClientHooks {
   readonly retryDelayMs?: (resend: number) => number;
   /** Replaces the timer used for retry sleeps (tests); must honour the signal. */
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /**
+   * A verified lock from {@link OctocoveClient.requireCapabilities}. The client then refuses any operation outside it
+   * before sending, states the accepted ids on every call, and accepts only an answer naming one of them.
+   */
+  readonly contract?: ContractLock;
 }
 
 export interface CallOptions {
@@ -116,12 +134,16 @@ export interface ApiResponse<T> {
   readonly attempts: number;
   /** The retry class this call ran under (credential-selected for taskClaim). */
   readonly retry: RetryClass;
+  /** The contract that answered, from the response headers, available before a stream's first byte. */
+  readonly contract: ResponseContract | null;
 }
 
 type CallArgs<K extends CallableOperationId> = {} extends CallInput<K> ? [input?: CallInput<K>] : [input: CallInput<K>];
 type TenantCallArgs<K extends CallableOperationId> = {} extends TenantCallInput<K> ? [input?: TenantCallInput<K>] : [input: TenantCallInput<K>];
 
 export interface OctocoveClient {
+  /** Fetches the service's published contract and verifies `requirement` against it and this build's own table. */
+  requireCapabilities(requirement: ContractRequirement): Promise<ContractLock>;
   readonly baseUrl: string;
   readonly transport: Transport;
   /** A tenant-scoped operation needs `path.orgId`; prefer {@link tenantClient}, which fills it. */
@@ -283,6 +305,8 @@ export function createClient(options: ClientOptions): OctocoveClient {
   if (transport.type === 'bound' && typeof options.fetch !== 'function') {
     throw new TypeError('the bound transport needs the injected fetch that authorizes its requests');
   }
+  if (options.contract !== undefined && !isContractLock(options.contract)) throw new TypeError('contract must be a lock from requireCapabilities');
+  const lock = options.contract;
   const fetchImpl: FetchLike = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   const delay = options.retryDelayMs ?? ((resend: number) => jittered(250 * 2 ** resend));
   const hooks: ClientHooks = { onRequest: options.onRequest, onResponse: options.onResponse, onRetry: options.onRetry };
@@ -299,6 +323,8 @@ export function createClient(options: ClientOptions): OctocoveClient {
     const sent: string[] = [];
     let idempotencyKey: string | undefined;
     try {
+      const accepted = lock ? lock.operations[operationId] : undefined;
+      if (lock && !accepted) throw new ContractRefusedError('the contract lock does not name this operation', operationId);
       if (transport.type === 'bound') {
         if (input.credential) throw new BoundTransportError(operationId, 'the bound transport takes no per-call credential: the injected fetch authorizes every request');
         if (!boundAllows(route)) throw new BoundTransportError(operationId, `${operationId} is not sent on the bound transport (it issues or changes a credential, or is not a delegation operation)`);
@@ -312,7 +338,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
         throw new TypeError(`${operationId} is tenant-scoped: path.orgId must be an org_<uuid> tenant id (or call it through tenantClient)`);
       }
       const url = buildUrl(base, route, input.path as Record<string, unknown>, input.query as Record<string, unknown>);
-      const baseHeaders: Record<string, string> = { accept: 'application/json, application/problem+json', ...(fixed?.headers ?? {}) };
+      const baseHeaders: Record<string, string> = { accept: 'application/json, application/problem+json', ...(fixed?.headers ?? {}), ...(accepted ? { 'x-octocove-expect-contract': accepted.join(',') } : {}) };
       let body: string | Uint8Array | undefined;
       if (input.body !== undefined) {
         if (!route.requestBody) throw new TypeError(`${operationId} takes no request body`);
@@ -394,7 +420,9 @@ export function createClient(options: ClientOptions): OctocoveClient {
           continue;
         }
         // A 401 the provider can answer: one replacement per call, the same key and body.
-        if (response.status === 401 && provider?.refresh && !refreshed && token !== undefined) {
+        // An answer outside the lock is verified below, never acted on: no replacement credential for it.
+        const onLock = !accepted || accepted.includes(response.headers.get('x-octocove-contract') ?? '');
+        if (response.status === 401 && provider?.refresh && !refreshed && token !== undefined && onLock) {
           let text: string;
           try { text = await scope.guard(response.text()); } catch (error) {
             if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
@@ -406,7 +434,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
             refreshed = true;
             emit(hooks.onResponse, { ...event(attempts), status: 401, requestId: redact(response.headers.get('x-request-id') ?? undefined, secrets),
               durationMs: Date.now() - started, retryAfter: undefined, headers: headerRecord(response.headers, (v) => redact(v, secrets)),
-              code: code as string, disposition: 'reauth', outcome: 'refused' });
+              code: code as string, disposition: 'reauth', outcome: 'refused', contract: shownContract(response.headers, secrets) });
             emit(hooks.onRetry, { clientRequestId: requestId, operationId, reason: 'credential-refresh', attempt: attempts + 1, delayMs: 0, idempotencyKey, status: 401, code: code as string });
             const rejected = token;
             try {
@@ -417,6 +445,27 @@ export function createClient(options: ClientOptions): OctocoveClient {
             }
             fresh = true;
             known();
+            continue;
+          }
+          prefetched = text;
+        }
+        // A rollout's skew refused before any effect (or, after a write, under the same key): resend inside the budget.
+        if (response.status === 503 && retry.autoRetry === 'network-only' && resends < MAX_RESENDS && prefetched === undefined) {
+          let text: string;
+          try { text = await scope.guard(response.text()); } catch (error) {
+            if (!onLock) { prefetched = ''; break; } // No readable refusal: classified as outside the lock below.
+            if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
+            throw new TransportError('network-error', 'the response body could not be read', { cause: sanitizeCause(error, secrets), attempts, responseStatus: response.status, idempotencyKey });
+          }
+          let code: unknown;
+          try { code = (JSON.parse(text) as { code?: unknown })?.code; } catch { /* not a problem body */ }
+          if (code === 'contract-skew' || code === 'contract-skew-after-write') {
+            const wait = Math.max(delay(resends++), (retryAfterOf(response.headers) ?? 0) * 1000);
+            if (wait >= scope.remaining()) { prefetched = text; break; }
+            emit(hooks.onRetry, { clientRequestId: requestId, operationId, reason: 'contract-skew', attempt: attempts + 1, delayMs: wait, idempotencyKey, status: 503, code: code as string });
+            try { await scope.sleep(wait, options.sleep); } catch (sleepError) {
+              throw sleepError instanceof TransportError ? retag(sleepError, secrets, attempts, 503, idempotencyKey) : sleepError;
+            }
             continue;
           }
           prefetched = text;
@@ -435,17 +484,31 @@ export function createClient(options: ClientOptions): OctocoveClient {
       const requestId2 = scrub(response.headers.get('x-request-id') ?? undefined);
       const retryAfter = retryAfterOf(response.headers);
       const shownHeaders = headerRecord(response.headers, (v) => scrub(v));
+      const contract = shownContract(response.headers, secrets);
       const answered = (status: number, error?: ApiError) => emit(hooks.onResponse, { ...event(attempts), status, requestId: requestId2,
-        durationMs: Date.now() - started, retryAfter, headers: shownHeaders, code: error?.code, disposition: error?.disposition, outcome: error?.outcome });
+        durationMs: Date.now() - started, retryAfter, headers: shownHeaders, code: error?.code, disposition: error?.disposition, outcome: error?.outcome, contract });
       const fail = (error: ApiError): never => { answered(error.status, error); throw error; };
       // A redirect is never followed: a bound call refuses any 3xx, and every transport refuses an opaque redirect
       // (a browser's answer to redirect: 'manual', status 0) rather than reading it as an answer.
       if (response.type === 'opaqueredirect' || response.status === 0 || (transport.type === 'bound' && response.status >= 300 && response.status < 400)) {
         response.body?.cancel().catch(() => {});
+        // Never followed either way; a lock classifies it first, since the server may have acted.
+        if (accepted && !accepted.includes(response.headers.get('x-octocove-contract') ?? '')) {
+          throw new ContractMismatchError({ status: response.status, operationId, headers: shownHeaders, idempotencyKey, accepted });
+        }
         fail(new ApiError({ status: response.status, code: 'redirect-refused', detail: 'the bound transport never follows a redirect', requestId: requestId2, retryAfter,
           incomplete: true, operationId, headers: shownHeaders, idempotencyKey }));
       }
       const success = route.successStatuses.includes(response.status);
+      // An answer outside the lock is never a success or an ordinary refusal; the server's own contract refusals surface
+      // as themselves below.
+      const offLock = !!accepted && !accepted.includes(response.headers.get('x-octocove-contract') ?? '');
+      const mismatch = () => {
+        response.body?.cancel().catch(() => {});
+        return new ContractMismatchError({ status: response.status, operationId, headers: shownHeaders, idempotencyKey, accepted: accepted! });
+      };
+      // Only 412 and 503 can be the server's own contract refusal, so anything else outside the lock needs no body.
+      if (offLock && response.status !== 412 && response.status !== 503) throw mismatch();
       const media = route.responses[String(response.status)] ?? [];
       const binary = success && media.length > 0 && !media.some((m) => /json/.test(m));
       const expected = binary ? declaredLength(response.headers) : undefined;
@@ -485,7 +548,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
           cancel(reason) { reader?.cancel(reason).catch(() => {}); finish(); },
         });
         answered(response.status);
-        return { operationId, status: response.status, body: stream, headers: response.headers, requestId: requestId2, retryAfter, idempotencyKey, attempts, retry: retryClassFor(route) };
+        return { operationId, status: response.status, contract, body: stream, headers: response.headers, requestId: requestId2, retryAfter, idempotencyKey, attempts, retry: retryClassFor(route) };
       }
       let raw: string | ArrayBuffer;
       if (prefetched !== undefined) raw = prefetched;
@@ -493,6 +556,7 @@ export function createClient(options: ClientOptions): OctocoveClient {
         try {
           raw = await scope.guard<string | ArrayBuffer>(binary ? response.arrayBuffer() : response.text());
         } catch (error) {
+          if (offLock) throw mismatch();
           if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
           throw new TransportError('network-error', 'the response body could not be read', { cause: sanitizeCause(error, secrets), attempts, responseStatus: response.status, idempotencyKey });
         }
@@ -501,7 +565,8 @@ export function createClient(options: ClientOptions): OctocoveClient {
         throw truncated((raw as ArrayBuffer).byteLength, expected, attempts, response.status, idempotencyKey);
       }
       if (!success) {
-        fail(problemFromBody(response.status, raw as string, { requestId: requestId2, retryAfter, operationId, headers: shownHeaders, idempotencyKey }, scrub, scrubRaw));
+        if (offLock && !serverContractRefusal(response.status, raw as string)) throw mismatch();
+        fail(problemFromBody(response.status, raw as string, { requestId: requestId2, retryAfter, operationId, headers: shownHeaders, idempotencyKey, contract }, scrub, scrubRaw));
       }
       let parsed: unknown = raw;
       if (!binary) {
@@ -514,13 +579,22 @@ export function createClient(options: ClientOptions): OctocoveClient {
         }
       }
       answered(response.status);
-      return { operationId, status: response.status, body: parsed, headers: response.headers, requestId: requestId2, retryAfter, idempotencyKey, attempts, retry: retryClassFor(route) };
+      return { operationId, status: response.status, contract, body: parsed, headers: response.headers, requestId: requestId2, retryAfter, idempotencyKey, attempts, retry: retryClassFor(route) };
     } finally {
       if (!keepScope) scope.dispose();
     }
   }
 
-  const client = Object.freeze({ baseUrl: base, transport, call: call as OctocoveClient['call'] });
+  /** Over the configured origin, with no credential, and no redirect followed. */
+  async function requireCapabilities(requirement: ContractRequirement): Promise<ContractLock> {
+    const scope = new CallScope([options.signal], [options.deadline]);
+    try {
+      const response = await scope.guard(Promise.resolve().then(() => fetchImpl(`${base}/v1/meta`, { method: 'GET', headers: { accept: 'application/json' }, redirect: 'manual', signal: scope.signal, credentials: 'omit' })));
+      if (response.status !== 200) throw new ContractRefusedError(`the metadata answered HTTP ${response.status}`);
+      return lockFrom(await scope.guard(response.text()), requirement);
+    } finally { scope.dispose(); }
+  }
+  const client = Object.freeze({ baseUrl: base, transport, call: call as OctocoveClient['call'], requireCapabilities });
   hooksOfClient.set(client, hooks);
   return client;
 }

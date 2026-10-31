@@ -34,6 +34,8 @@ export interface ProblemClass {
   readonly endsAuthority?: true;
   /** The answer leaves the request's effect unknown (default: refused). */
   readonly unknown?: true;
+  /** A 5xx the server guarantees did nothing (default for a 5xx: unknown). */
+  readonly refused?: true;
 }
 
 const t = (area: ProblemArea, extra: Partial<ProblemClass> = {}): ProblemClass => Object.freeze({ area, disposition: 'terminal', ...extra });
@@ -162,6 +164,9 @@ export const PROBLEM_CODES: Readonly<Record<string, ProblemClass>> = Object.free
   'tenant-not-found': t('tenant'),
   'project-not-found': t('tenant'),
   'tenant-mismatch': t('tenant'),
+  'contract-mismatch': t('request'),
+  'contract-skew': r('request', { refused: true }),
+  'contract-skew-after-write': r('request', UNKNOWN),
   'org-creation-pending': r('tenant'),
   'route-unavailable': r('tenant', UNKNOWN),
 });
@@ -173,6 +178,6 @@ export function problemClass(code: string, status: number, details?: unknown): {
   const byStatus: Disposition = status === 401 ? 'reauth' : status === 408 || status === 425 || status === 429 || status >= 500 ? 'retryable' : 'terminal';
   const disposition: Disposition = flagged ? 'retryable' : known?.disposition ?? byStatus;
   // A success or redirect the client could not use (off-shape, refused redirect) may have been applied.
-  const outcome: Outcome = status < 400 || status >= 500 ? 'unknown' : known?.unknown ? 'unknown' : 'refused';
+  const outcome: Outcome = known?.refused ? 'refused' : status < 400 || status >= 500 ? 'unknown' : known?.unknown ? 'unknown' : 'refused';
   return { disposition, outcome, endsAttempt: known?.endsAttempt === true, endsAuthority: known?.endsAuthority === true };
 }

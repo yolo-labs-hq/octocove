@@ -1,3 +1,4 @@
+import type { ResponseContract } from "../../client/src/node.js";
 import { reserveBootstrap } from './bootstrap-output.js';
 import { globalOptions } from './globals.js';
 import { commandHelp } from "./command-help.js";
@@ -447,7 +448,7 @@ function report(d: Deps, err: unknown, json: boolean): number {
           ? "Run `octo task show TASK_ID` to inspect the active claim. Wait for its owner to release it, or ask a human to release it (`octo task release TASK_ID --claim ID`)."
           : undefined;
     emit(err.code, nextSteps ? err.code === "credential-expired" ? `credential-expired: ${nextSteps}` : `${err.message} ${nextSteps}` : err.message,
-      { status: err.status, requestId: err.requestId, details: err.details, ...(nextSteps ? { nextSteps, hint: nextSteps } : {}) });
+      { status: err.status, requestId: err.requestId, details: err.details, ...(err.contract ? { contract: err.contract } : {}), ...(nextSteps ? { nextSteps, hint: nextSteps } : {}) });
     if (!json && err.details) d.stderr(`details: ${JSON.stringify(err.details)}\n`);
     if (err.status === 503 && err.code === "oidc-registration-required") return EXIT.config;
     if (err.code === "usage") return EXIT.usage;
@@ -491,6 +492,7 @@ async function dispatch(d: Deps) {
   if (globals.org !== undefined) d = { ...d, org: globals.org };
   const [a = "", b, ...tail] = argv;
   if (globals.logJson) d = { ...d, hooks: logHooks(d) };
+  else if (globals.flags.includes("--verbose")) d = { ...d, hooks: contractHooks(d) };
   if (a === "events" && b?.startsWith("--")) {
     await eventsFollow(d, [...lead,b,...tail]);
     return;
@@ -515,6 +517,12 @@ const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
  */
 const credentialOf = (d: Deps, creds: Credentials): NonNullable<ConstructorParameters<typeof Api>[0]["credential"]> =>
   !d.credentials && (creds.kind === "human" || creds.kind === "agent") ? { token: cliCredential(d.env, creds, d.fetch), kind: creds.kind } : creds;
+
+/** `--verbose`: which published contract answered each call, on stderr. */
+const contractHooks = (d: Deps) => ({
+  onResponse: (e: { operationId: string; status: number; contract: ResponseContract | null }) =>
+    d.stderr(`octo: ${e.operationId} HTTP ${e.status}: contract ${e.contract?.id ?? "none"}, meta ${e.contract?.meta ?? "none"}, revision ${e.contract?.revision ?? "none"}\n`),
+});
 
 /** `--log-json`: one JSON line per client event on stderr. Events are redacted by the client: no token, cookie or body. */
 const logHooks = (d: Deps): ClientHooks => ({
