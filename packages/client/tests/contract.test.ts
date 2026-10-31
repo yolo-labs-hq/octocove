@@ -88,6 +88,14 @@ describe('a locked client', () => {
     expect(await (await locked(async () => nested)).call('taskGet', taskCall as never).catch((e) => e)).toBeInstanceOf(ContractMismatchError);
     expect(await (await locked(async () => problem('contract-skew', 403, named(undefined)))).call('taskGet', taskCall as never).catch((e) => e)).toBeInstanceOf(ContractMismatchError);
   });
+  it('classifies a refused redirect outside the lock as a mismatch, and follows nothing', async () => {
+    const lock = await clientOf(async () => new Response(meta())).requireCapabilities({ operations: { laneChangesSubmit: [CONTRACT_TABLE.operations.laneChangesSubmit!.supported[0]!] } });
+    const fetch = vi.fn(async () => new Response(null, { status: 307, headers: { location: 'https://elsewhere.test/' } }));
+    const client = createClient({ baseUrl: 'https://api.test', transport: { type: 'bound' } as never, fetch, contract: lock });
+    const error = await client.call('laneChangesSubmit', { path: { orgId: org, id: 't1' }, body: {} } as never).catch((e) => e);
+    expect(error).toBeInstanceOf(ContractMismatchError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it('asks for no replacement credential on an answer outside the lock', async () => {
     const refresh = vi.fn(async () => 'second');
     const fetch = vi.fn(async () => problem('credential-expired', 401, named(undefined)));

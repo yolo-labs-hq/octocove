@@ -491,6 +491,10 @@ export function createClient(options: ClientOptions): OctocoveClient {
       // (a browser's answer to redirect: 'manual', status 0) rather than reading it as an answer.
       if (response.type === 'opaqueredirect' || response.status === 0 || (transport.type === 'bound' && response.status >= 300 && response.status < 400)) {
         response.body?.cancel().catch(() => {});
+        // Never followed either way; a lock classifies it first, since the server may have acted.
+        if (accepted && !accepted.includes(response.headers.get('x-octocove-contract') ?? '')) {
+          throw new ContractMismatchError({ status: response.status, operationId, headers: shownHeaders, idempotencyKey, accepted });
+        }
         fail(new ApiError({ status: response.status, code: 'redirect-refused', detail: 'the bound transport never follows a redirect', requestId: requestId2, retryAfter,
           incomplete: true, operationId, headers: shownHeaders, idempotencyKey }));
       }
