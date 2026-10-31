@@ -358,6 +358,16 @@ export const redelegationCases: Case[] = [
     equal([(await late.step({ redelegate: true })).action, gone.server.requests.length], ['expired', 0]);
   }),
 
+  test('session: a second holder that waited out a re-delegation reads the plan again inside the lock and starts no second re-arm', async () => {
+    const w = world();
+    const [first, second] = await Promise.all([sessionOf(w).step(), sessionOf(w).step()]);
+    equal([first.action, second.action, w.server.count('claimAuthorize'), w.server.count('taskClaim')], ['redelegated', 'none', 1, 1]);
+    equal(w.store.current!.token, w.claim.token);
+    // Forced, it re-arms all the same.
+    equal((await sessionOf(w).step({ redelegate: true })).action, 'redelegated');
+    equal(w.server.count('claimAuthorize'), 2);
+  }),
+
   // ---- the bound transport ----
   test('bound transport: the re-arm and the switch are refused before sending, by the journeys and by the client', async () => {
     const { fetch, calls } = scriptedFetch();

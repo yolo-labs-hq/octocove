@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Client: `runnerSession` reads the plan again inside the store's lock before a re-arm it was not forced to make, so
+  a second holder that waited out another's re-delegation starts no redundant re-arm.
+- Client docs: while a re-delegation holds the store's lock, an agent-process renewal can time out with a retryable
+  `credential-store-busy`; its token stays usable until it expires.
+
 ## CLI 0.22.0 and client 0.22.0
 
 Release `@yolo-labs/octocove` 0.22.0 and `@yolo-labs/octocove-client` 0.22.0: long-running runs. A live claim is
