@@ -1410,6 +1410,28 @@ describe("publication guidance", () => {
 });
 
 describe("merit", () => {
+  it("review reads a file and submits it as the lane's agent; evaluate requests the evaluation", async () => {
+    const agent = { kind: "agent" } as const;
+    const file = join(repo, "review.json");
+    writeFileSync(file, JSON.stringify({ verdict: "approve", schemaVersion: 1 }));
+    routes["POST /candidates/C1/merit-reviews"] = () => json(201, { id: "mrv-1", candidateId: "C1", taskId: "T1", seq: 1, attempt: 1, attemptsRemaining: 2, meritState: "scoring", reasons: [], evidenceSet: { count: 1, reviewIds: ["mrv-1"] }, scoreId: null });
+    routes["POST /candidates/C1/merit-evaluations"] = () => json(202, { id: "mer-1", candidateId: "C1", taskId: "T1", status: "requested", evidenceSet: { count: 1, reviewIds: ["mrv-1"], digest: "sha256:x" }, requestedAt: "2030-01-01T00:00:00.000Z" });
+    expect(await cli(["merit", "review", "C1", "--file", file], agent)).toBe(0);
+    expect(calls.at(-1)!.body).toEqual({ verdict: "approve", schemaVersion: 1 });
+    expect(outText).toContain("octo merit evaluate C1");
+    expect(await cli(["merit", "evaluate", "C1"], agent)).toBe(0);
+    expect(outText).toContain("requested");
+  });
+  it("review and evaluate refuse a human before any request, and a bad file before any credential", async () => {
+    const file = join(repo, "bad.json");
+    writeFileSync(file, "not json");
+    const before = calls.length;
+    expect(await cli(["merit", "review", "C1", "--file", file], { kind: "human" })).not.toBe(0);
+    expect(errText).toContain("is not JSON");
+    expect(await cli(["merit", "evaluate", "C1"], { kind: "human" })).not.toBe(0);
+    expect(errText).toContain("requires the agent delegation");
+    expect(calls.length).toBe(before);
+  });
   const fixture = () => JSON.parse(readFileSync(new URL("./fixtures/merit/policy-get.json", import.meta.url), "utf8"));
   const human = { kind: "human" } as const;
   const problem = (status: number, code: string, extra: object = {}) =>
