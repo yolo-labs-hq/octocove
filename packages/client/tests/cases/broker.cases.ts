@@ -44,7 +44,7 @@ export const brokerCases: Case[] = [
     try { createClient({ baseUrl: 'https://broker.test', transport: bound() }); } catch (error) { threw = error instanceof TypeError; }
     ok(threw, 'an injected fetch is required');
   }),
-  test('bound transport refuses before sending: a per-call credential, credential-issuing and authority-changing operations, and every non-delegation route', async () => {
+  test('bound transport refuses before sending: a per-call credential, credential-issuing and authority-changing operations (re-arm and switch included), and every non-delegation route', async () => {
     const { fetch, calls } = scriptedFetch();
     const c = createClient({ baseUrl: 'https://broker.test', transport: bound(), fetch }) as unknown as { call: (id: string, input: unknown) => Promise<unknown> };
     const task = { path: { orgId: ORG, id: 'T1' }, body: {} };
@@ -53,6 +53,9 @@ export const brokerCases: Case[] = [
       ['laneExecutionBegin', task], ['laneGenerationCreate', { path: { orgId: ORG, id: 'T1' }, body: { kind: 'base-refreshed' } }],
       ['delegationRenew', { path: { orgId: ORG, id: 'D1' } }], ['delegationRevoke', { path: { orgId: ORG, id: 'D1' } }],
       ['approvalGrantExchange', { path: { orgId: ORG }, body: {} }], ['laneReopen', task], ['claimAuthorize', task], ['taskClaim', task],
+      // Re-delegation: the re-arm (an authorization naming the live claim) and the switch (its bootstrap redeemed).
+      ['claimAuthorize', { path: { orgId: ORG, id: 'T1' }, body: { claimAttemptId: 'cla_1', agentId: 'agent-1', verbs: ['tasks:read'], expiresAt: '2030-01-01T00:00:00Z' } }],
+      ['taskClaim', { path: { orgId: ORG, id: 'T1' }, body: { intentVersion: 1 }, credential: bearer({ token: 'rearm-bootstrap-fixture-0123456789', kind: 'bootstrap' }) }],
       ['meSessionsList', {}], ['sessionRenew', {}], ['authLogout', {}], ['authCliExchange', { body: {} }], ['taskCreate', { path: { orgId: ORG }, body: {} }],
     ];
     for (const [operationId, input] of refused) {

@@ -6,14 +6,15 @@ import { canonicalReadUrl } from "./human-git.js";
 import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
-import { humanSessionFetch, cliCredential } from "./session.js";
+import { realpath } from "node:fs/promises";
+import { humanSessionFetch, cliCredential, cliStore, agentInstants } from "./session.js";
 import { machineCommand } from "./machine.js";
 import { handover as handoverLane, hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
 import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
+import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, runnerSession, fileRedelegationJournal, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -106,6 +107,8 @@ Commands:
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
   auth renew                                  (rotate active session or delegation)
   auth revoke [DELEGATION_ID]                  (revoke delegation; defaults to active one)
+  auth delegations [--limit N] [--cursor C]   (human: the agent grants you authorized, with each ceiling, claim cap and re-delegation count)
+  auth redelegate TASK --agent-config DIR [--expires-at TIME] [--verbs a,b]  (human, the claim's authorizer: extend a live claim past its ceiling, up to its 72-hour cap; the agent's credential in DIR is replaced)
   task list --project ID [--status S] [--cursor C] [--limit N]
   task show ID
   task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON
@@ -813,7 +816,9 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
       // (privately, like a claim's), and every later request of this command presents it.
       handover = await handoverLane(api, pos[0]!, options);
       if (handover.delegation) {
-        const next: Credentials = { ...creds, token: handover.delegation.token, delegationId: handover.delegation.delegationId, expiresAt: handover.delegation.expiresAt, issuedAt: new Date().toISOString() };
+        const h = handover.delegation;
+        const next: Credentials = { ...creds, token: h.token, delegationId: h.delegationId, expiresAt: h.expiresAt, issuedAt: new Date().toISOString(),
+          ...(h.ceilingAt ? { ceilingAt: h.ceilingAt } : {}), ...(h.claimExpiresAt ? { claimExpiresAt: h.claimExpiresAt } : {}) };
         credentialsFile = await saveCredentials(d.env, next);
         lane = connect(d, next);
       }
@@ -887,13 +892,14 @@ async function claimTask(d: Deps, taskId: string, v: Record<string, any>) {
   const claim = claimOf(issued.claim);
   const delegation = issued.delegation;
   // A successful claim consumes the bootstrap: its replacement is saved before anything else happens.
+  // The delegation names its own ceiling (moved only by a re-delegation) and the claim's cap.
   const credentialsFile = await saveCredentials(d.env, { apiUrl: creds.apiUrl, orgId: creds.orgId, token: delegation.token, kind: "agent", delegationId: delegation.delegationId, expiresAt: delegation.expiresAt,
-    issuedAt: new Date().toISOString(), ...(creds.absoluteExpiresAt ? { absoluteExpiresAt: creds.absoluteExpiresAt } : {}),
-    ...(typeof claim.expiresAt === "string" ? { claimExpiresAt: claim.expiresAt } : {}), ...(creds.agentId ? { agentId: creds.agentId } : {}) });
+    issuedAt: new Date().toISOString(), ...(delegation.ceilingAt ? { ceilingAt: delegation.ceilingAt } : {}), ...(delegation.claimExpiresAt ? { claimExpiresAt: delegation.claimExpiresAt } : {}),
+    ...(creds.agentId ? { agentId: creds.agentId } : {}) });
   const lane = isRecord(claim.lane) ? claim.lane : undefined;
   const granted = isRecord(lane?.scope) ? lane!.scope as { read?: string[]; write?: string[] } : { read, write };
   // Never expose the access token, even in JSON output.
-  const shown = { claim, delegation: { delegationId: delegation.delegationId, tokenType: "Bearer", expiresAt: delegation.expiresAt, revocationId: delegation.revocationId }, credentialsFile };
+  const shown = { claim, delegation: { delegationId: delegation.delegationId, tokenType: "Bearer", expiresAt: delegation.expiresAt, ceilingAt: delegation.ceilingAt, claimExpiresAt: delegation.claimExpiresAt, revocationId: delegation.revocationId }, credentialsFile };
   // A reopened lane is rebased onto its landing before it is ready; lane materialize resumes that and waits for it.
   const pending = claim.provisioningState === "pending";
   out(d, v.json, shown, () => kv([["Claim", claim.id], ["Task", taskId], ["Agent", creds.agentId], ["Expires", claim.expiresAt], ["Generation", lane?.generation], ["Base", lane?.baseSha], ["Scope version", lane?.scopeVersion],
@@ -1068,13 +1074,113 @@ const COMMANDS: Record<string, Handler> = {
       return;
     }
     const options = api.write(AUTH_RECOVERY_SECONDS, v["idempotency-key"]);
-    const current: AgentDelegation = { kind: "agent-delegation", token: creds.token, delegationId: creds.delegationId!, revocationId: "", expiresAt: "" };
+    const current = { token: creds.token, delegationId: creds.delegationId!, ...agentInstants(creds) };
     const renewed = await (creds.kind === "human" ? api.root.auth.session.renew(options) : api.j.auth.delegation.renew(current, options))
       .catch(offShapeAs("renewal did not return a credential"));
     const token = renewed.kind === "agent-delegation" ? renewed.token : renewed.transport === "bearer" ? renewed.token : undefined;
     if (typeof token !== "string" || !token) throw new ConfigError("renewal did not return a credential");
-    const credentialsFile = await saveCredentials(d.env, { ...creds, token, expiresAt: renewed.expiresAt, issuedAt: new Date().toISOString() });
+    const { ceilingAt: _ceiling, claimExpiresAt: _cap, ...base } = creds;
+    const instants = renewed.kind === "agent-delegation" ? { ...(renewed.ceilingAt ? { ceilingAt: renewed.ceilingAt } : {}), ...(renewed.claimExpiresAt ? { claimExpiresAt: renewed.claimExpiresAt } : {}) }
+      : { ...(creds.ceilingAt ? { ceilingAt: creds.ceilingAt } : {}), ...(creds.claimExpiresAt ? { claimExpiresAt: creds.claimExpiresAt } : {}) };
+    const credentialsFile = await saveCredentials(d.env, { ...base, token, expiresAt: renewed.expiresAt, ...instants, issuedAt: new Date().toISOString() });
     out(d, v.json, { renewed: true, kind: creds.kind, delegationId: creds.delegationId, expiresAt: renewed.expiresAt, credentialsFile }, () => "Credential renewed and saved privately.");
+  },
+
+  "auth delegations": async (d, args) => {
+    const { v } = opts(args, { limit: { type: "string" }, cursor: { type: "string" } }, 0);
+    const { api, creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("auth delegations requires a human credential: it lists the agent grants you authorized");
+    const page = await api.root.auth.delegations.list({ ...api.until(Date.now() + READ_SECONDS * 1000), limit: intFlag(v, "limit"), cursor: v.cursor })
+      .catch(offShapeAs("delegations did not return a page"));
+    out(d, v.json, page, () => [
+      ...(page.items.length ? page.items.map((g) => kv([["Delegation", g.id], ["Agent", g.agent], ["Org", g.tenantId], ["Task", g.taskId], ["Status", g.status], ["Verbs", g.verbs.join(",")],
+        ["Ceiling", g.ceilingAt ?? g.expiresAt], ["Claim cap", g.claimExpiresAt ?? "(not granted yet)"], ["Re-delegations", g.redelegations ?? 0]])) : ["No delegations."]),
+      ...(page.partial ? [`Partial: ${page.unavailableTenants.map((t) => t.tenantId).join(", ")} could not be read.`] : []),
+      ...(page.nextCursor ? [`More: octo auth delegations --cursor ${page.nextCursor}`] : []),
+    ].join("\n\n"));
+  },
+
+  "auth redelegate": async (d, args) => {
+    const { v, pos } = opts(args, { "agent-config": { type: "string" }, "expires-at": { type: "string" }, verbs: { type: "string" } }, 1);
+    const taskId = pos[0]!;
+    if (v["idempotency-key"]) throw new UsageError("auth redelegate journals its own keys: run the same command again to resume an interrupted re-delegation");
+    const expiresAt: string | undefined = v["expires-at"];
+    if (expiresAt !== undefined && !Number.isFinite(Date.parse(expiresAt))) throw new UsageError("--expires-at must be an ISO 8601 time");
+    const { creds } = await client(d);
+    if (creds.kind !== "human") throw new HumanRequiredError("auth redelegate requires a human credential: only the claim's original authorizer re-arms it");
+    // The agent's config directory holds the delegation the switch replaces; the new credential is written there.
+    // Same host and OS user only: the human writes the agent's credential file directly. A remote or brokered agent is
+    // re-delegated by its credential broker (the client's runnerSession), not by this command.
+    const agentEnv: NodeJS.ProcessEnv = { ...d.env, OCTOCOVE_CONFIG_DIR: resolve(need(v, "agent-config")) };
+    const real = (path: string) => realpath(path).catch(() => resolve(path));
+    if (await real(configDir(agentEnv)) === await real(configDir(d.env))) throw new UsageError("--agent-config must be the agent's own config directory, not yours");
+    const agent = await activeCredentials(agentEnv);
+    if (!agent || agent.kind !== "agent" || !agent.delegationId || !agent.orgId) throw new ConfigError("--agent-config must be the config directory holding the claim's agent delegation (claim the task there first)");
+    if (new URL(agent.apiUrl).origin !== new URL(creds.apiUrl).origin) throw new ConfigError("the agent delegation belongs to another API origin");
+    if (d.org !== undefined && d.org !== agent.orgId) throw new ConfigError(`the agent delegation belongs to org ${agent.orgId}, not ${d.org}`);
+    const api = connect(d, creds, agent.orgId);
+    // The claim: the task's lane names its attempt; your delegations name its agent and the verbs in force.
+    const task = (await api.call("taskGet", { path: { id: taskId }, deadline: Date.now() + READ_SECONDS * 1000 })).body;
+    const claimAttemptId = isRecord(task?.lane) && typeof task.lane.claimAttemptId === "string" ? task.lane.claimAttemptId : undefined;
+    if (!claimAttemptId) throw new ConfigError(`task ${taskId} has no live claim to re-delegate`);
+    const intentVersion = Number.isInteger(task?.intentVersion) && task.intentVersion >= 1 ? task.intentVersion as number : undefined;
+    if (intentVersion === undefined) throw new ConfigError(`task ${taskId} did not report its intent version`);
+    let grant;
+    for (let cursor: string | undefined, pages = 0; !grant && pages < 20; pages++) {
+      const page = await api.root.auth.delegations.list({ ...api.until(Date.now() + READ_SECONDS * 1000), limit: 200, cursor }).catch(offShapeAs("delegations did not return a page"));
+      grant = page.items.find((g) => g.id === agent.delegationId);
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+    if (!grant || grant.taskId !== taskId) throw new ConfigError(`delegation ${agent.delegationId} is not one you authorized on task ${taskId}; only its original authorizer re-delegates it`);
+    const verbs = v.verbs ? String(v.verbs).split(",").map((x: string) => x.trim()).filter(Boolean) : grant.verbs;
+    const session = runnerSession({
+      claim: { taskId, claimAttemptId, agentId: grant.agent, verbs, intentVersion },
+      store: cliStore(agentEnv),
+      journal: fileRedelegationJournal(join(configDir(d.env), "redelegations")),
+      // The re-arm as you, then the switch with its bootstrap; the session keeps both keys and the bootstrap.
+      redelegate: {
+        rearm: (r, c) => api.j.claims.rearm(r.taskId, { ...r.body, verbs: r.body.verbs as never }, { ...api.write(AUTHORIZE_SECONDS, c.idempotencyKey), signal: c.signal ?? d.signal }),
+        switch: (r, c) => api.j.claims.switch(r.taskId, { bootstrapToken: r.bootstrapToken, intentVersion: r.intentVersion, claimAttemptId: r.claimAttemptId, delegationId: r.delegationId }, { ...api.write(BOOTSTRAP_CLAIM_SECONDS, c.idempotencyKey), signal: c.signal ?? d.signal }),
+      },
+      instants: (c) => { const i = agentInstants(c); return { expiresAt: c.expiresAt ?? new Date(0).toISOString(), ceilingAt: i.ceilingAt ?? c.absoluteExpiresAt, claimExpiresAt: i.claimExpiresAt }; },
+      adopt: (current, next) => {
+        if (!current || current.kind !== "agent" || current.delegationId !== next.delegationId) throw new ConfigError("the agent config directory now holds another credential; nothing was overwritten");
+        const ceilingAt = next.ceilingAt ?? agentInstants(current).ceilingAt, claimExpiresAt = next.claimExpiresAt ?? agentInstants(current).claimExpiresAt;
+        const { ceilingAt: _ceiling, claimExpiresAt: _cap, ...base } = current;
+        return { ...base, token: next.token, expiresAt: next.expiresAt, issuedAt: new Date().toISOString(), ...(ceilingAt ? { ceilingAt } : {}), ...(claimExpiresAt ? { claimExpiresAt } : {}),
+          ...(current.absoluteExpiresAt && ceilingAt ? { absoluteExpiresAt: ceilingAt } : {}) };
+      },
+      ...(expiresAt ? { ceiling: () => new Date(expiresAt).toISOString() } : {}),
+    });
+    const pending = await session.pending();
+    // A refusal recorded by an earlier run was already reported; this run asks again under a new key.
+    if (pending?.step === "refused") {
+      d.stderr(`An earlier re-delegation of ${taskId} was refused (${pending.refusal?.code ?? "refused"}); asking again under a new key.\n`);
+      await session.discard();
+    }
+    else if (pending) d.stderr(`Resuming the interrupted re-delegation of ${taskId} (its original expiry ${pending.rearm.body.expiresAt} and verbs).\n`);
+    let step = await session.step({ redelegate: true, signal: d.signal });
+    // A retryable conflict (a renewal raced the switch) or a restart is stepped again at once, a few times.
+    for (let n = 0; n < 3 && (step.action === "restart" || (step.action === "kept" && step.outcome === "refused" && step.at - Date.now() <= 5000)); n++) {
+      if (step.action === "kept") await api.pause(Math.max(0, step.at - Date.now()));
+      step = await session.step({ redelegate: true, signal: d.signal });
+    }
+    if (step.action === "refused") {
+      await session.discard();
+      if (step.error) throw step.error;
+      throw new ConfigError(`re-delegation refused: ${step.refusal.code}`);
+    }
+    if (step.action === "kept" || step.action === "restart") {
+      if (step.action !== "restart" && step.error) throw step.error;
+      throw new PendingError(`re-delegation of ${taskId} is still in progress; run the same command again${step.action === "kept" ? ` after ${new Date(step.at).toISOString()}` : ""} to resume it`);
+    }
+    if (step.action === "expired") throw new ConfigError(`the claim's authorization ended at ${new Date(step.at).toISOString()}; nothing can extend it: authorize the agent again`);
+    if (step.action !== "redelegated") throw new ConfigError(`re-delegation did not run (${step.action})`);
+    const result = { redelegated: true, taskId, claimAttemptId, delegationId: step.delegation.delegationId, redelegations: step.redelegations, expiresAt: step.delegation.expiresAt,
+      ceilingAt: step.delegation.ceilingAt, claimExpiresAt: step.delegation.claimExpiresAt, credentialsFile: join(configDir(agentEnv), "credentials", "cli.json") };
+    out(d, v.json, result, () => kv([["Task", taskId], ["Delegation", result.delegationId], ["Re-delegations", result.redelegations], ["Ceiling", result.ceilingAt], ["Claim cap", result.claimExpiresAt],
+      ["Token expires", result.expiresAt], ["Credentials", `${result.credentialsFile} (the agent's previous token is refused from now on)`]]));
   },
 
   "auth revoke": async (d, args) => {

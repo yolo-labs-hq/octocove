@@ -103,7 +103,7 @@ export interface LaneWrapUpResult {
 export interface LaneResolveResult { path: string; kept: 'local' | 'incoming'; remaining: string[] }
 export interface LanePatchResult { patch: string; files: string[]; skipped: string[]; conflicts: string[] }
 /** The delegation a handover returned, bound to the new execution. A secret: store it privately, never print it. */
-export interface LaneHandoverDelegation { delegationId: string; token: string; expiresAt: string; revocationId: string }
+export interface LaneHandoverDelegation { delegationId: string; token: string; expiresAt: string; revocationId: string; /** The authorization's ceiling and the claim's cap, as the credential names them. */ ceilingAt?: string; claimExpiresAt?: string }
 export interface LaneHandoverResult { executionId: string; supersededExecutionId: string | null; generation: number; laneHead: string | null; delegation: LaneHandoverDelegation | null }
 
 export interface LanesOptions {
@@ -657,7 +657,8 @@ export function createLanes(options: LanesOptions): Lanes {
       const c = r.delegation;
       if (c !== undefined && (!isRecord(c) || typeof c.accessToken !== 'string' || !c.accessToken || typeof c.delegationId !== 'string' || typeof c.expiresAt !== 'string' || typeof c.revocationId !== 'string'))
         throw unusable('the handover returned an invalid delegation');
-      const delegation = c ? { delegationId: c.delegationId as string, token: c.accessToken as string, expiresAt: c.expiresAt as string, revocationId: c.revocationId as string } : null;
+      const delegation = c ? { delegationId: c.delegationId as string, token: c.accessToken as string, expiresAt: c.expiresAt as string, revocationId: c.revocationId as string,
+        ...(typeof c.ceilingAt === 'string' ? { ceilingAt: c.ceilingAt } : {}), ...(typeof c.claimExpiresAt === 'string' ? { claimExpiresAt: c.claimExpiresAt } : {}) } : null;
       return { executionId: r.executionId as string, supersededExecutionId: typeof r.supersededExecutionId === 'string' ? r.supersededExecutionId : null,
         generation: r.generation as number, laneHead: isSha(r.laneHead) ? r.laneHead : null, delegation };
     });

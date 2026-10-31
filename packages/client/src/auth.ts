@@ -4,7 +4,7 @@
  * character Idempotency-Key (the client's `oc-` + 32 hex = 35 characters).
  */
 import { isTenantId, newIdempotencyKey, type OctocoveClient, type OpenEnums, type TenantClient } from './client.js';
-import type { AgentDelegation, HumanSession } from './credentials.js';
+import { delegationFromWire, withInstants, type AgentDelegation, type HumanSession } from './credentials.js';
 import { ApiError, TransportError } from './errors.js';
 import type { components } from './generated/openapi.js';
 import {
@@ -384,7 +384,7 @@ export function authJourneys(client: OctocoveClient) {
 
 
   const delegations = {
-    /** `meDelegationsList` (`GET /v1/me/delegations`, a global route): one page of the agent grants the human caller authorized in every tenant, newest first; each item names its `tenantId`, and `partial`/`unavailableTenants` name the tenants that could not be read. */
+    /** `meDelegationsList` (`GET /v1/me/delegations`, a global route): one page of the agent grants the human caller authorized in every tenant, newest first; each item names its `tenantId`, and `partial`/`unavailableTenants` name the tenants that could not be read. Each item carries the authorization's `ceilingAt` (moved only by a re-delegation), the claim's `claimExpiresAt` cap (`null` until the claim is granted) and `redelegations` (switches so far). */
     async list(options: JourneyOptions & { readonly limit?: number; readonly cursor?: string }): Promise<MeDelegationsPage> {
       const scope = journeyScope(options);
       try {
@@ -425,17 +425,19 @@ export type AuthJourneys = ReturnType<typeof authJourneys>;
  */
 export function tenantAuthJourneys(client: TenantClient) {
   const delegation = {
-    /** `delegationRenew` with the same predecessor-credential recovery; the replacement is adopted into `slot`. */
-    async renew(current: AgentDelegation, options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<AgentDelegation> {
+    /**
+     * `delegationRenew` with the same predecessor-credential recovery; the replacement is adopted into `slot`. A renewal
+     * rotates the token inside the ceiling: it never moves `ceilingAt` or `claimExpiresAt` (only a re-delegation does),
+     * so an answer without them carries over those of `current`.
+     */
+    async renew(current: Pick<AgentDelegation, 'token' | 'delegationId' | 'ceilingAt' | 'claimExpiresAt'>, options: CommandOptions & { readonly slot?: CredentialSlot }): Promise<AgentDelegation> {
       const scope = journeyScope(options);
       try {
         const response = await send(client, scope, options, 'delegationRenew', { path: { id: current.delegationId } },
           { idempotencyKey: authKey(options.idempotencyKey), credential: bearer({ token: options.slot?.token ?? current.token, kind: 'delegation' }) });
-        const d: unknown = response.body;
-        if (!isObject(d) || !isString(d.accessToken) || !isString(d.delegationId) || !isString(d.expiresAt) || !isString(d.revocationId)) {
-          throw offShape(response, 'the renewal response is not a delegation credential');
-        }
-        const renewed: AgentDelegation = Object.freeze({ kind: 'agent-delegation', token: d.accessToken, delegationId: d.delegationId, revocationId: d.revocationId, expiresAt: d.expiresAt });
+        const wire = delegationFromWire(response.body);
+        if (!wire) throw offShape(response, 'the renewal response is not a delegation credential');
+        const renewed = withInstants(wire, current);
         options.slot?.adopt(renewed.token);
         return renewed;
       } finally { scope.dispose(); }

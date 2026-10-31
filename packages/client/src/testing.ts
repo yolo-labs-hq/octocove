@@ -9,7 +9,9 @@
  *   delegations, and implements the lane routes over the files a lane holds (task read, materialize, manifest,
  *   blob read and upload, a real Git pack, save point, base refresh, wrap-up).
  *   Faults are injected per operation: a lost answer after the server applied the request, a truncated body, or
- *   any answer or thrown error.
+ *   any answer or thrown error. `claim()` seeds a live claim for re-delegation: the re-arm (`claimAuthorize` with
+ *   `claimAttemptId`), the switch (`taskClaim` with the re-arm's bootstrap) and `meDelegationsList`, with the
+ *   ceiling, the 72-hour cap and their refusals.
  * - `fakeBroker(server)`: a credential broker in front of it. A runner gets an opaque handle; `broker.fetch(handle)`
  *   is the fetch to inject into a client on the bound transport. Each request is checked against the handle's
  *   grant (task, operations, write paths, expiry, revocation) and refused without an upstream call, or forwarded
@@ -30,7 +32,7 @@ export interface Recorded {
   readonly headers: Record<string, string>;
   readonly body: string | undefined;
   readonly signal: AbortSignal | undefined;
-  readonly credentials: RequestCredentials | undefined;
+  readonly credentials: RequestInit['credentials'] | undefined;
 }
 
 export type ScriptStep = Response | Error | ((request: Recorded) => Response | Promise<Response>);
@@ -183,6 +185,37 @@ export interface FakeCredential {
   readonly delegationId?: string;
   expiresAt: number;
   revoked: boolean;
+  /** A delegation's authorization ceiling and claim cap (epoch ms); renewals keep both. */
+  ceilingAt?: number;
+  claimExpiresAt?: number;
+}
+
+/** A live claim the fake can re-delegate (see `FakeServer.claim`). */
+export interface FakeClaim {
+  readonly taskId: string;
+  readonly claimAttemptId: string;
+  readonly delegationId: string;
+  readonly agentId: string;
+  /** The human who authorized it: only they may re-arm it. */
+  readonly authorizer: string;
+  verbs: string[];
+  /** The authorization's ceiling in force and the claim's cap, epoch ms. */
+  ceilingAt: number;
+  readonly claimExpiresAt: number;
+  /** Switches so far. */
+  redelegations: number;
+  /** The delegation token in force. */
+  token: string;
+  active: boolean;
+  /** The latest re-arm: its bootstrap, the ceiling and verbs it arms, and, once redeemed, the switch it made. */
+  rearm?: {
+    readonly bootstrap: string;
+    readonly expiresAt: number;
+    readonly ceilingAt: number;
+    readonly verbs: string[];
+    readonly redelegations: number;
+    switched?: { readonly key: string; readonly digest: string; readonly token: string; readonly body: string };
+  };
 }
 
 export interface FakeRequest {
@@ -259,13 +292,22 @@ export interface FakeServer {
   /** Drops the faults still queued (for `operationId`, or all). */
   clear(operationId?: OperationId): FakeServer;
   /** Issues a bearer the fake accepts. */
-  issue(options?: { readonly kind?: FakeCredentialKind; readonly token?: string; readonly expiresInMs?: number; readonly taskId?: string; readonly delegationId?: string; readonly principalId?: string }): FakeCredential;
+  issue(options?: { readonly kind?: FakeCredentialKind; readonly token?: string; readonly expiresInMs?: number; readonly taskId?: string; readonly delegationId?: string; readonly principalId?: string;
+    /** A delegation's ceiling and claim cap, epoch ms (default 8 h and 72 h from now); its expiry never passes the ceiling. */
+    readonly ceilingAt?: number; readonly claimExpiresAt?: number }): FakeCredential;
   expire(token: string): void;
   revoke(token: string): void;
   /** Creates (or returns) a lane for `taskId`, holding `files` at its first lane head. */
   lane(taskId: string, options?: { readonly pack?: Uint8Array; readonly materialized?: boolean; readonly files?: Readonly<Record<string, FakeFileInput>>; readonly scope?: { read: string[]; write: string[] } }): FakeLane;
   /** Requests of `operationId` that reached the fake. */
   count(operationId: OperationId): number;
+  /**
+   * Seeds a live claim on `taskId` and its delegation token: `ceilingInMs` (default 8 h) and `capInMs` (default 72 h)
+   * from now, authorized by `authorizer` (default `human-1`, the principal of an issued session).
+   */
+  claim(taskId: string, options?: { readonly agentId?: string; readonly verbs?: readonly string[]; readonly authorizer?: string; readonly ceilingInMs?: number; readonly capInMs?: number }): { readonly claim: FakeClaim; readonly delegation: FakeCredential };
+  /** Claims seeded with `claim()`, by claim attempt id. */
+  readonly claims: ReadonlyMap<string, FakeClaim>;
 }
 
 export function fakeServer(options: FakeServerOptions = {}): FakeServer {
@@ -277,6 +319,9 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
   const faults = new Map<string, FakeFault[]>();
   const credentials = new Map<string, FakeCredential>();
   const lanes = new Map<string, FakeLane>();
+  const claims = new Map<string, FakeClaim>();
+  const HOUR = 3_600_000;
+  const iso = (t: number) => new Date(t).toISOString();
   /** Keyed answers: operation, credential principal and key → the body digest and the recorded answer. */
   const recorded = new Map<string, { readonly digest: string; readonly status: number; readonly body: string; readonly type: string }>();
 
@@ -292,10 +337,24 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
     clear(operationId) { if (operationId) faults.delete(operationId); else faults.clear(); return server; },
     issue(o = {}) {
       const kind = o.kind ?? 'delegation';
+      const delegation = kind === 'delegation';
+      const ceilingAt = delegation ? o.ceilingAt ?? now() + 8 * HOUR : undefined;
+      const expiresAt = now() + (o.expiresInMs ?? 15 * 60_000);
       const credential: FakeCredential = { token: o.token ?? `fake-${kind}-${randomHex(12)}`, kind, principalId: o.principalId ?? (kind === 'session' ? 'human-1' : 'agent-1'),
-        taskId: o.taskId, delegationId: o.delegationId ?? (kind === 'delegation' ? id('dlg') : undefined), expiresAt: now() + (o.expiresInMs ?? 15 * 60_000), revoked: false };
+        taskId: o.taskId, delegationId: o.delegationId ?? (delegation ? id('dlg') : undefined), expiresAt: ceilingAt === undefined ? expiresAt : Math.min(expiresAt, ceilingAt), revoked: false,
+        ...(delegation ? { ceilingAt, claimExpiresAt: o.claimExpiresAt ?? now() + 72 * HOUR } : {}) };
       credentials.set(credential.token, credential);
       return credential;
+    },
+    claims,
+    claim(taskId, o = {}) {
+      const ceilingAt = now() + (o.ceilingInMs ?? 8 * HOUR), cap = now() + (o.capInMs ?? 72 * HOUR);
+      const agentId = o.agentId ?? 'agent-1';
+      const delegation = server.issue({ kind: 'delegation', taskId, principalId: agentId, ceilingAt, claimExpiresAt: cap });
+      const claim: FakeClaim = { taskId, claimAttemptId: id('cla'), delegationId: delegation.delegationId!, agentId, authorizer: o.authorizer ?? 'human-1',
+        verbs: [...(o.verbs ?? ['tasks:read', 'submissions:create'])], ceilingAt, claimExpiresAt: cap, redelegations: 0, token: delegation.token, active: true };
+      claims.set(claim.claimAttemptId, claim);
+      return { claim, delegation };
     },
     expire(token) { const c = credentials.get(token); if (c) c.expiresAt = now() - 1; },
     revoke(token) { const c = credentials.get(token); if (c) c.revoked = true; },
@@ -346,8 +405,69 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
     return response;
   }
 
+  /** The claim a re-arm bootstrap belongs to. */
+  const rearmOf = (token: string | undefined) => token === undefined ? undefined : [...claims.values()].find((c) => c.rearm?.bootstrap === token);
+  const delegationBody = (c: FakeCredential) => ({ accessToken: c.token, tokenType: 'Bearer', delegationId: c.delegationId, revocationId: id('rev'), expiresAt: iso(c.expiresAt),
+    ceilingAt: iso(c.ceilingAt!), claimExpiresAt: iso(c.claimExpiresAt!) });
+  const claimBody = (c: FakeClaim) => ({ id: c.claimAttemptId, taskId: c.taskId, status: c.active ? 'active' : 'released', provisioningState: 'ready', expiresAt: iso(c.ceilingAt) });
+
+  /** The switch: a re-arm's bootstrap redeemed at `taskClaim`, with its own replay rule (while the credential authenticates). */
+  async function redeem(request: FakeRequest, claim: FakeClaim): Promise<Response> {
+    const rearm = claim.rearm!;
+    const digest = request.bytes ? await blobDigest(request.bytes) : '';
+    if (rearm.switched) {
+      if (request.idempotencyKey !== rearm.switched.key) return refuse(409, 'bootstrap-consumed');
+      if (digest !== rearm.switched.digest) return refuse(409, 'idempotency-conflict');
+      const issued = credentials.get(rearm.switched.token);
+      if (!issued || issued.revoked || issued.expiresAt <= now()) return refuse(409, 'idempotency-result-expired');
+      return new Response(rearm.switched.body, { status: 200, headers: { 'content-type': 'application/json', 'idempotent-replayed': 'true' } });
+    }
+    if (rearm.expiresAt <= now()) return refuse(401, 'unauthenticated', { detail: 'the bootstrap expired' });
+    if (!request.idempotencyKey) return refuse(400, 'invalid-request', { details: { parameter: 'Idempotency-Key' } });
+    if (!claim.active || claim.ceilingAt <= now()) return refuse(409, 'claim-inactive');
+    const old = credentials.get(claim.token);
+    if (old) old.revoked = true;
+    claim.ceilingAt = rearm.ceilingAt;
+    claim.verbs = [...rearm.verbs];
+    claim.redelegations = rearm.redelegations;
+    const next = server.issue({ kind: 'delegation', taskId: claim.taskId, principalId: claim.agentId, delegationId: claim.delegationId, ceilingAt: claim.ceilingAt, claimExpiresAt: claim.claimExpiresAt });
+    claim.token = next.token;
+    const body = JSON.stringify({ claim: claimBody(claim), delegation: delegationBody(next) });
+    rearm.switched = { key: request.idempotencyKey, digest, token: next.token, body };
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  }
+
+  /** The re-arm: `claimAuthorize` with `claimAttemptId`, by the claim's original authorizer. */
+  function rearm(request: FakeRequest): Response {
+    const credential = request.credential;
+    const b = (request.body ?? {}) as Record<string, unknown>;
+    if (!credential) return refuse(401, 'unauthenticated');
+    if (credential.kind !== 'session' && credential.kind !== 'client') return refuse(403, 'forbidden', { detail: 'only a human authorizes' });
+    const claim = claims.get(String(b.claimAttemptId));
+    if (!claim || claim.taskId !== request.path.id) return refuse(404, 'not-found');
+    if (credential.principalId !== claim.authorizer) return refuse(403, 'forbidden', { detail: 'not the claim\'s authorizer' });
+    if (!claim.active || claim.ceilingAt <= now()) return refuse(409, 'claim-inactive');
+    if (b.agentId !== claim.agentId) return refuse(400, 'invalid-request', { details: { field: 'agentId' } });
+    const verbs = Array.isArray(b.verbs) ? b.verbs.map(String) : [];
+    let at = -1;
+    if (!verbs.length || !verbs.every((v) => (at = claim.verbs.indexOf(v, at + 1)) !== -1)) return refuse(400, 'invalid-request', { details: { field: 'verbs' } });
+    const asked = typeof b.expiresAt === 'string' ? Date.parse(b.expiresAt) : NaN;
+    if (!Number.isFinite(asked) || asked <= now()) return refuse(400, 'invalid-request', { details: { field: 'expiresAt' } });
+    if (claim.rearm && !claim.rearm.switched && claim.rearm.expiresAt > now()) return refuse(409, 'redelegation-pending', { details: { bootstrapExpiresAt: iso(claim.rearm.expiresAt) } });
+    if (claim.ceilingAt >= claim.claimExpiresAt) return refuse(409, 'claim-cap-reached');
+    const ceilingAt = Math.min(asked, now() + 8 * HOUR, claim.claimExpiresAt);
+    if (ceilingAt < claim.ceilingAt) return refuse(409, 'ceiling-not-extended');
+    const bootstrap = server.issue({ kind: 'bootstrap', taskId: claim.taskId, principalId: claim.agentId, expiresInMs: 5 * 60_000 });
+    claim.rearm = { bootstrap: bootstrap.token, expiresAt: bootstrap.expiresAt, ceilingAt, verbs, redelegations: claim.redelegations + 1 };
+    return json(201, { id: claim.delegationId, projectId: 'prj_fake', taskId: claim.taskId, claimAttemptId: claim.claimAttemptId, delegationId: claim.delegationId,
+      bootstrapToken: bootstrap.token, bootstrapExpiresAt: iso(bootstrap.expiresAt), authorizationExpiresAt: iso(ceilingAt), claimExpiresAt: iso(claim.claimExpiresAt),
+      redelegations: claim.rearm.redelegations, verbs });
+  }
+
   async function answer(request: FakeRequest, route: RouteEntry, presented: string | undefined): Promise<Response> {
     const credential = request.credential;
+    const switching = route.operationId === 'taskClaim' ? rearmOf(presented) : undefined;
+    if (switching) return redeem(request, switching);
     // Authentication: a presented bearer must be one this fake issued and still valid.
     if (presented !== undefined) {
       if (!credential) return refuse(401, 'unauthenticated');
@@ -365,6 +485,13 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
       const prior = recorded.get(slot);
       if (prior) {
         if (prior.digest !== bodyDigest) return refuse(409, 'idempotency-conflict');
+        if (route.operationId === 'claimAuthorize' && prior.status === 201) {
+          // A re-arm replays its bootstrap only while it is the latest, unredeemed and unexpired.
+          const token = (JSON.parse(prior.body) as { bootstrapToken?: string }).bootstrapToken;
+          const claim = rearmOf(token);
+          if (claim && (claim.rearm!.switched || claim.rearm!.expiresAt <= now())) return refuse(409, 'idempotency-result-expired');
+          if (!claim && [...claims.values()].some((c) => c.taskId === request.path.id)) return refuse(409, 'idempotency-result-expired');
+        }
         return new Response(prior.body, { status: prior.status, headers: { 'content-type': prior.type, 'idempotent-replayed': 'true' } });
       }
     }
@@ -400,8 +527,23 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
       case 'delegationRenew': {
         if (!credential || credential.kind !== 'delegation' || credential.delegationId !== request.path.id) return refuse(403, 'forbidden');
         credential.revoked = true;
-        const next = server.issue({ kind: 'delegation', principalId: credential.principalId, taskId: credential.taskId, delegationId: credential.delegationId });
-        return json(200, { accessToken: next.token, delegationId: next.delegationId, revocationId: id('rev'), expiresAt: new Date(next.expiresAt).toISOString(), tokenType: 'Bearer' });
+        // A renewal rotates the token inside the ceiling; it never moves the ceiling or the cap.
+        const next = server.issue({ kind: 'delegation', principalId: credential.principalId, taskId: credential.taskId, delegationId: credential.delegationId,
+          ceilingAt: credential.ceilingAt, claimExpiresAt: credential.claimExpiresAt });
+        const claim = [...claims.values()].find((c) => c.token === credential.token);
+        if (claim) claim.token = next.token;
+        return json(200, delegationBody(next));
+      }
+      case 'claimAuthorize':
+        if (b.claimAttemptId !== undefined) return rearm(request);
+        break;
+      case 'meDelegationsList': {
+        if (!credential || (credential.kind !== 'session' && credential.kind !== 'client')) return refuse(403, 'human-required');
+        const items = [...claims.values()].filter((c) => c.authorizer === credential.principalId).map((c) => ({
+          id: c.delegationId, agent: c.agentId, tenantId: 'org_00000000-0000-4000-8000-000000000001', projectId: 'prj_fake', taskId: c.taskId, verbs: c.verbs,
+          createdAt: iso(now()), expiresAt: iso(c.ceilingAt), ceilingAt: iso(c.ceilingAt), claimExpiresAt: iso(c.claimExpiresAt), redelegations: c.redelegations,
+          status: c.active && c.ceilingAt > now() ? 'active' : 'expired', authorizedViaSession: 'ses_fake' }));
+        return json(200, { items, nextCursor: null, partial: false, unavailableTenants: [] });
       }
       case 'meGet':
         if (!credential) return refuse(401, 'unauthenticated');
@@ -454,7 +596,7 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
         const files = at(lane!);
         if (!files) return refuse(409, 'generation-superseded');
         const pack = lane!.pack ?? await packOf([...files.values()].map((f) => f.bytes));
-        return new Response(pack as unknown as BodyInit, { status: 200, headers: { 'content-type': 'application/x-git-packfile', 'content-length': String(pack.length) } });
+        return new Response(pack as unknown as ConstructorParameters<typeof Response>[0], { status: 200, headers: { 'content-type': 'application/x-git-packfile', 'content-length': String(pack.length) } });
       }
       case 'laneGenerationCreate': {
         if (b.kind !== 'base-refreshed') return refuse(400, 'invalid-request');

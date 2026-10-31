@@ -34,6 +34,8 @@ export type { ApiErrorInit, PendingOrganization, ProblemDetailsView, ReauthRequi
 export { bearer, bearerToken, bound, browserCookie, forwardedSession, unauthenticated, CSRF_COOKIE, SESSION_COOKIE } from './transports.js';
 export type { BearerKind, BearerToken, BearerTransport, BoundTransport, BrowserCookieTransport, ForwardedSessionTransport, Transport, UnauthenticatedTransport } from './transports.js';
 export {
+  delegationFromWire,
+  withInstants,
   approvalGrantAudience,
   approvalGrantFromExchange,
   eventAuthorityAudience,
@@ -48,6 +50,7 @@ export type {
   ApprovalGrantScope,
   ClaimBootstrap,
   Credential,
+  RearmedBootstrap,
   EventAssertion,
   ExchangeResponseInfo,
   GrantExchangeBody,
@@ -183,4 +186,20 @@ export { routing } from './generated/routing.js';
 export type { OperationId } from './generated/routing.js';
 export type { AutoRetry, PolicyEntry, Replay, RetryClass, RouteEntry } from './routing-types.js';
 export * from './lanes/index.js';
+export { BOOTSTRAP_MS, CEILING_MAX_MS, REDELEGATION_AHEAD_MS, clientRedelegation, memoryRedelegationJournal, redelegationPlan, runnerSession } from './redelegation.js';
+export type {
+  CredentialInstants,
+  RearmBody,
+  RedelegationClaim,
+  RedelegationEntry,
+  RedelegationJournal,
+  RedelegationPlan,
+  RedelegationPlanOptions,
+  RedelegationRefusal,
+  RedelegationStepContext,
+  RedelegationSteps,
+  RunnerSession,
+  RunnerSessionOptions,
+  RunnerSessionStep,
+} from './redelegation.js';
 export { BUILD, CLIENT_VERSION } from './version.js';

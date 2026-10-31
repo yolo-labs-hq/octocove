@@ -11,6 +11,7 @@ import { inflateSync } from 'node:zlib';
 import { LaneError } from './errors.js';
 import type { LaneContent, LaneEntryKind, LaneFiles } from './files.js';
 import type { JournalStore, LaneJournalEntry } from './journal.js';
+import type { RedelegationEntry, RedelegationJournal } from '../redelegation.js';
 import type { PackPrimitives } from './pack.js';
 import { LANE_DIR, validLanePath, validStatePath } from './paths.js';
 
@@ -187,16 +188,16 @@ export function nodeLaneFiles(directory: string): LaneFiles {
   return files;
 }
 
-/** A journal in a directory: one JSON file per unfinished entry, written privately (0600) and renamed into place. */
-export function fileJournal(directory: string): JournalStore {
+/** One JSON file per entry in a directory, written privately (0600), fsynced and renamed into place. */
+function jsonEntries<E extends { readonly id: string }>(directory: string, valid: (entry: E) => boolean) {
   const root = resolve(directory);
   const name = (id: string) => join(root, `${id.replace(/[^A-Za-z0-9._-]/g, (c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)}.json`);
-  const parse = (text: string): LaneJournalEntry | undefined => {
-    try { const e = JSON.parse(text) as LaneJournalEntry; return e && e.version === 1 && typeof e.id === 'string' ? e : undefined; } catch { return undefined; }
+  const parse = (text: string): E | undefined => {
+    try { const e = JSON.parse(text) as E; return e && typeof e.id === 'string' && valid(e) ? e : undefined; } catch { return undefined; }
   };
   return {
-    async get(id) { try { return parse(await readFile(name(id), 'utf8')); } catch (error) { if (absent(error)) return undefined; throw error; } },
-    async put(entry) {
+    async get(id: string) { try { return parse(await readFile(name(id), 'utf8')); } catch (error) { if (absent(error)) return undefined; throw error; } },
+    async put(entry: E) {
       await mkdir(root, { recursive: true, mode: 0o700 });
       const temp = join(root, `.${randomUUID()}.tmp`);
       const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
@@ -205,18 +206,40 @@ export function fileJournal(directory: string): JournalStore {
       await rename(temp, name(entry.id));
       await syncDir(root);
     },
-    async delete(id) { await rm(name(id), { force: true }); },
-    async list(taskId) {
+    async delete(id: string) { await rm(name(id), { force: true }); },
+    async all(): Promise<E[]> {
       let names: string[];
       try { names = await readdir(root); } catch (error) { if (absent(error)) return []; throw error; }
-      const out: LaneJournalEntry[] = [];
+      const out: E[] = [];
       for (const n of names.filter((n) => n.endsWith('.json'))) {
         const e = parse(await readFile(join(root, n), 'utf8').catch(() => ''));
-        if (e && (taskId === undefined || e.taskId === taskId)) out.push(e);
+        if (e) out.push(e);
       }
-      return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return out;
     },
   };
+}
+
+/** A journal in a directory: one JSON file per unfinished entry, written privately (0600) and renamed into place. */
+export function fileJournal(directory: string): JournalStore {
+  const entries = jsonEntries<LaneJournalEntry>(directory, (e) => e.version === 1);
+  return {
+    get: entries.get,
+    put: entries.put,
+    delete: entries.delete,
+    async list(taskId) {
+      return (await entries.all()).filter((e) => taskId === undefined || e.taskId === taskId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    },
+  };
+}
+
+/**
+ * A re-delegation journal in a directory, as private as {@link fileJournal}: one 0600 JSON file per claim in progress
+ * (it holds the re-arm's bootstrap token once answered).
+ */
+export function fileRedelegationJournal(directory: string): RedelegationJournal {
+  const entries = jsonEntries<RedelegationEntry>(directory, (e) => e.version === 1 && typeof e.rearm?.idempotencyKey === 'string');
+  return { get: entries.get, put: entries.put, delete: entries.delete };
 }
 
 /** `node:zlib` and `node:crypto` for the pack reader: native speed for whole-repository lanes. */

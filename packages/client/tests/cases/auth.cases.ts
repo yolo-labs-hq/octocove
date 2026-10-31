@@ -306,9 +306,9 @@ export const authCases: Case[] = [
     }
   }),
   test('delegation renewal recovers with the predecessor delegation token and adopts the replacement', async () => {
-    const current: AgentDelegation = { kind: 'agent-delegation', token: 'delegation-predecessor-0123', delegationId: 'del-1', revocationId: 'rev-1', expiresAt: 'x' };
+    const current: AgentDelegation = { kind: 'agent-delegation', token: 'delegation-predecessor-0123', delegationId: 'del-1', revocationId: 'rev-1', expiresAt: 'x', ceilingAt: 'c', claimExpiresAt: 'k' };
     const slot = credentialSlot(current.token, 'delegation');
-    const { fetch, calls } = scriptedFetch(lost(200), json(200, { delegationId: 'del-1', accessToken: 'delegation-replacement-0123', tokenType: 'Bearer', expiresAt: 'y', revocationId: 'rev-2' }));
+    const { fetch, calls } = scriptedFetch(lost(200), json(200, { delegationId: 'del-1', accessToken: 'delegation-replacement-0123', tokenType: 'Bearer', expiresAt: 'y', ceilingAt: 'c', claimExpiresAt: 'k', revocationId: 'rev-2' }));
     const renewed = await journeys(createClient({ baseUrl: BASE, fetch, ...fast, transport: slot.transport })).org(ORG).auth.delegation.renew(current, { deadline: soon(), slot });
     equal(calls.map((x) => `${x.method} ${x.url} ${x.headers.authorization}`), [
       `POST ${BASE}/v1/orgs/${ORG}/delegations/del-1/renew Bearer delegation-predecessor-0123`,

@@ -708,7 +708,7 @@ describe("task claim", () => {
       dependencyResults: [{ upstreamTaskId: "T0", receiptId: "R0", landedSha: SHA_B }],
       provisioningState: "ready", blockedReason: null, lane,
     },
-    delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" },
+    delegation: { delegationId: "D1", accessToken: "SECRET-JWT", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" },
   };
   const boot = { kind: "bootstrap" as const, orgId: ORG, token: "boot", agentId: "worker" };
   const cfg = () => join(repo, "..", "cfg-claim");
@@ -724,7 +724,7 @@ describe("task claim", () => {
     expect(outText).toContain("octo lane materialize T1 DIR");
     expect(outText + errText).not.toContain("SECRET-JWT");
     const file = join(cfg(), "credentials", "cli.json");
-    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ token: "SECRET-JWT", kind: "agent", delegationId: "D1", agentId: "worker", claimExpiresAt: "2030-01-01T00:00:00Z" });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ token: "SECRET-JWT", kind: "agent", delegationId: "D1", agentId: "worker", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" });
     expect(statSync(file).mode & 0o777).toBe(0o600);
     // Nothing is cloned and no Git configuration is written.
     expect(() => git("config", "--local", "--get-regexp", "^octocove")).toThrow();
@@ -735,7 +735,7 @@ describe("task claim", () => {
     expect(await cli(["--json", "claim", "T1", "--intent-version", "3", "--read", "src/"], boot, { OCTOCOVE_CONFIG_DIR: cfg() })).toBe(0);
     const body = JSON.parse(outText);
     expect(body.claim.lane).toEqual(lane);
-    expect(body.delegation).toEqual({ delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r" });
+    expect(body.delegation).toEqual({ delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "r", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" });
     expect(outText).not.toContain("SECRET-JWT");
   });
 
@@ -1150,7 +1150,7 @@ describe("recovery after a committed answer whose body was lost", () => {
   const config = () => ({ OCTOCOVE_CONFIG_DIR: join(repo, "..", "cfg-recovery") });
 
   const session = { sessionToken: "rotated-session", principalId: "u1", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" };
-  const delegation = { accessToken: "rotated-delegation", delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1" };
+  const delegation = { accessToken: "rotated-delegation", delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" };
   const renewals: [string, Partial<Credentials>, string, object, string][] = [
     ["human", { kind: "human" }, "POST /auth/session/renew", session, "rotated-session"],
     ["agent", { kind: "agent", orgId: ORG, delegationId: "D1" }, "POST /delegations/D1/renew", delegation, "rotated-delegation"],

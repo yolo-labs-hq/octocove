@@ -20,6 +20,9 @@ export interface Credentials {
   expiresAt?: string;
   idleExpiresAt?: string;
   absoluteExpiresAt?: string;
+  /** An agent delegation's authorization ceiling in force: no renewal reaches past it; a re-delegation moves it. */
+  ceilingAt?: string;
+  /** An agent delegation's claim cap (72 hours from the start of its chain): no re-delegation reaches past it. */
   claimExpiresAt?: string;
 }
 export class ConfigError extends Error {}
@@ -41,7 +44,7 @@ export function parseCredentials(raw: string): Credentials {
     // An agent delegation and a claim bootstrap belong to the org they were issued in; a human session to none.
     if (file.kind === "agent" || file.kind === "bootstrap" ? typeof file.orgId !== "string" || !ORG_ID.test(file.orgId) : file.orgId !== undefined) throw new Error();
     const lifetime: Partial<Credentials> = {};
-    for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt", "claimExpiresAt"] as const) {
+    for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt", "ceilingAt", "claimExpiresAt"] as const) {
       if (file[key] !== undefined) {
         if (typeof file[key] !== "string" || !Number.isFinite(Date.parse(file[key]))) throw new Error();
         lifetime[key] = file[key];

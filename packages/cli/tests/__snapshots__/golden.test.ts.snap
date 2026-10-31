@@ -278,6 +278,8 @@ Commands:
   auth revoke --grant ID                       (human administrator: revoke an approval grant)
   auth renew                                  (rotate active session or delegation)
   auth revoke [DELEGATION_ID]                  (revoke delegation; defaults to active one)
+  auth delegations [--limit N] [--cursor C]   (human: the agent grants you authorized, with each ceiling, claim cap and re-delegation count)
+  auth redelegate TASK --agent-config DIR [--expires-at TIME] [--verbs a,b]  (human, the claim's authorizer: extend a live claim past its ceiling, up to its 72-hour cap; the agent's credential in DIR is replaced)
   task list --project ID [--status S] [--cursor C] [--limit N]
   task show ID
   task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON
@@ -759,6 +761,8 @@ exports[`task claim --json 1`] = `
     "delegationId": "D1",
     "tokenType": "Bearer",
     "expiresAt": "2030-01-01T00:00:00Z",
+    "ceilingAt": "2030-01-01T08:00:00Z",
+    "claimExpiresAt": "2030-01-04T00:00:00Z",
     "revocationId": "RV1"
   },
   "credentialsFile": "<root>/cfg/credentials/cli.json"

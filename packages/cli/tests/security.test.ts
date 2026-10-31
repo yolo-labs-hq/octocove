@@ -57,15 +57,15 @@ async function cli(argv: string[], overrides: Partial<Deps> = {}) {
 }
 const claim = { id: "C1", taskId: "T1", intentVersion: 1, provisioningState: "pending", blockedReason: null,
   lane: { kind: "materialized", executionId: "E1", generation: 1, baseSha: "b".repeat(40), scopeVersion: 1, scope: { read: ["src/"], write: [] } } };
-const delegation = { delegationId: "D1", accessToken: AGENT, tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1" };
+const delegation = { delegationId: "D1", accessToken: AGENT, tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "R1", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" };
 const claimArgs = ["task", "claim", "T1", "--intent-version", "1", "--read", "src/"];
 
 describe("bootstrap hand-off", () => {
-  it("carries the authorization ceiling and claim lease into the saved delegation", async () => {
+  it("saves the authorization ceiling and the claim cap the delegation names", async () => {
     await saveCredentials(env, { apiUrl: API, orgId: ORG, token: BOOT, kind: "bootstrap", agentId: "worker", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" });
     routes["POST /v1/tasks/T1/claim"] = () => response({ claim: { ...claim, provisioningState: "ready", expiresAt: "2030-01-01T12:00:00Z" }, delegation }, 201);
     expect(await cli([...claimArgs, "--json"])).toBe(EXIT.ok);
-    expect(await active()).toMatchObject({ kind: "agent", agentId: "worker", token: AGENT, expiresAt: delegation.expiresAt, absoluteExpiresAt: "2030-01-02T00:00:00Z", claimExpiresAt: "2030-01-01T12:00:00Z" });
+    expect(await active()).toMatchObject({ kind: "agent", agentId: "worker", token: AGENT, expiresAt: delegation.expiresAt, ceilingAt: delegation.ceilingAt, claimExpiresAt: delegation.claimExpiresAt });
   });
 
   it("explicitly imports a fresh bootstrap over an old agent credential", async () => {
@@ -92,7 +92,7 @@ describe("bootstrap hand-off", () => {
     };
     expect(await cli([...claimArgs, "--json"])).toBe(EXIT.ok);
     expect(await active()).toMatchObject({ apiUrl: API, token: AGENT, kind: "agent", delegationId: "D1", expiresAt: delegation.expiresAt, issuedAt: expect.any(String) });
-    expect(JSON.parse(stdout).delegation).toEqual({ delegationId: "D1", tokenType: "Bearer", expiresAt: delegation.expiresAt, revocationId: "R1" });
+    expect(JSON.parse(stdout).delegation).toEqual({ delegationId: "D1", tokenType: "Bearer", expiresAt: delegation.expiresAt, ceilingAt: delegation.ceilingAt, claimExpiresAt: delegation.claimExpiresAt, revocationId: "R1" });
     expect(JSON.parse(stdout).claim.provisioningState).toBe("pending");
     expect((await stat(activeFile())).mode & 0o777).toBe(0o600);
     expect((await stat(join(dir, "credentials"))).mode & 0o777).toBe(0o700);
@@ -418,7 +418,7 @@ describe("auth verbs", () => {
     routes[kind === "human" ? "POST /v1/auth/session/renew" : "POST /v1/delegations/D1/renew"] = (init) => {
       expect((init.headers as any).authorization).toBe(`Bearer ${oldToken}`);
       return response(kind === "human" ? { sessionToken: ROTATED, csrfToken: CSRF, principalId: "u1", expiresAt: "2030-01-01T00:00:00Z", absoluteExpiresAt: "2030-01-02T00:00:00Z" }
-        : { accessToken: ROTATED, delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1" });
+        : { accessToken: ROTATED, delegationId: "D1", tokenType: "Bearer", expiresAt: "2030-01-01T00:00:00Z", revocationId: "RV1", ceilingAt: "2030-01-01T08:00:00Z", claimExpiresAt: "2030-01-04T00:00:00Z" });
     };
     try {
       expect(await cli(["auth", "renew", "--json"])).toBe(EXIT.ok);

@@ -39,7 +39,7 @@ or once after a `credential-expired` response, and save the replacement with mod
 0600 in the same config directory. Concurrent CLI processes share a renewal lock
 and adopt the saved replacement. An idle or absolute session limit, or revocation,
 requires `octo login`. A crashed renewal lock is not stolen automatically.
-Agent delegation tokens also renew automatically within their authorization ceiling and live claim lease, using only that agent's scoped credential. `octo auth renew` remains available explicitly. Revoked or ended agent grants require a new human authorization.
+Agent delegation tokens also renew automatically within their authorization ceiling, using only that agent's scoped credential. `octo auth renew` remains available explicitly. A renewal never moves the ceiling; `octo auth redelegate` (the delegating human) moves it, up to the claim's 72-hour cap. Revoked or ended agent grants require a new human authorization.
 The renewal is the client library's renew-ahead helper over its file credential store (the client README's
 [Building an agent runner](../client/README.md#building-an-agent-runner)); the CLI adds only the credentials file,
 the expiry and ceiling of each credential kind and the messages.
@@ -158,6 +158,8 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `repo list PROJECT [--json]` | `GET /projects/{project}/repositories` (library `repositories.list()`): the repository ids and target refs `task create` takes; an Artifacts path prints as `NAMESPACE/REPO`, any other provider's as `PROVIDER:OWNER/REPO` (for example `github:owner/repo`) |
 | `auth renew` | `POST /auth/session/renew` or `POST /delegations/{id}/renew`, according to the active credential |
 | `auth revoke [DELEGATION_ID]` | `POST /delegations/{id}/revoke`; clear the credential on successful self-revocation |
+| `auth delegations [--limit N] [--cursor C]` | `GET /me/delegations` (library `auth.delegations.list()`; human): the agent grants you authorized, newest first, each with its authorization ceiling, the claim's 72-hour cap and its re-delegations |
+| `auth redelegate TASK --agent-config DIR [--expires-at TIME] [--verbs a,b]` | `POST /tasks/{id}/authorizations` with `claimAttemptId`, then `POST /tasks/{id}/claim` with the returned bootstrap (library `claims.rearm()` and `claims.switch()` through `runnerSession`): the claim's original authorizer extends a live claim past its ceiling, up to its cap. The claim attempt comes from `task show`, the agent and verbs from your delegations (`--verbs` keeps a subset, in order); `--expires-at` asks for a ceiling (default 8 hours ahead; the server clamps it). The new delegation replaces the one in the agent's config directory `DIR` (same host and OS user only; your own config directory is refused), and the agent's previous token is refused from then on. A remote or brokered agent is re-delegated by its credential broker with the client's `runnerSession`. The switch sends the task's intent version. Keys and the bootstrap are journaled privately (0600) in your config directory's `redelegations/`: an interrupted run resumes when run again, and `switch-conflict` is redeemed again with the same bootstrap and key. 409 `claim-cap-reached`, `ceiling-not-extended`, `claim-inactive`; 403 `reauth-required` (sign in again), `forbidden` (not the authorizer) |
 | `task list --project ID [--status S] [--cursor C] [--limit N]` | `GET /tasks` |
 | `task create --project ID --repository ID --target-ref REF --key KEY --title TEXT --description TEXT --acceptance JSON` | `POST /tasks` |
 | `task edit ID --title TEXT --description TEXT --acceptance JSON [--change-note TEXT]` | `POST /tasks/{id}/intent` |
@@ -177,26 +179,26 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1120](src/cli.ts#L1120 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1121](src/cli.ts#L1121 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1122](src/cli.ts#L1122 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1123](src/cli.ts#L1123 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1124](src/cli.ts#L1124 "\"task supersede\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1125](src/cli.ts#L1125 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1126](src/cli.ts#L1126 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1127](src/cli.ts#L1127 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1226](src/cli.ts#L1226 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1227](src/cli.ts#L1227 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1228](src/cli.ts#L1228 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1229](src/cli.ts#L1229 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1230](src/cli.ts#L1230 "\"task supersede\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1231](src/cli.ts#L1231 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1232](src/cli.ts#L1232 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1233](src/cli.ts#L1233 "\"candidate reject\": governance")) |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--repository ID --target-ref REF] [--note TEXT]` | `POST /candidates/{id}/approve`; `--repository` and `--target-ref` assert the reviewed landing destination (409 `destination-mismatch` for any other) |
 | `land ID --approval ID [--repository ID --target-ref REF] [--wait]` | `POST /candidates/{id}/land`, then `GET /receipts/{id}`; `--repository` and `--target-ref` assert the destination as on `approve` |
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1720](src/cli.ts#L1720 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1732](src/cli.ts#L1732 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1826](src/cli.ts#L1826 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1838](src/cli.ts#L1838 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1772](src/cli.ts#L1772 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1878](src/cli.ts#L1878 "\"webhook disable\": async")) |
 
-Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:691](src/cli.ts#L691 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
+Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:694](src/cli.ts#L694 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
 Text output shows recorded work identity separately from the approval identity. Historical work without an attribution snapshot is explicitly marked as not recorded. Approval display uses an exact receipt match from project landings; unavailable metadata is marked as unavailable, and an unlanded candidate has no approval line. These optional lookups run only in text mode.
 
@@ -507,7 +509,7 @@ octo --json --idempotency-key create-example project create example --name Examp
 octo task --verbose show TASK
 ```
 
-Scoped agent delegations renew automatically within about two minutes of their 15-minute token expiry, or once after a specific expired-token response. The authorization's `--expires-at` ceiling and the live claim lease still apply; renewal never extends either. Each rotation uses the agent's own config directory, the existing idempotent renewal journey and the same private lock as human sessions. A replacement is atomically saved before the command continues; concurrent processes adopt that replacement. A revoked or ended grant requires a new human authorization, with no human-login fallback. `auth renew` remains available explicitly.
+Scoped agent delegations renew automatically within about two minutes of their 15-minute token expiry, or once after a specific expired-token response. The authorization's `--expires-at` ceiling and the live claim lease still apply; renewal never extends either. Only a re-delegation (`auth redelegate`, by the delegating human) moves the ceiling, at most 8 hours ahead and never past the claim's 72-hour cap; the agent's stored delegation then names the new ceiling (`ceilingAt`) and the cap (`claimExpiresAt`). Each rotation uses the agent's own config directory, the existing idempotent renewal journey and the same private lock as human sessions. A replacement is atomically saved before the command continues; concurrent processes adopt that replacement. A revoked or ended grant requires a new human authorization, with no human-login fallback. `auth renew` remains available explicitly.
 
 Write agent hand-offs outside all repositories:
 

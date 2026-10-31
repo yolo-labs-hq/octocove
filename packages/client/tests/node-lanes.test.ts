@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { LaneError } from '../src/index.js';
-import { fileJournal, nodeLaneFiles, nodePackPrimitives } from '../src/node.js';
+import { fileJournal, fileRedelegationJournal, nodeLaneFiles, nodePackPrimitives } from '../src/node.js';
 import { MAX_DELTA_DEPTH, PackError, readPack } from '../src/lanes/pack.js';
 
 const dirs: string[] = [];
@@ -96,6 +96,24 @@ describe('fileJournal', () => {
     expect(statSync(join(dir, 'j', 'T1%3asave%3ak1.json')).mode & 0o777).toBe(0o600);
     await journal.delete('T1:save:k1');
     expect(await journal.get('T1:save:k1')).toBeUndefined();
+  });
+});
+
+describe('fileRedelegationJournal', () => {
+  it('keeps a re-delegation entry privately (0600), returns it as written and ignores other entries', async () => {
+    const dir = scratch('oc-redelegation-');
+    const journal = fileRedelegationJournal(join(dir, 'r'));
+    const at = new Date().toISOString();
+    const entry = { version: 1 as const, id: 'T1:cla_1', taskId: 'T1', claimAttemptId: 'cla_1', step: 'switch' as const,
+      rearm: { idempotencyKey: 'k1', body: { claimAttemptId: 'cla_1', agentId: 'agent-1', verbs: ['tasks:read'], expiresAt: at } },
+      bootstrap: { token: 'bootstrap-fixture', expiresAt: at, ceilingAt: at, delegationId: 'del-1', redelegations: 1 }, switchKey: 'k2', createdAt: at, updatedAt: at };
+    await journal.put(entry);
+    expect(await journal.get('T1:cla_1')).toEqual(entry);
+    expect(statSync(join(dir, 'r', 'T1%3acla_1.json')).mode & 0o777).toBe(0o600);
+    writeFileSync(join(dir, 'r', 'other.json'), JSON.stringify({ version: 1, id: 'other' }));
+    expect(await journal.get('other')).toBeUndefined();
+    await journal.delete('T1:cla_1');
+    expect(await journal.get('T1:cla_1')).toBeUndefined();
   });
 });
 

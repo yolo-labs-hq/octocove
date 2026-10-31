@@ -8694,6 +8694,9 @@ export const routing = {
       ]
     },
     "responses": {
+      "200": [
+        "application/json"
+      ],
       "201": [
         "application/json"
       ],
@@ -8729,6 +8732,7 @@ export const routing = {
       ]
     },
     "successStatuses": [
+      200,
       201,
       202
     ],
