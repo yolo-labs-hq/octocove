@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.23.1 and client 0.23.1
+
+Release `@yolo-labs/octocove` 0.23.1 and `@yolo-labs/octocove-client` 0.23.1.
+
+- Client: the embedded contract table carries `metaGet`'s published id, so a lock can name it.
+
 ## CLI 0.23.0 and client 0.23.0
 
 Release `@yolo-labs/octocove` 0.23.0 and `@yolo-labs/octocove-client` 0.23.0: contract locks.

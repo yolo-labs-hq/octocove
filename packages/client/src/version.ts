@@ -1,7 +1,7 @@
 import { BUILD_INFO } from './generated/meta.js';
 
 /** The client package version; CI checks it against package.json. */
-export const CLIENT_VERSION = '0.23.0';
+export const CLIENT_VERSION = '0.23.1';
 
 /**
  * What this build was generated from: the OpenAPI `info.version` and document digest,
