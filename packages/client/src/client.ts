@@ -453,8 +453,8 @@ export function createClient(options: ClientOptions): OctocoveClient {
         if (response.status === 503 && retry.autoRetry === 'network-only' && resends < MAX_RESENDS && prefetched === undefined) {
           let text: string;
           try { text = await scope.guard(response.text()); } catch (error) {
-            if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
             if (!onLock) { prefetched = ''; break; } // No readable refusal: classified as outside the lock below.
+            if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
             throw new TransportError('network-error', 'the response body could not be read', { cause: sanitizeCause(error, secrets), attempts, responseStatus: response.status, idempotencyKey });
           }
           let code: unknown;
@@ -556,8 +556,8 @@ export function createClient(options: ClientOptions): OctocoveClient {
         try {
           raw = await scope.guard<string | ArrayBuffer>(binary ? response.arrayBuffer() : response.text());
         } catch (error) {
-          if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
           if (offLock) throw mismatch();
+          if (scope.ended) throw retag(scope.ended, secrets, attempts, response.status, idempotencyKey);
           throw new TransportError('network-error', 'the response body could not be read', { cause: sanitizeCause(error, secrets), attempts, responseStatus: response.status, idempotencyKey });
         }
       }

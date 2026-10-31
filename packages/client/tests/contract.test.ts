@@ -100,6 +100,11 @@ describe('a locked client', () => {
     const broken = (status: number) => new Response(new ReadableStream({ start(controller) { controller.error(new Error('reset')); } }), { status, headers: { 'content-type': 'application/problem+json' } });
     for (const status of [403, 503]) expect(await (await locked(async () => broken(status))).call('taskGet', taskCall as never).catch((e) => e), String(status)).toBeInstanceOf(ContractMismatchError);
   });
+  it('reports an off-lock answer as a mismatch even when the deadline ends its read', async () => {
+    const stalled = () => new Response(new ReadableStream({}), { status: 503, headers: { 'content-type': 'application/problem+json' } });
+    const client = await locked(async () => stalled());
+    expect(await client.call('taskGet', { ...taskCall, deadline: Date.now() + 30 } as never).catch((e) => e)).toBeInstanceOf(ContractMismatchError);
+  });
   it('asks for no replacement credential on an answer outside the lock', async () => {
     const refresh = vi.fn(async () => 'second');
     const fetch = vi.fn(async () => problem('credential-expired', 401, named(undefined)));
