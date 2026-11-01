@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:2e81ad90d2cb15e10a33f7d819e197e32cac9c78dde07d101f600c4e9bc3b940",
+  "metaDigest": "ocm1:b36db69bb382faccc07d39fe8cf7c724ef66b8f858053246573b743ef963cd8d",
   "epochFamilies": [
     "auth",
     "binary",
@@ -322,7 +322,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "candidateMeritGet": {
       "supported": [
-        "oc1:3d7152ddbed4a1ef61efb0de23ae357b53576643df32c680e81d0d6a41b24b77"
+        "oc1:88010b99b41ca74e5b874425211733dc9ad6be273a756ff016e34253119d4500"
       ],
       "epochs": {
         "auth": 1,

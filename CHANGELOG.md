@@ -1,5 +1,13 @@
 # Changelog
 
+## CLI 0.25.0 and client 0.25.0
+
+Release `@yolo-labs/octocove` 0.25.0 and `@yolo-labs/octocove-client` 0.25.0: recorded Merit decisions.
+
+- Client: terminal `MeritState.score.decision` exposes the checks that actually ran, decisive checks, measured values and comparisons, frozen policy version and stage, exact thresholds, bands, weights, weighted contributions and evidence references. New exported types: `MeritDecision`, `MeritDecisionValue`, `MeritDecisionSource`, `MeritDecisionCheck`, `MeritDecisionParameters` and `MeritDecisionContribution`. The existing `merit.status` journey returns these fields unchanged.
+- Decision details are available to authorized humans, including OAuth clients acting for them; agents and evaluations recorded before this feature receive null. Shadow results approve and land nothing. The client does not reconstruct missing details or recompute decisions.
+- CLI parity: lockstep version and exact client pin bump only. Existing commands continue using typed client methods; no new command or evaluator logic is added.
+
 ## CLI 0.24.0 and client 0.24.0
 
 Release `@yolo-labs/octocove` 0.24.0 and `@yolo-labs/octocove-client` 0.24.0: Merit from the CLI.

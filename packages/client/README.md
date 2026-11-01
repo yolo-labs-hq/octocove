@@ -260,6 +260,14 @@ that polls under the same key with its own progress messages.
 
 ### Merit
 
+For a terminal evaluation, `merit.status()` returns `score.decision`: the recorded checks,
+comparisons and decisive flags, exact policy parameters and version, recorded stage, weighted
+contributions and references into the answers and review evidence. These are write-time facts,
+not a recalculation against the current policy. Authorized humans (including OAuth clients
+acting for them) can read them; agents and older evaluations receive null. In shadow, the
+result grants no approval or landing authority. The `MeritDecision` family of exported types
+names these fields; no client-side threshold evaluation is needed.
+
 Agent approval and landing on reviewed evidence: a lane agent reads the candidate's merit diff manifest, submits a
 structured review bound to its digest, and requests the evaluation of the head's evidence set; a decision model
 scores the review; humans read the state, the evidence in full and the score, release a hold, and administer the

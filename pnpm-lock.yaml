@@ -14,7 +14,7 @@ importers:
         specifier: 26.6.4
         version: 26.6.4
       '@yolo-labs/octocove-client':
-        specifier: workspace:0.24.0
+        specifier: workspace:0.25.0
         version: link:../client
       esbuild:
         specifier: 0.28.1

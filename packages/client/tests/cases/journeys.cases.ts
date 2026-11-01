@@ -17,6 +17,8 @@ import {
   meritPolicyStanding,
   isoDuration,
   MeritPolicySourceError,
+  type MeritDecision,
+  type MeritState,
   type ClaimBootstrap,
   type ClientOptions,
   type ProjectCreateInput,
@@ -873,6 +875,33 @@ export const journeyCases: Case[] = [
       `GET ${BASE}/v1/orgs/${ORG}/projects/project-1/blob?path=src%2Fa.ts`]);
   }),
   // ---- merit ----
+  test('merit.status preserves recorded decision checks and null details without reconstruction', async () => {
+    const decision: MeritDecision = {
+      version: 1, outcome: 'needs-human', policyVersion: 'policy-3', policyVersionNumber: 3,
+      stage: 'shadow', evidenceReviewIds: ['review-1', 'review-2'],
+      parameters: { questionSet: 'merit-v1', thresholds: { score: 0.8, riskMax: 'low', minConfidence: 0.6 },
+        weights: { intent: 0.25 }, bands: { uncertainLow: 0.3, uncertainHigh: 0.7 } },
+      checks: [{ id: 'confidence:review:risk', phase: 'human', label: 'Risk confidence',
+        value: 0.4, comparison: '>=', threshold: 0.6, result: 'fail', decisive: true,
+        reason: 'low-confidence: risk', sources: [{ call: 'review', question: 'risk', field: 'confidence' }] }],
+      contributions: [], normalization: null,
+    };
+    const score = {
+      id: 'score-1', status: 'recorded', outcome: 'needs-human', reasons: ['low-confidence: risk'],
+      signals: [], score: null, answers: null, decision, modelIdentifier: 'evaluator',
+      dispatchedAt: '2026-11-01T00:00:00Z', completedAt: '2026-11-01T00:00:01Z', stage: 'shadow', calls: [],
+    } satisfies NonNullable<MeritState['score']>;
+    for (const recorded of [decision, null]) {
+      const expected = { ...score, decision: recorded };
+      const { fetch, calls } = scriptedFetch(json(200, { candidateId: 'cand-1', score: expected }));
+      const state = await journeys(client(fetch)).org(ORG).merit.status('cand-1', { deadline: soon() });
+      equal(state.score, expected, 'the server snapshot and null are returned unchanged');
+      equal(calls.length, 1, 'no extra policy lookup or reconstruction');
+      equal(calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit`);
+      equal(calls[0]!.method, 'GET');
+      equal(keys(calls), [undefined]);
+    }
+  }),
   test('merit.release sends the keyed command without a body and replays it under the same key after a lost answer', async () => {
     const { fetch, calls } = scriptedFetch(offline(), json(200, { taskId: 't', meritState: 'none', attempts: 0, releasedAt: '2026-10-30T00:00:00Z' }));
     const released = await journeys(client(fetch)).org(ORG).merit.release('t', { deadline: soon() });
