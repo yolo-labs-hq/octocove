@@ -3582,6 +3582,78 @@ export interface components {
                 failure: components["schemas"]["MeritCallFailure"] | null;
             }[];
         };
+        MeritDecisionValue: number | string | boolean | null | (number | string | boolean | null)[];
+        /** @description A reference into score.answers, tied to the frozen evidenceReviewIds. File calls use file:<path>. */
+        MeritDecisionSource: {
+            call: string;
+            question: string;
+            /** @enum {string} */
+            field: "value" | "confidence";
+        };
+        /** @description A check recorded as it ran. Pass means it did not trigger a refusal, evidence gap or quality failure. Later phases are absent after a short-circuit. Skipped is an explicit docs-only exemption, not a passed check. outside-inclusive-band passes only outside the inclusive two-value interval. not-both passes unless the filter matched AND the model probability met the minimum (value is [filterMatched, probability], threshold is [true, minimum]). refused records a lifecycle refusal code, with no invented numeric threshold. */
+        MeritDecisionCheck: {
+            id: string;
+            /** @enum {string} */
+            phase: "human" | "evidence" | "quality" | "score" | "completion";
+            label: string;
+            value: components["schemas"]["MeritDecisionValue"];
+            /** @enum {string} */
+            comparison: "<" | "<=" | ">" | ">=" | "=" | "!=" | "in" | "outside-inclusive-band" | "not-both" | "present" | "refused";
+            threshold: components["schemas"]["MeritDecisionValue"];
+            /** @enum {string} */
+            result: "pass" | "fail" | "skipped";
+            /** @description This check decided the recorded outcome. In shadow it issued no authority. */
+            decisive: boolean;
+            reason: string | null;
+            sources: components["schemas"]["MeritDecisionSource"][];
+        };
+        /** @description Exact values used by this evaluation, copied at write time; never the current policy on a later read. */
+        MeritDecisionParameters: {
+            questionSet: string;
+            thresholds: {
+                score: number;
+                /** @enum {string} */
+                riskMax: "trivial" | "low" | "moderate";
+                minConfidence: number;
+            };
+            weights: {
+                [key: string]: number;
+            };
+            bands: {
+                [key: string]: number;
+            };
+        };
+        /** @description A term of the weighted score. contribution includes the docs-only normalization factor; depth's effectiveWeight is zero on docs-only heads. Computed only when scoring was reached. */
+        MeritDecisionContribution: {
+            name: string;
+            value: number | null;
+            weight: number;
+            effectiveWeight: number;
+            contribution: number | null;
+            sources: components["schemas"]["MeritDecisionSource"][];
+        };
+        /** @description The terminal evaluation's persisted decision trace, human-only (including an authorized OAuth client acting for that human). Null on agent reads to avoid exposing an exact threshold-tuning oracle; existing answers and reasons are unchanged. Older scores have no trace and are never reconstructed. Shadow decides no approval or landing. A failed or superseded evaluation can have a null outcome and a refusal check instead. */
+        MeritDecision: {
+            /** @constant */
+            version: 1;
+            outcome: ("pass" | "fail" | "needs-human" | "needs-evidence") | null;
+            policyVersion: string | null;
+            policyVersionNumber: number | null;
+            stage: ("shadow" | "approve" | "land") | null;
+            evidenceReviewIds: components["schemas"]["Id"][];
+            parameters: components["schemas"]["MeritDecisionParameters"] | null;
+            checks: components["schemas"]["MeritDecisionCheck"][];
+            contributions: components["schemas"]["MeritDecisionContribution"][];
+            normalization: {
+                docsOnly: boolean;
+                hasTests: boolean;
+                depthLevel: number;
+                depthCap: number;
+                activeWeight: number;
+                fullWeight: number;
+                factor: number;
+            } | null;
+        };
         /** @description A candidate's merit state (`GET /orgs/{orgId}/candidates/{id}/merit`). The task's `needs-human` hold is sticky across heads until a human acts while any sticky reason stands (the attempt bailout, the evidence rounds exhausted, a hard limit, an instruction present, a sampling hand-off); a hold made only of head-scoped reasons (a low-confidence answer, an evaluator failure) clears on a genuinely new head. A human's approval, rejection or landing ends any hold, as `merit-release` does. A fresh candidate shows a sticky hold as inherited (`inheritedHold`), a head-scoped one as cleared (`hold.cleared`). Any other task state belongs to the head that recorded it; a head with no review and no score of its own is `none`. */
         MeritState: {
             candidateId: components["schemas"]["Id"];
@@ -3668,6 +3740,8 @@ export interface components {
                 signals: string[];
                 score: number | null;
                 answers: components["schemas"]["MeritAnswers"] | null;
+                /** @description Write-time decision evidence for humans; null for agents and evaluations recorded before this field. */
+                decision: components["schemas"]["MeritDecision"] | null;
                 modelIdentifier: string | null;
                 /** Format: date-time */
                 dispatchedAt: string;

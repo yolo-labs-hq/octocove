@@ -156,6 +156,13 @@ export type MeritEvaluationRequest = OpenEnums<Schemas['MeritEvaluationRequest']
 /** A terminal evaluation's answers, typed per question (`MeritState['score']['answers']`). */
 export type MeritAnswers = Schemas['MeritAnswers'];
 export type MeritAnswer = Schemas['MeritAnswer'];
+/** Persisted decision evidence returned to humans; never recomputed by the client. */
+export type MeritDecision = OpenEnums<Schemas['MeritDecision']>;
+export type MeritDecisionValue = OpenEnums<Schemas['MeritDecisionValue']>;
+export type MeritDecisionSource = OpenEnums<Schemas['MeritDecisionSource']>;
+export type MeritDecisionCheck = OpenEnums<Schemas['MeritDecisionCheck']>;
+export type MeritDecisionParameters = OpenEnums<Schemas['MeritDecisionParameters']>;
+export type MeritDecisionContribution = OpenEnums<Schemas['MeritDecisionContribution']>;
 /** `meritProbe`'s answer: each configured decision model probed once. */
 export type MeritProbe = OpenEnums<Schemas['MeritProbe']>;
 /** `meritUsageGet`'s answer: evaluations by outcome and model calls with their reported usage, per policy version, project and org. */
