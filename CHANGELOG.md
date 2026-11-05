@@ -470,7 +470,7 @@ Release `@yolo-labs/octocove` 0.6.0 and `@yolo-labs/octocove-client` 0.7.0, for 
   - `events --follow` and `events replay` read v2 envelopes; `events --follow` refuses a v1 envelope or another org's event before printing it, and its checkpoint (version 2) is bound to the org, so another org's checkpoint is refused. `lane retire --json` prints `schemaVersion: 2` with `tenantId`.
   - `auth exchange` exchanges in the named org and keeps it in the grant file; `approve --grant` and `auth revoke --grant` use it. The human Git credential helper accepts only `/v1/orgs/{orgId}/projects/{project}/repositories/{repository}/git` remotes.
   - Stored agent delegations and claim bootstraps without an org, and event checkpoints of version 1, are refused (sign in or authorize again); human credentials never store an org.
-- Repository: `packages/shared`'s `forwardEventEnvelope` accepts schema v2 envelopes only, with their `tenantId` and `sequence`. The generator drops the service's work-item and decision labels (`ORG-SPLIT-n`, `ORG_SPLIT §n`, `(Dn)`) from the published types.
+- Repository: `packages/shared`'s `forwardEventEnvelope` accepts schema v2 envelopes only, with their `tenantId` and `sequence`.
 
 ## 0.5.0
 
