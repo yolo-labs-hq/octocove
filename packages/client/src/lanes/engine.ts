@@ -414,10 +414,16 @@ export function createLanes(options: LanesOptions): Lanes {
         }
       }
     }
-    if (!isRecord(blob) || blob.encoding !== 'base64' || typeof blob.content !== 'string') fail('invalid-response', `invalid blob response for ${path}`);
-    const content = fromBase64((blob as Record<string, string>).content!);
+    if (!isRecord(blob) || blob.encoding !== 'base64' || typeof blob.content !== 'string' ||
+        blob.path !== path || !isSha(blob.sha) || !Number.isSafeInteger(blob.size) || blob.size < 0 ||
+        (at.head && blob.laneHead != null && blob.laneHead !== at.head))
+      fail('invalid-response', `invalid blob response for ${path}`);
+    const b = blob as { content: string; size: number; sha: string };
+    const content = fromBase64(b.content);
     if (!content) fail('invalid-response', `invalid blob response for ${path}`);
-    if (expected !== undefined && isSha(expected) && (await gitBlobId(content!, expected)) !== expected)
+    if (content!.length !== b.size)
+      fail('invalid-response', `invalid blob size for ${path}`);
+    if ((expected !== undefined && (!isSha(expected) || b.sha !== expected)) || (await gitBlobId(content!, b.sha)) !== b.sha)
       fail('blob-mismatch', `the content read for ${JSON.stringify(path)} is not the file the manifest names; nothing was written. Run the same command again`);
     return content!;
   }
@@ -476,7 +482,21 @@ export function createLanes(options: LanesOptions): Lanes {
     const m = (await paced(run, () => read(run, 'laneManifestGet', { path: { id: taskId, generation }, ...(head ? { query: { head } } : {}) }))).body;
     if (!isRecord(m) || !Array.isArray(m.entries) || !isRecord(m.scope)) fail('invalid-response', 'invalid manifest response from the control plane');
     if (m.truncated) fail('manifest-truncated', 'the control plane truncated the manifest; ask for a narrower read scope');
-    for (const e of m.entries) if (!isRecord(e) || !validLanePath(e.path) || typeof e.sha !== 'string') fail('invalid-response', 'invalid manifest entry from the control plane');
+    if (m.taskId !== taskId || m.generation !== generation || !isSha(m.baseSha) ||
+        typeof m.executionId !== 'string' || !m.executionId || typeof m.claimId !== 'string' || !m.claimId ||
+        !Number.isSafeInteger(m.scopeVersion) || m.scopeVersion < 1 ||
+        !Array.isArray(m.scope.read) || !m.scope.read.every((p: unknown) => typeof p === 'string') ||
+        !Array.isArray(m.scope.write) || !m.scope.write.every((p: unknown) => typeof p === 'string') ||
+        (head && m.laneHead != null && m.laneHead !== head))
+      fail('invalid-response', 'manifest does not match the requested lane');
+    const paths = new Set<string>();
+    for (const e of m.entries) {
+      if (!isRecord(e) || !validLanePath(e.path) || !isSha(e.sha) || paths.has(e.path) ||
+          !((e.type === 'file' && (e.mode === '100644' || e.mode === '100755')) ||
+            (e.type === 'symlink' && e.mode === '120000') || (e.type === 'submodule' && e.mode === '160000')))
+        fail('invalid-response', 'invalid manifest entry from the control plane');
+      paths.add(e.path);
+    }
     return m as Manifest;
   }
   /** The task's open generation and lane head, as the server reports them. */
