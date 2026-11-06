@@ -2,7 +2,7 @@
 // compare-and-set, crashes and lost answers at every step, bound-mode boundaries, two scoped lanes through one broker,
 // and binary fidelity. Runtime-neutral: the same cases run in workerd.
 import {
-  ApiError, bearer, bound, createClient, createLanes, LANE_LIMITS, LaneActionRequiredError, LaneError, memoryJournal, memoryLaneFiles, saveKey, tenantClient, TransportError, wrapUpKey,
+  ApiError, bearer, bound, createClient, createLanes, laneFilesJournal, LANE_LIMITS, LaneActionRequiredError, LaneError, memoryJournal, memoryLaneFiles, saveKey, tenantClient, TransportError, wrapUpKey,
   type FetchLike, type JournalStore, type LaneFiles, type LaneJournalEntry, type Lanes, type MemoryLaneFiles,
 } from '../../src/index.js';
 import { blobDigest, fakeBroker, fakeServer, gitBlobId, problem, type FakeServer } from '../../src/testing.js';
@@ -190,12 +190,43 @@ export const laneCases: Case[] = [
     }
   }),
 
+  test('materialize: an unknown write keeps its original key and body; recovery is not automatic', async () => {
+    const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
+    w.server.fail('laneMaterialize', ...Array(12).fill('lost-answer'));
+    await rejects(() => createLanes({ client: w.client, files, journal }).materialize('T1', opts({ idempotencyKey: 'original-materialize' })), TransportError);
+    const entries = await journal.list('T1');
+    equal(entries.length, 1);
+    equal([entries[0]!.step, entries[0]!.idempotencyKey, entries[0]!.body], ['sent', 'original-materialize', {}]);
+    equal(await createLanes({ files, journal }).isLane(), false, 'remote effects are not local completion');
+    w.server.clear();
+    await createLanes({ client: w.client, files, journal }).resume(entries[0]!.id, opts());
+    ok(keysOf(w.server, 'laneMaterialize').every(k => k === 'original-materialize'));
+    equal((await journal.list()).length, 0);
+  }),
+
+  test('materialize: a failed manifest read retains its ACK and exact head without another POST', async () => {
+    const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
+    w.server.fail('laneManifestGet', ...Array(12).fill('lost-answer'));
+    await rejects(() => createLanes({ client: w.client, files, journal }).materialize('T1', opts()), TransportError);
+    const entry = (await journal.list('T1'))[0]!;
+    equal(entry.step, 'answered');
+    equal((entry.answer as {laneHead: string}).laneHead, w.server.lane('T1').laneHead);
+    equal(await createLanes({ files, journal }).isLane(), false);
+    w.server.clear();
+    await createLanes({ client: w.client, files, journal }).resume(entry.id, opts());
+    equal(w.server.count('laneMaterialize'), 1, 'confirmed ACK skips mutable materialization');
+    equal(dec((await files.read('src/a.txt'))!.bytes), 'alpha\n');
+    equal((await journal.list()).length, 0);
+  }),
+
   test('materialize: a crash part-way through writing resumes with the same key and finishes every file', async () => {
     const w = world();
     const files = memoryLaneFiles(), journal = memoryJournal();
     await createLanes({ client: w.client, files: dying(files, 3), journal }).materialize('T1', opts()).then(() => ok(false, 'dies'), () => undefined);
-    // A crash, not a failure: the process never ran its cleanup. Simulate it by putting back the journal entry.
-    equal((await journal.list()).length, 0, 'a failure that the engine sees cleans up');
+    equal((await journal.list())[0]?.step, 'answered', 'local failure retains the confirmed remote answer');
+    const recovered = await createLanes({ client: w.client, files, journal }).materialize('T1', opts());
+    equal(recovered.files, 3);
+    equal(w.server.count('laneMaterialize'), 1, 'local recovery does not repeat the write');
     for (const step of ['sent', 'answered'] as const) {
       const crashFiles = memoryLaneFiles(), crashJournal = memoryJournal();
       const before = w.server.count('laneMaterialize');

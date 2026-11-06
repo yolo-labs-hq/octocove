@@ -717,6 +717,16 @@ Stores: `memoryJournal()`, `laneFilesJournal(files)` (beside the files, as the C
 under `/node`. `pending()` lists a lane's entries; `resume(journalId)` takes only an id from the store, for the lane
 the files hold.
 
+**Materialization recovery.** A remote materialize answer is not local completion. If its write answer is
+unknown, the journal keeps the original key and exact body. If the write answered but the manifest, blob read or
+local file write fails, the journal keeps that answer, including its head and generation. No completed sidecar is
+reported until every file is verified and written. Inspect `pending(taskId)` before deciding to recover; an
+explicit `resume(entry.id, options)` continues an answered materialization with reads and local writes, without
+another materialize POST. A `sent` entry can resend the original write, so resuming it is a mutable action and
+requires the runner's normal authorization. Merely listing the journal performs no network request. Preserve the
+journal and directory after an interrupted attempt; do not mint a new key or infer no remote effects from a missing
+sidecar. This recovery mechanism does not override a frozen attempt or grant new authority.
+
 **Behind a credential broker.** On the bound transport the engine never asks for a new execution or generation:
 `handover` and the generation step of `refresh` throw `LaneActionRequiredError` (`outcome: 'not-sent'`). It carries
 `action` (`operationId`, `taskId`, `body`, `idempotencyKey`) and, for a refresh, `journalId`. The broker sends the

@@ -584,9 +584,14 @@ export function createLanes(options: LanesOptions): Lanes {
         for (const { path, directory } of created.reverse()) {
           try { if (!directory || !(await files.list(path)).length) await files.remove(path); } catch { /* best effort */ }
         }
-        await files.remove(LANE_DIR).catch(() => undefined);
-        await files.release?.().catch(() => undefined);
-        if (entry) await journal.delete(entry.id).catch(() => undefined);
+        // A sent write can have effects even when its answer is lost. An answered write can still
+        // fail during readback or local writes. Keep its original key/body/answer for explicit recovery;
+        // absence of the completed sidecar must never erase that evidence.
+        const retained = entry && await journal.get(entry.id);
+        if (!retained) {
+          await files.remove(LANE_DIR).catch(() => undefined);
+          await files.release?.().catch(() => undefined);
+        }
         throw error;
       }
     });
@@ -599,7 +604,10 @@ export function createLanes(options: LanesOptions): Lanes {
     if (entry.step !== 'answered') {
       await notBefore(run, entry);
       await advance(entry, 'sent');
-      const answer = (await settled(run, 'lane materialize', () => write(run, 'laneMaterialize', { path: { id: taskId }, body: {} }, entry.idempotencyKey, true))).body;
+      let answer: unknown;
+      try {
+        answer = (await settled(run, 'lane materialize', () => write(run, 'laneMaterialize', { path: { id: taskId }, body: {} }, entry.idempotencyKey, true))).body;
+      } catch (error) { throw await settle(entry, error); }
       if (!isRecord(answer) || !isSha(answer.laneHead) || !Number.isInteger(answer.generation)) throw unusable('invalid materialize response from the control plane');
       // Only what is used later is recorded.
       await advance(entry, 'answered', { generation: answer.generation, laneHead: answer.laneHead, executionId: answer.executionId, claimAttemptId: answer.claimAttemptId,
