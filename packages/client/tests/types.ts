@@ -109,3 +109,15 @@ export async function typeChecks(): Promise<void> {
   // @ts-expect-error -- governance carries the optimistic-concurrency expectation
   await oc.candidates.withdraw('cand', { expectedStatus: 'candidate' }, { deadline: 1 });
 }
+
+export async function meritPreflightTypes(): Promise<void> {
+  const raw = createClient({ baseUrl: 'https://cp.octocove.test', transport: bearer({ token: 'fixture', kind: 'delegation' }) });
+  const merit = journeys(raw).org('org_00000000-0000-4000-8000-000000000001').merit;
+  const state = await merit.status('candidate', { deadline: 1 });
+  const optedIn: boolean = state.preflight.optIn;
+  void optedIn;
+  await merit.evaluate('candidate', { deadline: 1, expected: { candidateSha: 'a'.repeat(40), baseSha: 'b'.repeat(40), policyId: 'p', policyVersion: 1, stage: 'shadow', land: false } });
+  // @ts-expect-error -- policy versions are numeric
+  await merit.evaluate('candidate', { deadline: 1, expected: { candidateSha: 'a', baseSha: 'b', policyId: 'p', policyVersion: '1', stage: 'shadow', land: false } });
+  await merit.evaluation('candidate', 'request', { deadline: 1 });
+}

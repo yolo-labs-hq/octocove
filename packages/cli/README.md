@@ -151,7 +151,7 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `merit usage PROJECT [--since TIME] [--until TIME] [--json]` | `GET /projects/{project}/merit-usage` (library `merit.usage()`; human project admin): evaluations by outcome and model calls with the usage the models reported, per policy version, project and org |
 | `merit shadow PROJECT [--since TIME] [--until TIME] [--limit N] [--json]` | `GET /projects/{project}/merit-shadow` (library `merit.shadow()`): the evaluator's verdicts beside the humans' (agreement, disagreements, undecided, cost) and one line per evaluated candidate |
 | `merit review CANDIDATE --file FILE [--json]` | `POST /candidates/{id}/merit-reviews` (library `merit.submitReview()`; the lane's agent): the structured review of a candidate head, as JSON, bound to its diff digest. A reviewer must not be the agent that wrote the change (`400 self-review`). |
-| `merit evaluate CANDIDATE [--json]` | `POST /candidates/{id}/merit-evaluations` (library `merit.evaluate()`; the lane's agent): requests the evaluation of the head's evidence set. |
+| `merit evaluate CANDIDATE [--expected FILE] [--json]` | `POST /candidates/{id}/merit-evaluations` (library `merit.evaluate()`; the lane's agent): requests the evaluation of the head's evidence set. Optional `--expected FILE` (JSON, or `-` for stdin) pins candidateSha, baseSha, policyId, numeric policyVersion, stage and land through the typed client; without it evaluation is unconstrained. `land:false` does not prevent approval. |
 | `merit release (TASK \| --candidate ID) [--json]` | `POST /tasks/{id}/merit-release` without a body (library `merit.release()`, or `merit.releaseCandidate()` which reads `GET /candidates/{id}/merit` for the task; human with `candidates:approve`, recent sign-in): end a needs-human hold without deciding the candidate; 409 `merit-not-needs-human` |
 | `repo branches PROJECT REPOSITORY [--json]` | `GET /projects/{project}/repositories/{repository}/branches` (library `repositories.branches()`; human): the provider's branches, its default branch and their current heads, read without a clone; registered landing destinations are marked |
 | `repo target-add PROJECT REPOSITORY --target-ref REF [--expected-head SHA]` | `POST /projects/{project}/repositories/{repository}/target-refs` `{mode: existing}` (library `repositories.registerTargetRef()`; `project:admin`, recent sign-in): make an existing branch a landing destination tasks can be created against; 409 `target-ref-moved` when it is not at `--expected-head` |
@@ -195,10 +195,10 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1859](src/cli.ts#L1859 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1871](src/cli.ts#L1871 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1866](src/cli.ts#L1866 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1878](src/cli.ts#L1878 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1911](src/cli.ts#L1911 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1918](src/cli.ts#L1918 "\"webhook disable\": async")) |
 
 Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:706](src/cli.ts#L706 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
@@ -527,3 +527,8 @@ The bootstrap still expires in about five minutes. Claiming exchanges it for the
 `candidate show --help` and `task show --help` explain the generated client's separate response state, task status, candidate status and compute outcome fields, with a next action for every value. In particular, `pending` is a compute response state, `approved`/`landing` are task states, and `conflict` is a compute outcome whose candidate status is `failed`. “Reviewable” describes an `active` candidate whose checks and bindings permit review; it is not an additional API status.
 
 Human renewal applies to authenticated commands including `task authorize`, `repo list`, event polling, grant administration and the human Git credential helper. It also adopts a concurrently stored replacement before sending the next request. Each original request may recover once; a long-running connection can renew a later token on a later request, while idle/absolute limits and revocation still require signing in again.
+
+The 0.26.0 CLI/client pair adds typed own-candidate Merit preflight and fixed evaluation-request observation.
+The CLI remains thin over `merit.evaluate`; read-only request observation and original workspace lookup are library
+APIs, not new CLI commands. Use `--idempotency-key` to retain one exact evaluation attempt. A request ACK is not a
+terminal score; do not repeat evaluation POST to observe it or assume a package upgrade grants broker authority.

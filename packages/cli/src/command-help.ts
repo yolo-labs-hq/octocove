@@ -1,6 +1,7 @@
 import { statusHelp } from './status-help.js';
 /** Command-specific help is pure data: no config, Git, network or credential reads. */
 const FLAGS: Record<string,string> = {
+  expected: 'JSON file with candidateSha, baseSha, policyId, numeric policyVersion, stage and land; - reads stdin. Pins evaluation admission and dispatch; land:false does not prevent approval.',
   acceptance: 'JSON array of strings, for example \'["Tests pass", "Help describes every flag"]\'. Quote the array as one shell argument.',
   task: 'Task ID.',
   title: 'Short human-readable task title.', description: 'Task intent and implementation context.',

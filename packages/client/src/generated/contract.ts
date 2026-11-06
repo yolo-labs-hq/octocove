@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:b36db69bb382faccc07d39fe8cf7c724ef66b8f858053246573b743ef963cd8d",
+  "metaDigest": "ocm1:dff69ed2de1c5bf528f31bca1c4cf566fb81f1719dbf5ff98cd95fd71e980592",
   "epochFamilies": [
     "auth",
     "binary",
@@ -202,7 +202,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "authCliStart": {
       "supported": [
-        "oc1:8ca500d7bf59afa95bf51892e279f055348f9918c7de755ce44a5121a715a3be"
+        "oc1:6a426f03856686ab63be3826147e830c2966411688e6f2455232efc4032c8637"
       ],
       "epochs": {
         "auth": 1,
@@ -214,7 +214,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "authLogin": {
       "supported": [
-        "oc1:239461dd49071b4c426db186fa73f90ea54bd64fef36f9b55c135cec312988e6"
+        "oc1:5591ff015b928e79c733a3bb1ea577e83dfde707c2a7ad0a8aef266f8ce4a9ab"
       ],
       "epochs": {
         "auth": 1,
@@ -308,9 +308,21 @@ export const CONTRACT_TABLE: ContractTable = {
         "security": 1
       }
     },
+    "candidateMeritEvaluationGet": {
+      "supported": [
+        "oc1:ad3569f2f4d5da4039dd2a045efd5b8802b2fcd3f2f867f8d055a85a7cb023fa"
+      ],
+      "epochs": {
+        "auth": 1,
+        "binary": 1,
+        "limits": 1,
+        "retry": 1,
+        "security": 1
+      }
+    },
     "candidateMeritEvaluationRequest": {
       "supported": [
-        "oc1:a7db4c0280fc6959a09f537dd757c3f260cde40a1e046a6f27931967347553f8"
+        "oc1:8a3d0bb1a5e02a1919c18689c841590fe1198257357fcf859200fe3467991c56"
       ],
       "epochs": {
         "auth": 1,
@@ -322,7 +334,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "candidateMeritGet": {
       "supported": [
-        "oc1:88010b99b41ca74e5b874425211733dc9ad6be273a756ff016e34253119d4500"
+        "oc1:9fb7ce6103f774415e83980ea5f63e62681e5fa1b02abf359a0b9e4d4c753e3c"
       ],
       "epochs": {
         "auth": 1,
@@ -1810,7 +1822,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "workspaceBindingCreate": {
       "supported": [
-        "oc1:658989da2967040b97a118029799599ab9c6a6840b70242cf74443bb5f1e3e77"
+        "oc1:20fe0152ecbab21923d18a355e7f37e5ef21089eb441f76124abb2b3878672c2"
       ],
       "epochs": {
         "auth": 1,
@@ -1822,7 +1834,19 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "workspaceBindingGet": {
       "supported": [
-        "oc1:1bd0285084b383439e7350127edd1bc0539f8ef21294c4b48e8151bb45067d9c"
+        "oc1:f87a467d228628306cd9f43a3abfc028eadf6b5cbb4fee9f12f5412b86bdc38c"
+      ],
+      "epochs": {
+        "auth": 1,
+        "binary": 1,
+        "limits": 1,
+        "retry": 1,
+        "security": 1
+      }
+    },
+    "workspaceBindingLookup": {
+      "supported": [
+        "oc1:603534ef2075aa43474f33c63490e1e0bf71debec62b8b12df041ded40f7d399"
       ],
       "epochs": {
         "auth": 1,
@@ -1844,12 +1868,12 @@ export const CONTRACT_TABLE: ContractTable = {
       ],
       "supported": [
         {
-          "id": "ocap1:aa303e15634d629c3b380c54ad57c6a2337a29c5c3b4e66a914b6b5db1ce37c9",
+          "id": "ocap1:5a8885eab20826fd29be094e4744b4cdbfc7c88c0468e5a9f2ecfe295ef51a1e",
           "members": {
             "claimAuthorize": "oc1:17d5e9d9ad73bb00b8f1f61082f52c1254b03a5151d200fee34d8739792ea44b",
             "taskClaim": "oc1:5018215a504e2832f87414bd40ca293cbeb2b2ecb942f9d06bdf32bf3efedff4",
-            "workspaceBindingCreate": "oc1:658989da2967040b97a118029799599ab9c6a6840b70242cf74443bb5f1e3e77",
-            "workspaceBindingGet": "oc1:1bd0285084b383439e7350127edd1bc0539f8ef21294c4b48e8151bb45067d9c"
+            "workspaceBindingCreate": "oc1:20fe0152ecbab21923d18a355e7f37e5ef21089eb441f76124abb2b3878672c2",
+            "workspaceBindingGet": "oc1:f87a467d228628306cd9f43a3abfc028eadf6b5cbb4fee9f12f5412b86bdc38c"
           }
         }
       ]

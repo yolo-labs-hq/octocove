@@ -64,11 +64,11 @@ export const brokerCases: Case[] = [
     }
     equal(calls.length, 0, 'nothing was sent');
   }),
-  test('the bound allow list is exactly these 32 operations: a new or changed route needs a deliberate update here', async () => {
+  test('the bound allow list is exactly these 33 operations: a new or changed route needs a deliberate update here', async () => {
     const routes = Object.values(routing as Record<string, RouteEntry>).filter((r) => r.kind === 'path' && r.policy.callable === true);
     const allowed = routes.filter(boundAllows).map((r) => r.operationId).sort();
     equal(allowed, [
-      'auditList', 'candidateGet', 'candidateLand', 'candidateMeritDiffGet', 'candidateMeritEvaluationRequest', 'candidateMeritGet',
+      'auditList', 'candidateGet', 'candidateLand', 'candidateMeritDiffGet', 'candidateMeritEvaluationGet', 'candidateMeritEvaluationRequest', 'candidateMeritGet',
       'candidateMeritReviewCreate', 'candidateMeritReviewGet', 'candidateMeritReviewsList', 'candidateWithdraw', 'claimGet', 'codeBlobGet',
       'codeCommitsGet', 'codeCompareGet', 'codeTreeGet', 'eventsReplay', 'landingsList', 'laneBlobGet', 'laneBlobPut', 'laneBlobUpload',
       'laneChangesSubmit', 'laneManifestGet', 'laneMaterialize', 'lanePackGet', 'laneScopeRequest', 'laneWrapUp', 'meGet', 'receiptGet',
@@ -109,6 +109,7 @@ export const brokerCases: Case[] = [
     const head = server.lane('T1').laneHead;
     const before = server.requests.length;
     const refusals: Array<[string, () => Promise<unknown>]> = [
+      ['forbidden', () => one.api.call('candidateMeritEvaluationGet', { path: { id: 'T1', requestId: 'req-1' } })],
       ['forbidden', () => one.api.call('laneMaterialize', { path: { id: 'T2' }, body: {} })],
       ['forbidden', () => one.api.call('laneWrapUp', { path: { id: 'T1' }, body: { generation: 1, laneHead: head } })],
       ['scope-refused', () => save(one.api, 'T1', head, [{ op: 'delete', path: 'docs/readme.md' }])],
@@ -124,7 +125,7 @@ export const brokerCases: Case[] = [
     const gone = await rejects(() => one.api.call('laneMaterialize', { path: { id: 'T1' }, body: {} }), ApiError);
     equal([gone.status, gone.code, gone.endsAuthority], [401, 'credential-revoked', true]);
     equal(server.requests.length, before, 'no refused request reached the API');
-    equal(broker.denials.map((d) => d.code), ['forbidden', 'forbidden', 'scope-refused', 'credential-revoked']);
+    equal(broker.denials.map((d) => d.code), ['forbidden', 'forbidden', 'forbidden', 'scope-refused', 'credential-revoked']);
   }),
   test('a save point whose answer was lost is recovered under the same key: one save point, the recorded result, the injected fetch called again', async () => {
     const { server, broker, lane } = setup();

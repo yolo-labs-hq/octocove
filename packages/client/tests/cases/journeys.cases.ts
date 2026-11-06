@@ -543,6 +543,63 @@ export const journeyCases: Case[] = [
     await rejects(() => journeys(delegated).workspaces.get('wsb_1', { deadline: soon() }), TypeError);
     await rejects(() => journeys(delegated).workspaces.bind({ externalWorkspaceId: 'ws', source: { kind: 'github', owner: 'a', name: 'b' } }, { deadline: soon() }), TypeError);
   }),
+  test('workspaces.lookup sends the original key and exact commitments as one read and preserves pending', async () => {
+    const input = { externalWorkspaceId: 'original/ws+one?', requestDigest: 'd'.repeat(43), idempotencyKey: 'original-workspace-key-0001' };
+    const pending = { state: 'pending', externalWorkspaceId: input.externalWorkspaceId, reason: 'binding-not-reserved', retryAfter: 1 };
+    const script = scriptedFetch(json(200, pending));
+    equal(await journeys(client(script.fetch)).workspaces.lookup(input, { deadline: soon() }), pending);
+    equal(script.calls.length, 1);
+    const sent = script.calls[0]!;
+    equal(sent.method, 'GET');
+    equal(new URL(sent.url).pathname, '/v1/workspace-bindings/lookup');
+    equal(new URL(sent.url).searchParams.get('externalWorkspaceId'), input.externalWorkspaceId);
+    equal(new URL(sent.url).searchParams.get('requestDigest'), input.requestDigest);
+    equal(keys(script.calls), [input.idempotencyKey]);
+    equal(sent.body, undefined);
+    const absent = scriptedFetch(problem(404, 'not-found'));
+    await rejects(() => journeys(client(absent.fetch)).workspaces.lookup(input, { deadline: soon() }), ApiError);
+    equal(absent.calls.length, 1, '404 never falls back to binding creation or lookup by a different identity');
+    equal(absent.calls[0]!.method, 'GET');
+  }),
+  test('workspace lookup refuses a missing original key and delegation authority before any fetch', async () => {
+    const script = scriptedFetch();
+    const input = { externalWorkspaceId: 'ws-1', requestDigest: 'd'.repeat(43), idempotencyKey: '' };
+    await rejects(() => journeys(client(script.fetch)).workspaces.lookup(input, { deadline: soon() }), TypeError);
+    await rejects(() => client(script.fetch).call('workspaceBindingLookup', { query: input, idempotencyKey: '' }), TypeError);
+    const delegated = createClient({ baseUrl: BASE, fetch: script.fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).workspaces.lookup({ ...input, idempotencyKey: 'original-key' }, { deadline: soon() }), TypeError);
+    equal(script.calls.length, 0);
+  }),
+  test('workspace lookup keeps original commitments off hooks and error diagnostics while sending them exactly', async () => {
+    const input = { externalWorkspaceId: 'private/workspace+one?', requestDigest: 'd'.repeat(43), idempotencyKey: 'private-original-key-0001' };
+    const events: unknown[] = [];
+    const script = scriptedFetch(offline(), problem(404, 'not-found', { detail: `${input.externalWorkspaceId} ${input.requestDigest} ${input.idempotencyKey}` }));
+    const error = await rejects(() => journeys(client(script.fetch, {
+      onRequest: e => events.push(e), onResponse: e => events.push(e), onRetry: e => events.push(e),
+    })).workspaces.lookup(input, { deadline: soon() }), ApiError);
+    const diagnostics = JSON.stringify(events) + dumpError(error);
+    for (const value of Object.values(input)) {
+      ok(!diagnostics.includes(value), 'raw lookup input not exposed');
+      ok(!diagnostics.includes(encodeURIComponent(value)), 'encoded lookup input not exposed');
+    }
+    equal(keys(script.calls), [input.idempotencyKey, input.idempotencyKey]);
+    equal(error.idempotencyKey, '[redacted]');
+  }),
+  test('workspace lookup does not replay busy answers and scrubs lookup identity from early aborts', async () => {
+    const input = { externalWorkspaceId: 'private-workspace-1', requestDigest: 'd'.repeat(43), idempotencyKey: 'private-original-key-0001' };
+    const events: unknown[] = [];
+    const script = scriptedFetch(problem(429, 'rate-limited'));
+    const api = journeys(client(script.fetch, { onRetry: e => events.push(e) })).workspaces;
+    const busy = await rejects(() => api.lookup(input, { deadline: soon() }), ApiError);
+    equal(busy.status, 429);
+    equal(script.calls.length, 1);
+    equal(events, []);
+    const controller = new AbortController();
+    controller.abort(input.idempotencyKey);
+    const aborted = await rejects(() => api.lookup(input, { deadline: soon(), signal: controller.signal }), TransportError);
+    ok(!dumpError(aborted).includes(input.idempotencyKey), 'early abort reason does not expose the lookup key');
+    equal(script.calls.length, 1);
+  }),
   test('workspaces.connectGitHub reads only the repository from an installUrl, calls its own base URL, and returns the browser URL', async () => {
     const start = { url: 'https://app.example.invalid/github/install?ticket=t', expiresAt: '2026-10-28T12:10:00.000Z' };
     const { fetch, calls } = scriptedFetch(json(200, start), json(200, start), json(200, start));
@@ -933,6 +990,42 @@ export const journeyCases: Case[] = [
     equal(submission.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit-reviews`);
     equal(JSON.parse(submission.calls[0]!.body!), review, 'the body is the review as given');
     ok(typeof keys(submission.calls)[0] === 'string');
+  }),
+  test('merit.evaluate snapshots the exact expected context across a lost ACK under one key', async () => {
+    const expected = { candidateSha: A, baseSha: B, policyId: 'pol-1', policyVersion: 3, stage: 'shadow' as const, land: false };
+    const original = { ...expected };
+    const script = scriptedFetch(() => { expected.policyVersion = 99; throw offline(); },
+      json(202, { id: 'request-1', candidateId: 'cand-1', expected: original, status: 'requested' }));
+    const answer = await journeys(client(script.fetch)).org(ORG).merit.evaluate('cand-1', {
+      deadline: soon(), idempotencyKey: 'exact-evaluation-key-0001', expected,
+    });
+    equal(answer.expected, original);
+    equal(script.calls.map(c => JSON.parse(c.body!)), [{ expected: original }, { expected: original }]);
+    equal(keys(script.calls), ['exact-evaluation-key-0001', 'exact-evaluation-key-0001']);
+  }),
+  test('merit.evaluation observes one confirmed request without POST, polling or an idempotency key', async () => {
+    const observed = { id: 'request-1', candidateId: 'cand-1', taskId: 'task-1', requestedAt: '2026-11-06T00:00:00Z', status: 'requested', evidenceSet: { count: 1, reviewIds: ['r-1'], digest: 'sha256:evidence' } };
+    const script = scriptedFetch(json(200, observed));
+    equal(await journeys(client(script.fetch)).org(ORG).merit.evaluation('cand-1', 'request-1', { deadline: soon() }), observed);
+    equal(script.calls.length, 1);
+    equal(script.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit-evaluations/request-1`);
+    equal(script.calls[0]!.method, 'GET');
+    equal(script.calls[0]!.body, undefined);
+    equal(keys(script.calls), [undefined]);
+    const absent = scriptedFetch(problem(404, 'not-found'));
+    const error = await rejects(() => journeys(client(absent.fetch)).org(ORG).merit.evaluation('cand-1', 'request-1', { deadline: soon() }), ApiError);
+    equal(error.status, 404);
+    equal(absent.calls.length, 1, 'absence never reissues the evaluation POST');
+  }),
+  test('merit.evaluate preserves a preflight refusal without a new key or an unconstrained fallback', async () => {
+    const script = scriptedFetch(problem(409, 'merit-preflight-mismatch'));
+    const expected = { candidateSha: A, baseSha: B, policyId: 'pol-1', policyVersion: 3, stage: 'shadow' as const, land: false };
+    const error = await rejects(() => journeys(client(script.fetch)).org(ORG).merit.evaluate('cand-1', {
+      deadline: soon(), idempotencyKey: 'exact-evaluation-key-0001', expected,
+    }), ApiError);
+    equal(error.code, 'merit-preflight-mismatch');
+    equal(script.calls.length, 1);
+    equal(JSON.parse(script.calls[0]!.body!), { expected });
   }),
   test('merit.probe takes no key and is never resent; the merit reads carry their query and no key', async () => {
     const probe = scriptedFetch(offline(), json(200, {}));

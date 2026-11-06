@@ -1,4 +1,4 @@
-import type { MeritReviewInput, ResponseContract } from "../../client/src/node.js";
+import type { MeritEvaluationExpectation, MeritReviewInput, ResponseContract } from "../../client/src/node.js";
 import { reserveBootstrap } from './bootstrap-output.js';
 import { globalOptions } from './globals.js';
 import { commandHelp } from "./command-help.js";
@@ -103,7 +103,7 @@ Commands:
   merit usage PROJECT [--since TIME] [--until TIME]   (project admin: evaluations by outcome and model calls with their usage, per policy version, project and org)
   merit shadow PROJECT [--since TIME] [--until TIME] [--limit N]   (project admin: the evaluator's verdicts beside the humans' per evaluated candidate)
   merit review CANDIDATE --file FILE           (the lane's agent: submit the structured review of a candidate head; FILE is JSON, - reads stdin)
-  merit evaluate CANDIDATE                     (the lane's agent: request the evaluation of the head's evidence set)
+  merit evaluate CANDIDATE [--expected FILE]   (the lane's agent: request evaluation; FILE pins the candidate, policy and runtime context)
   merit release [TASK] [--candidate ID]        (human approver, recent sign-in: release a task from the needs-human merit hold without deciding its candidate)
   auth exchange --as ID --scope JSON [--token-stdin]   (approval grant for a registered machine principal)
   auth approve --grant ID [--as ID]             (exact machine decision)
@@ -1629,10 +1629,17 @@ const COMMANDS: Record<string, Handler> = {
       ["Merit state", r.meritState], ...(r.reasons.length ? [["Reasons", r.reasons.join(", ")] as [string, unknown]] : []), ["Next", `octo merit evaluate ${r.candidateId}`]]));
   },
   "merit evaluate": async (d, args) => {
-    const { v, pos } = opts(args, {}, 1);
+    const { v, pos } = opts(args, { expected: { type: "string" } }, 1);
+    let expected: MeritEvaluationExpectation | undefined;
+    if (v.expected !== undefined) {
+      const text = v.expected === "-" ? await d.stdin() : await readFile(resolve(d.cwd ?? process.cwd(), v.expected), "utf8")
+        .catch((err: NodeJS.ErrnoException) => { throw new UsageError(`--expected ${v.expected} cannot be read: ${err.code ?? "unreadable"}`); });
+      try { expected = JSON.parse(text); } catch { throw new UsageError(`--expected ${v.expected} is not JSON`); }
+      if (!expected || typeof expected !== "object" || Array.isArray(expected)) throw new UsageError("--expected must contain a JSON object");
+    }
     const { api, creds } = await client(d);
     if (creds.kind !== "agent") throw new ConfigError("merit evaluate requires the agent delegation of the lane's claim");
-    const r = await api.j.merit.evaluate(pos[0]!, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+    const r = await api.j.merit.evaluate(pos[0]!, { ...api.write(COMMAND_SECONDS, v["idempotency-key"]), ...(expected ? { expected } : {}) });
     out(d, v.json, r, () => kv([["Evaluation", r.id], ["Candidate", r.candidateId], ["Status", r.status], ["Reviews", r.evidenceSet.count]]));
   },
   "merit release": async (d, args) => {

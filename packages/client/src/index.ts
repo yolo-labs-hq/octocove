@@ -123,6 +123,8 @@ export type {
   RepositoryLanePolicy,
   RepositoryLanePolicyDeclaration,
   MeritState,
+  MeritPreflight,
+  MeritEvaluationExpectation,
   MeritManifest,
   MeritReviewInput,
   MeritReviewReceipt,

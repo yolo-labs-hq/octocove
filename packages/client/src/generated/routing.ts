@@ -1109,6 +1109,10 @@ export const routing = {
       "path": [],
       "query": [
         {
+          "name": "prompt",
+          "required": false
+        },
+        {
           "name": "userCode",
           "required": true
         }
@@ -1679,6 +1683,61 @@ export const routing = {
         "application/problem+json"
       ],
       "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "AgentDelegation",
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "candidateMeritEvaluationGet": {
+    "operationId": "candidateMeritEvaluationGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/orgs/{orgId}/candidates/{id}/merit-evaluations/{requestId}",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "orgId",
+          "required": true
+        },
+        {
+          "name": "requestId",
+          "required": true
+        }
+      ],
+      "query": [],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "404": [
         "application/problem+json"
       ]
     },
@@ -10528,6 +10587,65 @@ export const routing = {
       "cookie": []
     },
     "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
+  "workspaceBindingLookup": {
+    "operationId": "workspaceBindingLookup",
+    "kind": "path",
+    "method": "GET",
+    "path": "/workspace-bindings/lookup",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "externalWorkspaceId",
+          "required": true
+        },
+        {
+          "name": "requestDigest",
+          "required": true
+        }
+      ],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
     "csrfHeader": false,
     "requestBody": null,
     "responses": {

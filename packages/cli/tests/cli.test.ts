@@ -1422,6 +1422,28 @@ describe("merit", () => {
     expect(await cli(["merit", "evaluate", "C1"], agent)).toBe(0);
     expect(outText).toContain("requested");
   });
+  it("evaluate --expected sends the frozen tuple and explicit replay key through the typed method", async () => {
+    const expected = { candidateSha: "a".repeat(40), baseSha: "b".repeat(40), policyId: "pol-1", policyVersion: 3, stage: "shadow", land: false };
+    const file = join(repo, "expected.json");
+    writeFileSync(file, JSON.stringify(expected));
+    routes["POST /candidates/C1/merit-evaluations"] = () => json(202, { id: "req-1", candidateId: "C1", status: "requested", expected, evidenceSet: { count: 1 } });
+    const key = "fixed-evaluation-key-0001";
+    expect(await cli(["--json", "merit", "evaluate", "C1", "--expected", file, "--idempotency-key", key])).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toEqual({ expected });
+    expect(calls[0]!.headers["idempotency-key"]).toBe(key);
+    expect(JSON.parse(outText)).toMatchObject({ status: "requested", expected });
+    stdin = JSON.stringify(expected);
+    expect(await cli(["merit", "evaluate", "C1", "--expected", "-"])).toBe(0);
+    expect(calls.at(-1)!.body).toEqual({ expected });
+  });
+  it("evaluate refuses malformed or non-object expected files before credentials or network", async () => {
+    for (const text of ["not json", "null", "[]", "false"]) {
+      stdin = text;
+      expect(await cli(["merit", "evaluate", "C1", "--expected", "-"], { kind: "human" })).toBe(EXIT.usage);
+    }
+    expect(calls).toHaveLength(0);
+  });
   it("review and evaluate refuse a human before any request, and a bad file before any credential", async () => {
     const file = join(repo, "bad.json");
     writeFileSync(file, "not json");
