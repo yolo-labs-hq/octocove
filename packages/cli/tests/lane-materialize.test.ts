@@ -309,7 +309,7 @@ describe("octo lane (materialized)", () => {
       expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
     });
 
-    it("a failed materialize removes what it created, so the same command can be run again", async () => {
+    it("a failed materialize keeps its confirmed answer so readback can resume without another POST", async () => {
       scope = { read: ["."], write: ["."] };
       const files = { ...many("v1"), "README.md": "readme\n" };
       const { ids, pack } = gitPack(files);
@@ -319,17 +319,24 @@ describe("octo lane (materialized)", () => {
       routes["GET /tasks/T1/lane/pack"] = () => packed(damaged);
       expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
       expect(errText).toContain("nothing was written. Run the same command again");
-      expect(existsSync(dir)).toBe(false);
-      // An empty directory that was there before is kept, and left empty.
-      mkdirSync(dir);
+      expect(readdirSync(dir)).toEqual([".octocove"]);
+      expect(existsSync(join(dir, SIDECAR))).toBe(false);
+      const journalDir = join(dir, ".octocove/journal");
+      const entries = readdirSync(journalDir);
+      expect(entries).toHaveLength(1);
+      const original = JSON.parse(readFileSync(join(journalDir, entries[0]!), "utf8"));
+      expect(original.step).toBe("answered");
+      expect(original.answer.laneHead).toBe(HEAD(1));
       expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
-      expect(readdirSync(dir)).toEqual([]);
+      expect(JSON.parse(readFileSync(join(journalDir, entries[0]!), "utf8")).idempotencyKey).toBe(original.idempotencyKey);
       // Something else in the parent is never touched.
       writeFileSync(join(work, "keep.txt"), "mine\n");
       routes["GET /tasks/T1/lane/pack"] = () => packed(pack);
       expect(await cli(["lane", "materialize", "T1"]), errText).toBe(EXIT.ok);
       for (const [path, content] of Object.entries(files)) expect(read(path)).toBe(content);
       expect(readFileSync(join(work, "keep.txt"), "utf8")).toBe("mine\n");
+      expect(calls.filter(c => c.method === "POST" && c.url.pathname.endsWith("/lane/materialize"))).toHaveLength(1);
+      expect(readdirSync(journalDir)).toEqual([]);
     });
 
     it("a materialize claims its sidecar directory before asking for anything, and removes only that claim when it fails", async () => {
@@ -344,7 +351,7 @@ describe("octo lane (materialized)", () => {
       expect(existsSync(dir)).toBe(false);
     });
 
-    it("a materialize that fails after writing files removes them and its sidecar directory, never what it did not create", async () => {
+    it("a materialize that fails after writing files removes only its working files and keeps recovery metadata", async () => {
       scope = { read: ["."], write: ["."] };
       const files = { "a/one.txt": "one\n", "b/two.txt": "two\n" };
       const { ids, pack } = gitPack(files);
@@ -360,8 +367,12 @@ describe("octo lane (materialized)", () => {
       };
       expect(await cli(["lane", "materialize", "T1"])).not.toBe(EXIT.ok);
       expect(errText).toContain("is not a directory");
-      // a/one.txt and .octocove were the command's own and are removed; a/, a/notes.txt and b were not, and are kept.
-      expect(readdirSync(dir).sort()).toEqual(["a", "b"]);
+      // Remove a/one.txt, preserve other processes' files and the confirmed remote answer.
+      expect(readdirSync(dir).sort()).toEqual([".octocove", "a", "b"]);
+      expect(existsSync(join(dir, SIDECAR))).toBe(false);
+      const pending = readdirSync(join(dir, ".octocove/journal"));
+      expect(pending).toHaveLength(1);
+      expect(JSON.parse(readFileSync(join(dir, ".octocove/journal", pending[0]!), "utf8")).step).toBe("answered");
       expect(readdirSync(join(dir, "a"))).toEqual(["notes.txt"]);
       expect(readFileSync(join(dir, "b"), "utf8")).toBe("in the way\n");
     });
