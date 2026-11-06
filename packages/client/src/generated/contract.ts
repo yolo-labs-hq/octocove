@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:dff69ed2de1c5bf528f31bca1c4cf566fb81f1719dbf5ff98cd95fd71e980592",
+  "metaDigest": "ocm1:ec3399f38943c9021d0df73e1315416eddb8d45f010bf9994f6f19a2536cfa67",
   "epochFamilies": [
     "auth",
     "binary",
@@ -310,13 +310,13 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "candidateMeritEvaluationGet": {
       "supported": [
-        "oc1:ad3569f2f4d5da4039dd2a045efd5b8802b2fcd3f2f867f8d055a85a7cb023fa"
+        "oc1:38dda8296ff74f7d6671c57344a9ad6af93a066f52de328fc32d649368ea651f"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
-        "retry": 1,
+        "retry": 2,
         "security": 1
       }
     },
@@ -1846,13 +1846,13 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "workspaceBindingLookup": {
       "supported": [
-        "oc1:603534ef2075aa43474f33c63490e1e0bf71debec62b8b12df041ded40f7d399"
+        "oc1:dcf72d7a56fe88932020c6ab20ecefcfc5381cb3b2b5ca3c62284c1d62702a56"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
-        "retry": 1,
+        "retry": 2,
         "security": 1
       }
     }

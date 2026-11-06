@@ -258,6 +258,11 @@ that polls under the same key with its own progress messages.
   through `laneBlobUpload`, `laneChangesSubmit` and `laneWrapUp` (through `command`). No Git remote,
   provider credential or push transport is involved.
 
+The 0.26.0 build embeds the reviewed retry-epoch-2 contracts for the new evaluation observer and
+workspace lookup, paired with its server vendor pin. Do not adopt locked calls to these two reads until
+that pin is deployed and its metadata is qualified. Earlier undeclared retry-policy IDs are refused,
+not aliased or treated as compatible. The new read schemas and endpoints alone are not sufficient.
+
 ### Merit
 
 For a terminal evaluation, `merit.status()` returns `score.decision`: the recorded checks,

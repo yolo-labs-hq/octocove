@@ -21,6 +21,24 @@ const locked = async (fetch: any, requirement: any = { operations: { [op]: [task
 const taskCall = { path: { orgId: org, id: 't1' } };
 
 describe('requireCapabilities', () => {
+  it('locks the pinned read retry contracts and refuses their earlier undeclared policy ids', async () => {
+    {
+      const operationId = 'candidateMeritEvaluationGet';
+      const expected = CONTRACT_TABLE.operations[operationId]!.supported[0]!;
+      expect(CONTRACT_TABLE.operations[operationId]!.epochs.retry).toBe(2);
+      const requirement = { operations: { [operationId]: [expected] } };
+      await expect(clientOf(async () => new Response(meta())).requireCapabilities(requirement)).resolves.toBeDefined();
+      await expect(clientOf(async () => new Response(meta(d => { d.operations[operationId].contract = 'oc1:ad3569f2f4d5da4039dd2a045efd5b8802b2fcd3f2f867f8d055a85a7cb023fa'; d.operations[operationId].epochs.retry = 1; }))).requireCapabilities(requirement)).rejects.toBeInstanceOf(ContractRefusedError);
+    }
+    {
+      const operationId = 'workspaceBindingLookup';
+      const expected = CONTRACT_TABLE.operations[operationId]!.supported[0]!;
+      expect(CONTRACT_TABLE.operations[operationId]!.epochs.retry).toBe(2);
+      const requirement = { operations: { [operationId]: [expected] } };
+      await expect(clientOf(async () => new Response(meta())).requireCapabilities(requirement)).resolves.toBeDefined();
+      await expect(clientOf(async () => new Response(meta(d => { d.operations[operationId].contract = 'oc1:603534ef2075aa43474f33c63490e1e0bf71debec62b8b12df041ded40f7d399'; d.operations[operationId].epochs.retry = 1; }))).requireCapabilities(requirement)).rejects.toBeInstanceOf(ContractRefusedError);
+    }
+  });
   it('reads /v1/meta with no credential and no redirect, and locks each capability member', async () => {
     const fetch = vi.fn(async () => new Response(meta()));
     const lock = await clientOf(fetch).requireCapabilities({ capabilities: { [capability]: [capabilityEntry.id] } });

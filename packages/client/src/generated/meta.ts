@@ -7,5 +7,5 @@ export const BUILD_INFO = {
   "routingGenerator": "octocove-client-routing@1",
   "outputSha256": "2ae3dff79c97f1277f79fd661e87568a55f287180db40ae8be37d65d08d363d0",
   "contractAlgorithm": "oc1",
-  "metaDigest": "ocm1:dff69ed2de1c5bf528f31bca1c4cf566fb81f1719dbf5ff98cd95fd71e980592"
+  "metaDigest": "ocm1:ec3399f38943c9021d0df73e1315416eddb8d45f010bf9994f6f19a2536cfa67"
 } as const;
