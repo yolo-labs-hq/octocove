@@ -219,6 +219,31 @@ export const laneCases: Case[] = [
     equal((await journal.list()).length, 0);
   }),
 
+  test('materialize: a foreign claim answer or inconsistent manifest execution cannot complete the local lane', async () => {
+    for (const change of ['answer-claim', 'manifest-claim', 'manifest-execution']) {
+      const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
+      const lane = w.server.lane('T1');
+      if (change === 'answer-claim') {
+        w.server.on('laneMaterialize', () => ({ claimAttemptId: 'another-claim', executionId: lane.executionId,
+          generation: lane.generation, laneHead: lane.laneHead }));
+      } else {
+        w.server.on('laneManifestGet', () => ({ taskId: 'T1', claimId: change === 'manifest-claim' ? 'another-claim' : lane.claimAttemptId,
+          executionId: change === 'manifest-execution' ? 'another-execution' : lane.executionId,
+          generation: lane.generation, baseSha: lane.baseSha, scopeVersion: 1, scope: lane.scope,
+          entries: [], laneHead: lane.laneHead, truncated: false }));
+      }
+      const lanes = createLanes({ client: w.client, files, journal });
+      const error = await rejects(() => lanes.materialize('T1', opts({ idempotencyKey: 'original-identity-key' })), LaneError);
+      equal([error.code, error.outcome], ['invalid-response', 'unknown'], change);
+      equal(await lanes.isLane(), false, change);
+      const kept = (await journal.list())[0]!;
+      equal(kept.idempotencyKey, 'original-identity-key', 'never erase the original operation');
+      equal(kept.step, change === 'answer-claim' ? 'sent' : 'answered', change);
+      equal([w.server.count('laneBlobGet'), w.server.count('lanePackGet')], [0, 0], change);
+      if (change === 'answer-claim') equal(w.server.count('laneManifestGet'), 0);
+    }
+  }),
+
   test('materialize: a crash part-way through writing resumes with the same key and finishes every file', async () => {
     const w = world();
     const files = memoryLaneFiles(), journal = memoryJournal();

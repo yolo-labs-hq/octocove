@@ -8,9 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fakeServer, fakeBroker } from '../../packages/client/dist/testing.js';
-import { createClient, bearer, bound, createLanes, memoryLaneFiles, laneFilesJournal, tenantClient } from '../../packages/client/dist/index.js';
+import { CLIENT_VERSION, createClient, bearer, bound, createLanes, memoryLaneFiles, laneFilesJournal, tenantClient } from '../../packages/client/dist/index.js';
 const entry=fileURLToPath(new URL('../../packages/cli/dist/octocove.mjs',import.meta.url));
 const version=JSON.parse(await readFile(new URL('../../packages/cli/package.json',import.meta.url),'utf8')).version;
+const args=process.argv.slice(2);
+assert.ok(args.length===2 && args[0]==='--cli-sha256' && /^[0-9a-f]{64}$/.test(args[1]),'provide --cli-sha256 from a trusted release or independently reviewed build');
+const bundleHash=createHash('sha256').update(await readFile(entry)).digest('hex');
+assert.equal(bundleHash,args[1],'CLI bundle does not match the trusted digest');
 const root=await mkdtemp(join(tmpdir(),'octocove-cli-qualification-'));
 const org='org_00000000-0000-4000-8000-000000000001',task='qualification-task';
 let api;
@@ -37,6 +41,8 @@ try {
   if(code!==0)throw new Error(`fixture CLI ${args.slice(0,2).join(' ')} failed, exit ${code}; safe problem=${JSON.parse(err.trim().split('\n').at(-1)||'{}').code??'unknown'}`);
   return JSON.parse(out);
  }
+ assert.equal(CLIENT_VERSION,version,'rebuild the SDK before qualification');
+ assert.equal((await cli(['--version'])).version,version,'rebuild the CLI before qualification');
  const materialized=await cli(['lane','materialize',task,'lane','--wait','10','--idempotency-key','fixture-materialize-key']);
  const dir=join(root,'lane');const initial=materialized.laneHead;
  const client=tenantClient(createClient({baseUrl:base,transport:bearer({token:credential.token,kind:'delegation'})}),org);
@@ -92,5 +98,6 @@ try {
  broker.revoke(handle);
  await assert.rejects(()=>sdk.call('taskGet',{path:{id:sdkTask},deadline:Date.now()+1000}),e=>e.status===401 && e.code==='credential-revoked');
  assert.equal(api.requests.length,before,'a revoked handle cannot dispatch or renew');
- console.log(JSON.stringify({kind:'loopback-fixture-only',cliVersion:version,boundSdkSaves:2,boundSdkExactByteReadbacks:2,foreignTenantRefused:true,foreignTaskRefused:true,revokedHandleRefused:true,cliBundleSha256:createHash('sha256').update(await readFile(entry)).digest('hex'),materialize:true,saves:2,independentExactByteReadbacks:2,headChain:true,wrappedCandidate:true,meritRun:false,liveAcceptance:false}));
+ assert.equal(createHash('sha256').update(await readFile(entry)).digest('hex'),bundleHash,'CLI bundle changed during qualification');
+ console.log(JSON.stringify({kind:'loopback-fixture-only',cliVersion:version,boundSdkSaves:2,boundSdkExactByteReadbacks:2,foreignTenantRefused:true,foreignTaskRefused:true,revokedHandleRefused:true,cliBundleSha256:bundleHash,materialize:true,saves:2,independentExactByteReadbacks:2,headChain:true,wrappedCandidate:true,meritRun:false,liveAcceptance:false}));
 }finally{http.closeAllConnections();await new Promise(resolve=>http.close(resolve));await rm(root,{recursive:true,force:true});}

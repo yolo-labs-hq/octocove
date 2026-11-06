@@ -628,7 +628,9 @@ export function createLanes(options: LanesOptions): Lanes {
       try {
         answer = (await settled(run, 'lane materialize', () => write(run, 'laneMaterialize', { path: { id: taskId }, body: {} }, entry.idempotencyKey, true))).body;
       } catch (error) { throw await settle(entry, error); }
-      if (!isRecord(answer) || !isSha(answer.laneHead) || !Number.isInteger(answer.generation)) throw unusable('invalid materialize response from the control plane');
+      if (!isRecord(answer) || !isSha(answer.laneHead) || !Number.isInteger(answer.generation) || answer.generation < 1 ||
+          answer.claimAttemptId !== entry.state.claimAttemptId || typeof answer.executionId !== 'string' || !answer.executionId)
+        throw unusable('invalid materialize response from the control plane');
       // Only what is used later is recorded.
       await advance(entry, 'answered', { generation: answer.generation, laneHead: answer.laneHead, executionId: answer.executionId, claimAttemptId: answer.claimAttemptId,
         snapshotCommit: answer.snapshotCommit, laneRepository: isRecord(answer.laneRepository) ? { id: answer.laneRepository.id } : undefined, created: answer.created === true,
@@ -637,6 +639,8 @@ export function createLanes(options: LanesOptions): Lanes {
     const repo = entry.answer as Record<string, any>;
     const generation = repo.generation as number, head = repo.laneHead as string;
     const m = await readManifest(run, taskId, generation, head);
+    if (repo.claimAttemptId !== entry.state.claimAttemptId || m.claimId !== repo.claimAttemptId || m.executionId !== repo.executionId)
+      throw unusable('the manifest does not match the materialized claim and execution');
     await refuseCaseCollisions(m.entries.map((e) => e.path));
     const records = dict<LaneFileRecord>();
     // Every file's content first (kept as pristine copies, one per distinct blob): a whole-repository lane in one pack,

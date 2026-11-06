@@ -717,7 +717,8 @@ Stores: `memoryJournal()`, `laneFilesJournal(files)` (beside the files, as the C
 under `/node`. `pending()` lists a lane's entries; `resume(journalId)` takes only an id from the store, for the lane
 the files hold.
 
-**Verified readback.** The lane engine rejects a manifest for a different task or generation, a conflicting
+**Verified readback.** A materialize answer must match the original claim, and its manifest must match the
+confirmed claim and execution. The lane engine also rejects a manifest for a different task or generation, a conflicting
 reported head, malformed Git object ids, duplicate paths and inconsistent file modes/types before requesting
 content. Each file read must name the requested path, report the same head when present, carry canonical base64
 and a byte count matching the decoded content, and match its Git blob id and the manifest id. A Git blob id hashes
