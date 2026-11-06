@@ -10,9 +10,13 @@ From a frozen-lockfile install on Node 22:
 ```sh
 pnpm --filter @yolo-labs/octocove-client build
 pnpm --filter @yolo-labs/octocove build
-node tools/qualification/runner-journey.mjs
+node tools/qualification/runner-journey.mjs --cli-sha256 TRUSTED_BUNDLE_SHA256
 ```
 
+Supply the CLI bundle SHA-256 from the release receipt or an independently reviewed build; do not simply hash an
+unverified local file to satisfy the check. The tool refuses a bundle that differs from that digest, checks that it
+remains unchanged, and checks SDK and CLI reported versions against the source manifest. The CLI reads its version
+from its package manifest, so its version string alone is not proof that a local bundle was rebuilt.
 The JSON result records the CLI version and bundle hash. Both paths materialize a lane, edit binary content, save
 twice, verify each head's exact bytes and Git blob id, and wrap up a candidate. Readback uses the explicit saved
 head and generation. The verifier computes Git object hashes with Node crypto separately from the lane engine.

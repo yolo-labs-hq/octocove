@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.26.2 and client 0.26.2
+
+- Materialization rejects an answer for another claim and a manifest whose claim or execution contradicts the confirmed materialize response. Recovery evidence remains intact and no completed local lane is reported.
+- Runner qualification requires a trusted CLI bundle digest and checks the built SDK version, rather than relying on the CLI package manifest version as bundle identity.
+- CLI parity: both packages use the shared lane engine and release in lockstep. No commands, authority, scopes, retries or deadlines change.
+
 ## CLI 0.26.1 and client 0.26.1
 
 - Materialization preserves its original journal key/body after an unknown write, and its confirmed answer after failed readback or local writes. Explicit recovery of an answered operation does not repeat the materialize POST. A missing sidecar is not proof of no remote effects.
