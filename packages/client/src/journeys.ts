@@ -141,6 +141,10 @@ export type RepositoryLanePolicyDeclaration = OpenEnums<Schemas['RepositoryLaneP
 /** `candidateMeritGet`'s answer: the task's merit state and hold, the attempt position, the evidence set, the latest
  * review and the latest score, and the deployment's `stage` (`shadow` issues nothing) and `evaluation` runtime. */
 export type MeritState = OpenEnums<Schemas['MeritState']>;
+/** Bounded own-candidate policy/runtime snapshot; not an atomic evaluation guarantee. */
+export type MeritPreflight = OpenEnums<Schemas['MeritPreflight']>;
+/** Exact context the server must still match at evaluation admission and dispatch. */
+export type MeritEvaluationExpectation = Schemas['MeritEvaluationExpectation'];
 /** `candidateMeritDiffGet`'s answer: the versioned manifest of the whole change, every hunk a review must cite. */
 export type MeritManifest = OpenEnums<Schemas['MeritManifest']>;
 /** `candidateMeritReviewCreate`'s body: the structured review of one candidate head, bound to its manifest digest. */
@@ -797,10 +801,19 @@ export function tenantJourneys(client: TenantClient) {
       body(options, 'candidateMeritReviewCreate', { path: { id: candidateId }, body: input }, { credential: options.credential }),
     /**
      * The live claim's agent: request the evaluation of the head's accumulated evidence set (`202 requested`, or
-     * `409 needs-human` once the evidence rounds are exhausted). `stored-result` replay.
+     * `409 needs-human` once the evidence rounds are exhausted). Optional `expected` fences the exact candidate,
+     * policy and runtime at admission and dispatch. Without it, the ordinary unconstrained behavior is unchanged.
+     * A request ACK is not a score; observe a confirmed request with `evaluation`, never by repeating POST after
+     * the evidence changed. `land: false` prevents automatic landing, not evaluator approval.
      */
-    evaluate: (candidateId: string, options: CommandOptions & { readonly credential?: BearerTransport }): Promise<MeritEvaluationRequest> =>
-      body(options, 'candidateMeritEvaluationRequest', { path: { id: candidateId }, body: {} }, { credential: options.credential }),
+    evaluate: (candidateId: string, options: CommandOptions & { readonly credential?: BearerTransport; readonly expected?: MeritEvaluationExpectation }): Promise<MeritEvaluationRequest> => {
+      // Snapshot the expected tuple before any async credential read or same-key resend.
+      const input = options.expected === undefined ? {} : { expected: { ...options.expected } };
+      return body(options, 'candidateMeritEvaluationRequest', { path: { id: candidateId }, body: input }, { credential: options.credential });
+    },
+    /** Read one confirmed evaluation request. Never schedules work or falls back to a POST on absence. */
+    evaluation: (candidateId: string, requestId: string, options: JourneyOptions & { readonly credential?: BearerTransport }): Promise<MeritEvaluationRequest> =>
+      body(options, 'candidateMeritEvaluationGet', { path: { id: candidateId, requestId } }, { credential: options.credential }),
     /**
      * Human only, `candidates:approve` with a recent sign-in: release the task from the `needs-human` hold without
      * deciding the candidate (a human approval, rejection or landing ends the hold too).
@@ -1207,6 +1220,23 @@ export function journeys(client: OctocoveClient) {
       const scope = journeyScope(options);
       try {
         const response = await send(client, scope, options, 'workspaceBindingGet', { path: { bindingId } });
+        if (!isBinding(response.body)) throw offShape(response, 'the response is not a workspace binding');
+        return response.body;
+      } finally { scope.dispose(); }
+    },
+    /**
+     * Read only the original workspace request's binding under the same owner/client authority.
+     * Requires the ORIGINAL key and canonical body digest. Never adopts the latest binding or resumes creation;
+     * absence is an ApiError, and an unreserved request returns pending. Does not poll or fall back to bind.
+     */
+    async lookup(input: { readonly externalWorkspaceId: string; readonly requestDigest: string; readonly idempotencyKey: string }, options: JourneyOptions): Promise<WorkspaceBinding> {
+      requireHuman(client, 'workspaces.lookup');
+      if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey) throw new TypeError('workspaces.lookup needs the original Idempotency-Key');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'workspaceBindingLookup', {
+          query: { externalWorkspaceId: input.externalWorkspaceId, requestDigest: input.requestDigest },
+        }, { idempotencyKey: input.idempotencyKey, busyIsFinal: true, localSecrets: [input.externalWorkspaceId, input.requestDigest, input.idempotencyKey] });
         if (!isBinding(response.body)) throw offShape(response, 'the response is not a workspace binding');
         return response.body;
       } finally { scope.dispose(); }

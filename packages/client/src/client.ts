@@ -352,8 +352,17 @@ export function createClient(options: ClientOptions): OctocoveClient {
           body = JSON.stringify(input.body);
         }
       } else if (route.requestBody?.required) throw new TypeError(`${operationId} requires a request body`);
+      if (operationId === 'workspaceBindingLookup' && (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey))
+        throw new TypeError('workspaceBindingLookup needs the original Idempotency-Key');
       idempotencyKey = route.idempotencyKey ? (input.idempotencyKey ?? newIdempotencyKey()) : undefined;
       if (idempotencyKey) baseHeaders['idempotency-key'] = idempotencyKey;
+      if (operationId === 'workspaceBindingLookup') {
+        // Recovery identity is private diagnostic input, including the original key. The wire header stays exact.
+        const query = input.query as Record<string, unknown> | undefined;
+        for (const value of [query?.externalWorkspaceId, query?.requestDigest, idempotencyKey])
+          if (typeof value === 'string' && value) secrets.push(value, encodeURIComponent(value), new URLSearchParams({ v: value }).toString().slice(2));
+        idempotencyKey = REDACTED;
+      }
       secrets.push(...(fixed?.secrets ?? []));
       // A fixed (or synchronously read) bearer is known before anything is sent, so even a call that ends first scrubs it.
       let firstRead: string | Promise<string> | undefined;

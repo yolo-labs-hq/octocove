@@ -117,6 +117,11 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "candidateMeritEvaluationGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "candidateMeritEvaluationRequest": {
     "callable": true,
     "autoRetry": "network-only",
@@ -733,6 +738,11 @@
     "replay": "stored-result"
   },
   "workspaceBindingGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
+  "workspaceBindingLookup": {
     "callable": true,
     "autoRetry": "network-only",
     "replay": null

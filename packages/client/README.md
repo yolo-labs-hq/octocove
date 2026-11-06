@@ -157,7 +157,7 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `metaGet`, `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `lanePackGet`, `laneSavePointsList`, `laneSavePointGet`, `laneSavePointDiff`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `meGithubRepositoriesList`, `githubConnect`, `projectInitializationGet`, `candidateMeritDiffGet`, `candidateMeritGet`, `candidateMeritReviewsList`, `candidateMeritReviewGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet`, `meritShadowGet`, `repositoryLanePolicyGet` | `network-only` | `null` | safe reads (the merit reads, `repositoryLanePolicyGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet` and `meritShadowGet` write nothing and are not audited; `candidateMeritDiffGet` computes the manifest from the candidate's commits and caches it server-side; `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `meGithubRepositoriesList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `metaGet`, `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `lanePackGet`, `laneSavePointsList`, `laneSavePointGet`, `laneSavePointDiff`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `workspaceBindingLookup`, `meGithubInstallationsList`, `meGithubRepositoriesList`, `githubConnect`, `projectInitializationGet`, `candidateMeritDiffGet`, `candidateMeritGet`, `candidateMeritEvaluationGet`, `candidateMeritReviewsList`, `candidateMeritReviewGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet`, `meritShadowGet`, `repositoryLanePolicyGet` | `network-only` | `null` | safe reads (the merit reads, `repositoryLanePolicyGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet` and `meritShadowGet` write nothing and are not audited; `candidateMeritDiffGet` computes the manifest from the candidate's commits and caches it server-side; `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `meGithubRepositoriesList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `workspaceBindingCreate` | `network-only` | `stored-result` | the binding request ledger, keyed by client, human and key: the same key with another body is `409 idempotency-conflict`; a replay of a request that bound (or began creating) a binding answers that binding, with its destinations and access read now; a `pending` or `action-required` answer that bound nothing is worked out again; a refused creation replays its refusal; nothing is created twice |
@@ -258,6 +258,11 @@ that polls under the same key with its own progress messages.
   through `laneBlobUpload`, `laneChangesSubmit` and `laneWrapUp` (through `command`). No Git remote,
   provider credential or push transport is involved.
 
+The 0.26.0 build embeds the reviewed retry-epoch-2 contracts for the new evaluation observer and
+workspace lookup, paired with its server vendor pin. Do not adopt locked calls to these two reads until
+that pin is deployed and its metadata is qualified. Earlier undeclared retry-policy IDs are refused,
+not aliased or treated as compatible. The new read schemas and endpoints alone are not sufficient.
+
 ### Merit
 
 For a terminal evaluation, `merit.status()` returns `score.decision`: the recorded checks,
@@ -267,6 +272,30 @@ not a recalculation against the current policy. Authorized humans (including OAu
 acting for them) can read them; agents and older evaluations receive null. In shadow, the
 result grants no approval or landing authority. The `MeritDecision` family of exported types
 names these fields; no client-side threshold evaluation is needed.
+
+`merit.status(candidateId)` also returns `preflight`: the exact candidate/head/base, task/claim and
+repository/target binding, repository opt-in, applicable policy id/version/expiry/live/land (or an explicit
+unavailable reason), and runtime stage/evaluation facts. This own-candidate agent read needs no policy-admin
+OAuth scope. It is a snapshot, not an atomic guarantee. Pass a complete `expected` tuple to constrain evaluation:
+
+```ts
+const expected = { candidateSha, baseSha, policyId, policyVersion, stage: 'shadow' as const, land: false };
+const ack = await merit.evaluate(candidateId, { deadline, credential, idempotencyKey, expected });
+const request = await merit.evaluation(candidateId, ack.id, { deadline, credential });
+```
+
+`policyVersion` is numeric. The helper copies `expected` before any asynchronous work, keeping it and the key
+stable across transport resends. The server persists the tuple and checks it at admission and queued dispatch;
+`merit-preflight-mismatch` is a refusal, never a reason to drop the constraint or mint a new key. Omitting
+`expected` retains the ordinary unconstrained evaluation behavior. `land: false` prevents automatic landing,
+**not evaluator approval**; shadow grants neither approval nor landing.
+
+The ACK is a request, not a score. After a confirmed original ACK, `merit.evaluation(candidateId, requestId)`
+reads that exact request and original evidence tuple, with `scoreId` once assigned. It does not poll, write,
+resubmit or fall back to POST on 404. Correlate the observed request/evidence and assigned score id before treating
+a later score as its result. Never turn an UNKNOWN initial dispatch into a new command. Repeating POST as an
+observer is unsafe: changed evidence may select another request. Preserve the exact key/body and integration
+journal instead; no package version alone establishes broker admission or live acceptance.
 
 Agent approval and landing on reviewed evidence: a lane agent reads the candidate's merit diff manifest, submits a
 structured review bound to its digest, and requests the evaluation of the head's evidence set; a decision model
@@ -914,6 +943,12 @@ if (binding.state === 'ready') {
 - A binding never changes: a workspace already bound to another source or target ref is `409 binding-source-changed`
   (`details.field`); use a new `externalWorkspaceId` for a workspace whose repository changed. The same key with another
   body is `409 idempotency-conflict`. A lost answer is replayed under the same key.
+- `workspaces.lookup({externalWorkspaceId, requestDigest, idempotencyKey}, options)` recovers the ORIGINAL
+  request's binding through a fixed read-only GET. Supply the original key and canonical digest from the retained
+  original body, under the same owner/client authority. It never generates a replacement key, adopts a newer binding,
+  resumes creation or falls back to POST. A matching unreserved request returns pending; absent/foreign/mismatched
+  commitments return 404. No polling is added. Lookup identity values are redacted from hooks and errors, including
+  the diagnostic idempotency key; the actual wire key remains exact. A returned view is not permission to replay setup.
 - `workspaces.get(bindingId)` reads a binding's current view (the caller's access checked again) and writes nothing.
 
 #### Connecting GitHub

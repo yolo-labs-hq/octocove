@@ -1304,6 +1304,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orgs/{orgId}/candidates/{id}/merit-evaluations/{requestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Observe one recorded Merit evaluation request without dispatching work
+         * @description Read-only observation by a candidate reader. Agents may read only their own live claim's candidate under candidates:read. An unknown request or a request on another candidate answers 404. Returns the original evidence tuple even after later evidence supersedes it. Never enters the command ledger, creates a request, refreshes authority or schedules evaluation. An ACK is not a terminal score. No policy-admin scope is needed.
+         */
+        get: operations["candidateMeritEvaluationGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orgs/{orgId}/candidates/{id}/merit": {
         parameters: {
             query?: never;
@@ -1730,6 +1750,8 @@ export interface paths {
          * @description Unauthenticated initiation, rate limited; requires Idempotency-Key and allowed Origin for browser calls. Browser binding cookie scopes idempotency before login. PKCE S256, state and nonce mandatory. CLI flow is Octocove-mediated, not provider device-grant support. Missing live registration returns 503 oidc-registration-required with details.registrationRequest; CLI exits 78.
          *
          *     **Re-authentication.** With `reauth=1` (the `reauthUrl` of a 403 `reauth-required`), a browser login refreshes the browser's own sign-in instead of creating one. It needs the session cookie of a still renewable sign-in (401 `unauthenticated` otherwise) and `mode` `browser` (400 `invalid-request` otherwise). The authorization URL asks the issuer for a fresh authentication (`max_age=0`); the callback requires the ID token's `auth_time` to be no earlier than this transaction (401 `invalid-id-token`) and its identity to be the sign-in's own (400 `invalid-login`), then sets `authenticated_at` to that `auth_time` on the same family, replaces the browser's session token and redirects to `return_path`. No second family is created and no other session or delegation of the family changes.
+         *
+         *     **Choosing an account.** With `prompt` `select_account` (browser mode, never with `reauth=1`; 400 `invalid-request` otherwise), the authorization URL carries that prompt, so the issuer shows its account choice instead of answering from its own session. The callback starts a sign-in for the identity chosen, as any login does.
          */
         post: operations["authLogin"];
         delete?: never;
@@ -2012,6 +2034,26 @@ export interface paths {
          * @description An OAuth client token only (`octocove:workspaces`; a browser or CLI session gets 403 `forbidden`). A global operation: the binding may name any of the human's tenants, or one not created yet. One binding per (client, human, `externalWorkspaceId`), resolved once and reused by every later lane. The answer is the binding's current view (`WorkspaceBinding`) - 200 for `ready` or `action-required`, 202 with `Retry-After` for `pending`. `source` `github` searches every tenant the human is a discovery candidate of, in projects whose membership holds `tasks:list`, for live GitHub canonical registrations of that owner and name (case-insensitive) - one match binds it; several answer `action-required` `ambiguous-registration` with the candidates (ids and display names) and bind nothing; any unreadable candidate tenant answers `pending` `discovery-incomplete`, whatever was found elsewhere; none answers `action-required` `github-connection-required` with `installUrl` and `installationState`. Discovery also matches GitHub App registrations by `providerRepoId` and by their current owner and name. With no match, when a GitHub App installation the human connected covers the repository (it is among the repositories the human's GitHub user could reach in it, and a token for exactly it reads it now), the binding is reserved (`creating`) and the existing creation runs: the project in `org` (or the personal tenant) named by `project` (or the repository's name), with the creator allow-list, quotas and reservations as for `new-native`, then the repository registered with credential source `github-app` (its default branch, and `targetRef` when GitHub has it); `pending` `creation-in-progress` while a step waits; the binding records GitHub's numeric id. `providerRepoId` (GitHub's numeric id) is recorded and, when both sides know it, decides whether a later request names the same repository (a rename keeps the binding; another id under the same name is a source change); owner and name decide otherwise. `source` `octocove` binds exactly that tuple after checking the human's current `tasks:list` membership and the live canonical repository in that tenant - 404 `not-found` for anything unreadable (unknown tenant, another tenant's project, no access), 409 `repository-provider-unsupported` for a repository on another provider than Artifacts or GitHub, `pending` `tenant-unavailable` while the tenant cannot be read; never reinterpreted as GitHub. `source` `new-native` reserves the binding (`creating`), then creates the project through `POST /orgs/{orgId}/projects` (`org`) or `POST /me/projects` (no `org`) and its seeded Artifacts repository (`mode` `create`, named by the slug, on `targetRef`, which is required) through the existing creation paths, with keys derived from the binding's `operationId` - the creator allow-list, quotas, throttle, reservations, namespace and org-admin rules apply with their problems (403 `project-create-disabled`, 403 `project-quota-exceeded`, 404 `tenant-not-found`, 409 `slug-taken`, 422 `invalid-slug`). A step that cannot finish now (a personal tenant provisioning, a busy or unavailable provider) answers `pending` `creation-in-progress` with the `operationId`; the same request (or any request for the same workspace and source) resumes it, and nothing is created twice. A refused project step fails the binding and the key replays the refusal; a refused repository step answers `action-required` `repository-creation-failed` (`action.code`) and stays open, so the same request retries it; a repository the operator must settle answers `action-required` `repository-needs-operator`. Without `targetRef` a settled binding answers `action-required` `target-ref-required` with every registered destination and the provider's `defaultBranch` when it can be read; an unregistered `targetRef` is `target-ref-unregistered`; a registered one is bound once. A request whose body names another source (or another target ref) than the workspace's live binding is 409 `binding-source-changed` (`details.field` `source` or `targetRef`): a binding is immutable, and a changed workspace uses a new `externalWorkspaceId`. The same Idempotency-Key with another body is 409 `idempotency-conflict`; a replay answers the bound binding's current view (a request that reserved nothing is worked out again). Admin tier - while `AUTH_REQUIRE_RECENT_SIGN_IN` is on, 403 `step-up-required`.
          */
         post: operations["workspaceBindingCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspace-bindings/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the binding reserved by an original workspace request
+         * @description An OAuth client token only. Looks up the exact original request under the authenticated client, issuer, subject and Idempotency-Key, matching externalWorkspaceId and the original canonical bindingDigest. Unknown, foreign, malformed or mismatched commitments all answer 404 not-found. Never falls back to the workspace's latest binding. Always 200 when found, with Retry-After while pending. A request that has not reserved a binding answers pending with reason binding-not-reserved. Otherwise reads that binding's current view, rechecking human access. Writes nothing, calls no provider, never adopts, settles or resumes creation. Do not log the identity query parameters or Idempotency-Key header.
+         */
+        get: operations["workspaceBindingLookup"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3418,8 +3460,48 @@ export interface components {
             /** @enum {integer} */
             schemaVersion: 1;
         };
+        /** @description Persisted constraints, not authority. Candidate binding comes from the route; policy version and stage must still match at dispatch. A stage frozen at dispatch cannot expand mid-evaluation. */
+        MeritEvaluationExpectation: {
+            candidateSha: components["schemas"]["Sha"];
+            baseSha: components["schemas"]["Sha"];
+            policyId: components["schemas"]["Id"];
+            policyVersion: number;
+            /** @enum {string} */
+            stage: "shadow" | "approve" | "land";
+            land: boolean;
+        };
+        /** @description Bounded snapshot for this candidate. Contains no scoring parameters. Use expected on evaluation to fence queued dispatch; a GET alone is not atomic with evaluation. */
+        MeritPreflight: {
+            candidateId: components["schemas"]["Id"];
+            taskId: components["schemas"]["Id"];
+            claimAttemptId: components["schemas"]["Id"];
+            candidateSha: components["schemas"]["Sha"] | null;
+            baseSha: components["schemas"]["Sha"];
+            repositoryId: components["schemas"]["Id"];
+            targetRef: string;
+            optIn: boolean;
+            unavailableReason: ("policy-missing" | "policy-invalid" | "merit-not-enabled" | "policy-revoked" | "policy-expired" | "policy-paused") | null;
+            policy: {
+                id: components["schemas"]["Id"];
+                version: number;
+                /** Format: date-time */
+                expiresAt: string;
+                live: boolean;
+                land: boolean;
+            } | null;
+            /** @enum {string} */
+            stage: "shadow" | "approve" | "land";
+            evaluation: {
+                enabled: boolean;
+                modelsConfigured: boolean;
+                binding: boolean;
+                disabled: boolean;
+            };
+        };
         /** @description (amendment 2). A request to evaluate a candidate head's accumulated evidence set, and its state. */
         MeritEvaluationRequest: {
+            /** @description The persisted caller constraints; null for an unconstrained request. */
+            expected?: components["schemas"]["MeritEvaluationExpectation"] | null;
             id: components["schemas"]["Id"] | null;
             candidateId: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
@@ -3656,6 +3738,7 @@ export interface components {
         };
         /** @description A candidate's merit state (`GET /orgs/{orgId}/candidates/{id}/merit`). The task's `needs-human` hold is sticky across heads until a human acts while any sticky reason stands (the attempt bailout, the evidence rounds exhausted, a hard limit, an instruction present, a sampling hand-off); a hold made only of head-scoped reasons (a low-confidence answer, an evaluator failure) clears on a genuinely new head. A human's approval, rejection or landing ends any hold, as `merit-release` does. A fresh candidate shows a sticky hold as inherited (`inheritedHold`), a head-scoped one as cleared (`hold.cleared`). Any other task state belongs to the head that recorded it; a head with no review and no score of its own is `none`. */
         MeritState: {
+            preflight: components["schemas"]["MeritPreflight"];
             candidateId: components["schemas"]["Id"];
             taskId: components["schemas"]["Id"];
             /**
@@ -4275,6 +4358,8 @@ export interface components {
         LoginRequest: {
             /** @enum {string} */
             mode: "browser";
+            /** @enum {string} */
+            prompt?: "select_account";
         } | {
             /** @enum {string} */
             mode: "cli";
@@ -4612,7 +4697,7 @@ export interface components {
              * @description Why the binding is `pending`.
              * @enum {string}
              */
-            reason?: "discovery-incomplete" | "creation-in-progress" | "tenant-unavailable";
+            reason?: "discovery-incomplete" | "creation-in-progress" | "tenant-unavailable" | "binding-not-reserved";
             /** @description What the client does next (`action-required`). */
             action?: {
                 /** @enum {string} */
@@ -8893,10 +8978,12 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description `{}`: the request carries no fields (the evidence set is the head's accumulated submissions); the body is read as every JSON command's is, so an absent body is 400 `invalid-request`. */
+        /** @description Optional expected facts constrain admission and queued dispatch; an absent body is invalid. A mismatch is 409 merit-preflight-mismatch, or a recorded needs-human refusal if facts move before dispatch. Existing requests require identical expectations. Empty object retains ordinary evaluation semantics. */
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": {
+                    expected?: components["schemas"]["MeritEvaluationExpectation"];
+                };
             };
         };
         responses: {
@@ -8939,6 +9026,33 @@ export interface operations {
             413: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    candidateMeritEvaluationGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The tenant of an organization-owned resource route, /v1/orgs/{orgId}/...: an organization's id, or the caller's own hidden personal tenant (learned from GET /me memberships[].tenantId). It is the only selector: there is no selector header, no implicit current organization, no unscoped resource route and no default tenant. An unknown or malformed id, or a tenant the caller may not see, is 404 tenant-not-found; an organization whose creation is still provisioning is 409 org-creation-pending (to its creator or an admin) with Retry-After. A credential scoped to another tenant is refused as tenant-not-found. Selection grants no authority. */
+                orgId: components["parameters"]["TenantSelector"];
+                id: components["schemas"]["Id"];
+                requestId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The recorded request and its current score state; no writes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeritEvaluationRequest"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
         };
     };
     candidateMeritGet: {
@@ -9920,6 +10034,8 @@ export interface operations {
         parameters: {
             query: {
                 userCode: string;
+                /** @description `select_account` has the provider show its account choice instead of answering from its own session. Any other value is 400 `invalid-request`. */
+                prompt?: "select_account";
             };
             header?: never;
             path?: never;
@@ -10391,6 +10507,37 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    workspaceBindingLookup: {
+        parameters: {
+            query: {
+                externalWorkspaceId: string;
+                requestDigest: string;
+            };
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The original binding's current view, or pending before reservation. */
+            200: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBinding"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };
