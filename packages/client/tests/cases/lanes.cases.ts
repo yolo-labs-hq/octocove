@@ -512,6 +512,43 @@ export const laneCases: Case[] = [
     equal(await r2.read().then(() => 'clean', (e: unknown) => (e instanceof TransportError ? e.code : String(e))), 'deadline-exceeded');
   }),
 
+  test('readback: malformed or mismatched manifests fail before any content read or completed sidecar', async () => {
+    const cases = [
+      { taskId: 'another-task' }, { generation: 2 }, { laneHead: 'f'.repeat(40) },
+      { entries: [{ path: 'src/a.txt', mode: '100644', type: 'file', sha: 'not-a-sha' }] },
+      { entries: [{ path: 'src/a.txt', mode: '120000', type: 'file', sha: 'b'.repeat(40) }] },
+      { entries: Array(2).fill({ path: 'src/a.txt', mode: '100644', type: 'file', sha: 'b'.repeat(40) }) },
+    ];
+    for (const patch of cases) {
+      const w = world(), files = memoryLaneFiles(), lane = w.server.lane('T1');
+      w.server.on('laneManifestGet', () => ({ taskId: 'T1', claimId: lane.claimAttemptId, executionId: lane.executionId,
+        generation: 1, baseSha: lane.baseSha, laneHead: lane.laneHead, scopeVersion: 1, scope: lane.scope,
+        entries: [], truncated: false, ...patch }));
+      const lanes = createLanes({ client: w.client, files });
+      equal((await rejects(() => lanes.materialize('T1', opts()), LaneError)).code, 'invalid-response');
+      equal([w.server.count('laneBlobGet'), w.server.count('lanePackGet'), await lanes.isLane()], [0, 0, false]);
+    }
+  }),
+
+  test('readback: blob path, head, size, canonical encoding and Git object identity are verified', async () => {
+    const sha = await gitBlobId(enc('alpha\n'));
+    const cases = [
+      { path: 'src/other.txt' }, { laneHead: 'f'.repeat(40) }, { size: 7 },
+      { sha: 'not-a-sha' }, { sha: 'b'.repeat(40) }, { content: 'YnJhdm8K' },
+      { content: 'YWxwaGEK\n' },
+    ];
+    for (const patch of cases) {
+      const w = world({ 'src/a.txt': 'alpha\n' }, { read: ['src'], write: ['src'] });
+      const files = memoryLaneFiles(), lane = w.server.lane('T1');
+      w.server.on('laneBlobGet', () => ({ path: 'src/a.txt', mode: '100644', type: 'file', sha,
+        size: 6, encoding: 'base64', content: 'YWxwaGEK', laneHead: lane.laneHead, ...patch }));
+      const lanes = createLanes({ client: w.client, files });
+      const error = await rejects(() => lanes.materialize('T1', opts()), LaneError);
+      ok(['invalid-response', 'blob-mismatch'].includes(error.code), error.code);
+      equal([await lanes.isLane(), await files.read('src/a.txt')], [false, null]);
+    }
+  }),
+
   test('local refusals are not-sent LaneErrors: unsafe and Git metadata paths, a non-empty target, nothing to save, a path outside the write scope', async () => {
     const w = world();
     const files = memoryLaneFiles([['stray.txt', { kind: 'file', bytes: enc('x') }]]);

@@ -717,6 +717,13 @@ Stores: `memoryJournal()`, `laneFilesJournal(files)` (beside the files, as the C
 under `/node`. `pending()` lists a lane's entries; `resume(journalId)` takes only an id from the store, for the lane
 the files hold.
 
+**Verified readback.** The lane engine rejects a manifest for a different task or generation, a conflicting
+reported head, malformed Git object ids, duplicate paths and inconsistent file modes/types before requesting
+content. Each file read must name the requested path, report the same head when present, carry canonical base64
+and a byte count matching the decoded content, and match its Git blob id and the manifest id. A Git blob id hashes
+`blob <byte length>\0` followed by the exact bytes; it is distinct from the journal's plain-content SHA-256 digest.
+Existing large whole-repository file reads remain supported. A refused read does not produce a completed lane.
+
 **Materialization recovery.** A remote materialize answer is not local completion. If its write answer is
 unknown, the journal keeps the original key and exact body. If the write answered but the manifest, blob read or
 local file write fails, the journal keeps that answer, including its head and generation. No completed sidecar is
