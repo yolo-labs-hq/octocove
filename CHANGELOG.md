@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.26.1 and client 0.26.1
+
+- Materialization preserves its original journal key/body after an unknown write, and its confirmed answer after failed readback or local writes. Explicit recovery of an answered operation does not repeat the materialize POST. A missing sidecar is not proof of no remote effects.
+- Lane readback rejects mismatched manifest task/generation or reported head, malformed object ids, duplicate paths, inconsistent entry types/modes, and inconsistent blob path/head/size/hash metadata. Canonical base64 and exact Git blob hashes are verified before completion.
+- CLI parity: the CLI uses the same client lane engine; both packages release in lockstep. No new commands, authority, retries, deadlines or policy behavior.
+
 ## CLI 0.25.0 and client 0.25.0
 
 Release `@yolo-labs/octocove` 0.25.0 and `@yolo-labs/octocove-client` 0.25.0: recorded Merit decisions.
