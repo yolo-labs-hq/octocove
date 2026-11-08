@@ -87,7 +87,7 @@ Commands:
   github repos [--installation ID] [--q TEXT] [--limit N]   (the GitHub repositories your installations cover, with their ids)
   github connect [GITHUB_REPO] [--repo-id ID]   (the browser URL that connects GitHub for you; open it while signed in to Octocove)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
-  repo add PROJECT [PATH] [--remote NAME] [--provider artifacts|github|github-app] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL] | --owner OWNER --installation ID [--repo-id ID]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; github-app: a private GitHub repository through a GitHub App installation you connected; canonical repository)
+  repo add PROJECT [PATH] [--remote NAME] [--provider artifacts|github|github-app] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL] | --owner OWNER --installation ID [--repo-id ID]] [--name NAME] [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; github-app: a private GitHub repository through a GitHub App installation you connected; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
