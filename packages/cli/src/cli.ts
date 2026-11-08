@@ -14,8 +14,8 @@ import { handover as handoverLane, hasSidecar, materialize as materializeLane, r
 import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { readFile } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, runnerSession, fileRedelegationJournal, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
+import { readFile, stat } from "node:fs/promises";
+import { resolveLocalRepository, resolveLocalTargetRef, Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, runnerSession, fileRedelegationJournal, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";
@@ -80,13 +80,13 @@ Commands:
   org rename ORG --slug SLUG                  (org admin, recent sign-in: change the organization's slug; the old one is retired)
   project list                                (your projects in every org, each with its owner and the org ID its commands take)
   project member add PROJECT --principal ID [--role member|approver] [--verbs a,b]   (human project administrator)
-  project create SLUG --name TEXT [--org ORG_ID] [--github GITHUB_REPO [--installation ID] [--repo-id ID] [--target-ref REF] [--wait SECONDS]]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member; --github also attaches that GitHub repository through your connected GitHub App installation)
+  project create [SLUG] [PATH|--here] [--remote NAME] [--name TEXT] [--org ORG_ID] [--github GITHUB_REPO [--installation ID] [--repo-id ID] [--target-ref REF] [--wait SECONDS]]   (allow-listed humans; in that org, or without --org in your personal org; you become its first member; --github also attaches that GitHub repository through your connected GitHub App installation)
   project init-status OPERATION_ID             (a project initialization you started: ready, pending or what it needs)
   github installations                        (the GitHub App installations you connected, and pending approvals)
   github repos [--installation ID] [--q TEXT] [--limit N]   (the GitHub repositories your installations cover, with their ids)
   github connect [GITHUB_REPO] [--repo-id ID]   (the browser URL that connects GitHub for you; open it while signed in to Octocove)
   repo create PROJECT --name NAME [--seed] [--import HTTPS_URL [--branch B]] [--target-ref REF]   (project admin; Octocove creates it in Artifacts)
-  repo add PROJECT [--provider artifacts|github|github-app] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL] | --owner OWNER --installation ID [--repo-id ID]] --name NAME [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; github-app: a private GitHub repository through a GitHub App installation you connected; canonical repository)
+  repo add PROJECT [PATH] [--remote NAME] [--provider artifacts|github|github-app] [--namespace NS --repo ID | --owner OWNER --credential-ref REF [--api-base-url URL] [--clone-base-url URL] | --owner OWNER --installation ID [--repo-id ID]] [--name NAME] [--target-ref REF] [--head SHA]   (project admin; github: also an operator, with an operator-held credential reference; github-app: a private GitHub repository through a GitHub App installation you connected; canonical repository)
   repo clone PROJECT [REPOSITORY] [DIR]        (authenticated human read-only clone; changes go through tasks and lanes)
   repo list PROJECT                           (canonical repositories and target refs to create tasks against)
   repo verify PROJECT REPOSITORY              (project admin; bind a registered repository to its Artifacts, GitHub or Forgejo remote)
@@ -251,7 +251,7 @@ function githubId(v: Record<string, any>, flag: string): string {
 
 /** A project initialization's view, printed; pending, action-required and failed end the command with their exit codes.
  * `resume` is the command that resumes it (create only: it carries the idempotency key, also printed and in --json). */
-function initializationOut(d: Deps, json: boolean | undefined, r: ProjectInitialization, repo?: { owner: string; name: string; providerRepoId?: string }, resume?: string, key?: string) {
+function initializationOut(d: Deps, json: boolean | undefined, r: ProjectInitialization, repo?: { owner: string; name: string; providerRepoId?: string }, resume?: string, key?: string, ids?: object) {
   const a = r.action as { reason?: string; code?: string; installUrl?: string } | undefined;
   const repository = r.repository as { id?: string; name?: string; provider?: string; targetRef?: string; state?: string } | null | undefined;
   const connect = connectCommand(a?.installUrl, repo);
@@ -263,7 +263,7 @@ function initializationOut(d: Deps, json: boolean | undefined, r: ProjectInitial
       : a?.code === "target-ref-not-found" ? `the branch does not exist on GitHub: attach the repository with another --target-ref (\`octo repo add ${project} --provider github-app ...\`)`
       : `the project exists; set up its repository with \`octo repo add ${project}\` or \`octo repo create ${project}\``)
     : "the project was not created";
-  out(d, !!json, { ...r, ...(key && r.state === "pending" ? { idempotencyKey: key } : {}) }, () => kv([["Operation", r.operationId], ["State", r.state],
+  out(d, !!json, { ...r, ...ids, ...(key && r.state === "pending" ? { idempotencyKey: key } : {}) }, () => kv([["Operation", r.operationId], ["State", r.state],
     ...(r.project ? [["Project", r.project.id], ["Slug", r.project.slug], ["Org", r.project.tenantId]] as [string, unknown][] : []),
     ...(repository?.id && repository.name ? [["Repository", repository.id], [providerLabel(repository.provider), repository.provider === "github" && repo ? `${repo.owner}/${repository.name}` : repository.name], ["Target ref", repository.targetRef]] as [string, unknown][] : []),
     ...(r.state === "pending" ? [["Reason", r.reason], ["Retry after", `${r.retryAfter ?? 5} s`], ...(key ? [["Idempotency key", key]] : [])] as [string, unknown][] : []),
@@ -1291,8 +1291,44 @@ const COMMANDS: Record<string, Handler> = {
   // org, provisioned on first use (the command waits out its provisioning under the same key).
   "project create": async (d, args) => {
     const { v, pos } = opts(args, { name: { type: "string" }, github: { type: "string" }, installation: { type: "string" }, "repo-id": { type: "string" },
-      "target-ref": { type: "string" }, wait: { type: "string" } }, 1);
+      "target-ref": { type: "string" }, wait: { type: "string" }, here: { type: "boolean" }, remote: { type: "string" } }, 2, 0);
+    if (v.here && pos.length > 1) throw new UsageError("--here accepts at most one project slug");
+    const pathArg = pos.length === 2 ? pos[1]! : pos[0];
+    const local = v.here || pos.length === 2 || pathArg === "." || (pathArg !== undefined && (/[\\/]/.test(pathArg) || await stat(resolve(d.cwd ?? process.cwd(), pathArg)).then(s => s.isDirectory(), () => false)));
+    if (local || (v.github !== undefined && (pos.length === 0 || v.name === undefined))) {
+      const path = resolve(d.cwd ?? process.cwd(), v.here ? "." : pathArg ?? ".");
+      const coordinates = v.github === undefined ? await resolveLocalRepository(path, { remote: v.remote }) : (() => {
+        const m = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/.exec(v.github);
+        if (!m) throw new UsageError("--github must be OWNER/NAME");
+        return { owner: m[1]!, name: m[2]! };
+      })();
+      const targetRef = v["target-ref"] === "current" ? await resolveLocalTargetRef(path) : v["target-ref"];
+      const { api, creds } = await client(d);
+      if (creds.kind !== "human") throw new HumanRequiredError("project create requires a human credential");
+      const key = v["idempotency-key"] ?? newIdempotencyKey();
+      const slug = pos.length === 2 || v.here && pos[0] || !local && pos[0] ? pos[0] : undefined;
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      const resume = ["octo", "project", "create", ...(slug ? [slug] : []), path,
+        ...(v.name === undefined ? [] : ["--name", v.name]), ...(v.github ? ["--github", v.github] : []),
+        ...(v.remote ? ["--remote", v.remote] : []), ...(v.installation ? ["--installation", v.installation] : []),
+        ...(v["repo-id"] ? ["--repo-id", v["repo-id"]] : []), ...(targetRef ? ["--target-ref", targetRef] : []),
+        ...(api.orgId ? ["--org", api.orgId] : []), ...(v.wait === undefined ? [] : ["--wait", v.wait]), "--idempotency-key", key].map(quote).join(" ");
+      let result;
+      try { result = await api.root.projects.createFromGitHub({ ...coordinates, ...(slug === undefined ? {} : { slug }),
+        ...(v.name === undefined ? {} : { displayName: v.name }), ...(v.installation === undefined ? {} : { installationId: githubId(v, "installation") }),
+        ...(v["repo-id"] === undefined ? {} : { providerRepoId: githubId(v, "repo-id") }), ...(targetRef === undefined ? {} : { targetRef }) },
+        { ...api.write(intFlag(v, "wait") ?? COMMAND_SECONDS, key), ...(api.orgId ? { orgId: api.orgId } : {}) });
+      } catch (error) {
+        if (typeof error === "object" && error !== null) RESUME.set(error, { idempotencyKey: key, resume });
+        throw error;
+      }
+      initializationOut(d, v.json, result.initialization, coordinates, resume, key, { orgId: result.orgId, projectId: result.projectId, repositoryId: result.repositoryId });
+      return;
+    }
+    if (pos.length !== 1) throw new UsageError("provide a slug, local path or --here");
+    if (v.remote !== undefined) throw new UsageError("--remote needs a local repository path or --here");
     if (v.github === undefined) for (const f of ["installation", "repo-id", "target-ref", "wait"]) if (v[f] !== undefined) throw new UsageError(`--${f} needs --github OWNER/NAME`);
+    if (v["target-ref"] === "current") v["target-ref"] = await resolveLocalTargetRef(resolve(d.cwd ?? process.cwd(), "."));
     const name = need(v, "name");
     let repository: Record<string, string> | undefined;
     if (v.github !== undefined) {
@@ -1463,7 +1499,22 @@ const COMMANDS: Record<string, Handler> = {
   "repo add": async (d, args) => {
     const { v, pos } = opts(args, { provider: { type: "string" }, namespace: { type: "string" }, repo: { type: "string" }, name: { type: "string" }, "target-ref": { type: "string" }, head: { type: "string" },
       owner: { type: "string" }, "credential-ref": { type: "string" }, "api-base-url": { type: "string" }, "clone-base-url": { type: "string" },
-      installation: { type: "string" }, "repo-id": { type: "string" } }, 1);
+      installation: { type: "string" }, "repo-id": { type: "string" }, remote: { type: "string" } }, 2, 1);
+    if (pos[1] !== undefined) {
+      for (const flag of ["namespace", "repo", "name", "owner", "credential-ref", "api-base-url", "clone-base-url", "head"]) if (v[flag] !== undefined) throw new UsageError(`--${flag} cannot be combined with local repository inference`);
+      if (v.provider !== undefined && v.provider !== "github-app") throw new UsageError("local repository inference requires github-app");
+      const path = resolve(d.cwd ?? process.cwd(), pos[1]);
+      const coordinates = await resolveLocalRepository(path, { remote: v.remote });
+      const { api, creds } = await client(d);
+      if (creds.kind !== "human") throw new HumanRequiredError("repo add requires a human credential");
+      const resolution = v.installation === undefined ? await api.root.github.resolveInstallation(coordinates, api.until(Date.now() + READ_SECONDS * 1000)) : { installationId: githubId(v, "installation") };
+      if (!("installationId" in resolution)) throw new UsageError(`${resolution.connectUrlHint}; choose --installation if several match`);
+      const targetRef = v["target-ref"] === "current" ? await resolveLocalTargetRef(path) : v["target-ref"];
+      const r = await api.j.repositories.create(pos[0]!, { kind: "github-app", ...coordinates, installationId: resolution.installationId,
+        ...(targetRef === undefined ? {} : { targetRef }), ...(v["repo-id"] === undefined ? {} : { providerRepoId: githubId(v, "repo-id") }) }, api.write(COMMAND_SECONDS, v["idempotency-key"]));
+      out(d, v.json, r, () => kv([["Repository", r.id], ["Project", r.projectId], ["GitHub", `${coordinates.owner}/${coordinates.name}`], ["Target ref", r.targetRef]]));
+      return;
+    }
     const provider = v.provider ?? "artifacts";
     if (provider !== "artifacts" && provider !== "github" && provider !== "github-app") throw new UsageError("--provider must be artifacts, github or github-app");
     const only = (flags: string[], what: string) => { for (const f of flags) if (v[f] !== undefined) throw new UsageError(`--${f} applies to ${what} only`); };

@@ -152,6 +152,43 @@ describe("project create", () => {
   const problem = (status: number, code: string, extra: object = {}, headers: Record<string, string> = {}) =>
     json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r", ...extra }, headers);
 
+  it("local creation matches explicit GitHub bytes and JSON includes association ids", async () => {
+    git("remote", "add", "origin", "https://user:synthetic-userinfo@github.com/acme/web.git");
+    const ready = { state: "ready", operationId: "pinit_demo", project: { ...project, slug: "web", name: "web" }, membership: { verbs: [] }, repository: { id: "r1", name: "web", provider: "github", targetRef: "refs/heads/main" } };
+    routes["POST /me/projects"] = () => json(201, ready);
+    expect(await cli(["project", "create", repo, "--installation", "7", "--json"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    const inferred = JSON.stringify(calls[0]!.body);
+    expect(JSON.parse(outText)).toMatchObject({ orgId: ORG, projectId: project.id, repositoryId: "r1" });
+    expect(inferred + outText + errText).not.toContain("synthetic-userinfo");
+    expect(await cli(["project", "create", "web", "--name", "web", "--github", "acme/web", "--installation", "7"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(JSON.stringify(calls[1]!.body)).toBe(inferred);
+  });
+  it("local creation auto-resolves the installation and current branch only on opt-in", async () => {
+    git("remote", "add", "origin", "git@github.com:acme/web.git");
+    routes["GET /me/github/installations"] = () => json(200, { configured: true, items: [{ installationId: "7", status: "active", account: { login: "acme" } }], pending: [] });
+    routes["POST /me/projects"] = () => json(201, { state: "ready", operationId: "pinit_demo", project, membership: { verbs: [] }, repository: { id: "r1", name: "web", provider: "github", targetRef: "refs/heads/main" } });
+    expect(await cli(["project", "create", ".", "--target-ref", "current"], { kind: "human" }, { OCTOCOVE_ORG: "" }, { cwd: repo })).toBe(0);
+    expect(calls[1]!.body.repository.targetRef).toBe(git("symbolic-ref", "HEAD"));
+  });
+  it("explicit GitHub coordinates win over a non-GitHub local remote", async () => {
+    git("remote", "add", "origin", "https://forgejo.example/other/repo.git");
+    routes["POST /me/projects"] = () => json(201, { state: "ready", operationId: "pinit_demo", project, membership: { verbs: [] }, repository: { id: "r1", name: "web", provider: "github", targetRef: "refs/heads/main" } });
+    expect(await cli(["project", "create", repo, "--github", "acme/web", "--installation", "7"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls[0]!.body.repository).toEqual({ mode: "github", owner: "acme", name: "web", installationId: "7" });
+  });
+  it("a pending explicit-slug shortcut retains its slug and replay key", async () => {
+    routes["POST /me/projects"] = () => json(202, { state: "pending", operationId: "pinit_demo", reason: "creation-in-progress", retryAfter: 60 }, { "retry-after": "60" });
+    expect(await cli(["project", "create", "chosen", "--github", "acme/web", "--installation", "7", "--wait", "1"], { kind: "human" }, { OCTOCOVE_ORG: "" }, { cwd: repo })).toBe(75);
+    expect(calls[0]!.body.slug).toBe("chosen");
+    expect(outText).toContain("'chosen'");
+    expect(outText).toContain(calls[0]!.headers["idempotency-key"]);
+    const resume = outText.match(/run `([^`]+)` to resume/)![1]!;
+    const argv = [...resume.matchAll(/'([^']*)'/g)].map(m => m[1]!);
+    expect(argv.slice(0, 3)).toEqual(["octo", "project", "create"]);
+    expect(await cli(argv.slice(1), { kind: "human" }, { OCTOCOVE_ORG: "" }, { cwd: repo })).toBe(75);
+    expect(calls[1]!.body).toEqual(calls[0]!.body);
+    expect(calls[1]!.headers["idempotency-key"]).toBe(calls[0]!.headers["idempotency-key"]);
+  });
   it("without an org posts to /me/projects (the personal org) under an Idempotency-Key and prints the project and its org", async () => {
     routes["POST /me/projects"] = () => json(201, project);
     expect(await cli(["project", "create", "first", "--name", "First project"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
@@ -430,6 +467,14 @@ describe("repo add / verify / list", () => {
     name: "canonical", role: "canonical", targetRef: "refs/heads/main", knownHeadSha: null };
   const problem = (status: number, code: string) => json(status, { type: `urn:octocove:problem:${code}`, title: code, status, code, detail: code, requestId: "r" });
 
+  it("attaches the local GitHub repository through the same resolver without an explicit provider", async () => {
+    git("remote", "add", "origin", "https://github.com/acme/web.git");
+    routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, { ...repository, provider: "github", namespace: "acme", name: "web" });
+    expect(await cli(["repo", "add", PROJECT, repo, "--installation", "7"], { kind: "human" })).toBe(0);
+    expect(calls[0]!.body).toEqual({ kind: "github-app", owner: "acme", name: "web", installationId: "7" });
+    expect(calls[0]!.headers["idempotency-key"]).toBeTruthy();
+    expect(outText).toContain("refs/heads/main");
+  });
   it("posts the Artifacts identity under an Idempotency-Key, defaulting the target ref server-side, and prints the repository", async () => {
     routes[`POST /projects/${PROJECT}/repositories`] = () => json(201, repository);
     expect(await cli(["repo", "add", PROJECT, "--namespace", "ns", "--repo", "repo-1", "--name", "canonical"], { kind: "human" })).toBe(0);

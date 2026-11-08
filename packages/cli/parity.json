@@ -257,7 +257,10 @@
     "project create": {
       "client": [
         "fn:newIdempotencyKey",
-        "root.projects.create"
+        "fn:resolveLocalRepository",
+        "fn:resolveLocalTargetRef",
+        "root.projects.create",
+        "root.projects.createFromGitHub"
       ]
     },
     "project init-status": {
@@ -283,7 +286,10 @@
     },
     "repo add": {
       "client": [
-        "org.repositories.create"
+        "fn:resolveLocalRepository",
+        "fn:resolveLocalTargetRef",
+        "org.repositories.create",
+        "root.github.resolveInstallation"
       ]
     },
     "repo branches": {

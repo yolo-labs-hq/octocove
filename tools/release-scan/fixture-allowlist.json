@@ -50,6 +50,27 @@
       "kind": "secret_assignment",
       "reason": "Generated openapi-typescript declaration (built from src/generated/openapi.ts) for the OpenAPI Authorization schema (claim authorization record), not a credential value; shipped in the npm tarball.",
       "value_sha256": "c929225b9b3182908798014358142c4222fd9aa7f637ecaa16ee4c83fd2b5f66"
+    },
+    {
+      "file": "packages/cli/tests/cli.test.ts",
+      "kind": "email",
+      "value_sha256": "94d91e7cd911e9a39cacc05b7adb96ceb684110e3246783daa626716c528aa6b",
+      "context_sha256": "259b43cf650ffd810d988f5508054218424d4d2e4ecaf4fd90768025402d9efb",
+      "reason": "Synthetic GitHub remote fixture: the git SSH username or deliberately fake HTTPS userinfo tests credential stripping; not a contact identity or live credential."
+    },
+    {
+      "file": "packages/cli/tests/cli.test.ts",
+      "kind": "email",
+      "value_sha256": "3de132cd98be7bf26b6f08e81c31c799a891bc32046b61f0b6fe3671ca2e44b5",
+      "context_sha256": "aba742bac4fc8907b2ac64dc892225743f5ffd2a5fb86bc775f7180e19c3de83",
+      "reason": "Synthetic GitHub remote fixture: the git SSH username or deliberately fake HTTPS userinfo tests credential stripping; not a contact identity or live credential."
+    },
+    {
+      "file": "packages/client/tests/github-repository.test.ts",
+      "kind": "email",
+      "value_sha256": "3de132cd98be7bf26b6f08e81c31c799a891bc32046b61f0b6fe3671ca2e44b5",
+      "context_sha256": "ae6eeff809e93d2d4a85bd97c3e8ea42d64c1006bec905f5a8e9cd57897db256",
+      "reason": "Synthetic GitHub remote fixture: the git SSH username or deliberately fake HTTPS userinfo tests credential stripping; not a contact identity or live credential."
     }
   ]
 }

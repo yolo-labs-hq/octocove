@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.27.0 and client 0.27.0
+
+- Create a GitHub-backed project with `octo project create .`, `PATH` or `--here`; attach a local GitHub remote with `octo repo add PROJECT PATH`. Installation selection, public coordinate parsing and project initialization live in shared SDK helpers, with filesystem discovery isolated to the Node entry. Pending recovery retains the original key and body.
+- Explicit broker-managed CLI configuration carries only a public placeholder and a dedicated broker origin. It preserves native commands and paths, rereads configuration per attempt, and delegates renewal/reauthorization to the trusted control plane. It does not grant broker authority or same-sandbox agent isolation.
+- CLI parity: both packages release in lockstep, with the CLI pinned to the exact client version. No server API, OAuth permission or deployment changes. Studio integrations continue to use the existing GitHub-source `workspaces.bind` flow.
+
 ## CLI 0.26.2 and client 0.26.2
 
 - Materialization rejects an answer for another claim and a manifest whose claim or execution contradicts the confirmed materialize response. Recovery evidence remains intact and no completed local lane is reported.

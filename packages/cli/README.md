@@ -195,10 +195,10 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1868](src/cli.ts#L1868 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1880](src/cli.ts#L1880 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1919](src/cli.ts#L1919 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1931](src/cli.ts#L1931 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1920](src/cli.ts#L1920 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1971](src/cli.ts#L1971 "\"webhook disable\": async")) |
 
 Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:706](src/cli.ts#L706 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
@@ -532,6 +532,29 @@ The 0.26.0 CLI/client pair adds typed own-candidate Merit preflight and fixed ev
 The CLI remains thin over `merit.evaluate`; read-only request observation and original workspace lookup are library
 APIs, not new CLI commands. Use `--idempotency-key` to retain one exact evaluation attempt. A request ACK is not a
 terminal score; do not repeat evaluation POST to observe it or assume a package upgrade grants broker authority.
+
+### Associate a local GitHub project
+
+```sh
+octo project create .
+octo project create my-project ../checkout --remote upstream --name 'My project'
+octo project create --here --target-ref current
+octo repo add PROJECT .
+```
+
+These use the SDK's GitHub repository discovery and initialization helpers. An
+existing GitHub connection with exactly one active matching installation requires
+no installation argument. Otherwise follow the reported `octo github connect
+OWNER/NAME` step or pass `--installation ID`. The chosen remote is read locally;
+its credentials are never sent or printed. Forgejo and Artifacts stay explicit.
+
+`--github OWNER/NAME` overrides local repository coordinates. The server chooses
+the target branch unless `--target-ref refs/heads/BRANCH` is given; `current` is an
+explicit opt-in to the local branch and refuses detached HEAD. The selected ref
+is printed. Local creation's `--json` adds `orgId`, `projectId` and `repositoryId`
+to the initialization view. Exit status is 0 ready, 75 pending, 1 action-required.
+Retain the printed idempotency key and resume command for pending/unknown results;
+do not start another project to recover one.
 
 ### Broker-managed agent configuration
 

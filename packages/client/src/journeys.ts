@@ -1,3 +1,4 @@
+import { githubRepositoryName, GitHubInstallationResolutionError, type InstallationResolution } from './github-repository.js';
 /**
  * Journeys: bounded, composable helpers over the typed client. Each takes one absolute
  * `deadline`; waits are cancellation-aware and stop with the ids needed to resume, never reissuing the
@@ -995,6 +996,27 @@ export function journeys(client: OctocoveClient) {
     && (b.state !== 'action-required' || (isProject(b.project) && isObject(b.action) && isString(b.action.reason)))
     && (b.state !== 'pending' || isString(b.reason))
     && (b.state !== 'failed' || (isObject(b.problem) && isString(b.problem.code) && typeof b.problem.status === 'number'));
+  async function createFromGitHub(input: CreateFromGitHubInput, options?: ProjectCreateOptions) {
+    requireHuman(client, 'projects.createFromGitHub');
+    if (options?.idempotencyKey !== undefined && input.idempotencyKey !== undefined && options.idempotencyKey !== input.idempotencyKey) throw new TypeError('Conflicting idempotency keys');
+    const coordinates = githubRepositoryName(input.owner, input.name);
+    const opts = options ?? { deadline: Date.now() + (input.wait ?? 30) * 1000 };
+    if (!Number.isFinite(opts.deadline) || (input.wait !== undefined && (!Number.isFinite(input.wait) || input.wait < 0))) throw new Error('Invalid project creation deadline');
+    let installationId = input.installationId;
+    if (installationId === undefined) {
+      const resolved = await github.resolveInstallation(coordinates, opts);
+      if (!('installationId' in resolved)) throw new GitHubInstallationResolutionError(resolved);
+      installationId = resolved.installationId;
+    }
+    const initialization = await createProject({ slug: input.slug ?? coordinates.name, name: input.displayName ?? coordinates.name,
+      repository: { mode: 'github', ...coordinates, installationId,
+        ...(input.providerRepoId === undefined ? {} : { providerRepoId: input.providerRepoId }),
+        ...(input.targetRef === undefined ? {} : { targetRef: input.targetRef }) } },
+      { ...opts, ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }) });
+    return { orgId: initialization.project?.tenantId, projectId: initialization.project?.id,
+      repositoryId: initialization.repository && 'id' in initialization.repository ? initialization.repository.id : undefined,
+      targetRef: initialization.repository && 'targetRef' in initialization.repository ? initialization.repository.targetRef : undefined, initialization };
+  }
   const projects = {
     /**
      * Human only: `GET /me/projects`, the caller's projects in every tenant, each with the `tenantId` its routes name.
@@ -1033,6 +1055,7 @@ export function journeys(client: OctocoveClient) {
      * `409 idempotency-conflict`. Without `repository` the answer is the `Project`, as before.
      */
     create: createProject,
+    createFromGitHub,
     /**
      * Human only: `projectInitializationGet` (`GET /v1/me/project-initializations/{operationId}`), the caller's own
      * initialization's current view, read from the server's records (a `failed` view carries the project step's
@@ -1264,6 +1287,15 @@ export function journeys(client: OctocoveClient) {
   };
 
   const github = {
+    async resolveInstallation(input: { readonly owner: string; readonly name: string }, options: JourneyOptions = { deadline: Date.now() + 30000 }): Promise<InstallationResolution> {
+      const { owner, name } = githubRepositoryName(input.owner, input.name);
+      const list = await github.installations(options);
+      if (list.items.some(i => !isObject(i) || !isString(i.installationId) || !isObject(i.account) || !isString(i.account.login) || !isString(i.status))) throw new TypeError('Malformed GitHub installation list');
+      const candidates = list.items.filter(i => i.status === 'active' && i.account.login.toLowerCase() === owner.toLowerCase()).map(i => ({ installationId: i.installationId }));
+      if (candidates.length === 1) return candidates[0]!;
+      return { state: candidates.length ? 'multiple' : 'none', candidates,
+        connectUrlHint: `octo github connect ${owner}/${name}` };
+    },
     /**
      * Human session only: `meGithubInstallationsList` (`GET /v1/me/github/installations`), the GitHub App
      * installations the caller connected (account, selection, how many repositories, status, `manageUrl`) and the
@@ -1325,3 +1357,9 @@ export function journeys(client: OctocoveClient) {
 }
 
 export type Journeys = ReturnType<typeof journeys>;
+
+export interface CreateFromGitHubInput {
+  readonly owner: string; readonly name: string; readonly slug?: string; readonly displayName?: string;
+  readonly installationId?: string; readonly providerRepoId?: string; readonly targetRef?: string;
+  readonly idempotencyKey?: string; readonly wait?: number;
+}

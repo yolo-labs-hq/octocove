@@ -1,6 +1,8 @@
 import { statusHelp } from './status-help.js';
 /** Command-specific help is pure data: no config, Git, network or credential reads. */
 const FLAGS: Record<string,string> = {
+  here: 'Infer the GitHub repository from the current directory; GitHub setup may be needed once.',
+  remote: 'Local Git remote to inspect (default origin); no credentials or helpers are used.',
   expected: 'JSON file with candidateSha, baseSha, policyId, numeric policyVersion, stage and land; - reads stdin. Pins evaluation admission and dispatch; land:false does not prevent approval.',
   acceptance: 'JSON array of strings, for example \'["Tests pass", "Help describes every flag"]\'. Quote the array as one shell argument.',
   task: 'Task ID.',
@@ -94,6 +96,7 @@ The human alone approves; do not grant approval authority to a worker.`;
 
 export function commandHelp(command: string, originalUsage: string, description = '') {
   let usage = originalUsage;
+  if (['project create', 'repo add'].includes(command)) description += ' A local path infers GitHub coordinates; --target-ref current explicitly uses the local branch, otherwise the server chooses its default.';
   if (command === 'auth revoke') usage = 'auth revoke [DELEGATION_ID] [--grant ID --timeout SECONDS]';
   if (command === 'auth renew') description = 'Rotate the active credential explicitly. Stored human and agent tokens also renew automatically near expiry; agent renewal stays within its authorization ceiling and claim lease. Revoked or ended grants require a new authorization.';
   if (command === 'auth exchange') usage += ' [--timeout SECONDS]';
