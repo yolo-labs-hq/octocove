@@ -6,6 +6,8 @@ import { atomicSecret, readSecret, readImportSecret } from "./store.js";
 /** A local fast-fail label; the server remains the authority. */
 export type CredentialKind = "human" | "agent" | "bootstrap" | "machine";
 export interface Credentials {
+  /** Broker-managed mode contains only a public selector, never an Octocove credential. */
+  provider?: "broker";
   apiUrl: string;
   token: string;
   kind: CredentialKind;
@@ -43,6 +45,9 @@ export function parseCredentials(raw: string): Credentials {
     if (file.delegationId !== undefined && typeof file.delegationId !== "string") throw new Error();
     // An agent delegation and a claim bootstrap belong to the org they were issued in; a human session to none.
     if (file.kind === "agent" || file.kind === "bootstrap" ? typeof file.orgId !== "string" || !ORG_ID.test(file.orgId) : file.orgId !== undefined) throw new Error();
+    if (file.provider !== undefined && file.provider !== "broker") throw new Error();
+    if (file.provider === "broker" && (file.kind !== "agent" || !/^octocove_placeholder_[A-Za-z0-9_-]{8,128}$/.test(file.token)
+      || ["expiresAt", "issuedAt", "idleExpiresAt", "absoluteExpiresAt", "ceilingAt", "claimExpiresAt"].some(k => file[k] !== undefined))) throw new Error();
     const lifetime: Partial<Credentials> = {};
     for (const key of ["issuedAt", "expiresAt", "idleExpiresAt", "absoluteExpiresAt", "ceilingAt", "claimExpiresAt"] as const) {
       if (file[key] !== undefined) {
@@ -50,7 +55,7 @@ export function parseCredentials(raw: string): Credentials {
         lifetime[key] = file[key];
       }
     }
-    return { ...lifetime, apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.orgId ? { orgId: file.orgId } : {}), ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
+    return { ...(file.provider === "broker" ? { provider: "broker" as const } : {}), ...lifetime, apiUrl: file.apiUrl, token: file.token, kind: file.kind, ...(file.orgId ? { orgId: file.orgId } : {}), ...(file.delegationId ? { delegationId: file.delegationId } : {}), ...(file.agentId ? { agentId: file.agentId } : {}) };
   } catch { throw new ConfigError("invalid credentials file"); }
 }
 

@@ -532,3 +532,26 @@ The 0.26.0 CLI/client pair adds typed own-candidate Merit preflight and fixed ev
 The CLI remains thin over `merit.evaluate`; read-only request observation and original workspace lookup are library
 APIs, not new CLI commands. Use `--idempotency-key` to retain one exact evaluation attempt. A request ACK is not a
 terminal score; do not repeat evaluation POST to observe it or assume a package upgrade grants broker authority.
+
+### Broker-managed agent configuration
+
+A trusted runtime can install a broker-managed configuration in the usual
+`credentials/cli.json` (0600, parent 0700). This mode contains only a public
+placeholder, never a native scoped token:
+
+```json
+{"provider":"broker","kind":"agent","apiUrl":"https://broker.example.invalid/v1","orgId":"org_00000000-0000-4000-8000-000000000001","delegationId":"delegation_example","agentId":"agent_example","token":"octocove_placeholder_public_selector"}
+```
+
+The CLI keeps normal commands and native HTTP paths. It reads this record before
+every attempt and refuses configuration changes; it never renews or reauthorizes
+the placeholder after a refusal. No expiry fields are allowed in this mode.
+Native provisioning, renewal and execution handover belong to the trusted broker
+control plane; `auth renew` and `lane materialize --handover` are refused locally.
+A different `OCTOCOVE_API_URL` cannot redirect an installed configuration.
+
+The placeholder selects a binding; it is not proof of authority. The broker must
+independently admit the caller and enforce its native operation/path limits.
+Sandbox-wide broker admission shares authority among all processes in that
+sandbox; this mode does not claim per-agent isolation. A public placeholder can
+be copied without granting access from another admitted sandbox.
