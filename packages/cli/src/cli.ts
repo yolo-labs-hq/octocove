@@ -1,4 +1,3 @@
-import { resolveLocalRepository, resolveLocalTargetRef } from "../../client/src/node.js";
 import type { MeritEvaluationExpectation, MeritReviewInput, ResponseContract } from "../../client/src/node.js";
 import { reserveBootstrap } from './bootstrap-output.js';
 import { globalOptions } from './globals.js';
@@ -16,7 +15,7 @@ import { followEvents } from './event-follow.js';
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { readFile, stat } from "node:fs/promises";
-import { Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, runnerSession, fileRedelegationJournal, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
+import { resolveLocalRepository, resolveLocalTargetRef, Api, ApiError, ORG_REQUIRED, isTenantId, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey, runnerSession, fileRedelegationJournal, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError, type ClientHooks, type MeritPolicyList, type MeritPolicyOverrides, type MeritPolicyVersionView, type MeritShadow, type MeritUsage, type AgentDelegation, type ClaimBootstrap, type CommandOptions, type FetchLike, type Project, type ProjectInitialization, type GitHubRepositoryList, type TenantJourneys } from "./http.js";
 import { resolveApiOrigin, DEFAULT_API_ORIGIN } from "./origin.js";
 import { ConfigError, configDir, activeCredentials, storedOrigin, loadCredentials, saveCredentials, clearCredentials, clearCredentialEnv, importBootstrap, saveBootstrap, loadLoginAttempt, saveLoginAttempt, completeLoginAttempt, type Credentials } from "./config.js";
 import type { GitRunner } from "./git.js";

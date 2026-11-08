@@ -27,6 +27,7 @@ import { ConfigError, type CredentialKind } from "./config.js";
 
 export { ApiError, TransportError, ProtectedStoreError, CredentialUnavailableError, newIdempotencyKey } from "../../client/src/node.js";
 export { isTenantId, meritPolicyInputFromRead, meritPolicyStanding, MeritPolicySourceError } from "../../client/src/node.js";
+export { resolveLocalRepository, resolveLocalTargetRef } from "../../client/src/node.js";
 export { runnerSession, fileRedelegationJournal } from "../../client/src/node.js";
 export type { RunnerSessionStep } from "../../client/src/node.js";
 export type { ClientHooks, RequestEvent, ResponseEvent, RetryEvent } from "../../client/src/node.js";
