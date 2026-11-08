@@ -181,24 +181,24 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `lane scope-requests ID [--status pending|granted|refused]` | `GET /tasks/{id}/lane/scope-requests` (human project member) |
 | `task claim-status CLAIM_ID` | `GET /claims/{id}` |
 | `task authorize ID --agent ID --verbs a,b --expires-at TIME [--bootstrap-out PATH]` | `POST /tasks/{id}/authorizations` |
-| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1238](src/cli.ts#L1238 "\"task unpublish\": governance")) |
-| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1239](src/cli.ts#L1239 "\"task dependency-add\": governance")) |
-| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1240](src/cli.ts#L1240 "\"task dependency-remove\": governance")) |
-| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1241](src/cli.ts#L1241 "\"task reject\": governance")) |
-| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1242](src/cli.ts#L1242 "\"task supersede\": governance")) |
-| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1243](src/cli.ts#L1243 "\"approval withdraw\": governance")) |
-| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1244](src/cli.ts#L1244 "\"candidate withdraw\": governance")) |
-| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1245](src/cli.ts#L1245 "\"candidate reject\": governance")) |
+| `task unpublish ID --expected-status ready --intent-version N` | `POST /tasks/{id}/unpublish` ([cli.ts:1240](src/cli.ts#L1240 "\"task unpublish\": governance")) |
+| `task dependency-add ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/add` ([cli.ts:1241](src/cli.ts#L1241 "\"task dependency-add\": governance")) |
+| `task dependency-remove ID --upstream ID --expected-status S --intent-version N` | `POST /tasks/{id}/dependencies/remove` ([cli.ts:1242](src/cli.ts#L1242 "\"task dependency-remove\": governance")) |
+| `task reject ID --expected-status S --intent-version N` | `POST /tasks/{id}/reject` ([cli.ts:1243](src/cli.ts#L1243 "\"task reject\": governance")) |
+| `task supersede ID --replacement ID --expected-status S --intent-version N` | `POST /tasks/{id}/supersede` ([cli.ts:1244](src/cli.ts#L1244 "\"task supersede\": governance")) |
+| `approval withdraw ID --expected-status S --intent-version N` | `POST /approvals/{id}/withdraw` ([cli.ts:1245](src/cli.ts#L1245 "\"approval withdraw\": governance")) |
+| `candidate withdraw ID --expected-status S --intent-version N` | `POST /candidates/{id}/withdraw` ([cli.ts:1246](src/cli.ts#L1246 "\"candidate withdraw\": governance")) |
+| `candidate reject ID --expected-status S --intent-version N` | `POST /candidates/{id}/reject` ([cli.ts:1247](src/cli.ts#L1247 "\"candidate reject\": governance")) |
 | `candidate show --submission ID` | `GET /submissions/{id}/candidate` |
 | `approve ID --candidate-sha SHA --base-sha SHA --intent-version N [--repository ID --target-ref REF] [--note TEXT]` | `POST /candidates/{id}/approve`; `--repository` and `--target-ref` assert the reviewed landing destination (409 `destination-mismatch` for any other) |
 | `land ID --approval ID [--repository ID --target-ref REF] [--wait]` | `POST /candidates/{id}/land`, then `GET /receipts/{id}`; `--repository` and `--target-ref` assert the destination as on `approve` |
 | `receipt show ID [--wait]` | `GET /receipts/{id}` |
 | `log ID [--after CURSOR] [--limit N]` | `GET /tasks/{id}/log` |
 | `events replay --project ID [--task ID] [--after CURSOR]` | `GET /events` |
-| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1866](src/cli.ts#L1866 "\"webhook create\": async")) |
-| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1878](src/cli.ts#L1878 "\"webhook replay\": async")) |
+| `webhook create --project ID --url URL --types a,b [--task ID] --secret-stdin` | `POST /webhooks`; reads the base64 signing secret from stdin ([cli.ts:1868](src/cli.ts#L1868 "\"webhook create\": async")) |
+| `webhook replay ID --after CURSOR [--through CURSOR]` | `POST /webhooks/{id}/replays` ([cli.ts:1880](src/cli.ts#L1880 "\"webhook replay\": async")) |
 | `webhook reactivate ID` | `POST /webhooks/{id}/reactivate` |
-| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1918](src/cli.ts#L1918 "\"webhook disable\": async")) |
+| `webhook disable ID` | `POST /webhooks/{id}/disable` ([cli.ts:1920](src/cli.ts#L1920 "\"webhook disable\": async")) |
 
 Governance commands send the explicit expected status and intent version; human-only commands fail locally for agent credentials, while candidate withdrawal is permitted locally and still subject to server ownership checks ([cli.ts:706](src/cli.ts#L706 "humanOnly && creds.kind !== \"human\""); the server's check is part of `candidateWithdraw`). Webhook reactivation uses `webhook reactivate ID` and the existing creator-only human endpoint.
 
@@ -532,3 +532,26 @@ The 0.26.0 CLI/client pair adds typed own-candidate Merit preflight and fixed ev
 The CLI remains thin over `merit.evaluate`; read-only request observation and original workspace lookup are library
 APIs, not new CLI commands. Use `--idempotency-key` to retain one exact evaluation attempt. A request ACK is not a
 terminal score; do not repeat evaluation POST to observe it or assume a package upgrade grants broker authority.
+
+### Broker-managed agent configuration
+
+A trusted runtime can install a broker-managed configuration in the usual
+`credentials/cli.json` (0600, parent 0700). This mode contains only a public
+placeholder, never a native scoped token:
+
+```json
+{"provider":"broker","kind":"agent","apiUrl":"https://broker.example.invalid/v1","orgId":"org_00000000-0000-4000-8000-000000000001","delegationId":"delegation_example","agentId":"agent_example","token":"octocove_placeholder_public_selector"}
+```
+
+The CLI keeps normal commands and native HTTP paths. It reads this record before
+every attempt and refuses configuration changes; it never renews or reauthorizes
+the placeholder after a refusal. No expiry fields are allowed in this mode.
+Native provisioning, renewal and execution handover belong to the trusted broker
+control plane; `auth renew` and `lane materialize --handover` are refused locally.
+A different `OCTOCOVE_API_URL` cannot redirect an installed configuration.
+
+The placeholder selects a binding; it is not proof of authority. The broker must
+independently admit the caller and enforce its native operation/path limits.
+Sandbox-wide broker admission shares authority among all processes in that
+sandbox; this mode does not claim per-agent isolation. A public placeholder can
+be copied without granting access from another admitted sandbox.

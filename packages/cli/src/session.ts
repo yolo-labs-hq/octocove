@@ -13,6 +13,7 @@ import {
   fileCredentialStore,
   renewingCredential,
   type CredentialStore,
+  type CredentialProvider,
   type RenewContext,
   type RenewingCredential,
 } from '../../client/src/node.js';
@@ -56,7 +57,7 @@ function schedule(c: Credentials) {
   return { expiresAt, ceilingAt: ceilings.length ? Math.min(...ceilings) : undefined };
 }
 
-const sameIdentity = (a: Credentials, b: Credentials) => a.kind === b.kind && a.apiUrl === b.apiUrl
+const sameIdentity = (a: Credentials, b: Credentials) => a.kind === b.kind && a.provider === b.provider && a.apiUrl === b.apiUrl
   && (a.kind !== 'agent' || (a.orgId === b.orgId && a.delegationId === b.delegationId && a.agentId === b.agentId));
 
 /**
@@ -64,6 +65,7 @@ const sameIdentity = (a: Credentials, b: Credentials) => a.kind === b.kind && a.
  * adopts a different credential: a stored record of another kind, origin, org, delegation or agent is refused.
  */
 export function cliCredential(env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike): RenewingCredential<Credentials> {
+  if (initial.provider === 'broker') throw new CredentialUnavailableError('broker-managed', 'Credential lifecycle is managed by the broker.', { disposition: 'terminal' });
   const human = initial.kind === 'human';
   const refuse = human ? signIn : authorizeAgain;
   return renewingCredential<Credentials>({
@@ -134,9 +136,9 @@ function storedCredentialFetch(env: NodeJS.ProcessEnv, initial: Credentials, fet
   if (existing && existing.directory === directory && sameIdentity(existing.initial, initial)) return fetch;
   // An explicit hand-off (a new bootstrap's delegation) may replace an old wrapper in the same command.
   if (existing) fetch = existing.fetch;
-  const provider = cliCredential(env, initial, fetch);
-  const owns = async (token: string) => token === initial.token || provider.knownTokens().includes(token)
-    || await activeCredentials(env).then((stored) => !!stored && stored.token === token && sameIdentity(stored, initial));
+  const provider = initial.provider === "broker" ? brokerCredential(env, initial) : cliCredential(env, initial, fetch);
+  const owns = async (token: string) => Boolean(token === initial.token || provider.knownTokens?.().includes(token)
+    || await activeCredentials(env).then((stored) => !!stored && stored.token === token && sameIdentity(stored, initial)));
   const result = authorizedFetch(provider, fetch, { origin: new URL(initial.apiUrl).origin, owns, bypass: (url) => renewal.test(url.pathname) });
   wrapped.set(result, { initial, directory, fetch });
   return result;
@@ -146,3 +148,18 @@ export const humanSessionFetch = (env: NodeJS.ProcessEnv, initial: Credentials, 
   storedCredentialFetch(env, initial, fetch, /\/auth\/session\/renew$/);
 export const agentSessionFetch = (env: NodeJS.ProcessEnv, initial: Credentials, fetch: FetchLike) =>
   storedCredentialFetch(env, initial, fetch, /\/delegations\/[^/]+\/renew$/);
+
+/** Public selector only. Read before each attempt; no renewal, reauthorization or refusal replay. */
+export function brokerCredential(env: NodeJS.ProcessEnv, initial: Credentials): CredentialProvider {
+  if (initial.provider !== 'broker') throw new CredentialUnavailableError('config', 'Broker configuration required.');
+  return {
+    async token(context) {
+      context.signal?.throwIfAborted();
+      const current = await activeCredentials(env);
+      if (!current || current.provider !== 'broker' || !sameIdentity(current, initial) || current.token !== initial.token)
+        throw new CredentialUnavailableError('config', 'Broker configuration changed; reload this agent configuration.', { disposition: 'terminal' });
+      return current.token;
+    },
+    knownTokens: () => [initial.token],
+  };
+}
