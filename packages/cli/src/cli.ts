@@ -8,7 +8,7 @@ import { cloneWorkspace } from "./repository-clone.js";
 import { cloneProject, cloneRepositorySelection } from "./repository-selection.js";
 import { resolve } from "node:path";
 import { realpath } from "node:fs/promises";
-import { humanSessionFetch, cliCredential, cliStore, agentInstants } from "./session.js";
+import { humanSessionFetch, cliCredential, brokerCredential, cliStore, agentInstants } from "./session.js";
 import { machineCommand } from "./machine.js";
 import { handover as handoverLane, hasSidecar, materialize as materializeLane, refresh as refreshLane, resolveConflict as resolveLaneConflict, status as laneDirStatus, submit as submitLaneChanges, wrapUp as wrapUpLane, writeUnsavedPatch } from "./lane-materialize.js";
 import { followEvents } from './event-follow.js';
@@ -520,7 +520,7 @@ const out = (d: Deps, json: boolean, body: unknown, text: () => string) =>
  * (session.ts), renewed ahead of expiry and once after an expiry refusal; anything else is sent as it is.
  */
 const credentialOf = (d: Deps, creds: Credentials): NonNullable<ConstructorParameters<typeof Api>[0]["credential"]> =>
-  !d.credentials && (creds.kind === "human" || creds.kind === "agent") ? { token: cliCredential(d.env, creds, d.fetch), kind: creds.kind } : creds;
+  creds.provider === "broker" ? { token: brokerCredential(d.env, creds), kind: creds.kind } : !d.credentials && (creds.kind === "human" || creds.kind === "agent") ? { token: cliCredential(d.env, creds, d.fetch), kind: creds.kind } : creds;
 
 /** `--verbose`: which published contract answered each call, on stderr. */
 const contractHooks = (d: Deps) => ({
@@ -824,6 +824,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
   if (action === "materialize") {
     let lane = api, handover: Awaited<ReturnType<typeof handoverLane>> | undefined, credentialsFile: string | undefined;
     if (v.handover) {
+      if (creds.provider === "broker") throw new ConfigError("Execution handover is managed by the broker control plane.");
       // The open execution moves here; the delegation bound to the new one replaces the stored agent credential
       // (privately, like a claim's), and every later request of this command presents it.
       handover = await handoverLane(api, pos[0]!, options);
@@ -1071,6 +1072,7 @@ const COMMANDS: Record<string, Handler> = {
   "auth renew": async (d, args) => {
     const { v } = opts(args, {}, 0);
     const { api, creds } = await client(d);
+    if (creds.provider === "broker") throw new ConfigError("Credential renewal is managed by the broker control plane.");
     if (creds.kind === "machine") throw new ConfigError("refresh the signed assertion with your workload identity provider");
     if (creds.kind === "bootstrap") throw new ConfigError("a bootstrap cannot be renewed; claim first");
     if (creds.kind === "agent" && !creds.delegationId) throw new ConfigError("active credential has no delegation ID; claim again with a new authorization");
