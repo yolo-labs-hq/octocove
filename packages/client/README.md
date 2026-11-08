@@ -1044,3 +1044,72 @@ Direct library conformance: `pnpm demo:walkthrough --library` drives the local w
 through this package (auth journeys, author authorization and bootstrap claim, approval, landing with wait, receipt equals canonical, dependent admitted) on
 `demo:up` with the local OIDC fixture. It is library conformance only — not archetype, runtime or
 identity-provider qualification.
+
+### Create from an existing GitHub repository
+
+Studio and other integrations that already know the GitHub repository need no
+filesystem access:
+
+```ts
+const result = await journeys(client).projects.createFromGitHub({
+  owner: 'acme', name: 'web', idempotencyKey: retainedKey,
+}, { deadline: Date.now() + 30_000 });
+// result: orgId, projectId, repositoryId, targetRef, initialization
+```
+
+The repository name supplies the default slug and display name. Pass `slug`,
+`displayName`, `installationId` or `targetRef` in the input to override defaults;
+a chosen `orgId` belongs to the second argument's options.
+Omit `targetRef` to let GitHub's default branch win. `initialization` retains the
+normal ready, pending and action-required states; ids are absent until recorded.
+Keep the same key and input when resuming a pending or lost-answer operation.
+With no options, `wait` is seconds (default 30); options use the normal absolute
+`deadline` and cancellation signal shared by discovery and initialization.
+
+`github.resolveInstallation({owner,name}, options?)` reads the connected
+installations and selects exactly one active installation for the owner. It does
+not make a live GitHub call or prove selection of a particular repository; the
+create endpoint checks repository access. Zero or multiple matches return typed
+`none`/`multiple` states with candidates and a `connectUrlHint`.
+`createFromGitHub` throws `GitHubInstallationResolutionError` carrying that state
+before any project POST. Connect GitHub once or select an installation explicitly;
+never guess an installation or retry creation with a different key.
+
+**Studio integrations:** ordinary OAuth client tokens cannot call installation
+listing or the general project-create routes today. Studio already has the
+supported workspace-binding path under `octocove:workspaces`:
+
+```ts
+await journeys(client).workspaces.bind({
+  externalWorkspaceId: studioProjectId,
+  source: { kind: 'github', owner: 'acme', name: 'web' },
+}, { deadline: Date.now() + 30_000, idempotencyKey: retainedBindingKey });
+```
+
+That server-owned flow finds an existing registration or creates the associated
+project through the connected GitHub App. It returns connection/selection next
+steps if needed. Use Studio's retained workspace identity and original key/body;
+do not substitute general project creation or add OAuth permissions to bypass
+its binding lifecycle. The new generic creation helper is for authorized human
+sessions and preserves all server refusals; an explicit installation skips only
+discovery, not authorization.
+
+The default entry also exports pure `parseGitHubRemote(url)`: SSH/scp and HTTPS
+GitHub remotes become `{owner,name}`, other hosts or malformed remotes become
+`null`. Userinfo never reaches its result or error.
+
+For local repositories, import the Node entry:
+
+```ts
+import { journeys, resolveLocalRepository } from '@yolo-labs/octocove-client/node';
+await resolveLocalRepository('.', { remote: 'origin' });
+await journeys(client).projects.createFromLocalRepository('.', {
+  remote: 'origin', idempotencyKey: retainedKey,
+}, { deadline: Date.now() + 30_000 });
+```
+
+Only the chosen local remote URL is queried. No credential helper, askpass,
+credential file, Git network request or config write is used. Dirty trees and
+detached HEADs do not affect repository discovery. `LocalRepositoryError.code`
+distinguishes a non-repository, missing remote and non-GitHub remote; raw Git
+output and credential-bearing remote text are never included.

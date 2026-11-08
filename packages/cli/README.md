@@ -532,3 +532,26 @@ The 0.26.0 CLI/client pair adds typed own-candidate Merit preflight and fixed ev
 The CLI remains thin over `merit.evaluate`; read-only request observation and original workspace lookup are library
 APIs, not new CLI commands. Use `--idempotency-key` to retain one exact evaluation attempt. A request ACK is not a
 terminal score; do not repeat evaluation POST to observe it or assume a package upgrade grants broker authority.
+
+### Associate a local GitHub project
+
+```sh
+octo project create .
+octo project create my-project ../checkout --remote upstream --name 'My project'
+octo project create --here --target-ref current
+octo repo add PROJECT .
+```
+
+These use the SDK's GitHub repository discovery and initialization helpers. An
+existing GitHub connection with exactly one active matching installation requires
+no installation argument. Otherwise follow the reported `octo github connect
+OWNER/NAME` step or pass `--installation ID`. The chosen remote is read locally;
+its credentials are never sent or printed. Forgejo and Artifacts stay explicit.
+
+`--github OWNER/NAME` overrides local repository coordinates. The server chooses
+the target branch unless `--target-ref refs/heads/BRANCH` is given; `current` is an
+explicit opt-in to the local branch and refuses detached HEAD. The selected ref
+is printed. Local creation's `--json` adds `orgId`, `projectId` and `repositoryId`
+to the initialization view. Exit status is 0 ready, 75 pending, 1 action-required.
+Retain the printed idempotency key and resume command for pending/unknown results;
+do not start another project to recover one.
