@@ -581,7 +581,9 @@ be copied without granting access from another admitted sandbox.
 
 ### 0.28 client parity
 
-This release bundles client 0.28.0. The SDK adds `github.coverage` for workspace setup preflight and types for
+This release bundles client 0.28.1. The SDK adds `github.coverage` for workspace setup preflight and types for
 automatic GitHub binding completion. Existing CLI GitHub commands remain thin wrappers over the client; no new
 CLI command, credential scope or automatic project action is added. Workspace applications use the original
 `workspaces.lookup` request to observe completion after access is granted.
+The patch refreshes public workspace guidance and the generated preflight read
+retry contract; it changes no CLI command or runtime operation.

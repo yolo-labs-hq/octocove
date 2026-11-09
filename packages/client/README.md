@@ -1066,7 +1066,7 @@ identity-provider qualification.
 
 ### Create from an existing GitHub repository
 
-Studio and other integrations that already know the GitHub repository need no
+Integrations that already know the GitHub repository need no
 filesystem access:
 
 ```ts
@@ -1094,20 +1094,20 @@ create endpoint checks repository access. Zero or multiple matches return typed
 before any project POST. Connect GitHub once or select an installation explicitly;
 never guess an installation or retry creation with a different key.
 
-**Studio integrations:** ordinary OAuth client tokens cannot call installation
-listing or the general project-create routes today. Studio already has the
+**OAuth workspace integrations:** ordinary OAuth client tokens cannot call installation
+listing or the general project-create routes. Use the
 supported workspace-binding path under `octocove:workspaces`:
 
 ```ts
 await journeys(client).workspaces.bind({
-  externalWorkspaceId: studioProjectId,
+  externalWorkspaceId: workspaceId,
   source: { kind: 'github', owner: 'acme', name: 'web' },
 }, { deadline: Date.now() + 30_000, idempotencyKey: retainedBindingKey });
 ```
 
 That server-owned flow finds an existing registration or creates the associated
 project through the connected GitHub App. It returns connection/selection next
-steps if needed. Use Studio's retained workspace identity and original key/body;
+steps if needed. Use the retained workspace identity and original key/body;
 do not substitute general project creation or add OAuth permissions to bypass
 its binding lifecycle. The new generic creation helper is for authorized human
 sessions and preserves all server refusals; an explicit installation skips only
