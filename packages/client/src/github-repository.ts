@@ -4,6 +4,12 @@ export function githubRepositoryName(owner: string, name: string): GitHubReposit
   if (![owner, name].every(v => /^[A-Za-z0-9._-]{1,100}$/.test(v) && v !== '.' && v !== '..')) throw new Error('Invalid GitHub repository coordinates');
   return { owner, name };
 }
+/** Infer only the project's URL slug; preserve repository coordinates and explicit slugs. */
+export function defaultGitHubProjectSlug(name: string): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63).replace(/-+$/g, '') || 'repository';
+  if (slug.length < 2 || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(slug)) return `${slug}-repo`;
+  return slug;
+}
 export function parseGitHubRemote(remote: string): GitHubRepositoryName | null {
   try {
     if (/[\\\u0000-\u0020\u007f]/.test(remote)) return null;

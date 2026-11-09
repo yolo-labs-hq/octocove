@@ -163,6 +163,12 @@ describe("project create", () => {
     expect(await cli(["project", "create", "web", "--name", "web", "--github", "acme/web", "--installation", "7"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
     expect(JSON.stringify(calls[1]!.body)).toBe(inferred);
   });
+  it("local creation normalizes only the inferred project slug", async () => {
+    git("remote", "add", "origin", "https://github.com/acme/My_App.js.git");
+    routes["POST /me/projects"] = () => json(201, { state: "ready", operationId: "pinit_demo", project, membership: { verbs: [] }, repository: { id: "r1", name: "My_App.js", provider: "github", targetRef: "refs/heads/main" } });
+    expect(await cli(["project", "create", repo, "--installation", "7"], { kind: "human" }, { OCTOCOVE_ORG: "" })).toBe(0);
+    expect(calls[0]!.body).toMatchObject({ slug: "my-app-js", name: "My_App.js", repository: { owner: "acme", name: "My_App.js" } });
+  });
   it("local creation auto-resolves the installation and current branch only on opt-in", async () => {
     git("remote", "add", "origin", "git@github.com:acme/web.git");
     routes["GET /me/github/installations"] = () => json(200, { configured: true, items: [{ installationId: "7", status: "active", account: { login: "acme" } }], pending: [] });

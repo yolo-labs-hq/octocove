@@ -1,4 +1,4 @@
-import { githubRepositoryName, GitHubInstallationResolutionError, type InstallationResolution } from './github-repository.js';
+import { defaultGitHubProjectSlug, githubRepositoryName, GitHubInstallationResolutionError, type InstallationResolution } from './github-repository.js';
 /**
  * Journeys: bounded, composable helpers over the typed client. Each takes one absolute
  * `deadline`; waits are cancellation-aware and stop with the ids needed to resume, never reissuing the
@@ -1011,7 +1011,7 @@ export function journeys(client: OctocoveClient) {
       if (!('installationId' in resolved)) throw new GitHubInstallationResolutionError(resolved);
       installationId = resolved.installationId;
     }
-    const initialization = await createProject({ slug: input.slug ?? coordinates.name, name: input.displayName ?? coordinates.name,
+    const initialization = await createProject({ slug: input.slug ?? defaultGitHubProjectSlug(coordinates.name), name: input.displayName ?? coordinates.name,
       repository: { mode: 'github', ...coordinates, installationId,
         ...(input.providerRepoId === undefined ? {} : { providerRepoId: input.providerRepoId }),
         ...(input.targetRef === undefined ? {} : { targetRef: input.targetRef }) } },
