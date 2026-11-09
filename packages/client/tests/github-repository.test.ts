@@ -33,6 +33,25 @@ it('defaults creation fields and returns ids and the authoritative initializatio
   expect(r).toEqual({ orgId: org, projectId: 'project', repositoryId: 'repo', targetRef: 'refs/heads/main', initialization: ready });
   expect(JSON.parse(f.requests[1]!.body!)).toEqual({ slug: 'web', name: 'web', repository: { mode: 'github', owner: 'acme', name: 'web', installationId: '1' } });
 });
+it.each([
+  ['MyRepo', 'myrepo'], ['my_repo', 'my-repo'], ['app.js', 'app-js'],
+  ['.hidden', 'hidden'], ['___', 'repository'], ['a', 'a-repo'],
+  ['A'.repeat(100), 'a'.repeat(63)], ['a'.repeat(62) + '--rest', 'a'.repeat(62)],
+  ['01234567-89ab-cdef-0123-456789abcdef', '01234567-89ab-cdef-0123-456789abcdef-repo'],
+])('infers a valid slug for %s without changing repository identity', async (name, slug) => {
+  const f = fixture(1);
+  await f.root.projects.createFromGitHub({ owner: 'acme', name });
+  const body = JSON.parse(f.requests[1]!.body!);
+  expect(body.slug).toBe(slug);
+  expect(body.slug).toMatch(/^[a-z0-9][a-z0-9-]{1,62}$/);
+  expect(body.name).toBe(name);
+  expect(body.repository.name).toBe(name);
+});
+it('preserves an explicit slug verbatim for server validation', async () => {
+  const f = fixture(1);
+  await f.root.projects.createFromGitHub({ owner: 'acme', name: 'MyRepo', slug: 'Chosen_slug' });
+  expect(JSON.parse(f.requests[1]!.body!).slug).toBe('Chosen_slug');
+});
 it('ambiguous installation is a typed next-step error and creates nothing', async () => {
   const f = fixture(2);
   await expect(f.root.projects.createFromGitHub({ owner: 'acme', name: 'web' })).rejects.toBeInstanceOf(GitHubInstallationResolutionError);

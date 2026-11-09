@@ -1076,7 +1076,9 @@ const result = await journeys(client).projects.createFromGitHub({
 // result: orgId, projectId, repositoryId, targetRef, initialization
 ```
 
-The repository name supplies the default slug and display name. Pass `slug`,
+The repository name supplies the display name. Its default project slug is lowercased,
+with punctuation replaced by hyphens and trimmed to 63 characters. Empty, one-character
+and UUID-shaped defaults receive a safe fallback. Explicit slugs are sent unchanged. Pass `slug`,
 `displayName`, `installationId` or `targetRef` in the input to override defaults;
 a chosen `orgId` belongs to the second argument's options.
 Omit `targetRef` to let GitHub's default branch win. `initialization` retains the
