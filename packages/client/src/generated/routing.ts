@@ -3365,6 +3365,66 @@ export const routing = {
       "replay": null
     }
   },
+  "githubCoverageGet": {
+    "operationId": "githubCoverageGet",
+    "kind": "path",
+    "method": "GET",
+    "path": "/github/coverage",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [
+        {
+          "name": "name",
+          "required": true
+        },
+        {
+          "name": "owner",
+          "required": true
+        },
+        {
+          "name": "providerRepoId",
+          "required": false
+        }
+      ],
+      "header": [],
+      "cookie": []
+    },
+    "idempotencyKey": false,
+    "csrfHeader": false,
+    "requestBody": null,
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "HumanCliSession",
+      "HumanSession",
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "network-only",
+      "replay": null
+    }
+  },
   "githubInstall": {
     "operationId": "githubInstall",
     "kind": "path",

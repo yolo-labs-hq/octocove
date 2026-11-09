@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:ec3399f38943c9021d0df73e1315416eddb8d45f010bf9994f6f19a2536cfa67",
+  "metaDigest": "ocm1:59a1a98a852bda87b6f5b87a3fc500592e904c944bd3114ee159c36b1e157e9e",
   "epochFamilies": [
     "auth",
     "binary",
@@ -550,19 +550,31 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "githubCallback": {
       "supported": [
-        "oc1:9c48cbca56c2af462b234e2905819289ede8863213ea4b256679e60d2bdc393c"
+        "oc1:df9c9aa090d454948478c5fa6d0c0063f07a7f509e3253dfb5e9af221e5dfea6"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
         "retry": 1,
-        "security": 1
+        "security": 2
       }
     },
     "githubConnect": {
       "supported": [
-        "oc1:58212e41bd707c092b7523bac43fc589bdcfcb45b1676baa19caf69653ca5934"
+        "oc1:68a301d3fc6319d1439c6a3f97d6a42002db909353292659fe9f8896c8b0c50a"
+      ],
+      "epochs": {
+        "auth": 1,
+        "binary": 1,
+        "limits": 1,
+        "retry": 1,
+        "security": 2
+      }
+    },
+    "githubCoverageGet": {
+      "supported": [
+        "oc1:b586381f1f69fd5856b7ed7fbe1227489ac013770d6d51ee369a4c82b57812a5"
       ],
       "epochs": {
         "auth": 1,
@@ -574,26 +586,26 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "githubInstall": {
       "supported": [
-        "oc1:d539b2f33ef40728cb6fd027119a3689e9aba6e54dacd525334e3b36f0bd6c4a"
+        "oc1:306794c75e69df06b9c66d1ce0d7d631e9bc3afc762f1dfc08220e27ce2e5b05"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
         "retry": 1,
-        "security": 1
+        "security": 2
       }
     },
     "githubWebhook": {
       "supported": [
-        "oc1:923c823966c37e0bfe9d6e3090301d359b50b427d367560b5da7ef7dae748baf"
+        "oc1:5f89f1fac36b6861f63a734d80e05ebaa33c61e9cd7472ff9ff002ce4afd81d0"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
         "retry": 1,
-        "security": 1
+        "security": 2
       }
     },
     "landingsList": {
@@ -1822,19 +1834,19 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "workspaceBindingCreate": {
       "supported": [
-        "oc1:20fe0152ecbab21923d18a355e7f37e5ef21089eb441f76124abb2b3878672c2"
+        "oc1:eae2292ad185924c9a4c8e09ff25c15502a932aae8f94ab5adaec4402aa77f56"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
         "retry": 1,
-        "security": 1
+        "security": 2
       }
     },
     "workspaceBindingGet": {
       "supported": [
-        "oc1:f87a467d228628306cd9f43a3abfc028eadf6b5cbb4fee9f12f5412b86bdc38c"
+        "oc1:7fa5cfeb4188048beb0b2ae3deb69143524e3373e095f05ccbd3b27ba339f8c5"
       ],
       "epochs": {
         "auth": 1,
@@ -1846,13 +1858,13 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "workspaceBindingLookup": {
       "supported": [
-        "oc1:dcf72d7a56fe88932020c6ab20ecefcfc5381cb3b2b5ca3c62284c1d62702a56"
+        "oc1:ba1e65a0d68b1806251daa4c56a0dcb6a7aec0c15e311ca7dfbe744d39c0da23"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
-        "retry": 2,
+        "retry": 3,
         "security": 1
       }
     }
@@ -1868,12 +1880,12 @@ export const CONTRACT_TABLE: ContractTable = {
       ],
       "supported": [
         {
-          "id": "ocap1:5a8885eab20826fd29be094e4744b4cdbfc7c88c0468e5a9f2ecfe295ef51a1e",
+          "id": "ocap1:0679720052cae280e63cc67100abbca9b88b6fd07142fad693a37ba2796120ce",
           "members": {
             "claimAuthorize": "oc1:17d5e9d9ad73bb00b8f1f61082f52c1254b03a5151d200fee34d8739792ea44b",
             "taskClaim": "oc1:5018215a504e2832f87414bd40ca293cbeb2b2ecb942f9d06bdf32bf3efedff4",
-            "workspaceBindingCreate": "oc1:20fe0152ecbab21923d18a355e7f37e5ef21089eb441f76124abb2b3878672c2",
-            "workspaceBindingGet": "oc1:f87a467d228628306cd9f43a3abfc028eadf6b5cbb4fee9f12f5412b86bdc38c"
+            "workspaceBindingCreate": "oc1:eae2292ad185924c9a4c8e09ff25c15502a932aae8f94ab5adaec4402aa77f56",
+            "workspaceBindingGet": "oc1:7fa5cfeb4188048beb0b2ae3deb69143524e3373e095f05ccbd3b27ba339f8c5"
           }
         }
       ]

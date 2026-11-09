@@ -33,10 +33,10 @@ describe('requireCapabilities', () => {
     {
       const operationId = 'workspaceBindingLookup';
       const expected = CONTRACT_TABLE.operations[operationId]!.supported[0]!;
-      expect(CONTRACT_TABLE.operations[operationId]!.epochs.retry).toBe(2);
+      expect(CONTRACT_TABLE.operations[operationId]!.epochs.retry).toBe(3);
       const requirement = { operations: { [operationId]: [expected] } };
       await expect(clientOf(async () => new Response(meta())).requireCapabilities(requirement)).resolves.toBeDefined();
-      await expect(clientOf(async () => new Response(meta(d => { d.operations[operationId].contract = 'oc1:603534ef2075aa43474f33c63490e1e0bf71debec62b8b12df041ded40f7d399'; d.operations[operationId].epochs.retry = 1; }))).requireCapabilities(requirement)).rejects.toBeInstanceOf(ContractRefusedError);
+      await expect(clientOf(async () => new Response(meta(d => { d.operations[operationId].contract = 'oc1:dcf72d7a56fe88932020c6ab20ecefcfc5381cb3b2b5ca3c62284c1d62702a56'; d.operations[operationId].epochs.retry = 2; }))).requireCapabilities(requirement)).rejects.toBeInstanceOf(ContractRefusedError);
     }
   });
   it('reads /v1/meta with no credential and no redirect, and locks each capability member', async () => {
