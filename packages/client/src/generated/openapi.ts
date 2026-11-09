@@ -2031,7 +2031,7 @@ export interface paths {
         put?: never;
         /**
          * Resolve, and for a new native workspace create, the one binding of a client's workspace
-         * @description An OAuth client token only (`octocove:workspaces`; a browser or CLI session gets 403 `forbidden`). A global operation: the binding may name any of the human's tenants, or one not created yet. One binding per (client, human, `externalWorkspaceId`), resolved once and reused by every later lane. The answer is the binding's current view (`WorkspaceBinding`) - 200 for `ready` or `action-required`, 202 with `Retry-After` for `pending`. `source` `github` searches every tenant the human is a discovery candidate of, in projects whose membership holds `tasks:list`, for live GitHub canonical registrations of that owner and name (case-insensitive) - one match binds it; several answer `action-required` `ambiguous-registration` with the candidates (ids and display names) and bind nothing; any unreadable candidate tenant answers `pending` `discovery-incomplete`, whatever was found elsewhere; none answers `action-required` `github-connection-required` with `installUrl` and `installationState`. Discovery also matches GitHub App registrations by `providerRepoId` and by their current owner and name. With no match, when a GitHub App installation the human connected covers the repository (it is among the repositories the human's GitHub user could reach in it, and a token for exactly it reads it now), the binding is reserved (`creating`) and the existing creation runs: the project in `org` (or the personal tenant) named by `project` (or the repository's name), with the creator allow-list, quotas and reservations as for `new-native`, then the repository registered with credential source `github-app` (its default branch, and `targetRef` when GitHub has it); `pending` `creation-in-progress` while a step waits; the binding records GitHub's numeric id. `providerRepoId` (GitHub's numeric id) is recorded and, when both sides know it, decides whether a later request names the same repository (a rename keeps the binding; another id under the same name is a source change); owner and name decide otherwise. `source` `octocove` binds exactly that tuple after checking the human's current `tasks:list` membership and the live canonical repository in that tenant - 404 `not-found` for anything unreadable (unknown tenant, another tenant's project, no access), 409 `repository-provider-unsupported` for a repository on another provider than Artifacts or GitHub, `pending` `tenant-unavailable` while the tenant cannot be read; never reinterpreted as GitHub. `source` `new-native` reserves the binding (`creating`), then creates the project through `POST /orgs/{orgId}/projects` (`org`) or `POST /me/projects` (no `org`) and its seeded Artifacts repository (`mode` `create`, named by the slug, on `targetRef`, which is required) through the existing creation paths, with keys derived from the binding's `operationId` - the creator allow-list, quotas, throttle, reservations, namespace and org-admin rules apply with their problems (403 `project-create-disabled`, 403 `project-quota-exceeded`, 404 `tenant-not-found`, 409 `slug-taken`, 422 `invalid-slug`). A step that cannot finish now (a personal tenant provisioning, a busy or unavailable provider) answers `pending` `creation-in-progress` with the `operationId`; the same request (or any request for the same workspace and source) resumes it, and nothing is created twice. A refused project step fails the binding and the key replays the refusal; a refused repository step answers `action-required` `repository-creation-failed` (`action.code`) and stays open, so the same request retries it; a repository the operator must settle answers `action-required` `repository-needs-operator`. Without `targetRef` a settled binding answers `action-required` `target-ref-required` with every registered destination and the provider's `defaultBranch` when it can be read; an unregistered `targetRef` is `target-ref-unregistered`; a registered one is bound once. A request whose body names another source (or another target ref) than the workspace's live binding is 409 `binding-source-changed` (`details.field` `source` or `targetRef`): a binding is immutable, and a changed workspace uses a new `externalWorkspaceId`. The same Idempotency-Key with another body is 409 `idempotency-conflict`; a replay answers the bound binding's current view (a request that reserved nothing is worked out again). Admin tier - while `AUTH_REQUIRE_RECENT_SIGN_IN` is on, 403 `step-up-required`.
+         * @description An OAuth client token only (`octocove:workspaces`; a browser or CLI session gets 403 `forbidden`). A global operation: the binding may name any of the human's tenants, or one not created yet. One binding per (client, human, `externalWorkspaceId`), resolved once and reused by every later lane. The answer is the binding's current view (`WorkspaceBinding`) - 200 for `ready` or `action-required`, 202 with `Retry-After` for `pending`. `source` `github` searches every tenant the human is a discovery candidate of, in projects whose membership holds `tasks:list`, for live GitHub canonical registrations of that owner and name (case-insensitive) - one match binds it; several answer `action-required` `ambiguous-registration` with the candidates (ids and display names) and bind nothing; any unreadable candidate tenant answers `pending` `discovery-incomplete`, whatever was found elsewhere; none answers `action-required` `github-connection-required` with `installUrl` and `installationState`. Discovery also matches GitHub App registrations by `providerRepoId` and by their current owner and name. With no match, when a GitHub App installation the human connected covers the repository (it is among the repositories the human's GitHub user could reach in it, and a token for exactly it reads it now), the binding is reserved (`creating`) and the existing creation runs: the project in `org` (or the personal tenant) named by `project` (or the repository's name), with the creator allow-list, quotas and reservations as for `new-native`, then the repository registered with credential source `github-app` (its default branch, and `targetRef` when GitHub has it); `pending` `creation-in-progress` while a step waits; the binding records GitHub's numeric id. `providerRepoId` (GitHub's numeric id) is recorded and, when both sides know it, decides whether a later request names the same repository (a rename keeps the binding; another id under the same name is a source change); owner and name decide otherwise. `source` `octocove` binds exactly that tuple after checking the human's current `tasks:list` membership and the live canonical repository in that tenant - 404 `not-found` for anything unreadable (unknown tenant, another tenant's project, no access), 409 `repository-provider-unsupported` for a repository on another provider than Artifacts or GitHub, `pending` `tenant-unavailable` while the tenant cannot be read; never reinterpreted as GitHub. `source` `new-native` reserves the binding (`creating`), then creates the project through `POST /orgs/{orgId}/projects` (`org`) or `POST /me/projects` (no `org`) and its seeded Artifacts repository (`mode` `create`, named by the slug, on `targetRef`, which is required) through the existing creation paths, with keys derived from the binding's `operationId` - the creator allow-list, quotas, throttle, reservations, namespace and org-admin rules apply with their problems (403 `project-create-disabled`, 403 `project-quota-exceeded`, 404 `tenant-not-found`, 409 `slug-taken`, 422 `invalid-slug`). A step that cannot finish now (a personal tenant provisioning, a busy or unavailable provider) answers `pending` `creation-in-progress` with the `operationId`; the same request (or any request for the same workspace and source) resumes it, and nothing is created twice. A refused project step fails the binding and the key replays the refusal; a refused repository step answers `action-required` `repository-creation-failed` (`action.code`) and stays open, so the same request retries it; a repository the operator must settle answers `action-required` `repository-needs-operator`. Without `targetRef` a settled binding answers `action-required` `target-ref-required` with every registered destination and the provider's `defaultBranch` when it can be read; an unregistered `targetRef` is `target-ref-unregistered`; a registered one is bound once. A request whose body names another source (or another target ref) than the workspace's live binding is 409 `binding-source-changed` (`details.field` `source` or `targetRef`): a binding is immutable, and a changed workspace uses a new `externalWorkspaceId`. The same Idempotency-Key with another body is 409 `idempotency-conflict`; a replay answers the bound binding's current view (a request that reserved nothing is worked out again). Admin tier - while `AUTH_REQUIRE_RECENT_SIGN_IN` is on, 403 `step-up-required`. A GitHub request additionally records a bounded immutable continuation authorization while the incoming credential is valid, retaining the first exact body and key. Grant callbacks/webhooks can complete that same request after current authorization and GitHub push-access checks, without a replacement or another POST. Family expiry/revocation stops it; access-token rotation alone does not. Pending work is limited to twenty requests per human/client. Credentials are never included in binding views.
          */
         post: operations["workspaceBindingCreate"];
         delete?: never;
@@ -2049,7 +2049,7 @@ export interface paths {
         };
         /**
          * Read the binding reserved by an original workspace request
-         * @description An OAuth client token only. Looks up the exact original request under the authenticated client, issuer, subject and Idempotency-Key, matching externalWorkspaceId and the original canonical bindingDigest. Unknown, foreign, malformed or mismatched commitments all answer 404 not-found. Never falls back to the workspace's latest binding. Always 200 when found, with Retry-After while pending. A request that has not reserved a binding answers pending with reason binding-not-reserved. Otherwise reads that binding's current view, rechecking human access. Writes nothing, calls no provider, never adopts, settles or resumes creation. Do not log the identity query parameters or Idempotency-Key header.
+         * @description An OAuth client token only. Looks up the exact original request under the authenticated client, issuer, subject and Idempotency-Key, matching externalWorkspaceId and the original canonical bindingDigest. Unknown, foreign, malformed or mismatched commitments all answer 404 not-found. Never falls back to the workspace's latest binding. Always 200 when found, with Retry-After while pending. A request that has not reserved a binding answers pending with reason binding-not-reserved. Otherwise reads that binding's current view, rechecking human access. Writes nothing, calls no provider, never adopts, settles or resumes creation. Do not log the identity query parameters or Idempotency-Key header. For an original pending GitHub request without a reserved binding, also returns the latest retained access action (including pending approval or reconnect). This status read never drives continuation or calls GitHub.
          */
         get: operations["workspaceBindingLookup"];
         put?: never;
@@ -2080,6 +2080,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/github/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check the calling human's access to one GitHub repository
+         * @description Read-only preflight. Does not issue a ticket, create a binding, resume creation or change permissions. A missing human link reports connection-required, not app-not-installed. Unavailable GitHub reads are 503.
+         */
+        get: operations["githubCoverageGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/github/connect": {
         parameters: {
             query?: never;
@@ -2089,7 +2109,7 @@ export interface paths {
         };
         /**
          * Start connecting a GitHub App installation
-         * @description A human session, or an OAuth client token (`octocove:workspaces`) - the `installUrl` of a `github-connection-required` binding answer. Issues a one-use ticket (ten minutes) bound to the human, the client (or the web), the return address and the repository named, and answers the browser URL that claims it (`GET /github/install?ticket=...` on the web host). The client sends the human's browser there; the browser must be that human (its Octocove session, or Octocove's identity-provider leg, silent when the provider has a session), then goes to GitHub's installation page, and returns to `returnTo` with `github=connected` or `github=pending`. A client's `returnTo` must be on one of its registered origins - its redirect URIs' origins and the registry's `returnOrigins` for it (default: the first redirect URI's origin); a session's is a local path (default `/settings/connections`). 503 `github-app-unavailable` when the deployment has no GitHub App; 429 `rate-limited` past 30 starts in ten minutes. Writes only the ticket.
+         * @description A human session, or an OAuth client token (`octocove:workspaces`) - the `installUrl` of a `github-connection-required` binding answer. Issues a one-use ticket (ten minutes) bound to the human, the client (or the web), the return address and the repository named, and answers the browser URL that claims it (`GET /github/install?ticket=...` on the web host). Pending exact GitHub workspace requests authorize an expiring user grant first; credentials are retained only in encrypted, family-bounded server custody for automatic completion after a grant. No additional Studio OAuth scope is requested. The client sends the human's browser there; the browser must be that human (its Octocove session, or Octocove's identity-provider leg, silent when the provider has a session), then goes to GitHub's installation page, and returns to `returnTo` with `github=connected` or `github=pending`. A client's `returnTo` must be on one of its registered origins - its redirect URIs' origins and the registry's `returnOrigins` for it (default: the first redirect URI's origin); a session's is a local path (default `/settings/connections`). 503 `github-app-unavailable` when the deployment has no GitHub App; 429 `rate-limited` past 30 starts in ten minutes. Writes only the ticket.
          */
         get: operations["githubConnect"];
         put?: never;
@@ -2109,7 +2129,7 @@ export interface paths {
         };
         /**
          * The GitHub connection's browser leg
-         * @description Top-level navigation only. With `ticket` (from `GET /github/connect`): claims it once and sets the host-only binding cookie (`__Host-octocove_github`, 30 minutes). Without one: starts a connection for the browser's own Octocove session. The browser must be the ticket's human - its session, or Octocove's identity-provider leg (silently first; it sets no session); another human is refused with a page. Then 303 to `https://github.com/apps/<slug>/installations/new?state=...` with a one-use state (30 minutes, stored hashed). Every refusal is an Octocove page (dark, `no-store`, unframeable, no referrer).
+         * @description Top-level navigation only. With `ticket` (from `GET /github/connect`): claims it once and sets the host-only binding cookie (`__Host-octocove_github`, 30 minutes). Without one: starts a connection for the browser's own Octocove session. The browser must be the ticket's human - its session, or Octocove's identity-provider leg (silently first; it sets no session); another human is refused with a page. Then 303 to the exact install/configure destination with a one-use, browser-bound authorization state. When a pending workspace needs unattended approval, an expiring GitHub user grant is obtained first. New installations preselect numeric account/repository IDs when known; existing installations use their configure page. The App's Redirect on update setting is required to return after Save. Never omit repo IDs on a permissions URL. Every refusal is an Octocove page (dark, `no-store`, unframeable, no referrer).
          */
         get: operations["githubInstall"];
         put?: never;
@@ -2129,7 +2149,7 @@ export interface paths {
         };
         /**
          * GitHub's redirect after the installation page
-         * @description Requires the state `GET /github/install` sent and the same browser's binding cookie; the state is consumed (one use). `setup_action=request` records that an organization owner must approve and shows a page. Otherwise the `code` is exchanged for a user-to-server token (client id and secret), `installation_id` must be among the GitHub user's installations of the app (`GET /user/installations`; never trusted from the query alone), the installation is read with the app JWT, and the link is recorded with the repositories the user can reach in it; the token is revoked and discarded, never stored. Then 303 to the return address with `github=connected`. Every refusal is an Octocove page; nothing is linked.
+         * @description Amendment. Authorization states are one use, unexpired and bound to the original HttpOnly browser cookie. A setup-only configure callback may omit state but must retain that browser binding and prove the installation through the authenticated GitHub user; a query id is never authority. A missing code starts a separate browser-bound GitHub user proof. Pending workspace flows use encrypted, expiring, original-family custody; ordinary interactive flows revoke/discard credentials. Organization requests return github=pending; a verified grant returns github=connected and schedules exact original-request continuation. Both return only a nonsecret githubState reference to the allowlisted returnTo. No token is exposed. Refusals are pages; reads of original-request status remain authoritative, and a transport failure is not proof of no effects.
          */
         get: operations["githubCallback"];
         put?: never;
@@ -2151,7 +2171,7 @@ export interface paths {
         put?: never;
         /**
          * Receive a GitHub App webhook delivery
-         * @description The app's webhook URL. `X-Hub-Signature-256` must be the HMAC-SHA256 of the raw body under the app's webhook secret (compared in constant time) - 401 `invalid-signature` otherwise, before anything is parsed or written. Deliveries are deduplicated by `X-GitHub-Delivery`: a new one answers 202 and is worked after the answer; one already finished answers 200 and does nothing (an unfinished one is retried by a redelivery after five minutes). `installation` and `installation_repositories` update the installation and the availability of the repositories registered through it (unavailable is never deletion); `repository` `renamed`/`transferred` updates their owner and name by GitHub's numeric id; `push` re-reads the pushed target ref of each registration through the installation (the payload's head is never trusted). Other events answer 204. No Idempotency-Key: the delivery id is the key.
+         * @description The app's webhook URL. `X-Hub-Signature-256` must be the HMAC-SHA256 of the raw body under the app's webhook secret (compared in constant time) - 401 `invalid-signature` otherwise, before anything is parsed or written. Deliveries are deduplicated by `X-GitHub-Delivery`: a new one answers 202 and is worked after the answer; one already finished answers 200 and does nothing (an unfinished one is retried by a redelivery after five minutes). Signed installation grants wake matching original workspace requests, rechecking current original-client authority and GitHub push access before continuation. Authorization-revoked events stop work and schedule credential cleanup. No payload alone grants access. `installation` and `installation_repositories` update the installation and the availability of the repositories registered through it (unavailable is never deletion); `repository` `renamed`/`transferred` updates their owner and name by GitHub's numeric id; `push` re-reads the pushed target ref of each registration through the installation (the payload's head is never trusted). Other events answer 204. No Idempotency-Key: the delivery id is the key.
          */
         post: operations["githubWebhook"];
         delete?: never;
@@ -4711,6 +4731,11 @@ export interface components {
                  * @description The GitHub connection's start, `GET /github/connect` with the repository (`github-connection-required`, and a GitHub App registration that lost access). The client calls it with its token and sends the browser to the URL it answers.
                  */
                 installUrl?: string;
+                state?: components["schemas"]["GitHubAccessAction"]["state"];
+                account?: components["schemas"]["GitHubAccessAction"]["account"];
+                repository?: components["schemas"]["GitHubAccessAction"]["repository"];
+                approverRole?: components["schemas"]["GitHubAccessAction"]["approverRole"];
+                requestedAt?: components["schemas"]["GitHubAccessAction"]["requestedAt"];
                 /**
                  * @description (`github-connection-required`): `none` - no GitHub App installation the human connected covers the repository; `pending-approval` - an owner of the account must approve the app the human requested; `repo-not-selected` - the human's installation on that account does not include the repository (or predates it: connecting again refreshes it); `permission-required` - the human's GitHub account can read the repository but not push to it; `reconnect-required` - the human's GitHub access was last confirmed more than seven days ago: connecting again confirms it.
                  * @enum {string}
@@ -4728,6 +4753,45 @@ export interface components {
                     repositoryName: string;
                 }[];
             };
+        };
+        GitHubAccessAction: {
+            /** @enum {string} */
+            state: "connection-required" | "repo-not-selected" | "permission-required" | "reconnect-required" | "pending-org-approval" | "suspended";
+            account: {
+                login: string;
+            };
+            repository: {
+                owner: string;
+                name: string;
+                providerRepoId?: string;
+            };
+            /**
+             * Format: uri
+             * @description Octocove connect URL; call with authentication to obtain a one-use browser ticket.
+             */
+            installUrl: string;
+            /** @enum {string} */
+            approverRole?: "organization-owner";
+            /** Format: date-time */
+            requestedAt?: string;
+        };
+        GitHubCoverageRead: {
+            /** @constant */
+            configured: false;
+            /** @constant */
+            state: "unavailable";
+        } | {
+            /** @constant */
+            configured: true;
+            /** @constant */
+            state: "covered";
+            repository: components["schemas"]["GitHubAccessAction"]["repository"];
+        } | {
+            /** @constant */
+            configured: true;
+            /** @constant */
+            state: "action-required";
+            action: components["schemas"]["GitHubAccessAction"];
         };
         /** @description Where to send the human's browser to connect GitHub. The URL carries a one-use ticket bound to the human; it is not a credential for anything else. */
         GitHubConnectStart: {
@@ -10569,6 +10633,35 @@ export interface operations {
             503: components["responses"]["Problem"];
         };
     };
+    githubCoverageGet: {
+        parameters: {
+            query: {
+                owner: string;
+                name: string;
+                providerRepoId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Coverage or the required next action. Does not grant binding or repository access. */
+            200: {
+                headers: {
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubCoverageRead"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
     githubConnect: {
         parameters: {
             query?: {
@@ -10685,7 +10778,7 @@ export interface operations {
                     "text/html": string;
                 };
             };
-            /** @description Back to the initiating page with `github=connected`. */
+            /** @description Back to the allowlisted page with github=connected or github=pending and a nonsecret githubState reference, or to a bound authorization leg. */
             303: {
                 headers: {
                     Location?: string;

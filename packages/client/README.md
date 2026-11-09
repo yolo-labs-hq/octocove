@@ -157,7 +157,7 @@ and `{"callable": false, "reason": "navigation" | "excluded"}` for the uncallabl
 
 | Operations | `autoRetry` | `replay` | Notes |
 | --- | --- | --- | --- |
-| `metaGet`, `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `lanePackGet`, `laneSavePointsList`, `laneSavePointGet`, `laneSavePointDiff`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `workspaceBindingLookup`, `meGithubInstallationsList`, `meGithubRepositoriesList`, `githubConnect`, `projectInitializationGet`, `candidateMeritDiffGet`, `candidateMeritGet`, `candidateMeritEvaluationGet`, `candidateMeritReviewsList`, `candidateMeritReviewGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet`, `meritShadowGet`, `repositoryLanePolicyGet` | `network-only` | `null` | safe reads (the merit reads, `repositoryLanePolicyGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet` and `meritShadowGet` write nothing and are not audited; `candidateMeritDiffGet` computes the manifest from the candidate's commits and caches it server-side; `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `meGithubRepositoriesList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
+| `metaGet`, `tasksList`, `taskGet`, `claimGet`, `candidateGet`, `receiptGet`, `taskLog`, `auditList`, `eventsReplay`, `webhookDeliveriesInspect`, `laneManifestGet`, `laneGenerationManifestGet`, `laneBlobGet`, `lanePackGet`, `laneSavePointsList`, `laneSavePointGet`, `laneSavePointDiff`, `laneScopeRequestsList`, `meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `repositoryBranchesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList`, `meNotificationPreferencesGet`, `codeTreeGet`, `codeBlobGet`, `codeCompareGet`, `codeCommitsGet`, `peopleGet`, `ownerResolve`, `tenantOwnerGet`, `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `workspaceBindingLookup`, `meGithubInstallationsList`, `meGithubRepositoriesList`, `githubConnect`, `githubCoverageGet`, `projectInitializationGet`, `candidateMeritDiffGet`, `candidateMeritGet`, `candidateMeritEvaluationGet`, `candidateMeritReviewsList`, `candidateMeritReviewGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet`, `meritShadowGet`, `repositoryLanePolicyGet` | `network-only` | `null` | safe reads (the merit reads, `repositoryLanePolicyGet`, `meritPolicyList`, `meritPolicyGet`, `meritUsageGet` and `meritShadowGet` write nothing and are not audited; `candidateMeritDiffGet` computes the manifest from the candidate's commits and caches it server-side; `meConnectionsList`, `oauthMetadata`, `workspaceBindingGet`, `meGithubInstallationsList`, `meGithubRepositoriesList` and `projectInitializationGet` write nothing; `githubConnect` writes only a one-use ticket, so a resend leaves an unused one that expires in ten minutes; `ownerResolve` and `tenantOwnerGet`,`meGet`, `meSessionsList`, `meDelegationsList`, `repositoriesList`, `landingsList`, `membersList`, `meProjectsList`, `meNotificationsList` and `meNotificationPreferencesGet`, write nothing and are not audited; `codeTreeGet`/`codeBlobGet`, write nothing but an import reconcile and are not audited); `webhookDeliveriesInspect` records an inspection row per call (a `webhook.deliveries_inspected` audit row), so a retried read can leave two telemetry rows — accepted, documented |
 | `authLoginBinding` (`GET /auth/login`) | `never` | `none` | **not a safe read**: each call replaces the pre-login binding cookie; `auth.browser.begin()` performs it once and restarts the whole begin on failure |
 | `taskCreate`, `projectCreate`, `meProjectCreate`, `organizationCreate`, `organizationUpdate`, `repositoryCreate`, `repositoryVerify`, `repositoryLanePolicyDeclare`, `repositoryTargetRefRegister`, `memberAdd`, `memberRemove`, `meProfileUpdate`, `taskEditIntent`, `taskPublish`, `taskUnpublish`, `taskDependencyAdd`, `taskDependencyRemove`, `taskReject`, `taskSupersede`, `taskRelease`, `candidateApprove`, `approvalWithdraw`, `candidateWithdraw`, `candidateReject`, `candidateLand` | `network-only` | `stored-result` | the task's lifecycle command ledger; project creation (`meProjectCreate` in the caller's personal tenant; its `409 org-creation-pending` keeps the reservation, so the same key and body completes it; `organizationCreate` replays the same organization, `201` ready or `202` pending, before every gate; `organizationUpdate` replays the committed rename), repository registration, verification and lane-policy declaration, member add and remove, and profile edits, replay from the per-principal admin-operation ledger (member add and remove replay before the `project:admin` check, so a caller who removed themselves still gets the 204); `candidateLand` replays its committed `409 stale-base` too |
 | `workspaceBindingCreate` | `network-only` | `stored-result` | the binding request ledger, keyed by client, human and key: the same key with another body is `409 idempotency-conflict`; a replay of a request that bound (or began creating) a binding answers that binding, with its destinations and access read now; a `pending` or `action-required` answer that bound nothing is worked out again; a refused creation replays its refusal; nothing is created twice |
@@ -964,12 +964,30 @@ if (binding.state === 'ready') {
 - `workspaces.lookup({externalWorkspaceId, requestDigest, idempotencyKey}, options)` recovers the ORIGINAL
   request's binding through a fixed read-only GET. Supply the original key and canonical digest from the retained
   original body, under the same owner/client authority. It never generates a replacement key, adopts a newer binding,
-  resumes creation or falls back to POST. A matching unreserved request returns pending; absent/foreign/mismatched
+  resumes creation or falls back to POST. A matching unreserved request returns pending or its latest retained connection/refusal action; absent/foreign/mismatched
   commitments return 404. No polling is added. Lookup identity values are redacted from hooks and errors, including
   the diagnostic idempotency key; the actual wire key remains exact. A returned view is not permission to replay setup.
 - `workspaces.get(bindingId)` reads a binding's current view (the caller's access checked again) and writes nothing.
 
 #### Connecting GitHub
+
+Use `github.coverage({owner, name, providerRepoId?}, {deadline})` before setup under the existing
+`octocove:workspaces` OAuth scope (or a human session). It returns `covered`, `action-required`, or
+`{configured:false, state:'unavailable'}`. It creates no project or binding, grants no access and exposes no token.
+`action` includes a plain state, account, repository, install URL, and an organization-owner role/request time when
+approval is pending. A missing link is `connection-required`, not proof that the App is not installed.
+
+Pending GitHub bindings can finish automatically after the browser callback or signed installation grant.
+Delayed organization approval works without leaving the original tab open. The server rechecks the original
+client/family, human GitHub push permission and native creation rules; access-token rotation alone does not discard
+a previously authorized request. Family revocation, expired authorization or a required fresh sign-in stops it and
+appears as an action/refusal in the original lookup. A read never resumes creation. A new explicit authorization,
+when necessary, must retain the original request body and key.
+
+New installations preselect numeric account/repository IDs when known. Existing installations open the correct
+configure page, where GitHub may still require choosing the repository. The App's Redirect on update setting is
+needed to return after Save. GitHub organization-owner approval cannot be bypassed. No additional client scope or
+GitHub credential is needed in the browser or sandbox.
 
 When a GitHub repository is not connected yet, `bind` answers `action-required` `github-connection-required`:
 `action.installationState` is `none` (nothing the caller connected covers it), `pending-approval` (an owner of the
@@ -982,7 +1000,8 @@ days ago), and `action.installUrl` starts the connection (again):
 if (binding.state === 'action-required' && binding.action.reason === 'github-connection-required' && binding.action.installUrl) {
   const { url } = await j.workspaces.connectGitHub(binding.action.installUrl, { deadline, returnTo: 'https://console.example/ws/123' });
   // Send the human's browser to `url` (one use, ten minutes). It comes back to `returnTo` with `github=connected`
-  // (or `github=pending`); then bind again with the same input and a new key.
+  // (or `github=pending`), plus a nonsecret `githubState`. Observe the original request with workspaces.lookup;
+  // it can complete automatically. Preserve the original body, digest and key. Do not create a replacement.
 }
 ```
 

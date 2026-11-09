@@ -68,6 +68,9 @@ export type BoundTo = Schemas['BoundTo'];
 export type LaneRetirement = OpenEnums<Schemas['LaneRetirement']> | OpenEnums<Schemas['LaneRetired']>;
 /** `projectCreate`'s and `meProjectCreate`'s answer: the created project, with the tenant its routes name. */
 export type Project = Schemas['Project'];
+/** GitHub access preflight under the caller's existing workspace authority; never a credential. */
+export type GitHubCoverage = OpenEnums<Schemas['GitHubCoverageRead']>;
+export type GitHubAccessAction = OpenEnums<Schemas['GitHubAccessAction']>;
 /** A project initialization's current view (`projectCreate`'s and `meProjectCreate`'s answer when the body names a
  * `repository`, and `projectInitializationGet`'s): `ready` with the `project`, the creator's `membership` and the
  * `repository` (null for mode `none`); `pending` with `reason` and `retryAfter` (and the `project` once it exists);
@@ -1250,7 +1253,9 @@ export function journeys(client: OctocoveClient) {
     /**
      * Read only the original workspace request's binding under the same owner/client authority.
      * Requires the ORIGINAL key and canonical body digest. Never adopts the latest binding or resumes creation;
-     * absence is an ApiError, and an unreserved request returns pending. Does not poll or fall back to bind.
+     * absence is an ApiError. An unreserved request returns pending or its latest retained access/refusal action.
+     * Grant callbacks and signed webhooks can complete the original request automatically. This read never polls,
+     * calls GitHub, creates/resumes a binding or falls back to bind.
      */
     async lookup(input: { readonly externalWorkspaceId: string; readonly requestDigest: string; readonly idempotencyKey: string }, options: JourneyOptions): Promise<WorkspaceBinding> {
       requireHuman(client, 'workspaces.lookup');
@@ -1287,6 +1292,28 @@ export function journeys(client: OctocoveClient) {
   };
 
   const github = {
+    /**
+     * Human session or OAuth client with octocove:workspaces. Read coverage before starting a binding; it creates
+     * no project/binding and grants no access. An action names the next browser step, not an installation token.
+     * After connecting, observe the ORIGINAL workspaces.lookup request: callbacks/webhooks can finish it without
+     * another bind POST. A pending organization approval remains pending until GitHub actually grants access.
+     */
+    async coverage(input: { readonly owner: string; readonly name: string; readonly providerRepoId?: string }, options: JourneyOptions): Promise<GitHubCoverage> {
+      requireHuman(client, 'github.coverage');
+      const { owner, name } = githubRepositoryName(input.owner, input.name);
+      if (input.providerRepoId !== undefined && !/^[1-9][0-9]{0,19}$/.test(input.providerRepoId)) throw new TypeError('github.coverage: invalid repository id');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'githubCoverageGet', { query: { owner, name,
+          ...(input.providerRepoId === undefined ? {} : { providerRepoId: input.providerRepoId }) } });
+        const b: unknown = response.body;
+        if (!isObject(b) || typeof b.configured !== 'boolean' || !isString(b.state)
+          || (b.state === 'covered' && (!isObject(b.repository) || !isString(b.repository.owner) || !isString(b.repository.name)))
+          || (b.state === 'action-required' && (!isObject(b.action) || !isString(b.action.state) || !isString(b.action.installUrl))))
+          throw offShape(response, 'the response is not a GitHub access preflight');
+        return response.body;
+      } finally { scope.dispose(); }
+    },
     async resolveInstallation(input: { readonly owner: string; readonly name: string }, options: JourneyOptions = { deadline: Date.now() + 30000 }): Promise<InstallationResolution> {
       const { owner, name } = githubRepositoryName(input.owner, input.name);
       const list = await github.installations(options);

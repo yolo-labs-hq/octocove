@@ -578,3 +578,10 @@ independently admit the caller and enforce its native operation/path limits.
 Sandbox-wide broker admission shares authority among all processes in that
 sandbox; this mode does not claim per-agent isolation. A public placeholder can
 be copied without granting access from another admitted sandbox.
+
+### 0.28 client parity
+
+This release bundles client 0.28.0. The SDK adds `github.coverage` for workspace setup preflight and types for
+automatic GitHub binding completion. Existing CLI GitHub commands remain thin wrappers over the client; no new
+CLI command, credential scope or automatic project action is added. Workspace applications use the original
+`workspaces.lookup` request to observe completion after access is granted.

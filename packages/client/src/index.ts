@@ -171,6 +171,8 @@ export type {
   StaleBaseRefusal,
   Submission,
   Task,
+  GitHubCoverage,
+  GitHubAccessAction,
   GitHubConnectStart,
   GitHubConnectTarget,
   GitHubInstallationList,

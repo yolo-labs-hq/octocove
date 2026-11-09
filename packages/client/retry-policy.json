@@ -229,6 +229,11 @@
     "autoRetry": "network-only",
     "replay": null
   },
+  "githubCoverageGet": {
+    "callable": true,
+    "autoRetry": "network-only",
+    "replay": null
+  },
   "githubInstall": {
     "callable": false,
     "reason": "navigation"
