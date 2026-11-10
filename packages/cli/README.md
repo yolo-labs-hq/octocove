@@ -11,6 +11,10 @@ library's typed client (bearer transport, generated routing, retry policy, deadl
 its journeys, and credentials through its protected store. The CLI keeps argument parsing, output, the lane
 directory and the human read-only clone.
 
+The 0.29.0 release keeps CLI/client versions in lockstep and adds the typed
+`workspaces.authorizeRecovery` API for OAuth workspace adapters. The CLI command set is unchanged:
+strict workspace recovery is an explicitly authorized adapter action, not an agent or terminal mint command.
+
 ## Clone a repository as a human
 
 With the CLI installed (see [Install](#install)), sign in, then clone the project's canonical repository:

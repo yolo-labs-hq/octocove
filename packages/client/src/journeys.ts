@@ -101,6 +101,10 @@ export interface MeProjectList {
 export type WorkspaceBinding = OpenEnums<Schemas['WorkspaceBinding']>;
 /** `workspaceBindingCreate`'s body: the client's workspace id, its source and, optionally, the target ref. */
 export type WorkspaceBindingInput = Schemas['WorkspaceBindingCreate'];
+/** Original GitHub request accepted by explicit strict workspace recovery authorization. */
+export type WorkspaceBindingRecoveryInput = Omit<WorkspaceBindingInput, 'source'> & {
+  source: Extract<WorkspaceBindingInput['source'], { kind: 'github' }>;
+};
 /** `githubConnect`'s answer: the browser URL that connects GitHub for the caller, and when its one-use ticket expires. */
 export type GitHubConnectStart = Schemas['GitHubConnectStart'];
 /** The repository a GitHub connection is for: an answer's `action.installUrl`, the repository's parts, or `{}` to connect
@@ -1233,6 +1237,30 @@ export function journeys(client: OctocoveClient) {
         if (last && waitStop(error, scope) === 'deadline-exceeded') return last;
         // An abort of the journey's own wait carries the caller's reason: sanitized like the transport's causes.
         throw scopeError(error, scope, secrets);
+      } finally { scope.dispose(); }
+    },
+    /**
+     * Explicitly authorize strict recovery of an EXISTING original GitHub request, using its ORIGINAL body and key.
+     * Never generates a key, polls, falls back to bind, or retries an unknown answer. The server retains bounded
+     * authority and a durable no-adoption fence, but creates/resumes no project, repository or binding here.
+     * Missing/foreign/mismatched originals are 404; a competing binding is 409 binding-recovery-conflict.
+     * Connect GitHub from the returned action, then observe lookup. Already-covered access can be continued only
+     * through an explicit bind with that same body/key under the fence. Not available to agent delegations.
+     */
+    async authorizeRecovery(input: WorkspaceBindingRecoveryInput, options: JourneyOptions & { readonly idempotencyKey: string }): Promise<WorkspaceBinding> {
+      requireHuman(client, 'workspaces.authorizeRecovery');
+      if (typeof options.idempotencyKey !== 'string' || !options.idempotencyKey)
+        throw new TypeError('workspaces.authorizeRecovery needs the original Idempotency-Key');
+      if (input.source.kind !== 'github') throw new TypeError('workspaces.authorizeRecovery needs the original GitHub source');
+      const scope = journeyScope(options);
+      try {
+        const response = await send(client, scope, options, 'workspaceBindingRecoveryAuthorize', { body: input }, {
+          idempotencyKey: options.idempotencyKey, busyIsFinal: true,
+          localSecrets: [input.externalWorkspaceId, options.idempotencyKey],
+        });
+        if (!isBinding(response.body) || response.body.externalWorkspaceId !== input.externalWorkspaceId)
+          throw offShape(response, 'the response is not the original workspace binding');
+        return response.body;
       } finally { scope.dispose(); }
     },
     /**

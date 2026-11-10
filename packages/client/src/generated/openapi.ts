@@ -2040,6 +2040,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspace-bindings/recovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explicitly authorize strict recovery of an original GitHub workspace request
+         * @description Requires the original body and original Idempotency-Key under the same authenticated client and human. Only an existing matching request is accepted; absent, foreign or mismatched requests answer 404 not-found. Retains current bounded authorization and a permanent no-adoption fence. Never creates or resumes a project, repository or binding. Access guidance can read GitHub. Existing original bindings are read without resuming. Callback and background continuation may later reserve only this request's own binding. Another live binding causes 409 binding-recovery-conflict, never adoption. GET lookup remains read-only. No legacy body or authority is reconstructed. A covered repository returns pending; an explicit same-body/key bind can continue it under the durable fence. Uncovered repositories return action-required for the normal GitHub connection flow.
+         */
+        post: operations["workspaceBindingRecoveryAuthorize"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspace-bindings/lookup": {
         parameters: {
             query?: never;
@@ -10540,6 +10560,58 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["WorkspaceBindingCreate"];
+            };
+        };
+        responses: {
+            /** @description The binding is `ready`, or `action-required` (`action.reason` says what the client does next). */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestId"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBinding"];
+                };
+            };
+            /** @description `pending` - retry the same request after `Retry-After` seconds. */
+            202: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    "Cache-Control": components["headers"]["NoStore"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBinding"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    workspaceBindingRecoveryAuthorize: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Required on every Octocove POST. Scope/digest/replay rules. */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceBindingCreate"] & {
+                    source?: {
+                        /** @constant */
+                        kind?: "github";
+                    };
+                };
             };
         };
         responses: {

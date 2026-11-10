@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.29.0 and client 0.29.0
+
+- Client: `workspaces.authorizeRecovery(originalBody, {deadline, idempotencyKey: originalKey})` explicitly authorizes strict recovery of an existing GitHub workspace request. It preserves the original identity, never generates a replacement key or retries an unknown answer, and does not poll or fall back to binding creation. Another workspace's response is refused.
+- Recovery identity values are redacted from diagnostics and hooks. The service's no-adoption fence remains in force for later explicit bind calls and background completion; lookup stays read-only.
+- CLI parity: both packages release in lockstep with an exact client pin. No new CLI command, agent authority, OAuth scope or automatic recovery flow is added.
+
 ## CLI 0.27.0 and client 0.27.0
 
 - Create a GitHub-backed project with `octo project create .`, `PATH` or `--here`; attach a local GitHub remote with `octo repo add PROJECT PATH`. Installation selection, public coordinate parsing and project initialization live in shared SDK helpers, with filesystem discovery isolated to the Node entry. Pending recovery retains the original key and body.
