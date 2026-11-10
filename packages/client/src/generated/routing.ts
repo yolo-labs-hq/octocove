@@ -10737,6 +10737,74 @@ export const routing = {
       "autoRetry": "network-only",
       "replay": null
     }
+  },
+  "workspaceBindingRecoveryAuthorize": {
+    "operationId": "workspaceBindingRecoveryAuthorize",
+    "kind": "path",
+    "method": "POST",
+    "path": "/workspace-bindings/recovery",
+    "basePath": "/v1",
+    "parameters": {
+      "path": [],
+      "query": [],
+      "header": [
+        {
+          "name": "Idempotency-Key",
+          "required": true
+        }
+      ],
+      "cookie": []
+    },
+    "idempotencyKey": true,
+    "csrfHeader": false,
+    "requestBody": {
+      "required": true,
+      "mediaTypes": [
+        "application/json"
+      ]
+    },
+    "responses": {
+      "200": [
+        "application/json"
+      ],
+      "202": [
+        "application/json"
+      ],
+      "400": [
+        "application/problem+json"
+      ],
+      "401": [
+        "application/problem+json"
+      ],
+      "403": [
+        "application/problem+json"
+      ],
+      "404": [
+        "application/problem+json"
+      ],
+      "409": [
+        "application/problem+json"
+      ],
+      "422": [
+        "application/problem+json"
+      ],
+      "503": [
+        "application/problem+json"
+      ]
+    },
+    "successStatuses": [
+      200,
+      202
+    ],
+    "redirectStatuses": [],
+    "security": [
+      "OAuthClientToken"
+    ],
+    "policy": {
+      "callable": true,
+      "autoRetry": "never",
+      "replay": "stored-result"
+    }
   }
 } as const satisfies Record<string, RouteEntry>;
 

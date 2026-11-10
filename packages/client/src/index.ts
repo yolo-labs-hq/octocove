@@ -180,6 +180,7 @@ export type {
   GitHubRepositoryQuery,
   WorkspaceBinding,
   WorkspaceBindingInput,
+  WorkspaceBindingRecoveryInput,
   ProjectCreateInput,
   ProjectCreateOptions,
   ProjectInitialization,

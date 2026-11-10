@@ -543,6 +543,50 @@ export const journeyCases: Case[] = [
     await rejects(() => journeys(delegated).workspaces.get('wsb_1', { deadline: soon() }), TypeError);
     await rejects(() => journeys(delegated).workspaces.bind({ externalWorkspaceId: 'ws', source: { kind: 'github', owner: 'a', name: 'b' } }, { deadline: soon() }), TypeError);
   }),
+  test('strict workspace recovery sends only the original body/key and never polls or falls back to bind', async () => {
+    const input = { externalWorkspaceId: 'original-workspace', source: { kind: 'github' as const, owner: 'acme', name: 'web' }, targetRef: 'refs/heads/canary' };
+    const pending = { state: 'pending', externalWorkspaceId: input.externalWorkspaceId, reason: 'binding-not-reserved', retryAfter: 1 };
+    const script = scriptedFetch(json(202, pending));
+    equal(await journeys(client(script.fetch)).workspaces.authorizeRecovery(input, { deadline: soon(), idempotencyKey: 'original-recovery-key' }), pending);
+    equal(script.calls.length, 1);
+    equal(script.calls[0]!.url, `${BASE}/v1/workspace-bindings/recovery`);
+    equal(script.calls[0]!.method, 'POST');
+    equal(JSON.parse(script.calls[0]!.body!), input);
+    equal(keys(script.calls), ['original-recovery-key']);
+    for (const [status, code] of [[404, 'not-found'], [409, 'binding-recovery-conflict'], [503, 'temporarily-unavailable']] as const) {
+      const refused = scriptedFetch(problem(status, code));
+      const error = await rejects(() => journeys(client(refused.fetch)).workspaces.authorizeRecovery(input,
+        { deadline: soon(), idempotencyKey: 'original-recovery-key' }), ApiError);
+      equal(error.code, code);
+      equal(refused.calls.length, 1);
+    }
+    const unknown = scriptedFetch(offline());
+    await rejects(() => journeys(client(unknown.fetch)).workspaces.authorizeRecovery(input,
+      { deadline: soon(), idempotencyKey: 'original-recovery-key' }), TransportError);
+    equal(unknown.calls.length, 1, 'an unknown answer is never automatically resent');
+  }),
+  test('strict workspace recovery requires the original key and human authority before dispatch', async () => {
+    const input = { externalWorkspaceId: 'original-workspace', source: { kind: 'github' as const, owner: 'acme', name: 'web' } };
+    const script = scriptedFetch();
+    await rejects(() => journeys(client(script.fetch)).workspaces.authorizeRecovery(input, { deadline: soon(), idempotencyKey: '' }), TypeError);
+    await rejects(() => client(script.fetch).call('workspaceBindingRecoveryAuthorize', { body: input, idempotencyKey: '' }), TypeError);
+    const delegated = createClient({ baseUrl: BASE, fetch: script.fetch, transport: bearer({ token: TOKEN, kind: 'delegation' }) });
+    await rejects(() => journeys(delegated).workspaces.authorizeRecovery(input,
+      { deadline: soon(), idempotencyKey: 'original-recovery-key' }), TypeError);
+    equal(script.calls.length, 0);
+  }),
+  test('strict workspace recovery rejects another workspace response and protects original commitments in errors', async () => {
+    const input = { externalWorkspaceId: 'private-original-workspace', source: { kind: 'github' as const, owner: 'acme', name: 'web' } };
+    const key = 'private-original-recovery-key';
+    const wrong = scriptedFetch(json(200, { state: 'pending', externalWorkspaceId: 'another-workspace', reason: 'binding-not-reserved' }));
+    await rejects(() => journeys(client(wrong.fetch)).workspaces.authorizeRecovery(input, { deadline: soon(), idempotencyKey: key }), ApiError);
+    const events: unknown[] = [];
+    const refused = scriptedFetch(problem(404, 'not-found', { detail: `${input.externalWorkspaceId} ${key}` }));
+    const error = await rejects(() => journeys(client(refused.fetch, { onRequest: e => events.push(e), onResponse: e => events.push(e) }))
+      .workspaces.authorizeRecovery(input, { deadline: soon(), idempotencyKey: key }), ApiError);
+    const diagnostic = JSON.stringify(events) + dumpError(error);
+    for (const value of [input.externalWorkspaceId, key]) ok(!diagnostic.includes(value), 'original commitments are redacted');
+  }),
   test('workspaces.lookup sends the original key and exact commitments as one read and preserves pending', async () => {
     const input = { externalWorkspaceId: 'original/ws+one?', requestDigest: 'd'.repeat(43), idempotencyKey: 'original-workspace-key-0001' };
     const pending = { state: 'pending', externalWorkspaceId: input.externalWorkspaceId, reason: 'binding-not-reserved', retryAfter: 1 };
@@ -1004,16 +1048,16 @@ export const journeyCases: Case[] = [
     equal(keys(script.calls), ['exact-evaluation-key-0001', 'exact-evaluation-key-0001']);
   }),
   test('merit.evaluation observes one confirmed request without POST, polling or an idempotency key', async () => {
-    const observed = { id: 'request-1', candidateId: 'cand-1', taskId: 'task-1', requestedAt: '2026-11-06T00:00:00Z', status: 'requested', evidenceSet: { count: 1, reviewIds: ['r-1'], digest: 'sha256:evidence' } };
+    const observed = { id: 'evaluation-request', candidateId: 'candidate-one', taskId: 'task-one', requestedAt: '2026-11-06T00:00:00Z', status: 'requested', evidenceSet: { count: 1, reviewIds: ['review-one'], digest: 'sha256:evidence' } };
     const script = scriptedFetch(json(200, observed));
-    equal(await journeys(client(script.fetch)).org(ORG).merit.evaluation('cand-1', 'request-1', { deadline: soon() }), observed);
+    equal(await journeys(client(script.fetch)).org(ORG).merit.evaluation('candidate-one', 'evaluation-request', { deadline: soon() }), observed);
     equal(script.calls.length, 1);
-    equal(script.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/cand-1/merit-evaluations/request-1`);
+    equal(script.calls[0]!.url, `${BASE}/v1/orgs/${ORG}/candidates/candidate-one/merit-evaluations/evaluation-request`);
     equal(script.calls[0]!.method, 'GET');
     equal(script.calls[0]!.body, undefined);
     equal(keys(script.calls), [undefined]);
     const absent = scriptedFetch(problem(404, 'not-found'));
-    const error = await rejects(() => journeys(client(absent.fetch)).org(ORG).merit.evaluation('cand-1', 'request-1', { deadline: soon() }), ApiError);
+    const error = await rejects(() => journeys(client(absent.fetch)).org(ORG).merit.evaluation('candidate-one', 'evaluation-request', { deadline: soon() }), ApiError);
     equal(error.status, 404);
     equal(absent.calls.length, 1, 'absence never reissues the evaluation POST');
   }),

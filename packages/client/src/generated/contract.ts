@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:0e4a97c5391cebc9fb23d2928b483a0f4e6ec16326b74cb1932f5b83b3c1f506",
+  "metaDigest": "ocm1:a8bb833f8ad784f6309bf9fd52fc214685f5946f0b2a5a358613edb31dba8e6f",
   "epochFamilies": [
     "auth",
     "binary",
@@ -574,14 +574,14 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "githubCoverageGet": {
       "supported": [
-        "oc1:d5c4d395710f6aa220d9b5f5de114bdebed30799740591ac067a0372c606667d"
+        "oc1:66aab2b0bf21ce0b1131499f8af7b80dfd476268c34da4f9c9e047fa20e2d82f"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
         "retry": 2,
-        "security": 1
+        "security": 2
       }
     },
     "githubInstall": {
@@ -1834,14 +1834,14 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "workspaceBindingCreate": {
       "supported": [
-        "oc1:eae2292ad185924c9a4c8e09ff25c15502a932aae8f94ab5adaec4402aa77f56"
+        "oc1:0d58d169692fbd256eb23ce74eea7d5108b75f726c78634a998af45607ae61fd"
       ],
       "epochs": {
         "auth": 1,
         "binary": 1,
         "limits": 1,
         "retry": 1,
-        "security": 2
+        "security": 3
       }
     },
     "workspaceBindingGet": {
@@ -1867,6 +1867,18 @@ export const CONTRACT_TABLE: ContractTable = {
         "retry": 3,
         "security": 1
       }
+    },
+    "workspaceBindingRecoveryAuthorize": {
+      "supported": [
+        "oc1:bf7753167d2259c970625f15ea84ee1e422941609a8df433711eeb2035a3ab9f"
+      ],
+      "epochs": {
+        "auth": 1,
+        "binary": 1,
+        "limits": 1,
+        "retry": 1,
+        "security": 1
+      }
     }
   },
   "capabilities": {
@@ -1880,11 +1892,11 @@ export const CONTRACT_TABLE: ContractTable = {
       ],
       "supported": [
         {
-          "id": "ocap1:0679720052cae280e63cc67100abbca9b88b6fd07142fad693a37ba2796120ce",
+          "id": "ocap1:f98d5a260858e32573a3f03388da34cd19980079f035332a1f62e857448b0a41",
           "members": {
             "claimAuthorize": "oc1:17d5e9d9ad73bb00b8f1f61082f52c1254b03a5151d200fee34d8739792ea44b",
             "taskClaim": "oc1:5018215a504e2832f87414bd40ca293cbeb2b2ecb942f9d06bdf32bf3efedff4",
-            "workspaceBindingCreate": "oc1:eae2292ad185924c9a4c8e09ff25c15502a932aae8f94ab5adaec4402aa77f56",
+            "workspaceBindingCreate": "oc1:0d58d169692fbd256eb23ce74eea7d5108b75f726c78634a998af45607ae61fd",
             "workspaceBindingGet": "oc1:7fa5cfeb4188048beb0b2ae3deb69143524e3373e095f05ccbd3b27ba339f8c5"
           }
         }
