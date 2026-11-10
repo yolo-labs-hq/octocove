@@ -1,5 +1,10 @@
 # Changelog
 
+## CLI 0.29.1 and client 0.29.1
+
+- Refresh the strict workspace recovery operation's contract fingerprint with its explicit no-network-retry policy. Runtime behavior, the original-key requirement and authority are unchanged.
+- CLI parity: lockstep version and exact client pin only; no new commands.
+
 ## CLI 0.29.0 and client 0.29.0
 
 - Client: `workspaces.authorizeRecovery(originalBody, {deadline, idempotencyKey: originalKey})` explicitly authorizes strict recovery of an existing GitHub workspace request. It preserves the original identity, never generates a replacement key or retries an unknown answer, and does not poll or fall back to binding creation. Another workspace's response is refused.
