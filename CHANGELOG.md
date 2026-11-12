@@ -1,5 +1,11 @@
 # Changelog
 
+## CLI 0.31.0 and client 0.31.0
+
+- Expose exact previous/current generation receipts, including checkout selection, in the typed refresh response. Refresh and shared handover fingerprints are regenerated; unknown or earlier contracts are not silently accepted.
+- Receipts are facts, not leases. No change to authority, retries, expiry or refresh decisions.
+- CLI parity: lockstep version and exact client pin; existing commands use the regenerated typed client. No new command or broker protocol.
+
 ## CLI 0.29.1 and client 0.29.1
 
 - Refresh the strict workspace recovery operation's contract fingerprint with its explicit no-network-retry policy. Runtime behavior, the original-key requirement and authority are unchanged.

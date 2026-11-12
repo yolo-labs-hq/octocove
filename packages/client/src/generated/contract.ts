@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:50e46374377d03bfe8cd2348aca1f69d540f4a9287a71a92ba3528df1da4e919",
+  "metaDigest": "ocm1:bc1e619f43cce923340899b8f963ecee4725836a1e2ab4a5c5d9783bdc83983e",
   "epochFamilies": [
     "auth",
     "binary",
@@ -670,7 +670,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "laneExecutionBegin": {
       "supported": [
-        "oc1:30f4b6418baa89a8523f6a6fe726139dd0315789626a3e5989010a510a4aecc9"
+        "oc1:6194e941641468d7910b352800befd8a37cab6f838854ed4fddee5020eb667f1"
       ],
       "epochs": {
         "auth": 1,
@@ -682,7 +682,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "laneGenerationCreate": {
       "supported": [
-        "oc1:81baee00c506ef46b4c28fb6b41fdb4c415b0965648216f07e94112896738fe7"
+        "oc1:80901bb1b2642b677f2c06cc666447a2a6ae847802e5e4666986804ef11ccd9f"
       ],
       "epochs": {
         "auth": 1,
@@ -1943,12 +1943,12 @@ export const CONTRACT_TABLE: ContractTable = {
       ],
       "supported": [
         {
-          "id": "ocap1:4448d4948a722908d350be5d958b791ac6b0fcc02f5f2763335e9215a8b83188",
+          "id": "ocap1:358e0b3945a96114e5928ba49c7b48d1eaad1a04e1eea8322f5a03aa51868337",
           "members": {
             "claimAuthorize": "oc1:17d5e9d9ad73bb00b8f1f61082f52c1254b03a5151d200fee34d8739792ea44b",
             "delegationRenew": "oc1:e9b853ae27c69b6f12f3d494367d1d32b89c61920a19c1935c867d13d599b511",
-            "laneExecutionBegin": "oc1:30f4b6418baa89a8523f6a6fe726139dd0315789626a3e5989010a510a4aecc9",
-            "laneGenerationCreate": "oc1:81baee00c506ef46b4c28fb6b41fdb4c415b0965648216f07e94112896738fe7",
+            "laneExecutionBegin": "oc1:6194e941641468d7910b352800befd8a37cab6f838854ed4fddee5020eb667f1",
+            "laneGenerationCreate": "oc1:80901bb1b2642b677f2c06cc666447a2a6ae847802e5e4666986804ef11ccd9f",
             "taskClaim": "oc1:5018215a504e2832f87414bd40ca293cbeb2b2ecb942f9d06bdf32bf3efedff4"
           }
         }

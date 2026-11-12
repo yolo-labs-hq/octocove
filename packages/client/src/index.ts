@@ -220,3 +220,5 @@ export { BUILD, CLIENT_VERSION } from './version.js';
 export { parseGitHubRemote, GitHubInstallationResolutionError } from './github-repository.js';
 export type { GitHubRepositoryName, InstallationResolution } from './github-repository.js';
 export type { CreateFromGitHubInput } from './journeys.js';
+
+export type { LaneGenerationReceipt, LaneGenerationState } from './journeys.js';

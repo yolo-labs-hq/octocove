@@ -189,3 +189,17 @@ describe('with the bound transport', () => {
     expect(error).toMatchObject({ code: 'contract-skew', outcome: 'refused' });
   });
 });
+
+it('reads recorded refresh receipts only under the receipt-capable fingerprint', async () => {
+  const operation='laneGenerationCreate', expected=CONTRACT_TABLE.operations[operation]!.supported[0]!;
+  const state={tenantId:org,projectId:'p',taskId:'t1',repositoryId:'r',laneRepositoryId:'lr',targetRef:'refs/heads/main',
+    claimAttemptId:'c',executionId:'e',executionNumber:1,generation:1,baseSha:'a'.repeat(40),laneHead:'b'.repeat(40),scopeVersion:1,
+    scope:{read:['.'],write:['.']},selection:{version:1 as const,include:['src/**/*.ts']}};
+  const receipt:import('../src/index.js').LaneGenerationReceipt={version:1,previous:state,current:{...state,generation:2,baseSha:'c'.repeat(40),laneHead:'d'.repeat(40)}};
+  const c=await locked(async()=>json({generationReceipt:receipt},201,named(expected)),{operations:{[operation]:[expected]}});
+  const result=await c.call(operation,{path:{orgId:org,id:'t1'},body:{kind:'base-refreshed',expectedHead:state.laneHead},idempotencyKey:'receipt-contract-key'});
+  expect(result.body.generationReceipt).toEqual(receipt);
+  const old='oc1:81baee00c506ef46b4c28fb6b41fdb4c415b0965648216f07e94112896738fe7';
+  const stale=await locked(async()=>json({generationReceipt:receipt},201,named(old)),{operations:{[operation]:[expected]}});
+  await expect(stale.call(operation,{path:{orgId:org,id:'t1'},body:{kind:'base-refreshed'},idempotencyKey:'receipt-contract-key'})).rejects.toBeInstanceOf(ContractMismatchError);
+});

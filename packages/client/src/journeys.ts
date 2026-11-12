@@ -1418,3 +1418,7 @@ export interface CreateFromGitHubInput {
   readonly installationId?: string; readonly providerRepoId?: string; readonly targetRef?: string;
   readonly idempotencyKey?: string; readonly wait?: number;
 }
+
+/** Exact recorded generation transition facts; never a lease or a later-state adoption. */
+export type LaneGenerationReceipt = Schemas['LaneGenerationReceipt'];
+export type LaneGenerationState = Schemas['LaneGenerationState'];
