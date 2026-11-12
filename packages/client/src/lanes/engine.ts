@@ -20,6 +20,7 @@
  * sent, and the broker sends that request itself.
  */
 import type { ApiResponse, TenantClient } from '../client.js';
+import type { components } from '../generated/openapi.js';
 import { newIdempotencyKey } from '../client.js';
 import { ApiError, TransportError, endsAttempt, endsAuthority } from '../errors.js';
 import type { Outcome } from '../dispositions.js';
@@ -67,6 +68,11 @@ export type LaneResolutionInput = { readonly path: string; readonly take: 'lane'
 export interface LaneCallOptions extends CommandOptions {
   /** Progress and notices for whoever is waiting (a person at a terminal, a runner's log). */
   readonly notify?: (line: string) => void;
+}
+export type LaneCheckoutSelection = components['schemas']['LaneCheckoutSelection'];
+export interface LaneMaterializeOptions extends LaneCallOptions {
+  /** Initial checkout only. New filenames are governed by the separate write grant. */
+  readonly selection?: LaneCheckoutSelection;
 }
 export interface LaneRefreshOptions extends LaneCallOptions { readonly resolve?: readonly LaneResolutionInput[] }
 export interface LaneSaveOptions extends LaneCallOptions {
@@ -125,7 +131,7 @@ export interface Lanes {
   /** Whether the files hold a lane (its sidecar). */
   isLane(): Promise<boolean>;
   /** Asks for the lane repository (idempotent), then writes the files at the lane head into the empty target. */
-  materialize(taskId: string, options: LaneCallOptions): Promise<LaneMaterializeResult>;
+  materialize(taskId: string, options: LaneMaterializeOptions): Promise<LaneMaterializeResult>;
   /** Moves the claim's open execution here (`laneExecutionBegin`); never on the bound transport. */
   handover(taskId: string, options: LaneCallOptions): Promise<LaneHandoverResult>;
   /** Local edits against the sidecar: modified, added (inside the write scope), deleted, and unresolved conflicts. */
@@ -573,7 +579,7 @@ export function createLanes(options: LanesOptions): Lanes {
 
   // ---- materialize ----
 
-  async function materialize(taskId: string, o: LaneCallOptions) {
+  async function materialize(taskId: string, o: LaneMaterializeOptions) {
     return within(o, async (run) => {
       const prior = await unfinished(run, taskId, 'materialize');
       if (prior) return resumeMaterialize(run, prior);
@@ -598,7 +604,7 @@ export function createLanes(options: LanesOptions): Lanes {
         if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string') fail('no-active-lane', 'this task has no active lane; claim it first');
         // One key for every attempt: a lane repository that is still being created, or a reopened lane still being
         // rebased onto its landing, resumes under it (503 lane-repository-unavailable).
-        entry = await record('materialize', taskId, o.idempotencyKey ?? newIdempotencyKey(), {}, { claimAttemptId: (lane as Record<string, string>).claimAttemptId });
+        entry = await record('materialize', taskId, o.idempotencyKey ?? newIdempotencyKey(), o.selection ? { selection: o.selection } : {}, { claimAttemptId: (lane as Record<string, string>).claimAttemptId });
         return await materializeFrom(run, entry, writing);
       } catch (error) {
         for (const { path, directory } of created.reverse()) {
@@ -626,7 +632,7 @@ export function createLanes(options: LanesOptions): Lanes {
       await advance(entry, 'sent');
       let answer: unknown;
       try {
-        answer = (await settled(run, 'lane materialize', () => write(run, 'laneMaterialize', { path: { id: taskId }, body: {} }, entry.idempotencyKey, true))).body;
+        answer = (await settled(run, 'lane materialize', () => write(run, 'laneMaterialize', { path: { id: taskId }, body: entry.body }, entry.idempotencyKey, true))).body;
       } catch (error) { throw await settle(entry, error); }
       if (!isRecord(answer) || !isSha(answer.laneHead) || !Number.isInteger(answer.generation) || answer.generation < 1 ||
           answer.claimAttemptId !== entry.state.claimAttemptId || typeof answer.executionId !== 'string' || !answer.executionId)

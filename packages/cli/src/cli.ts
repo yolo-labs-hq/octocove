@@ -121,7 +121,7 @@ Commands:
   claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]  (agent, with the claim bootstrap: claim the task's lane with its read and write scope)
   lane status [DIR]                              (the lane directory's edits and conflicts, and the task's lane repository when a credential is at hand)
   lane retire TASK                              (human project admin, recent sign-in: retire a lane; its lane repositories are deleted, its landed result kept)
-  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (create or reuse the lane repository, write the files at the lane head into DIR, no .git)
+  lane materialize TASK [DIR] [--include PATTERN]... [--handover] [--wait SECONDS]  (create or reuse the lane repository, write the files at the lane head into DIR, no .git)
   lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (rebase the lane onto the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
   lane submit [DIR] [--message TEXT] [--wait SECONDS]  (save changed files as a save point on the lane head)
@@ -764,7 +764,7 @@ function laneOut(d: Deps, json: boolean, action: string, tenantId: string, taskI
 /** A lane lives in a plain directory with a sidecar; no Git remote or provider credential is involved. */
 type MaterializedAction = "materialize" | "status" | "refresh" | "resolve" | "submit" | "wrap-up" | "patch";
 const MATERIALIZED_FLAGS: Record<MaterializedAction, Record<string, { type: "string" | "boolean"; multiple?: boolean }>> = {
-  materialize: { wait: { type: "string" }, handover: { type: "boolean" } },
+  materialize: { wait: { type: "string" }, handover: { type: "boolean" }, include: { type: "string", multiple: true } },
   status: {},
   refresh: { wait: { type: "string" }, resolve: { type: "string", multiple: true } },
   resolve: { keep: { type: "string" } },
@@ -820,7 +820,7 @@ const materializedLane = (action: MaterializedAction): Handler => async (d, args
   const { api, creds } = await client(d);
   if (creds.kind !== "agent") throw new ConfigError(`lane ${action} requires the agent delegation of a claim`);
   const notify = (line: string) => d.stderr(v.json ? JSON.stringify({ notice: line }) + "\n" : `octo: ${line}\n`);
-  const options = { deadline, idempotencyKey: v["idempotency-key"], notify };
+  const options = { deadline, idempotencyKey: v["idempotency-key"], notify, ...(action === "materialize" && v.include?.length ? { selection: { version: 1 as const, include: v.include as string[] } } : {}) };
   if (action === "materialize") {
     let lane = api, handover: Awaited<ReturnType<typeof handoverLane>> | undefined, credentialsFile: string | undefined;
     if (v.handover) {

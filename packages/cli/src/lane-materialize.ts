@@ -23,6 +23,7 @@ export const hasSidecar = (dir: string) => existsSync(join(dir, SIDECAR));
 
 export interface MaterializeOptions {
   deadline: number; idempotencyKey?: string;
+  selection?: { version: 1; include: string[] };
   /** Progress and notices for the person at the terminal (stderr); results go to stdout. */
   notify?: (line: string) => void;
 }
@@ -134,7 +135,7 @@ export async function handover(api: Api, taskId: string, options: MaterializeOpt
 
 /** Asks for the lane repository, then writes the files at the lane head into `dir` (absent or empty) with the sidecar. */
 export async function materialize(api: Api, taskId: string, dir: string, options: MaterializeOptions) {
-  const { taskId: id, ...rest } = await mapped(dir, () => lanesOf(dir, api).materialize(taskId, callOptions(api, options)));
+  const { taskId: id, ...rest } = await mapped(dir, () => lanesOf(dir, api).materialize(taskId, { ...callOptions(api, options), ...(options.selection ? { selection: options.selection } : {}) }));
   return { taskId: id, dir, ...rest };
 }
 

@@ -54,6 +54,19 @@ async function materialized(w: ReturnType<typeof world>) {
 }
 
 export const laneCases: Case[] = [
+  test('checkout selection is journaled unchanged across an unknown materialize answer and restart', async () => {
+    const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
+    const selection = { version: 1 as const, include: ['src/**/*.ts', 'README.md'] };
+    w.server.fail('laneMaterialize', ...Array(12).fill('lost-answer'));
+    await rejects(() => createLanes({ client: w.client, files, journal }).materialize('T1', { ...opts(), selection, idempotencyKey: 'selected-materialize' }), TransportError);
+    const entries = await journal.list();
+    equal(entries.length, 1);
+    equal(entries[0]!.body, { selection });
+    w.server.clear();
+    await createLanes({ client: w.client, files, journal }).resume(entries[0]!.id, opts());
+    ok(keysOf(w.server, 'laneMaterialize').every(k => k === 'selected-materialize'));
+    equal((await journal.list()).length, 0);
+  }),
   test('lanes: materialize, edit, save and wrap up over memory files; files exact, one save point, one candidate', async () => {
     const w = world();
     const { files, lanes, journal } = await materialized(w);

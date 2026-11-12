@@ -109,6 +109,13 @@ function gitPack(files: Record<string, string>, opts: { omit?: string[] } = {}) 
 const packed = (pack: Buffer) => new Response(new Uint8Array(pack), { status: 200, headers: { "content-type": "application/x-git-packfile" } });
 
 describe("octo lane (materialized)", () => {
+  it("passes quoted checkout includes to the native materialize body without changing authority", async () => {
+    expect(await cli(["lane", "materialize", "T1", "--include", "src/**/*.ts", "--include", "README.md"])).toBe(EXIT.ok);
+    expect(calls.find((c) => c.method === "POST" && c.url.pathname.endsWith("/lane/materialize"))?.body)
+      .toEqual({ selection: { version: 1, include: ["src/**/*.ts", "README.md"] } });
+    expect(JSON.parse(readFileSync(join(dir, SIDECAR), "utf8")).scope).toEqual(SCOPE);
+    expect(calls.some((c) => /\/lane\/(executions|scope)$/.test(c.url.pathname))).toBe(false);
+  });
   it("materializes the open generation into a plain directory with a sidecar and no .git", async () => {
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
     expect(read("src/a.txt")).toBe("alpha\n");

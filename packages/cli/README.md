@@ -173,7 +173,7 @@ Paths below other than `/auth/*`, `/me`, `/me/projects`, `/owners/{slug}`, `POST
 | `task release ID [--claim ID] [--dir DIR]` | `POST /tasks/{id}/release`; in a lane directory (DIR, or the working directory) unsaved edits are first written to a patch (`lane patch`) |
 | `task show ID` | `GET /tasks/{id}`; prints the task's lane repository (state, latest wrap-up and its candidate status, newest receipt, open reopen, unresolved conflict) when it has one |
 | `task claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]` (alias `claim`) | `POST /tasks/{id}/claim` with the claim bootstrap and `{intentVersion, scope?}`; the claim's delegation replaces the bootstrap in the config directory |
-| `lane materialize TASK [DIR] [--handover] [--wait SECONDS]` | `GET /tasks/{id}`, with `--handover` `POST /tasks/{id}/lane/executions` (the new execution's delegation is stored as the agent credential), `POST /tasks/{id}/lane/materialize` (idempotent), then `GET /tasks/{id}/lane/materializations/{generation}?head=` and `GET /tasks/{id}/lane/blob?head=` per entry at the lane head |
+| `lane materialize TASK [DIR] [--include PATTERN]... [--handover] [--wait SECONDS]` | `GET /tasks/{id}`, with `--handover` `POST /tasks/{id}/lane/executions` (the new execution's delegation is stored as the agent credential), `POST /tasks/{id}/lane/materialize` (idempotent), then `GET /tasks/{id}/lane/materializations/{generation}?head=` and `GET /tasks/{id}/lane/blob?head=` per entry at the lane head |
 | `lane status [DIR]` | local: the lane directory's state (`.octocove/lane.json`), plus `GET /tasks/{id}` for the task's lane repository when a credential is at hand |
 | `lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]` | `POST /tasks/{id}/lane/materializations` (`base-refreshed`, `expectedHead`, `resolutions`), then the manifest and changed blobs at the new lane head; on `refresh-conflict`, `GET /tasks/{id}/lane/blob?base=` per conflict |
 | `lane resolve PATH --keep local|incoming [DIR]` | local only |
@@ -591,3 +591,23 @@ CLI command, credential scope or automatic project action is added. Workspace ap
 `workspaces.lookup` request to observe completion after access is granted.
 The patch also normalizes an inferred project slug for repository names with
 uppercase letters or punctuation; explicit slugs remain unchanged.
+
+### Checkout selection
+
+```sh
+octo lane materialize TASK work/ --include 'src/**/*.ts' --include 'README.md'
+```
+
+Quote patterns so the shell does not expand them. The server selects existing files
+inside the read grant and pins that selection. Patterns do not restrict new filenames:
+a new `src/config.json` can be saved when the separate write grant permits it. Saved
+nonmatching files survive refresh and wrap-up; existing unselected files are not
+checked out automatically. Refresh explicitly adopts new upstream matches. Replays
+keep the original selection; a different selection is refused rather than reseeding.
+
+Version 1 supports `*`, `?`, segment-only `**`, classes and ranges. Paths are case
+sensitive, dotfiles match, and symlinks are not followed. Exclusions, brace expansion,
+backslash escapes, absolute paths and traversal are unsupported. Use `dir/**` for
+a directory. Zero matches mean an empty checkout, never a whole-repository fallback.
+Existing commands without `--include` retain their behaviour. In broker-managed mode
+these are normal native requests; credential custody and renewal stay with the broker.
