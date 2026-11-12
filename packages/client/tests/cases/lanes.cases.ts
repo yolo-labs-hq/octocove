@@ -54,6 +54,21 @@ async function materialized(w: ReturnType<typeof world>) {
 }
 
 export const laneCases: Case[] = [
+  test('an explicit new selection cannot silently resume an unfiltered pending checkout', async () => {
+    const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
+    const lanes = createLanes({ client: w.client, files, journal });
+    w.server.fail('laneMaterialize', ...Array(12).fill('lost-answer'));
+    await rejects(() => lanes.materialize('T1', opts({idempotencyKey: 'original-unfiltered'})), TransportError);
+    const original = (await journal.list())[0]!;
+    const count = w.server.requests.length;
+    const error = await rejects(() => lanes.materialize('T1', {...opts(), selection: {version: 1, include: ['src/**']}}), LaneError);
+    equal(error.code, 'pending-selection-mismatch');
+    equal(w.server.requests.length, count);
+    equal((await journal.list())[0], original);
+    w.server.clear();
+    await lanes.resume(original.id, opts());
+    ok(keysOf(w.server, 'laneMaterialize').every(k => k === 'original-unfiltered'));
+  }),
   test('invalid checkout selection never becomes an unfiltered checkout', async () => {
     const w = world();
     for (const value of [null, {}, {version: 2, include: ['**']}, {version: 1, include: []}]) {

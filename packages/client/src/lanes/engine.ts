@@ -592,7 +592,11 @@ export function createLanes(options: LanesOptions): Lanes {
     const selection = o.selection === undefined ? undefined : { version: 1 as const, include: [...o.selection.include] };
     return within(o, async (run) => {
       const prior = await unfinished(run, taskId, 'materialize');
-      if (prior) return resumeMaterialize(run, prior);
+      if (prior) {
+        if (selection && JSON.stringify((prior.body as {selection?: LaneCheckoutSelection}).selection) !== JSON.stringify(selection))
+          fail('pending-selection-mismatch', 'an unfinished materialization has a different checkout selection; recover its original journal entry explicitly, without changing its key or body');
+        return resumeMaterialize(run, prior);
+      }
       // The target is claimed before anything is asked for, so a second materialize into it at the same time is refused.
       if (files.claim) await files.claim();
       else if ((await files.list('')).length) fail('not-empty', 'the lane target is not empty');
