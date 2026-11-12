@@ -52,6 +52,7 @@ export interface LaneSidecar {
   conflicts: Record<string, LaneConflict>;
   /** The lane head the files were read at. */
   laneHead: string; snapshotCommit?: string; laneRepositoryId?: string;
+  selection?: LaneCheckoutSelection;
   pending?: PendingConflicts;
   lastSavePoint?: { id: string; laneHead: string; generation: number; at: string };
   lastWrapUp?: { id: string; candidateId: string; candidateSha: string; baseSha: string; laneHead: string; at: string };
@@ -94,6 +95,7 @@ export interface LaneResumeOptions extends LaneCallOptions {
 export interface LaneMaterializeResult {
   taskId: string; claimAttemptId: string; generation: number; baseSha: string; laneHead: string; created: boolean; reopenId: string | null;
   scopeVersion: number; scope: { read: string[]; write: string[] }; files: number;
+  selection?: LaneCheckoutSelection;
 }
 export interface LaneRefreshResult {
   refreshed: boolean; generation: number; baseSha: string; laneHead: string; updated: string[]; added: string[]; removed: string[];
@@ -159,6 +161,9 @@ export interface Lanes {
 // ---- helpers ----
 
 const isRecord = (x: unknown): x is Record<string, any> => typeof x === 'object' && x !== null && !Array.isArray(x);
+const isCheckoutSelection = (x: unknown): x is LaneCheckoutSelection => isRecord(x) && x.version === 1 &&
+  Object.keys(x).every((k) => k === 'version' || k === 'include') && Array.isArray(x.include) &&
+  x.include.length > 0 && x.include.length <= 64 && x.include.every((p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 512);
 const isSha = (x: unknown): x is string => typeof x === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(x);
 /** Null-prototype maps: a repository file named `constructor` or `__proto__` is an ordinary key. */
 const dict = <T>(from: Record<string, T> = {}): Record<string, T> => Object.assign(Object.create(null), from);
@@ -175,7 +180,7 @@ const outcomeOf = (error: unknown): Outcome | undefined => (isRecord(error) && t
 const now = () => new Date().toISOString();
 
 type UntypedCall = (operationId: string, input: Record<string, unknown>) => Promise<ApiResponse<any>>;
-type Manifest = { entries: { path: string; mode: LaneMode; type: 'file' | 'symlink' | 'submodule'; sha: string }[]; scope: { read: string[]; write: string[] }; baseSha: string; scopeVersion: number; executionId: string; claimId: string; laneHead?: string | null };
+type Manifest = { entries: { path: string; mode: LaneMode; type: 'file' | 'symlink' | 'submodule'; sha: string }[]; scope: { read: string[]; write: string[] }; baseSha: string; scopeVersion: number; executionId: string; claimId: string; laneHead?: string | null; selection?: LaneCheckoutSelection };
 interface Local { mode: LaneMode; content: Uint8Array; digest: string }
 /** Where a read is pinned: a lane head (every file of one download from the same state), an upstream commit, a claim. */
 interface At { head?: string | null; base?: string | null; claim?: string }
@@ -488,6 +493,8 @@ export function createLanes(options: LanesOptions): Lanes {
     const m = (await paced(run, () => read(run, 'laneManifestGet', { path: { id: taskId, generation }, ...(head ? { query: { head } } : {}) }))).body;
     if (!isRecord(m) || !Array.isArray(m.entries) || !isRecord(m.scope)) fail('invalid-response', 'invalid manifest response from the control plane');
     if (m.truncated) fail('manifest-truncated', 'the control plane truncated the manifest; ask for a narrower read scope');
+    if (m.selection !== undefined && !isCheckoutSelection(m.selection))
+      fail('invalid-response', 'invalid checkout selection in the lane manifest');
     if (m.taskId !== taskId || m.generation !== generation || !isSha(m.baseSha) ||
         typeof m.executionId !== 'string' || !m.executionId || typeof m.claimId !== 'string' || !m.claimId ||
         !Number.isSafeInteger(m.scopeVersion) || m.scopeVersion < 1 ||
@@ -580,6 +587,9 @@ export function createLanes(options: LanesOptions): Lanes {
   // ---- materialize ----
 
   async function materialize(taskId: string, o: LaneMaterializeOptions) {
+    // Snapshot public input before any await; callers retain their options object.
+    if (o.selection !== undefined && !isCheckoutSelection(o.selection)) fail('invalid-selection', 'invalid version 1 checkout selection');
+    const selection = o.selection === undefined ? undefined : { version: 1 as const, include: [...o.selection.include] };
     return within(o, async (run) => {
       const prior = await unfinished(run, taskId, 'materialize');
       if (prior) return resumeMaterialize(run, prior);
@@ -604,7 +614,7 @@ export function createLanes(options: LanesOptions): Lanes {
         if (!isRecord(lane) || lane.kind !== 'materialized' || typeof lane.claimAttemptId !== 'string') fail('no-active-lane', 'this task has no active lane; claim it first');
         // One key for every attempt: a lane repository that is still being created, or a reopened lane still being
         // rebased onto its landing, resumes under it (503 lane-repository-unavailable).
-        entry = await record('materialize', taskId, o.idempotencyKey ?? newIdempotencyKey(), o.selection ? { selection: o.selection } : {}, { claimAttemptId: (lane as Record<string, string>).claimAttemptId });
+        entry = await record('materialize', taskId, o.idempotencyKey ?? newIdempotencyKey(), selection ? { selection } : {}, { claimAttemptId: (lane as Record<string, string>).claimAttemptId });
         return await materializeFrom(run, entry, writing);
       } catch (error) {
         for (const { path, directory } of created.reverse()) {
@@ -645,6 +655,10 @@ export function createLanes(options: LanesOptions): Lanes {
     const repo = entry.answer as Record<string, any>;
     const generation = repo.generation as number, head = repo.laneHead as string;
     const m = await readManifest(run, taskId, generation, head);
+    const requested = (entry.body as { selection?: LaneCheckoutSelection }).selection;
+    if (requested && (!m.selection || m.selection.version !== requested.version ||
+        JSON.stringify(m.selection.include) !== JSON.stringify([...new Set(requested.include)])))
+      throw unusable('the manifest does not match the requested checkout selection');
     if (repo.claimAttemptId !== entry.state.claimAttemptId || m.claimId !== repo.claimAttemptId || m.executionId !== repo.executionId)
       throw unusable('the manifest does not match the materialized claim and execution');
     await refuseCaseCollisions(m.entries.map((e) => e.path));
@@ -675,10 +689,12 @@ export function createLanes(options: LanesOptions): Lanes {
     const sc: LaneSidecar = { version: 1, taskId, claimAttemptId, executionId: m.executionId ?? repo.executionId, generation,
       baseSha: m.baseSha, scopeVersion: m.scopeVersion, scope: { read: [...m.scope.read], write: [...m.scope.write] }, files: records, conflicts: dict(),
       laneHead: head, snapshotCommit: repo.snapshotCommit, laneRepositoryId: repo.laneRepository?.id };
+    if (m.selection) sc.selection = m.selection;
     await save(sc);
     await journal.delete(entry.id);
     return { taskId, claimAttemptId, generation, baseSha: sc.baseSha, laneHead: head, created: repo.created === true,
-      reopenId: typeof repo.reopenId === 'string' ? repo.reopenId : null, scopeVersion: sc.scopeVersion, scope: sc.scope, files: Object.keys(records).length };
+      reopenId: typeof repo.reopenId === 'string' ? repo.reopenId : null, scopeVersion: sc.scopeVersion, scope: sc.scope, files: Object.keys(records).length,
+      ...(sc.selection ? { selection: sc.selection } : {}) };
   }
 
   // ---- handover ----
@@ -730,6 +746,8 @@ export function createLanes(options: LanesOptions): Lanes {
    * keeps the local copy and gets the manifest's copy under `.octocove/incoming` as a conflict for `resolve`.
    */
   async function applyManifest(run: Run, sc: LaneSidecar, generation: number, m: Manifest, at: At) {
+    if (sc.selection && JSON.stringify(sc.selection) !== JSON.stringify(m.selection))
+      fail('invalid-response', 'the lane checkout selection changed across generations');
     const records = dict<LaneFileRecord>(), conflicts = dict<LaneConflict>(sc.conflicts);
     const updated: string[] = [], added: string[] = [], removed: string[] = [];
     const manifest = new Map(m.entries.map((e) => [e.path, e]));

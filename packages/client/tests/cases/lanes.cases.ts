@@ -3,7 +3,7 @@
 // and binary fidelity. Runtime-neutral: the same cases run in workerd.
 import {
   ApiError, bearer, bound, createClient, createLanes, laneFilesJournal, LANE_LIMITS, LaneActionRequiredError, LaneError, memoryJournal, memoryLaneFiles, saveKey, tenantClient, TransportError, wrapUpKey,
-  type FetchLike, type JournalStore, type LaneFiles, type LaneJournalEntry, type Lanes, type MemoryLaneFiles,
+  type FetchLike, type JournalStore, type LaneCheckoutSelection, type LaneFiles, type LaneJournalEntry, type Lanes, type MemoryLaneFiles,
 } from '../../src/index.js';
 import { blobDigest, fakeBroker, fakeServer, gitBlobId, problem, type FakeServer } from '../../src/testing.js';
 import { equal, ok, rejects, test, type Case } from '../harness.js';
@@ -54,6 +54,16 @@ async function materialized(w: ReturnType<typeof world>) {
 }
 
 export const laneCases: Case[] = [
+  test('invalid checkout selection never becomes an unfiltered checkout', async () => {
+    const w = world();
+    for (const value of [null, {}, {version: 2, include: ['**']}, {version: 1, include: []}]) {
+      const error = await rejects(() => createLanes({ client: w.client, files: memoryLaneFiles() }).materialize('T1', {
+        ...opts(), selection: value as unknown as LaneCheckoutSelection,
+      }), LaneError);
+      equal(error.code, 'invalid-selection');
+    }
+    equal(w.server.requests.length, 0);
+  }),
   test('checkout selection is journaled unchanged across an unknown materialize answer and restart', async () => {
     const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
     const selection = { version: 1 as const, include: ['src/**/*.ts', 'README.md'] };
@@ -65,6 +75,7 @@ export const laneCases: Case[] = [
     w.server.clear();
     await createLanes({ client: w.client, files, journal }).resume(entries[0]!.id, opts());
     ok(keysOf(w.server, 'laneMaterialize').every(k => k === 'selected-materialize'));
+    for (const request of w.server.requests.filter((r) => r.operationId === 'laneMaterialize')) equal(request.body, { selection });
     equal((await journal.list()).length, 0);
   }),
   test('lanes: materialize, edit, save and wrap up over memory files; files exact, one save point, one candidate', async () => {

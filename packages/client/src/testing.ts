@@ -256,6 +256,8 @@ export interface FakeLane {
   baseSha: string;
   materialized: boolean;
   scope: { read: string[]; write: string[] };
+  /** Fixture metadata only; the fake does not implement native pattern matching. */
+  selection?: { version: 1; include: string[] };
   /** The files at the current lane head; a save point or a refresh replaces the map. */
   files: Map<string, FakeFile>;
   /** The files at every lane head the lane has had, by head (manifest and blob reads name one). */
@@ -561,6 +563,8 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
     const at = (l: FakeLane) => { const head = request.query.get('head'); return head ? l.heads.get(head) : l.files; };
     switch (route.operationId) {
       case 'laneMaterialize': {
+        const body = request.body as { selection?: { version: 1; include: string[] } };
+        if (body?.selection) lane!.selection = body.selection;
         const created = !lane!.materialized;
         lane!.materialized = true;
         return json(created ? 201 : 200, { claimAttemptId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation, baseSha: lane!.baseSha, laneHead: lane!.laneHead,
@@ -573,7 +577,7 @@ export function fakeServer(options: FakeServerOptions = {}): FakeServer {
         const entries = await Promise.all([...files].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(async ([path, f]) =>
           ({ path, mode: f.mode, type: f.mode === '120000' ? 'symlink' : 'file', sha: await gitBlobId(f.bytes), size: f.bytes.length })));
         return json(200, { taskId, claimId: lane!.claimAttemptId, executionId: lane!.executionId, generation: lane!.generation, kind: lane!.generation === 1 ? 'initial' : 'base-refreshed',
-          baseSha: lane!.baseSha, scopeVersion: 1, scope: lane!.scope, entries, truncated: false, laneHead: request.query.get('head') ?? lane!.laneHead, changedSincePrevious: null });
+          baseSha: lane!.baseSha, scopeVersion: 1, scope: lane!.scope, ...(lane!.selection ? { selection: lane!.selection } : {}), entries, truncated: false, laneHead: request.query.get('head') ?? lane!.laneHead, changedSincePrevious: null });
       }
       case 'laneBlobGet': {
         const files = at(lane!), path = request.query.get('path') ?? '';
