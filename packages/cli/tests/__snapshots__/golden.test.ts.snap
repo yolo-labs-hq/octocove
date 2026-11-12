@@ -291,7 +291,7 @@ Commands:
   claim ID --intent-version N [--read a,b --write a,b] [--bootstrap-file FILE]  (agent, with the claim bootstrap: claim the task's lane with its read and write scope)
   lane status [DIR]                              (the lane directory's edits and conflicts, and the task's lane repository when a credential is at hand)
   lane retire TASK                              (human project admin, recent sign-in: retire a lane; its lane repositories are deleted, its landed result kept)
-  lane materialize TASK [DIR] [--handover] [--wait SECONDS]  (create or reuse the lane repository, write the files at the lane head into DIR, no .git)
+  lane materialize TASK [DIR] [--include PATTERN]... [--handover] [--wait SECONDS]  (create or reuse the lane repository, write the files at the lane head into DIR, no .git)
   lane refresh [DIR] [--resolve PATH=lane|base|FILE] [--wait SECONDS]  (rebase the lane onto the pinned head; edits kept, upstream copies in .octocove/incoming)
   lane resolve PATH --keep local|incoming [DIR]
   lane submit [DIR] [--message TEXT] [--wait SECONDS]  (save changed files as a save point on the lane head)

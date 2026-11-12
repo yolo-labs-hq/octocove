@@ -1,6 +1,6 @@
 export { createLanes, saveKey, wrapUpKey } from './engine.js';
 export type {
-  Lanes, LanesOptions, LaneCallOptions, LaneRefreshOptions, LaneSaveOptions, LaneWrapUpOptions, LaneResumeOptions, LaneResolutionInput,
+  Lanes, LanesOptions, LaneCallOptions, LaneCheckoutSelection, LaneMaterializeOptions, LaneRefreshOptions, LaneSaveOptions, LaneWrapUpOptions, LaneResumeOptions, LaneResolutionInput,
   LaneMaterializeResult, LaneRefreshResult, LaneSaveResult, LaneWrapUpResult, LaneResolveResult, LanePatchResult, LaneHandoverResult, LaneHandoverDelegation,
   LaneStatus, LaneSidecar, LaneFileRecord, LaneConflict, LaneMode, PendingConflict, PendingConflicts,
 } from './engine.js';

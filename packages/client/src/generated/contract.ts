@@ -11,7 +11,7 @@ interface ContractTable {
 export const CONTRACT_TABLE: ContractTable = {
   "metaVersion": 1,
   "algorithm": "oc1",
-  "metaDigest": "ocm1:825d793e9add372d45b2a29da384f1882c110899f3e74415ea0e62025d60b00a",
+  "metaDigest": "ocm1:50e46374377d03bfe8cd2348aca1f69d540f4a9287a71a92ba3528df1da4e919",
   "epochFamilies": [
     "auth",
     "binary",
@@ -670,7 +670,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "laneExecutionBegin": {
       "supported": [
-        "oc1:8bec281d5d4bd55d8cf41ca7c43fca1cebb2d933b8f041b5f68795c0532f9d73"
+        "oc1:30f4b6418baa89a8523f6a6fe726139dd0315789626a3e5989010a510a4aecc9"
       ],
       "epochs": {
         "auth": 1,
@@ -694,7 +694,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "laneGenerationManifestGet": {
       "supported": [
-        "oc1:03cf72f4c4d23841457d1a9cae77836d4b2a807f2c52c761764f29d295e68d45"
+        "oc1:59c1df691b7e96fb7b9e43ae304f5f47818e16821d65c7fafd6e126987175ef6"
       ],
       "epochs": {
         "auth": 1,
@@ -706,7 +706,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "laneManifestGet": {
       "supported": [
-        "oc1:534d2268ec51cceddb4ffc4440aa7092d5f193477ff5227439d996e267c7117f"
+        "oc1:3d96b5dad772186939184f316b428fd44bf9b89864bbee70bf01488adaf9e982"
       ],
       "epochs": {
         "auth": 1,
@@ -718,7 +718,7 @@ export const CONTRACT_TABLE: ContractTable = {
     },
     "laneMaterialize": {
       "supported": [
-        "oc1:24489b5e380ccb73ef03eca7dcddb75a59cab73ae39e502bc779e0820fb4fe9a"
+        "oc1:13cdf94efa37a8c87c6b4bb130e81c52711d57223f378949572260efc3900455"
       ],
       "epochs": {
         "auth": 1,
@@ -1917,15 +1917,15 @@ export const CONTRACT_TABLE: ContractTable = {
       ],
       "supported": [
         {
-          "id": "ocap1:ecd5195c106e8bec4bd1e89460e9c64220c257d4b09a429a8c76de9d28cbb337",
+          "id": "ocap1:13c551523cc061bfab1ba4d6001b2f49757a74982a945f9c3fe5446b8db26c03",
           "members": {
             "laneBlobGet": "oc1:9aa4bdf98ba3ca22f61195fe46d094d127dd66a927445affdab3fa868adb6853",
             "laneBlobPut": "oc1:c2e4f18c3201aa5a182f157a54b1b362da408e4c8668917b5ca55b32d0b84889",
             "laneBlobUpload": "oc1:ef5ecc0ab1dcc79d73cdcb5d044f39542e8e53103f5b06ae3ef284ca4d6727cd",
             "laneChangesSubmit": "oc1:600785a3b62992dcc31c130e145cfd8a7fc667fb94c668a09e6e5a87cdf619b9",
-            "laneGenerationManifestGet": "oc1:03cf72f4c4d23841457d1a9cae77836d4b2a807f2c52c761764f29d295e68d45",
-            "laneManifestGet": "oc1:534d2268ec51cceddb4ffc4440aa7092d5f193477ff5227439d996e267c7117f",
-            "laneMaterialize": "oc1:24489b5e380ccb73ef03eca7dcddb75a59cab73ae39e502bc779e0820fb4fe9a",
+            "laneGenerationManifestGet": "oc1:59c1df691b7e96fb7b9e43ae304f5f47818e16821d65c7fafd6e126987175ef6",
+            "laneManifestGet": "oc1:3d96b5dad772186939184f316b428fd44bf9b89864bbee70bf01488adaf9e982",
+            "laneMaterialize": "oc1:13cdf94efa37a8c87c6b4bb130e81c52711d57223f378949572260efc3900455",
             "laneWrapUp": "oc1:e6920feba0eb6a9cabbdbbbce45684dd0a50d6a69223548a5cd92817371cee6c",
             "taskGet": "oc1:982e75f7339d05a515260af2d8afd9225192b07b64405efa46d9d99e6753910c"
           }
@@ -1943,11 +1943,11 @@ export const CONTRACT_TABLE: ContractTable = {
       ],
       "supported": [
         {
-          "id": "ocap1:dec9d30601ddc3dbcbb3fa3e5b423354de70f7e2fd8b61b92f4d53b8f4fb0fd4",
+          "id": "ocap1:4448d4948a722908d350be5d958b791ac6b0fcc02f5f2763335e9215a8b83188",
           "members": {
             "claimAuthorize": "oc1:17d5e9d9ad73bb00b8f1f61082f52c1254b03a5151d200fee34d8739792ea44b",
             "delegationRenew": "oc1:e9b853ae27c69b6f12f3d494367d1d32b89c61920a19c1935c867d13d599b511",
-            "laneExecutionBegin": "oc1:8bec281d5d4bd55d8cf41ca7c43fca1cebb2d933b8f041b5f68795c0532f9d73",
+            "laneExecutionBegin": "oc1:30f4b6418baa89a8523f6a6fe726139dd0315789626a3e5989010a510a4aecc9",
             "laneGenerationCreate": "oc1:81baee00c506ef46b4c28fb6b41fdb4c415b0965648216f07e94112896738fe7",
             "taskClaim": "oc1:5018215a504e2832f87414bd40ca293cbeb2b2ecb942f9d06bdf32bf3efedff4"
           }

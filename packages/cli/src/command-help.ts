@@ -24,6 +24,7 @@ const FLAGS: Record<string,string> = {
   resolve: 'PATH=lane|base|FILE for a path the last refused refresh or wrap-up listed; repeat once per path. lane keeps the saved lane version, base takes upstream, FILE uploads that local file as the result. Sent under a new idempotency key.',
   'allow-unsaved': 'Wrap up the saved lane head even though the directory has unsaved edits (they stay local and are not part of the candidate).',
   handover: 'Hand the claim\'s open execution over to this environment first: the new execution inherits the lane head, its delegation is stored privately as the agent credential, and the other environment\'s credential stops working (execution-superseded).',
+  include: 'Initial checkout pattern; repeat to include more paths. Quote patterns (for example \'src/**/*.ts\'). Native matching selects existing files only; new files use the separate write grant. Selection is pinned and survives refresh.',
   out: 'Write the patch to this new file instead of .octocove/unsaved-TIME.patch in the lane directory.',
   reason: 'Why the lane is reopened; recorded with the reopen.', 'expected-receipt': 'The task\'s newest landed receipt; defaults to the one the task reports.',
   dir: 'Lane directory of this task; unsaved edits there are written to a patch first. Defaults to the working directory when it is one.',

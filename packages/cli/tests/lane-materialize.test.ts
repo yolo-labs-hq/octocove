@@ -109,6 +109,22 @@ function gitPack(files: Record<string, string>, opts: { omit?: string[] } = {}) 
 const packed = (pack: Buffer) => new Response(new Uint8Array(pack), { status: 200, headers: { "content-type": "application/x-git-packfile" } });
 
 describe("octo lane (materialized)", () => {
+  it("does not download files when the server omits a requested checkout selection", async () => {
+    expect(await cli(["lane", "materialize", "T1", "--include", "src/**/*.ts"])).toBe(EXIT.config);
+    expect(errText).toContain("checkout selection");
+    expect(calls.filter((c) => c.url.pathname.endsWith("/lane/blob"))).toHaveLength(0);
+    expect(existsSync(join(dir, SIDECAR))).toBe(false);
+  });
+  it("passes quoted checkout includes to the native materialize body without changing authority", async () => {
+    const selection = { version: 1, include: ["src/**/*.ts", "README.md"] };
+    routes["GET /tasks/T1/lane/materializations/1"] = () => json(200, { ...manifest(1, base1, gen1), selection });
+    expect(await cli(["lane", "materialize", "T1", "--include", "src/**/*.ts", "--include", "README.md"])).toBe(EXIT.ok);
+    expect(calls.find((c) => c.method === "POST" && c.url.pathname.endsWith("/lane/materialize"))?.body)
+      .toEqual({ selection: { version: 1, include: ["src/**/*.ts", "README.md"] } });
+    expect(JSON.parse(readFileSync(join(dir, SIDECAR), "utf8")).scope).toEqual(SCOPE);
+    expect(sidecar().selection).toEqual(selection);
+    expect(calls.some((c) => /\/lane\/(executions|scope)$/.test(c.url.pathname))).toBe(false);
+  });
   it("materializes the open generation into a plain directory with a sidecar and no .git", async () => {
     expect(await cli(["lane", "materialize", "T1"])).toBe(EXIT.ok);
     expect(read("src/a.txt")).toBe("alpha\n");

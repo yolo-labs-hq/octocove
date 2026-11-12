@@ -1144,3 +1144,19 @@ credential file, Git network request or config write is used. Dirty trees and
 detached HEADs do not affect repository discovery. `LocalRepositoryError.code`
 distinguishes a non-repository, missing remote and non-GitHub remote; raw Git
 output and credential-bearing remote text are never included.
+
+### Initial lane checkout selection
+
+```ts
+await lanes.materialize(taskId, {
+  deadline: Date.now() + 60_000,
+  selection: { version: 1, include: ['src/**/*.ts', 'README.md'] },
+});
+```
+
+The native service owns matching and pins the selection before provider work. The
+SDK journals the exact selection with the original key and resumes it unchanged.
+This selects initial files only: read and write authority are separate. New files
+outside the patterns can be saved under the write grant and remain in lane-head
+readbacks, refresh and wrap-up. The SDK never expands globs or broadens a grant.
+The CLI's `lane materialize --include` is a thin wrapper over this method.
