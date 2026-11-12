@@ -164,6 +164,8 @@ const isRecord = (x: unknown): x is Record<string, any> => typeof x === 'object'
 const isCheckoutSelection = (x: unknown): x is LaneCheckoutSelection => isRecord(x) && x.version === 1 &&
   Object.keys(x).every((k) => k === 'version' || k === 'include') && Array.isArray(x.include) &&
   x.include.length > 0 && x.include.length <= 64 && x.include.every((p: unknown) => typeof p === 'string' && p.length > 0 && p.length <= 512);
+const sameCheckoutSelection = (a: unknown, b: unknown) => isCheckoutSelection(a) && isCheckoutSelection(b) &&
+  a.version === b.version && JSON.stringify(a.include) === JSON.stringify(b.include);
 const isSha = (x: unknown): x is string => typeof x === 'string' && /^([0-9a-f]{40}|[0-9a-f]{64})$/.test(x);
 /** Null-prototype maps: a repository file named `constructor` or `__proto__` is an ordinary key. */
 const dict = <T>(from: Record<string, T> = {}): Record<string, T> => Object.assign(Object.create(null), from);
@@ -593,7 +595,7 @@ export function createLanes(options: LanesOptions): Lanes {
     return within(o, async (run) => {
       const prior = await unfinished(run, taskId, 'materialize');
       if (prior) {
-        if (selection && JSON.stringify((prior.body as {selection?: LaneCheckoutSelection}).selection) !== JSON.stringify(selection))
+        if (selection && !sameCheckoutSelection((prior.body as {selection?: LaneCheckoutSelection}).selection, selection))
           fail('pending-selection-mismatch', 'an unfinished materialization has a different checkout selection; recover its original journal entry explicitly, without changing its key or body');
         return resumeMaterialize(run, prior);
       }
@@ -750,7 +752,7 @@ export function createLanes(options: LanesOptions): Lanes {
    * keeps the local copy and gets the manifest's copy under `.octocove/incoming` as a conflict for `resolve`.
    */
   async function applyManifest(run: Run, sc: LaneSidecar, generation: number, m: Manifest, at: At) {
-    if (sc.selection && JSON.stringify(sc.selection) !== JSON.stringify(m.selection))
+    if (sc.selection && !sameCheckoutSelection(sc.selection, m.selection))
       fail('invalid-response', 'the lane checkout selection changed across generations');
     const records = dict<LaneFileRecord>(), conflicts = dict<LaneConflict>(sc.conflicts);
     const updated: string[] = [], added: string[] = [], removed: string[] = [];

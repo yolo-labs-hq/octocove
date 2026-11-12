@@ -54,6 +54,16 @@ async function materialized(w: ReturnType<typeof world>) {
 }
 
 export const laneCases: Case[] = [
+  test('refresh compares checkout selection values independently of JSON property order', async () => {
+    const w = world(), files = memoryLaneFiles();
+    const lanes = createLanes({client: w.client, files});
+    await lanes.materialize('T1', {...opts(), selection: {version: 1, include: ['src/**']}});
+    w.server.lane('T1').selection = {include: ['src/**'], version: 1};
+    w.server.lane('T1').upstream = {'src/new.txt': 'upstream\n'};
+    const result = await lanes.refresh(opts());
+    equal(result.refreshed, true);
+    equal(dec((await files.read('src/new.txt'))!.bytes), 'upstream\n');
+  }),
   test('an explicit new selection cannot silently resume an unfiltered pending checkout', async () => {
     const w = world(), files = memoryLaneFiles(), journal = laneFilesJournal(files);
     const lanes = createLanes({ client: w.client, files, journal });
